@@ -37,7 +37,7 @@ latency costs in commands expected to be fast diagnostics.
 
 ## Sub-Tasks
 
-- [ ] Introduce one immutable deep-doctor analysis context from the existing bounded source loader
+- [~] Introduce one immutable deep-doctor analysis context from the existing bounded source loader
 - [ ] Rewire freshness, conflict, and reference checks to consume shared results without coupling failures
 - [ ] Generate and read each hook artifact once per status inspection
 - [ ] Add request-scoped platform-inspection memoization for route deduplication

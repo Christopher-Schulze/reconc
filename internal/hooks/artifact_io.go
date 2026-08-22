@@ -1,11 +1,13 @@
 package hooks
 
 import (
+	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"reconc.dev/reconc/internal/boundedio"
 )
 
 const maxManagedArtifactBytes = 4 << 20
@@ -14,36 +16,61 @@ const maxManagedArtifactBytes = 4 << 20
 // symlink or accepting unbounded input. Repository hook files are untrusted
 // until this identity check succeeds.
 func readManagedArtifact(path string) ([]byte, error) {
-	pathInfo, err := os.Lstat(path)
+	snapshot, err := readManagedArtifactSnapshot(path)
 	if err != nil {
 		return nil, err
+	}
+	if !snapshot.exists {
+		return nil, &os.PathError{Op: "open", Path: path, Err: os.ErrNotExist}
+	}
+	return snapshot.body, nil
+}
+
+type managedArtifactSnapshot struct {
+	body   []byte
+	info   os.FileInfo
+	exists bool
+}
+
+func readManagedArtifactSnapshot(path string) (managedArtifactSnapshot, error) {
+	pathInfo, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return managedArtifactSnapshot{}, nil
+	}
+	if err != nil {
+		return managedArtifactSnapshot{}, err
 	}
 	if !pathInfo.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a regular file", path)
+		return managedArtifactSnapshot{}, fmt.Errorf("%s is not a regular file", path)
 	}
 	if pathInfo.Size() > maxManagedArtifactBytes {
-		return nil, fmt.Errorf("%s exceeds the %d-byte managed-artifact limit", path, maxManagedArtifactBytes)
+		return managedArtifactSnapshot{}, fmt.Errorf("%s exceeds the %d-byte managed-artifact limit", path, maxManagedArtifactBytes)
 	}
-	file, err := os.Open(path)
+	body, info, err := boundedio.ReadRegularFileSnapshot(path, maxManagedArtifactBytes)
 	if err != nil {
-		return nil, err
+		return managedArtifactSnapshot{}, err
 	}
-	defer file.Close()
-	openedInfo, err := file.Stat()
+	return managedArtifactSnapshot{body: body, info: info, exists: true}, nil
+
+}
+
+func revalidateManagedArtifactSnapshot(path string, expected managedArtifactSnapshot) error {
+	current, err := readManagedArtifactSnapshot(path)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if !openedInfo.Mode().IsRegular() || !os.SameFile(pathInfo, openedInfo) {
-		return nil, fmt.Errorf("%s changed while opening", path)
+	if current.exists != expected.exists {
+		return fmt.Errorf("%s changed after install preflight; retry", path)
 	}
-	data, err := io.ReadAll(io.LimitReader(file, maxManagedArtifactBytes+1))
-	if err != nil {
-		return nil, err
+	if !expected.exists {
+		return nil
 	}
-	if len(data) > maxManagedArtifactBytes {
-		return nil, fmt.Errorf("%s exceeds the %d-byte managed-artifact limit", path, maxManagedArtifactBytes)
+	if !os.SameFile(expected.info, current.info) || expected.info.Mode() != current.info.Mode() ||
+		expected.info.Size() != current.info.Size() || !expected.info.ModTime().Equal(current.info.ModTime()) ||
+		!bytes.Equal(expected.body, current.body) {
+		return fmt.Errorf("%s changed after install preflight; retry", path)
 	}
-	return data, nil
+	return nil
 }
 
 func syncManagedArtifactParent(path string) error {

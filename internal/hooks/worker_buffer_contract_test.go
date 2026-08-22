@@ -31,6 +31,22 @@ func TestWorkerResponseBufferContract(t *testing.T) {
 	}
 }
 
+func TestWorkerStartupDoesNotPublishBeforeHandshake(t *testing.T) {
+	bun, err := exec.LookPath("bun")
+	if err != nil {
+		t.Fatalf("Bun is required to verify worker startup publication: %v", err)
+	}
+	driverPath := filepath.Join(t.TempDir(), "worker-startup-contract.js")
+	driver := "const routeBudgets = new Proxy({}, { get: () => ({ timeoutMilliseconds: 2000, maxOutputBytes: 8192 }) })\n" +
+		hookWorkerClientSource + workerStartupContractDriver
+	if err := os.WriteFile(driverPath, []byte(driver), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command(bun, driverPath).CombinedOutput(); err != nil {
+		t.Fatalf("worker startup publication contract: %v\n%s", err, output)
+	}
+}
+
 func BenchmarkWorkerResponseBufferGeometricGrowth(b *testing.B) {
 	bun, err := exec.LookPath("bun")
 	if err != nil {
@@ -124,6 +140,54 @@ assert(fallbackEvents.length === 1 && fallbackEvents[0] === "overflow", "unexpec
 const records = (await Bun.file(logPath).text()).trim().split("\n").map((line) => JSON.parse(line))
 assert(records.filter((record) => record.record === "start").length === 3, "worker start/restart count drifted")
 assert(records.filter((record) => record.record === "shutdown").length === 1, "clean shutdown count drifted")
+`
+
+const workerStartupContractDriver = `
+const assert = (condition, message) => { if (!condition) throw new Error(message) }
+const originalSpawn = Bun.spawn
+let spawns = 0
+let kills = 0
+let ends = 0
+let cancels = 0
+let fallbacks = 0
+Bun.spawn = () => {
+  spawns++
+  return {
+    stdin: {
+      write: () => { throw new Error("synchronous pipe failure") },
+      end: () => { ends++ },
+    },
+    stdout: {
+      getReader: () => ({
+        read: async () => ({ done: true }),
+        cancel: () => { cancels++ },
+      }),
+    },
+    stderr: {
+      getReader: () => ({ read: async () => ({ done: true }) }),
+    },
+    kill: () => { kills++ },
+  }
+}
+try {
+  const transport = createReconcWorkerTransport(
+    process.cwd(),
+    async () => ["unused"],
+    async (event) => {
+      fallbacks++
+      return { code: 0, stdout: "fallback:" + event, stderr: "", timedOut: false, aborted: false, truncated: false, invalidUTF8: false }
+    },
+    "canceled",
+  )
+  assert((await transport.run("first", {}, undefined)).stdout === "fallback:first", "first fallback failed")
+  assert((await transport.run("second", {}, undefined)).stdout === "fallback:second", "second fallback failed")
+  await transport.close()
+  assert(spawns === 1, "failed startup was retried or cached: " + spawns)
+  assert(kills === 1 && ends === 1 && cancels === 1, "failed startup cleanup drifted")
+  assert(fallbacks === 2, "one-shot fallback count drifted: " + fallbacks)
+} finally {
+  Bun.spawn = originalSpawn
+}
 `
 
 const workerBufferFakeWorker = `

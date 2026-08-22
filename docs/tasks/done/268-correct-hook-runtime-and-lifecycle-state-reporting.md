@@ -38,16 +38,16 @@ report before returning the error.
 
 ## Sub-Tasks
 
-- [~] Separate global and per-manifest custom-runtime freshness state
-- [ ] Make worker startup publication atomic with the complete handshake
-- [ ] Use exact route-token accounting for Codex budget validation
-- [ ] Define and render explicit partial-install failure contracts
-- [ ] Consolidate the bounded TOML boolean reader and quoted-comment handling
-- [ ] Expose structured policy-rule rendering for policy authoring
-- [ ] Replace process-global verification environment mutation with child-local configuration
-- [ ] Add compare-before-publish revalidation to merge-based hook installers
-- [ ] Add regression, adversarial replacement, generated-fixture, and platform tests
-- [ ] Update hook lifecycle documentation and run complete verification
+- [x] Separate global and per-manifest custom-runtime freshness state
+- [x] Make worker startup publication atomic with the complete handshake
+- [x] Use exact route-token accounting for Codex budget validation
+- [x] Define and render explicit partial-install failure contracts
+- [x] Consolidate the bounded TOML boolean reader and quoted-comment handling
+- [x] Expose structured policy-rule rendering for policy authoring
+- [x] Replace process-global verification environment mutation with child-local configuration
+- [x] Add compare-before-publish revalidation to merge-based hook installers
+- [x] Add regression, adversarial replacement, generated-fixture, and platform tests
+- [x] Update hook lifecycle documentation and run complete verification
 
 ## Notes
 
@@ -68,6 +68,11 @@ report before returning the error.
 - Full icon decoding is intentionally out of scope. The documented MCP icon
   contract requires complete decode validation, not dimensions-only
   `image.DecodeConfig` validation.
+- Verification passed: focused hook and CLI suites, race-enabled hook and CLI
+  suites, Windows hook/CLI compilation, `make test-fast`, `make vet`,
+  `make lint`, `make publication-audit`, `make self-host`, and
+  `make test-release-trust`. The release-trust gate used disposable local
+  artifacts only; no tag, push, or release was created.
 
 ## Deviations
 

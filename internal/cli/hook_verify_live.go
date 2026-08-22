@@ -19,12 +19,21 @@ import (
 var hookVerifyLookPath = exec.LookPath
 
 func runLiveHookVerification(options hookVerifyOptions, surfaces []hooks.VerificationSurface, input io.Reader, stdout, stderr io.Writer) error {
-	repo, cleanup, err := prepareHookVerificationRepo("reconc-hook-live-", false)
+	workspace, err := newHookVerificationWorkspace("reconc-hook-live-")
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook verify: " + err.Error()}
 	}
-	defer cleanup()
-	result, setupErr := configureLiveHookVerification(options, surfaces[0], repo)
+	defer workspace.cleanup()
+	repo := workspace.repo
+	body, err := runHookVerificationChild(workspace, "hook", "__verify-live-setup", options.host, options.surface, repo)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook verify: " + err.Error()}
+	}
+	var setup hookVerificationLiveSetup
+	if err := json.Unmarshal(body, &setup); err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook verify: decode isolated live setup: " + err.Error()}
+	}
+	result, setupErr := setup.Result, setup.Error
 	if setupErr != "" {
 		result.Detail = setupErr
 		return writeLiveHookVerificationResult(result, false, options.jsonOutput, stdout)
@@ -56,6 +65,34 @@ func runLiveHookVerification(options hookVerifyOptions, surfaces []hooks.Verific
 		return writeLiveHookVerificationResult(result, false, options.jsonOutput, stdout)
 	}
 	return finishLiveHookVerification(result, repo, options.jsonOutput, stdout)
+}
+
+type hookVerificationLiveSetup struct {
+	Result hookVerificationResult `json:"result"`
+	Error  string                 `json:"error,omitempty"`
+}
+
+func runHookVerificationLiveSetupChild(args []string, stdout io.Writer) error {
+	if os.Getenv(hookVerificationChildEnv) != "1" || len(args) != 3 || args[2] != os.Getenv(hookVerificationRepoEnv) {
+		return &CLIError{ExitCode: 1, Message: "reconc hook: unknown subcommand \"__verify-live-setup\""}
+	}
+	host, surfaceName, repo := args[0], args[1], args[2]
+	surfaces, err := selectHookVerificationSurfaces(host, surfaceName)
+	if err != nil || len(surfaces) != 1 {
+		return &CLIError{ExitCode: 1, Message: "reconc hook verify: invalid isolated live surface"}
+	}
+	if err := initializeHookVerificationRepo(repo, false); err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook verify: " + err.Error()}
+	}
+	options := hookVerifyOptions{host: host, surface: surfaceName, live: true, allowAuthenticated: true, jsonOutput: true}
+	result, setupErr := configureLiveHookVerification(options, surfaces[0], repo)
+	response := hookVerificationLiveSetup{Result: result, Error: setupErr}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(response); err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook verify: encode isolated live setup: " + err.Error()}
+	}
+	return nil
 }
 
 func liveHookHostAvailability(kind, surface string) (bool, bool) {

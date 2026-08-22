@@ -186,13 +186,11 @@ func generateClaudeCode() (*Artifact, error) {
 			},
 		},
 	}
-	data, _ := json.MarshalIndent(template, "", "  ")
-	return &Artifact{
+	return jsonHookArtifact(&Artifact{
 		Kind:       KindClaudeCode,
 		TargetPath: ClaudeCodeSettingsPath,
 		Executable: false,
-		Content:    string(data) + "\n",
-	}, nil
+	}, template)
 }
 
 func generateCodex() (*Artifact, error) {
@@ -289,13 +287,11 @@ func generateCodex() (*Artifact, error) {
 			},
 		},
 	}
-	data, _ := json.MarshalIndent(template, "", "  ")
-	return &Artifact{
+	return jsonHookArtifact(&Artifact{
 		Kind:       KindCodex,
 		TargetPath: CodexHooksPath,
 		Executable: false,
-		Content:    string(data) + "\n",
-	}, nil
+	}, template)
 }
 
 func generateCursor() (*Artifact, error) {
@@ -338,13 +334,11 @@ func generateCursor() (*Artifact, error) {
 		"version": 1,
 		"hooks":   hookEntries,
 	}
-	data, _ := json.MarshalIndent(template, "", "  ")
-	return &Artifact{
+	return jsonHookArtifact(&Artifact{
 		Kind:       KindCursor,
 		TargetPath: CursorHooksPath,
 		Executable: false,
-		Content:    string(data) + "\n",
-	}, nil
+	}, template)
 }
 
 func generateAntigravity() (*Artifact, error) {
@@ -405,13 +399,20 @@ func generateAntigravity() (*Artifact, error) {
 			},
 		},
 	}
-	data, _ := json.MarshalIndent(template, "", "  ")
-	return &Artifact{
+	return jsonHookArtifact(&Artifact{
 		Kind:       KindAntigravity,
 		TargetPath: AntigravityHooksPath,
 		Executable: false,
-		Content:    string(data) + "\n",
-	}, nil
+	}, template)
+}
+
+func jsonHookArtifact(artifact *Artifact, value any) (*Artifact, error) {
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return nil, hookGeneratorError("marshal %s hook artifact: %v", artifact.Kind, err)
+	}
+	artifact.Content = string(data) + "\n"
+	return artifact, nil
 }
 
 func generateKimiCode() (*Artifact, error) {

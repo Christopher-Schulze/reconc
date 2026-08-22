@@ -270,13 +270,17 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
 
   const workerError = (kind, message) => Object.assign(new Error(message), { reconcWorkerKind: kind })
 
-  const killWorker = () => {
-    const current = worker
-    worker = undefined
+  const abortWorker = (current) => {
     if (!current) return
     try { current.process.stdin.end() } catch {}
     killReconcProcessTree(current.process)
     try { current.reader.cancel() } catch {}
+  }
+
+  const killWorker = () => {
+    const current = worker
+    worker = undefined
+    abortWorker(current)
   }
 
   const drainWorkerStderr = async (stream) => {
@@ -378,20 +382,21 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
   const startWorker = async (signal, budgetMilliseconds) => {
     if (worker) return worker
     if (workerUnsupported) throw workerError("unsupported", "Reconc worker protocol is unavailable")
-    const command = await commandFor("__worker_v1__")
-    const process = Bun.spawn(command, {
-      cwd: repo,
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-      killSignal: "SIGKILL",
-    })
-    const current = { process, reader: process.stdout.getReader(), buffer: new Uint8Array(), length: 0, capacity: 0 }
-    worker = current
-    void drainWorkerStderr(process.stderr)
-    const id = "ping-" + (++nextRequestID)
-    writeWorkerFrame(current, { format_version: workerProtocolVersion, type: "ping", id })
+    let process
+    let current
     try {
+      const command = await commandFor("__worker_v1__")
+      process = Bun.spawn(command, {
+        cwd: repo,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        killSignal: "SIGKILL",
+      })
+      current = { process, reader: process.stdout.getReader(), buffer: new Uint8Array(), length: 0, capacity: 0 }
+      void drainWorkerStderr(process.stderr)
+      const id = "ping-" + (++nextRequestID)
+      writeWorkerFrame(current, { format_version: workerProtocolVersion, type: "ping", id })
       const startupBudget = Math.min(2500, Math.max(500, Math.floor(budgetMilliseconds / 2)))
       const response = parseWorkerResponse(
         await waitForWorkerLine(current, startupBudget, signal, "startup"),
@@ -401,9 +406,11 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
       if (response.code !== 0 || response.stdout || response.stderr || response.error) {
         throw workerError("protocol", "Reconc worker handshake was not clean")
       }
+      worker = current
       return current
     } catch (error) {
-      killWorker()
+      if (current) abortWorker(current)
+      else if (process) killReconcProcessTree(process)
       if (error?.reconcWorkerKind !== "aborted") workerUnsupported = true
       throw error
     }

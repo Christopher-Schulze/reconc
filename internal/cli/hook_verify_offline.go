@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,9 +25,62 @@ import (
 const (
 	maxHookVerificationOutput     = 1 << 20
 	maxHookVerificationExecutable = 256 << 20
+	hookVerificationChildEnv      = "RECONC_HOOK_VERIFY_ISOLATED_CHILD"
+	hookVerificationRepoEnv       = "RECONC_HOOK_VERIFY_REPO"
 )
 
-func runOfflineHookVerification(surfaces []hooks.VerificationSurface) (hookVerificationReport, error) {
+var newHookVerificationChildCommand = func(ctx context.Context, executable string, args ...string) *exec.Cmd {
+	return exec.CommandContext(ctx, executable, args...)
+}
+
+type hookVerificationWorkspace struct {
+	executable  string
+	repo        string
+	environment []string
+	cleanup     func()
+}
+
+func runOfflineHookVerification(options hookVerifyOptions, surfaces []hooks.VerificationSurface) (hookVerificationReport, error) {
+	workspace, err := newHookVerificationWorkspace("reconc-hook-verify-")
+	if err != nil {
+		return hookVerificationReport{}, err
+	}
+	defer workspace.cleanup()
+	body, err := runHookVerificationChild(workspace, "hook", "__verify-offline", options.host, options.surface, workspace.repo)
+	if err != nil {
+		return hookVerificationReport{}, err
+	}
+	var report hookVerificationReport
+	if err := json.Unmarshal(body, &report); err != nil {
+		return hookVerificationReport{}, fmt.Errorf("decode isolated verification report: %w", err)
+	}
+	if report.FormatVersion != hookVerificationFormatVersion || report.Mode != "offline" {
+		return hookVerificationReport{}, fmt.Errorf("isolated verification report contract drifted")
+	}
+	return report, nil
+}
+
+func runHookVerificationOfflineChild(args []string, stdout io.Writer) error {
+	if os.Getenv(hookVerificationChildEnv) != "1" || len(args) != 3 || args[2] != os.Getenv(hookVerificationRepoEnv) {
+		return &CLIError{ExitCode: 1, Message: "reconc hook: unknown subcommand \"__verify-offline\""}
+	}
+	surfaces, err := selectHookVerificationSurfaces(args[0], args[1])
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook verify: invalid isolated offline surface"}
+	}
+	report, err := runOfflineHookVerificationLocal(surfaces)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook verify: " + err.Error()}
+	}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(report); err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook verify: encode isolated report: " + err.Error()}
+	}
+	return nil
+}
+
+func runOfflineHookVerificationLocal(surfaces []hooks.VerificationSurface) (hookVerificationReport, error) {
 	repo, cleanup, err := prepareOfflineHookVerification()
 	if err != nil {
 		return hookVerificationReport{}, err
@@ -44,27 +98,17 @@ func prepareOfflineHookVerification() (string, func(), error) {
 }
 
 func prepareHookVerificationRepo(prefix string, stageDeniedPath bool) (string, func(), error) {
-	probeRoot, err := os.MkdirTemp("", prefix)
-	if err != nil {
-		return "", nil, fmt.Errorf("create disposable root: %w", err)
+	if os.Getenv(hookVerificationChildEnv) != "1" {
+		return "", nil, fmt.Errorf("%s setup must run in an isolated child", prefix)
 	}
-	cleanup := func() { _ = os.RemoveAll(probeRoot) }
-	repo := filepath.Join(probeRoot, "repo")
-	if err := os.MkdirAll(repo, 0o755); err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("create disposable repository: %w", err)
-	}
-	restoreEnvironment, err := isolateHookVerificationEnvironment(probeRoot)
-	if err != nil {
-		cleanup()
-		return "", nil, err
+	repo := os.Getenv(hookVerificationRepoEnv)
+	if repo == "" {
+		return "", nil, fmt.Errorf("isolated verification repository is missing")
 	}
 	if err := initializeHookVerificationRepo(repo, stageDeniedPath); err != nil {
-		restoreEnvironment()
-		cleanup()
 		return "", nil, err
 	}
-	return repo, func() { restoreEnvironment(); cleanup() }, nil
+	return repo, func() {}, nil
 }
 
 func assembleOfflineHookReport(surfaces []hooks.VerificationSurface, byKind map[string]offlineHookKindResult) hookVerificationReport {
@@ -127,6 +171,7 @@ func initializeHookVerificationRepo(repo string, stageDeniedPath bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, "git", "-C", repo, "init", "-q")
+	command.Env = os.Environ()
 	if output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput); err != nil {
 		return fmt.Errorf("initialize disposable Git repository: %w: %s", err, strings.TrimSpace(string(output)))
 	}
@@ -147,6 +192,7 @@ func initializeHookVerificationRepo(repo string, stageDeniedPath bool) error {
 	}
 	if stageDeniedPath {
 		command = exec.CommandContext(ctx, "git", "-C", repo, "add", "--", "forbidden.txt")
+		command.Env = os.Environ()
 		if output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput); err != nil {
 			return fmt.Errorf("stage disposable denied path: %w: %s", err, strings.TrimSpace(string(output)))
 		}
@@ -154,16 +200,40 @@ func initializeHookVerificationRepo(repo string, stageDeniedPath bool) error {
 	return nil
 }
 
-func isolateHookVerificationEnvironment(probeRoot string) (func(), error) {
+func newHookVerificationWorkspace(prefix string) (hookVerificationWorkspace, error) {
+	probeRoot, err := os.MkdirTemp("", prefix)
+	if err != nil {
+		return hookVerificationWorkspace{}, fmt.Errorf("create disposable root: %w", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(probeRoot) }
+	repo := filepath.Join(probeRoot, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		cleanup()
+		return hookVerificationWorkspace{}, fmt.Errorf("create disposable repository: %w", err)
+	}
 	binDir := filepath.Join(probeRoot, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create disposable binary directory: %w", err)
+		cleanup()
+		return hookVerificationWorkspace{}, fmt.Errorf("create disposable binary directory: %w", err)
 	}
 	if err := installHookVerificationBareExecutable(binDir); err != nil {
-		return nil, err
+		cleanup()
+		return hookVerificationWorkspace{}, err
 	}
 	values := hookVerificationEnvironmentValues(probeRoot, binDir)
-	return replaceHookVerificationEnvironment(values)
+	values[hookVerificationChildEnv] = "1"
+	values[hookVerificationRepoEnv] = repo
+	executable, err := os.Executable()
+	if err != nil {
+		cleanup()
+		return hookVerificationWorkspace{}, fmt.Errorf("resolve verification executable: %w", err)
+	}
+	return hookVerificationWorkspace{
+		executable:  executable,
+		repo:        repo,
+		environment: overlayHookVerificationEnvironment(os.Environ(), values),
+		cleanup:     cleanup,
+	}, nil
 }
 
 func installHookVerificationBareExecutable(binDir string) error {
@@ -189,32 +259,42 @@ func hookVerificationEnvironmentValues(probeRoot, binDir string) map[string]stri
 	}
 }
 
-type hookVerificationPriorEnv struct {
-	value string
-	set   bool
-}
-
-func replaceHookVerificationEnvironment(values map[string]string) (func(), error) {
-	prior := make(map[string]hookVerificationPriorEnv, len(values))
-	for name, value := range values {
-		old, set := os.LookupEnv(name)
-		prior[name] = hookVerificationPriorEnv{value: old, set: set}
-		if err := os.Setenv(name, value); err != nil {
-			restoreHookVerificationEnvironment(prior)
-			return nil, fmt.Errorf("set isolated %s: %w", name, err)
+func overlayHookVerificationEnvironment(base []string, values map[string]string) []string {
+	environment := make([]string, 0, len(base)+len(values))
+	for _, entry := range base {
+		name, _, found := strings.Cut(entry, "=")
+		if !found {
+			continue
+		}
+		if _, replaced := values[name]; !replaced {
+			environment = append(environment, entry)
 		}
 	}
-	return func() { restoreHookVerificationEnvironment(prior) }, nil
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		environment = append(environment, name+"="+values[name])
+	}
+	return environment
 }
 
-func restoreHookVerificationEnvironment(prior map[string]hookVerificationPriorEnv) {
-	for name, old := range prior {
-		if old.set {
-			_ = os.Setenv(name, old.value)
-		} else {
-			_ = os.Unsetenv(name)
+func runHookVerificationChild(workspace hookVerificationWorkspace, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	command := newHookVerificationChildCommand(ctx, workspace.executable, args...)
+	command.Env = append([]string(nil), workspace.environment...)
+	body, err := boundedexec.Output(command, 4*maxHookVerificationOutput)
+	if err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) && len(exitError.Stderr) > 0 {
+			return nil, fmt.Errorf("isolated hook verification failed: %w: %s", err, strings.TrimSpace(string(exitError.Stderr)))
 		}
+		return nil, fmt.Errorf("isolated hook verification failed: %w", err)
 	}
+	return body, nil
 }
 
 func linkOrCopyVerificationExecutable(source, target string) error {
@@ -486,6 +566,7 @@ func verifyGeneratedGitTransport(repo, shell string) (string, string, []string, 
 	hookPath := filepath.Join(repo, filepath.FromSlash(hooks.GitPreCommitPath))
 	command := exec.Command(shell, hookPath)
 	command.Dir = repo
+	command.Env = os.Environ()
 	output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput)
 	if exitCodeOfProcess(err) != 2 || !strings.Contains(string(output), "hook-verify-transport") {
 		return "failed", "failed", nil, "generated pre-commit transport did not preserve the blocking exit contract"
@@ -515,6 +596,7 @@ func verifyGeneratedWrapperTransport(kind, repo, shell string) (string, string) 
 	command := exec.Command(shell, wrapperPath, event, repo)
 	command.Dir = repo
 	command.Stdin = strings.NewReader("{}")
+	command.Env = os.Environ()
 	output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput)
 	if kind == hooks.KindGrok {
 		if err != nil || !strings.Contains(string(output), `"decision":"deny"`) {
@@ -634,6 +716,7 @@ func verifyGeneratedBunAdapter(kind, repo string) (string, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, bun, driverPath, artifactPath, kind, repo)
+	command.Env = os.Environ()
 	if output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput); err != nil {
 		return "failed", fmt.Sprintf("generated TypeScript adapter failed: %v: %s", err, strings.TrimSpace(string(output)))
 	}

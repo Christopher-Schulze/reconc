@@ -33,9 +33,14 @@ func installKimiCode(force bool) (*InstallReport, error) {
 	}
 	var report *InstallReport
 	err = withKimiCodeLock(home, func() error {
-		existing, mode, exists, err := readKimiCodeConfig(configPath)
+		snapshot, err := readManagedArtifactSnapshot(configPath)
 		if err != nil {
 			return err
+		}
+		existing, exists := snapshot.body, snapshot.exists
+		mode := os.FileMode(0o600)
+		if exists {
+			mode = snapshot.info.Mode().Perm()
 		}
 		if exists {
 			if err := validateKimiCodeTOML(existing); err != nil {
@@ -64,12 +69,8 @@ func installKimiCode(force bool) (*InstallReport, error) {
 			if err := verifyKimiCodeCLIIdentity(); err != nil {
 				return err
 			}
-			current, _, currentExists, readErr := readKimiCodeConfig(configPath)
-			if readErr != nil {
-				return readErr
-			}
-			if currentExists != exists || !bytes.Equal(current, existing) {
-				return &rerrors.PolicySourceError{Message: "Kimi Code config changed after install preflight; retry"}
+			if err := revalidateManagedArtifactSnapshot(configPath, snapshot); err != nil {
+				return &rerrors.PolicySourceError{Message: "revalidate Kimi Code config", Cause: err}
 			}
 			if _, err := atomicfile.WriteIfChanged(configPath, updated, mode); err != nil {
 				return &rerrors.PolicySourceError{Message: "write Kimi Code config", Cause: err}
@@ -98,13 +99,15 @@ func uninstallKimiCode() (*UninstallReport, error) {
 		return report, nil
 	}
 	err = withKimiCodeLock(home, func() error {
-		existing, mode, exists, err := readKimiCodeConfig(configPath)
+		snapshot, err := readManagedArtifactSnapshot(configPath)
 		if err != nil {
 			return err
 		}
+		existing, exists := snapshot.body, snapshot.exists
 		if !exists {
 			return nil
 		}
+		mode := snapshot.info.Mode().Perm()
 		if err := validateKimiCodeTOML(existing); err != nil {
 			return &rerrors.PolicySourceError{Message: "Kimi Code config is invalid TOML; refusing removal", Cause: err}
 		}
@@ -122,12 +125,8 @@ func uninstallKimiCode() (*UninstallReport, error) {
 		if err := validateKimiCodeTOML(updated); err != nil {
 			return &rerrors.PolicySourceError{Message: "Kimi Code config would become invalid after removal", Cause: err}
 		}
-		current, _, currentExists, readErr := readKimiCodeConfig(configPath)
-		if readErr != nil {
-			return readErr
-		}
-		if !currentExists || !bytes.Equal(current, existing) {
-			return &rerrors.PolicySourceError{Message: "Kimi Code config changed after uninstall preflight; retry"}
+		if err := revalidateManagedArtifactSnapshot(configPath, snapshot); err != nil {
+			return &rerrors.PolicySourceError{Message: "revalidate Kimi Code config", Cause: err}
 		}
 		if _, err := atomicfile.WriteIfChanged(configPath, updated, mode); err != nil {
 			return &rerrors.PolicySourceError{Message: "write Kimi Code config", Cause: err}

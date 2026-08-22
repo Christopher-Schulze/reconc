@@ -545,10 +545,11 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 	}
 
 	action := "created"
-	existing, err := readManagedArtifact(target)
-	if err != nil && !os.IsNotExist(err) {
+	snapshot, err := readManagedArtifactSnapshot(target)
+	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
 	}
+	existing := snapshot.body
 
 	var merged map[string]interface{}
 	backupPath := ""
@@ -597,6 +598,9 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 	out, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "marshal merged config", Cause: err}
+	}
+	if err := revalidateManagedArtifactSnapshot(target, snapshot); err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "revalidate " + target, Cause: err}
 	}
 	if writeAction, err := writeGeneratedArtifact(target, string(append(out, '\n')), false); err != nil {
 		return nil, err
@@ -739,10 +743,11 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 	}
 
 	action := "created"
-	existing, err := readManagedArtifact(target)
-	if err != nil && !os.IsNotExist(err) {
+	snapshot, err := readManagedArtifactSnapshot(target)
+	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
 	}
+	existing := snapshot.body
 
 	merged := map[string]interface{}{}
 	backupPath := ""
@@ -774,6 +779,9 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 	out, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "marshal merged Antigravity hooks", Cause: err}
+	}
+	if err := revalidateManagedArtifactSnapshot(target, snapshot); err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "revalidate " + target, Cause: err}
 	}
 	if writeAction, err := writeGeneratedArtifact(target, string(append(out, '\n')), false); err != nil {
 		return nil, err

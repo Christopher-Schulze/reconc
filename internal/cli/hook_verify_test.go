@@ -8,10 +8,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"reconc.dev/reconc/internal/hooks"
+	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
 func TestHookVerifyOfflineCoversSharedMatrixWithoutLiveClaims(t *testing.T) {
@@ -41,6 +43,83 @@ func TestHookVerifyOfflineCoversSharedMatrixWithoutLiveClaims(t *testing.T) {
 	for _, forbidden := range []string{os.TempDir(), "synthetic verification input", "tool_input", "session_id"} {
 		if strings.Contains(encoded, forbidden) {
 			t.Fatalf("offline report exposed private probe material %q", forbidden)
+		}
+	}
+}
+
+func TestHookVerificationIsolatedChild(t *testing.T) {
+	if os.Getenv(hookVerificationChildEnv) != "1" {
+		return
+	}
+	separator := -1
+	for index, arg := range os.Args {
+		if arg == "--" {
+			separator = index
+			break
+		}
+	}
+	if separator < 0 || separator+1 >= len(os.Args) {
+		fmt.Fprintln(os.Stderr, "isolated hook verification child arguments are missing")
+		os.Exit(1)
+	}
+	if err := Run(os.Args[separator+1:], "test", os.Stdout, os.Stderr); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(ExitCode(err))
+	}
+	os.Exit(0)
+}
+
+func TestHookVerificationIsolationDoesNotMutateParentEnvironment(t *testing.T) {
+	want := map[string]string{
+		"RECONC_HOME":             "parent-reconc-home",
+		agentsession.StateRootEnv: "parent-session-state",
+		"KIMI_CODE_HOME":          "parent-kimi-home",
+		"PI_CODING_AGENT_DIR":     "parent-pi-home",
+		"KILO_PURE":               "parent-kilo-mode",
+	}
+	for name, value := range want {
+		t.Setenv(name, value)
+	}
+	all := hooks.VerificationSurfaces()
+	if len(all) < 2 {
+		t.Fatal("verification surface registry is unexpectedly small")
+	}
+	selected := []hooks.VerificationSurface{all[0], all[len(all)-1]}
+	var wait sync.WaitGroup
+	errorsByIndex := make([]error, len(selected))
+	for index, surface := range selected {
+		wait.Add(1)
+		go func(index int, surface hooks.VerificationSurface) {
+			defer wait.Done()
+			_, errorsByIndex[index] = runOfflineHookVerification(
+				hookVerifyOptions{host: surface.Kind, surface: surface.Surface, jsonOutput: true},
+				[]hooks.VerificationSurface{surface},
+			)
+		}(index, surface)
+	}
+	wait.Wait()
+	for _, err := range errorsByIndex {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, value := range want {
+		if got := os.Getenv(name); got != value {
+			t.Fatalf("parent %s = %q, want %q", name, got, value)
+		}
+	}
+}
+
+func TestHookVerificationInternalCommandsRequireIsolatedWorkspace(t *testing.T) {
+	t.Setenv(hookVerificationChildEnv, "")
+	for _, args := range [][]string{
+		{"hook", "__verify-offline", "", "", t.TempDir()},
+		{"hook", "__verify-live-setup", hooks.KindOpenCode, "cli", t.TempDir()},
+	} {
+		var stdout, stderr bytes.Buffer
+		err := Run(args, "test", &stdout, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "unknown subcommand") {
+			t.Fatalf("Run(%v) error = %v, want hidden-command rejection", args, err)
 		}
 	}
 }

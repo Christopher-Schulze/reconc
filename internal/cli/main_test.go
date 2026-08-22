@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -40,6 +42,10 @@ func TestMain(testingMain *testing.M) {
 	if err := os.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+	newHookVerificationChildCommand = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+		childArgs := append([]string{"-test.run=^TestHookVerificationIsolatedChild$", "--"}, args...)
+		return exec.CommandContext(ctx, source, childArgs...)
 	}
 	exitCode := testingMain.Run()
 	if err := os.RemoveAll(directory); err != nil {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"reconc.dev/reconc/internal/adopt"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/policyauthor"
@@ -175,6 +176,23 @@ func TestPolicyAuthorDetectedAndImpactReportsAreBounded(t *testing.T) {
 	if impactReport.Impact == nil || impactReport.Impact.Summary.NewlyWarningCases != 1 ||
 		impactReport.Preview.CandidateSHA256 == "" {
 		t.Fatalf("impact report = %+v", impactReport)
+	}
+}
+
+func TestDetectedPolicyYAMLUsesStructuredSuggestions(t *testing.T) {
+	report := adopt.Report{
+		RepoRoot: "repository  - id: injected",
+		Suggestions: []adopt.Suggestion{{
+			ID: "real-rule", Kind: "deny_write", Mode: "warn", Message: "generated files are immutable",
+			Paths: []string{"dist/**"}, Evidence: []string{"dist/"}, Reason: "dist exists",
+		}},
+	}
+	body, err := detectedPolicyYAML(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "injected") || !strings.HasPrefix(string(body), "rules:\n  - id: real-rule\n") {
+		t.Fatalf("structured detected policy = %q", body)
 	}
 }
 

@@ -32,10 +32,11 @@ func installDevinCLI(repoRoot string, force bool) (*InstallReport, error) {
 	}
 
 	action := "created"
-	existing, err := readManagedArtifact(target)
-	if err != nil && !os.IsNotExist(err) {
+	snapshot, err := readManagedArtifactSnapshot(target)
+	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
 	}
+	existing := snapshot.body
 	mergedHooks := generatedHooks
 	var mergeDiff MergeDiff
 	backupPath := ""
@@ -62,6 +63,9 @@ func installDevinCLI(repoRoot string, force bool) (*InstallReport, error) {
 	out, err := json.MarshalIndent(mergedHooks, "", "  ")
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "marshal merged Devin hooks", Cause: err}
+	}
+	if err := revalidateManagedArtifactSnapshot(target, snapshot); err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "revalidate " + target, Cause: err}
 	}
 	if writeAction, err := writeGeneratedArtifact(target, string(append(out, '\n')), false); err != nil {
 		return nil, err

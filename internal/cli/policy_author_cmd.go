@@ -144,15 +144,7 @@ func detectedPolicyYAML(report adopt.Report) ([]byte, error) {
 	if len(report.Suggestions) == 0 {
 		return nil, fmt.Errorf("detector produced no policy-file rule recommendations; pack suggestions remain review-only")
 	}
-	var output strings.Builder
-	rendered := adopt.RenderYAML(report)
-	start := strings.Index(rendered, "  - id: ")
-	if start < 0 {
-		return nil, fmt.Errorf("detector could not render its policy recommendations")
-	}
-	output.WriteString("rules:\n")
-	output.WriteString(rendered[start:])
-	return []byte(output.String()), nil
+	return []byte("rules:\n" + adopt.RenderRulesYAML(report.Suggestions)), nil
 }
 
 func policyAuthorImpact(options policyAuthorOptions, preview policyauthor.Preview) (impactlab.Report, error) {

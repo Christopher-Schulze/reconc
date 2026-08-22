@@ -1133,7 +1133,11 @@ binary; cross-platform plans omit it. Codex installation also manages its
 `[features].hooks` activation: an explicit user-owned `false` requires
 `--force`, and forced activation records the exact original line so uninstall
 can restore it. Partial wrapper/target/activation outcomes are reported
-explicitly with one recovery command. Managed plugin/files refuse unrelated existing
+explicitly with one recovery command. JSON always includes `success`; a partial
+failure also includes the retained partial-state fields and `error` before the
+command exits unsuccessfully. Merge-based installers revalidate the exact
+source bytes, filesystem identity, mode, size, and modification time immediately
+before publication, and refuse concurrent edits or replacements. Managed plugin/files refuse unrelated existing
 content unless `--force` is passed. The dedicated GitHub Copilot, OMP, and Pi paths
 never overwrite a foreign file, including with `--force`.
 ZCode installs all seven native events: `SessionStart`, `UserPromptSubmit`,
@@ -1194,7 +1198,9 @@ OMP `user_python` reports only count, latest timestamp, repository-relative
 working directory, code byte size, and context-exclusion flag. `configured`
 proves only that the host can discover a
 complete static artifact. Codex accepts
-`hooks = true` under `[features]`, rejects root-level `hooks=true`, and has no
+`hooks = true` under `[features]` or the equivalent root dotted key
+`features.hooks = true`, rejects root-level `hooks=true` and duplicate or
+misplaced declarations, and has no
 separate failed-tool route; failed Bash outcomes are inferred from
 `PostToolUse`. OpenCode and Kilo Code preserve complete post-tool output,
 deduplicate terminal tool errors from `message.part.updated`, and route user
@@ -1270,6 +1276,9 @@ a blocking synthetic policy. It then verifies artifact generation,
 installation/configuration, the generated shell or Bun transport, a real
 policy denial, the platform-native response adaptation, and route duration.
 It invokes no host, model, account, cloud service, or caller repository.
+Verification runs inside a dedicated child process with an explicit isolated
+environment; parallel verification cannot mutate or restore the parent
+process environment.
 Native Windows discovers a POSIX `sh` transport from `PATH` (normally Git for
 Windows) and uses platform-correct file URLs for generated Bun adapters; a
 missing shell produces an explicit incomplete result.

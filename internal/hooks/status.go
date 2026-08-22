@@ -663,7 +663,8 @@ func codexRouteBudgetIssues(data []byte, platform Platform) []string {
 			matches := 0
 			for _, group := range document.Hooks[binding.NativeEvent] {
 				for _, handler := range group.Hooks {
-					if !strings.Contains(handler.Command, binding.RuntimeEvent) {
+					if !reconcCommandOwned(commandSignature(handler.Command, nil)) ||
+						!containsRuntimeEventToken(handler.Command, binding.RuntimeEvent) {
 						continue
 					}
 					matches++
@@ -800,53 +801,11 @@ func tomlSectionBoolean(path, section, key string) (bool, bool, error) {
 		}
 		return false, false, err
 	}
-	currentSection := ""
-	sectionSeen := false
-	found := false
-	enabled := false
-	for lineNumber, raw := range strings.Split(string(data), "\n") {
-		line := strings.TrimSpace(strings.SplitN(raw, "#", 2)[0])
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			if strings.HasPrefix(line, "[[") || strings.HasSuffix(line, "]]") {
-				currentSection = ""
-				continue
-			}
-			currentSection = strings.TrimSpace(line[1 : len(line)-1])
-			if currentSection == section {
-				if sectionSeen {
-					return false, false, fmt.Errorf("duplicate [%s] table", section)
-				}
-				sectionSeen = true
-			}
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 || strings.TrimSpace(parts[0]) != key {
-			continue
-		}
-		if currentSection != section {
-			if currentSection == "" {
-				return false, false, fmt.Errorf("line %d places %s at the TOML root; expected [%s]", lineNumber+1, key, section)
-			}
-			continue
-		}
-		if found {
-			return false, false, fmt.Errorf("duplicate %s.%s", section, key)
-		}
-		found = true
-		switch strings.TrimSpace(parts[1]) {
-		case "true":
-			enabled = true
-		case "false":
-			enabled = false
-		default:
-			return false, false, fmt.Errorf("%s.%s must be a boolean", section, key)
-		}
+	value, err := parseTOMLSectionBoolean(string(data), section, key)
+	if err != nil {
+		return false, false, err
 	}
-	return enabled, found, nil
+	return value.enabled, value.present, nil
 }
 
 func activeGitPreCommitPath(root string) (string, string, error) {

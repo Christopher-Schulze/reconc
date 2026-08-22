@@ -1,7 +1,6 @@
 package hooks
 
 import (
-	"encoding/json"
 	"fmt"
 )
 
@@ -42,8 +41,7 @@ func generateZCode() (*Artifact, error) {
 			},
 		},
 	}
-	data, _ := json.MarshalIndent(template, "", "  ")
-	return &Artifact{Kind: KindZCode, TargetPath: ZCodeConfigPath, Content: string(data) + "\n"}, nil
+	return jsonHookArtifact(&Artifact{Kind: KindZCode, TargetPath: ZCodeConfigPath}, template)
 }
 
 func validateZCodeHookMergeShape(document map[string]interface{}) error {

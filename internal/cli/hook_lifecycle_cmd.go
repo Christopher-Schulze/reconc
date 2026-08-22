@@ -112,14 +112,29 @@ func runHookInstall(args []string, stdout, stderr io.Writer) (resultErr error) {
 		return &CLIError{ExitCode: 1, Message: "reconc hook install: open output file: " + err.Error()}
 	}
 	defer joinOutputCloseError(&resultErr, closeOutput)
-	if jsonOut && report != nil {
+	if jsonOut {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(report); err != nil {
+		response := struct {
+			*hooks.InstallReport
+			Success bool   `json:"success"`
+			Error   string `json:"error,omitempty"`
+		}{InstallReport: report, Success: installErr == nil}
+		if installErr != nil {
+			response.Error = installErr.Error()
+		}
+		if err := enc.Encode(response); err != nil {
 			return &CLIError{ExitCode: 1, Message: "reconc hook install: json encode: " + err.Error()}
 		}
 	} else if report != nil {
-		fmt.Fprintf(out, "Installed %s hook (%s)\n", report.Kind, report.Action)
+		result := "Installed"
+		if installErr != nil {
+			result = "Install failed for"
+			if report.Partial {
+				result = "Partially installed"
+			}
+		}
+		fmt.Fprintf(out, "%s %s hook (%s)\n", result, report.Kind, report.Action)
 		scopeLabel := "Repo"
 		if report.RepoRoot == "global" {
 			scopeLabel = "Scope"
@@ -132,7 +147,15 @@ func runHookInstall(args []string, stdout, stderr io.Writer) (resultErr error) {
 		if report.ActivationPath != "" {
 			fmt.Fprintf(out, "Activate: %s (%s)\n", report.ActivationPath, report.ActivationAction)
 		}
+		if installErr != nil {
+			fmt.Fprintln(out, "Status:  failed")
+			fmt.Fprintf(out, "Error:   %s\n", installErr)
+		}
 		fmt.Fprintf(out, "Next:    %s\n", report.NextAction)
+	} else if installErr != nil {
+		fmt.Fprintln(out, "Hook installation failed")
+		fmt.Fprintln(out, "Status:  failed")
+		fmt.Fprintf(out, "Error:   %s\n", installErr)
 	}
 	if installErr != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook install: " + installErr.Error()}

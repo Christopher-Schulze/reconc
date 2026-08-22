@@ -2914,6 +2914,9 @@ host, model, account, cloud service, or the caller's repository. Offline
 verification discovers the POSIX `sh` transport on native Windows, including
 Git for Windows, and normalizes generated Bun module paths with file URLs; an
 absent shell remains explicitly incomplete rather than passing by inspection.
+The disposable repository and homes are installed in a dedicated child process
+with an explicit environment, so concurrent verification cannot temporarily
+mutate or incorrectly restore the parent process environment.
 The offline `synthetic_enforced` fact is not promoted to `loaded`, `observed`,
 or live `enforced`; all expected host routes remain explicitly unproven.
 
@@ -3206,7 +3209,12 @@ sync validates every prospective artifact target before its first write, so one
 escaping parent cannot produce a partial or external rollout. Forced
 malformed-config backups are content-addressed,
 create-only, private (`0600`), file-synced, and parent-directory-synced before
-the managed artifact is published.
+the managed artifact is published. Merge-based installers retain the bounded
+source snapshot used to build the result and revalidate its exact bytes,
+filesystem identity, mode, size, and modification time immediately before
+atomic publication. A concurrent edit or same-byte replacement is rejected.
+Hook-install JSON always exposes an explicit `success` boolean; partial failure
+also retains the partial report and emits its error without claiming success.
 
 The registry assigns 5-second observation/session budgets, 10-second pre-tool
 and permission budgets, and platform-specific Stop budgets instead of one
@@ -3287,7 +3295,10 @@ Git lookup. Codex uses the host shell command string without a nested launcher;
 Cursor and Antigravity use portable non-login `sh -c` launchers with a direct
 wrapper fast path before their Git fallback.
 Codex bootstrap and direct hook installation manage `hooks = true` under the
-`[features]` table. Direct installation rejects an explicit user-owned
+`[features]` table or the equivalent root dotted key
+`features.hooks = true`. The shared bounded reader respects quoted `#`
+characters and rejects duplicate, root-level, or misplaced declarations.
+Direct installation rejects an explicit user-owned
 `hooks = false` before any artifact write unless `--force` is supplied.
 Transactional bootstrap reports the change as managed drift and requires the
 explicit marker-only acceptance path. Forced or accepted activation records

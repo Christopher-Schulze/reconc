@@ -81,7 +81,7 @@ func runHookVerify(args []string, stdout, stderr io.Writer) error {
 	if options.live {
 		return runLiveHookVerification(options, surfaces, os.Stdin, stdout, stderr)
 	}
-	report, err := runOfflineHookVerification(surfaces)
+	report, err := runOfflineHookVerification(options, surfaces)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook verify: " + err.Error()}
 	}

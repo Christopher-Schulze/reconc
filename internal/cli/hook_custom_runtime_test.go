@@ -11,6 +11,7 @@ import (
 
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/customruntime"
+	"reconc.dev/reconc/internal/hooks"
 )
 
 func TestCustomRuntimeFixturesBridgePolicyEndToEnd(t *testing.T) {
@@ -87,6 +88,70 @@ func TestCustomRuntimeBridgeReportsDegradedGuaranteesWithoutExecution(t *testing
 	}
 	if !strings.Contains(output.String(), `"decision":"unsupported"`) {
 		t.Fatalf("unexpected degraded response: %s", output.String())
+	}
+}
+
+func TestCustomRuntimeStatusKeepsManifestFreshnessIndependent(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := makeCustomRuntimeBridgeRepo(t, "local-agent")
+	directory := filepath.Join(repo, ".reconc", "runtimes")
+	ciBody, err := os.ReadFile(filepath.Join("..", "customruntime", "testdata", "ci-bot.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciPath := filepath.Join(directory, "ci-bot.json")
+	if err := os.WriteFile(ciPath, ciBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(repo, ".reconc", "policy.lock.json")
+	lockBody, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lock map[string]interface{}
+	if err := json.Unmarshal(lockBody, &lock); err != nil {
+		t.Fatal(err)
+	}
+	summaries, ok := lock["custom_runtimes"].([]interface{})
+	if !ok {
+		t.Fatalf("custom_runtimes = %T", lock["custom_runtimes"])
+	}
+	for _, value := range summaries {
+		summary, ok := value.(map[string]interface{})
+		if ok && summary["runtime"] == "custom:ci-bot" {
+			summary["manifest_digest"] = "sha256:" + strings.Repeat("a", 64)
+		}
+	}
+	delete(lock, "lock_digest")
+	lockDigest, err := compiler.ComputeLockDigest(lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock["lock_digest"] = lockDigest
+	lockBody, err = json.MarshalIndent(lock, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, append(lockBody, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	statuses, err := inspectCustomRuntimeStatuses(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byKind := make(map[string]hooks.PlatformStatus, len(statuses))
+	for _, status := range statuses {
+		byKind[status.Kind] = status
+	}
+	if status := byKind["custom:ci-bot"]; status.State != hooks.StateDegraded || status.Configured {
+		t.Fatalf("drifted CI runtime status = %+v", status)
+	}
+	if status := byKind["custom:local-agent"]; status.State != hooks.StateConfigured || !status.Configured {
+		t.Fatalf("fresh local runtime inherited CI drift = %+v", status)
 	}
 }
 

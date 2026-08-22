@@ -325,7 +325,16 @@ func RenderYAML(r Report) string {
 		}
 		b.WriteString("]\n\n")
 	}
-	for _, s := range r.Suggestions {
+	b.WriteString(RenderRulesYAML(r.Suggestions))
+	return b.String()
+}
+
+// RenderRulesYAML renders only the structured rule items from a detector
+// report. Callers that need an embeddable policy document use this surface
+// instead of extracting rule text from RenderYAML's human-facing prose.
+func RenderRulesYAML(suggestions []Suggestion) string {
+	var b strings.Builder
+	for _, s := range suggestions {
 		b.WriteString("  - id: ")
 		b.WriteString(s.ID)
 		b.WriteString("\n    kind: ")

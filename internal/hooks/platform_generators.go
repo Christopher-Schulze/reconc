@@ -41,8 +41,7 @@ func generateDevinCLI() (*Artifact, error) {
 		"SessionEnd":        []interface{}{entry("devin-session-end", EventSessionEnd, "")},
 		"PostCompaction":    []interface{}{entry("devin-post-compaction", EventPostCompaction, "")},
 	}
-	data, _ := json.MarshalIndent(template, "", "  ")
-	return &Artifact{Kind: KindDevinCLI, TargetPath: DevinHooksPath, Content: string(data) + "\n"}, nil
+	return jsonHookArtifact(&Artifact{Kind: KindDevinCLI, TargetPath: DevinHooksPath}, template)
 }
 
 func generateOpenCodeThin() (*Artifact, error) {
@@ -113,8 +112,7 @@ func generateGitHubCopilot() (*Artifact, error) {
 			"PreCompact":         []interface{}{command("copilot-pre-compaction", EventPreCompaction, "")},
 		},
 	}
-	data, _ := json.MarshalIndent(template, "", "  ")
-	return &Artifact{Kind: KindGitHubCopilot, TargetPath: GitHubCopilotHooksPath, Content: string(data) + "\n"}, nil
+	return jsonHookArtifact(&Artifact{Kind: KindGitHubCopilot, TargetPath: GitHubCopilotHooksPath}, template)
 }
 
 func generateKilo() (*Artifact, error) {
@@ -202,8 +200,7 @@ func generateGrok() (*Artifact, error) {
 			},
 		},
 	}
-	data, _ := json.MarshalIndent(template, "", "  ")
-	return &Artifact{Kind: KindGrok, TargetPath: GrokHooksPath, Content: string(data) + "\n"}, nil
+	return jsonHookArtifact(&Artifact{Kind: KindGrok, TargetPath: GrokHooksPath}, template)
 }
 
 func generateBunAgentPlugin(kind, targetPath, prefix string, descriptorExport bool) (*Artifact, error) {

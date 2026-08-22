@@ -20,17 +20,18 @@ func inspectCustomRuntimeStatuses(repoRoot string) ([]hooks.PlatformStatus, erro
 	if err != nil {
 		return nil, err
 	}
-	freshnessError := ""
+	globalFreshnessError := ""
 	var compiledEvaluator *runtime.CompiledPolicyEvaluator
 	if len(sources) > 0 {
 		if current, _, err := runtime.NewEvaluator().CurrentCompiledPolicyEvaluator(repoRoot); err != nil {
-			freshnessError = err.Error()
+			globalFreshnessError = err.Error()
 		} else {
 			compiledEvaluator = current
 		}
 	}
 	reports := make([]hooks.PlatformStatus, 0, len(sources))
 	for _, source := range sources {
+		freshnessError := globalFreshnessError
 		manifest, err := customruntime.DecodeManifest([]byte(source.Content))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", source.Path, err)
