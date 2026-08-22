@@ -41,7 +41,10 @@ uses isolated temporary repositories for product dogfooding.
 - Put behavior in `internal/`; keep `cmd/reconc/main.go` thin.
 - Preserve deterministic ordering, explicit schemas, and stable format versions.
 - Treat policy, hook payloads, Git output, and repository paths as untrusted input.
-- Update public documentation and generated command surfaces with behavior changes.
+- Update public documentation with behavior changes. Public command,
+  hook-verification, and schema inventories are registry-owned; regenerate
+  their marked Markdown sections with `make reference-docs` instead of editing
+  generated rows by hand.
 - Add tests that fail when the implemented contract is broken. Do not pin prose
   when a semantic invariant can be tested directly.
 - Do not include source-planning TASK files; this repository keeps them local
@@ -68,11 +71,12 @@ make publication-audit
 ```
 
 `make test-fast` checks formatting and both Go modules with the Go build cache
-enabled. `make test` covers the publication audit, root and portable-template
-race suites, and release-trust contract. `make test-langchain` builds the Go gateway
-and fixture, invokes them through LangChain's official pinned MCP adapter with
-no model or service, and denies runtime network access. Its Python environment
-is external test infrastructure, never a shipped Reconc dependency.
+enabled and rejects stale generated reference sections. `make test` covers the
+publication audit, root and portable-template race suites, and release-trust
+contract. `make test-langchain` builds the Go gateway and fixture, invokes them
+through LangChain's official pinned MCP adapter with no model or service, and
+denies runtime network access. Its Python environment is external test
+infrastructure, never a shipped Reconc dependency.
 The test and coverage targets cap package-level parallelism at two by default
 to keep an 8 GB development machine responsive. Set `TEST_PARALLELISM` to a
 different positive integer when the host has enough capacity. `make coverage`

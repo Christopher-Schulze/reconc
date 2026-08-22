@@ -5,6 +5,119 @@ Reference for the complete command surface. See `reconc help <subcommand>` or
 installed binary. Nested help works the same way, for example
 `reconc help task recover`.
 
+<!-- BEGIN RECONC GENERATED COMMAND REFERENCE -->
+## Canonical command catalog
+
+Generated from `internal/commandmeta`; run `make reference-docs` after changing the public CLI contract.
+
+| Command path | Canonical synopsis | Summary | Outputs |
+|---|---|---|---|
+| `reconc status` | `reconc status [repo] [--json] [--output PATH]` | one-line policy health summary | text, json, file |
+| `reconc check` | `reconc check [repo] [evidence flags] [--format text\|json\|terse\|sarif\|junit]` | evaluate runtime evidence against compiled policy | text, json, sarif, junit, file |
+| `reconc next` | `reconc next [repo] [evidence flags]` | show the next remediation | text, json, file |
+| `reconc done` | `reconc done [repo] [--require-clean-git] [--json]` | evidence-complete task-finish gate | text, json |
+| `reconc proof` | `reconc proof [repo] [--format json\|markdown] [--output PATH] \| reconc proof verify FILE [--repo REPO] [--json]` | export or strictly verify a portable completion proof bundle | text, json, markdown, file |
+| `reconc proof verify` | `reconc proof verify FILE [--repo REPO] [--json]` | strictly verify a received proof offline; unsigned self-digest proves integrity, not identity; Exit 0 valid, 2 blocking or mismatch, 1 invalid | text, json |
+| `reconc bootstrap` | `reconc bootstrap <subcommand>` | inspect, plan, apply, verify, or remove repository onboarding | text, json, file |
+| `reconc bootstrap profiles` | `reconc bootstrap profiles [--json]` | list explicit bootstrap profiles | text, json |
+| `reconc bootstrap inspect` | `reconc bootstrap inspect [repo] [--json]` | inspect repository bootstrap inputs without mutation | text, json |
+| `reconc bootstrap plan` | `reconc bootstrap plan [repo] --profile PROFILE [selection flags]` | build a deterministic bootstrap manifest | text, json, file |
+| `reconc bootstrap apply` | `reconc bootstrap apply --plan PATH \| [repo] --profile PROFILE [selection flags]` | apply an exact plan or explicit selection transaction | text, json |
+| `reconc bootstrap remove` | `reconc bootstrap remove --plan PATH [--json]` | reverse one receipt-owned bootstrap transaction | text, json |
+| `reconc bootstrap verify` | `reconc bootstrap verify --plan PATH [--json]` | verify an applied bootstrap manifest read-only | text, json |
+| `reconc repo` | `reconc repo sync <plan\|apply\|resolve\|verify\|recover>` | plan, apply, resolve, verify, or recover receipt-owned repository upgrades | text, json, file |
+| `reconc repo sync` | `reconc repo sync <plan\|apply\|resolve\|verify\|recover>` | operate the receipt-owned repository upgrade transaction | text, json, file |
+| `reconc repo sync plan` | `reconc repo sync plan [repo] [--output PATH [--replace-output]] [--json]` | build a deterministic read-only repository sync plan | text, json, file |
+| `reconc repo sync apply` | `reconc repo sync apply --plan PATH --digest SHA256 [--json]` | apply one exact receipt-owned repository transaction | text, json |
+| `reconc repo sync resolve` | `reconc repo sync resolve --plan PATH --digest SHA256 --path RELATIVE --strategy STRATEGY [binary flags] [--json]` | resolve one exact non-mutable sync action | text, json |
+| `reconc repo sync verify` | `reconc repo sync verify [repo] [--json]` | verify the portable repository receipt and owned artifacts | text, json |
+| `reconc repo sync recover` | `reconc repo sync recover [repo] [--json]` | finalize or roll back an interrupted repository sync | text, json |
+| `reconc install-cli` | `reconc install-cli [--install-dir PATH] [--json]` | install the running build as the stable user CLI | text, json |
+| `reconc update` | `reconc update [--channel stable\|preview \| --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]` | apply an ownership-safe global CLI update | text, json |
+| `reconc uninstall` | `reconc uninstall [--purge-state] [--json]` | remove only the globally owned CLI installation | text, json |
+| `reconc init` | `reconc init [repo] [--profile PROFILE] [selection flags]` | transactionally onboard a repository | text, json, file |
+| `reconc adopt` | `reconc adopt [repo] [--yaml \| --json \| --apply]` | detect tooling and suggest rules | text, yaml, json |
+| `reconc extract` | `reconc extract [repo] [--from PATH] [--yaml \| --json]` | scan instruction prose for rule hints | text, yaml, json |
+| `reconc doctor` | `reconc doctor [repo] [--deep] [--json] [--output PATH] \| reconc doctor --global [--json] [--output PATH]` | inspect repository or global installation state | text, json, file |
+| `reconc refresh` | `reconc refresh [repo] [--strict-conflicts] [--json] [--output PATH]` | explicitly refresh the policy lockfile | text, json, file |
+| `reconc sources` | `reconc sources [repo] [--json]` | inspect effective policy-source provenance without source bodies | text, json |
+| `reconc ci` | `reconc ci [repo] (--staged \| --base REF [--head REF]) [evidence flags] [--format text\|json\|sarif\|junit]` | evaluate Git-derived changes under policy | text, json, sarif, junit, file |
+| `reconc impact` | `reconc impact [repo] (--candidate FILE \| --pack NAME) [--corpus FILE \| --fixture FILE] [evidence flags] [--delta-manifest FILE] [--format text\|json\|sarif\|junit\|github]` | compare an in-memory additive policy candidate over privacy-bounded replay evidence | text, json, sarif, junit, github, file |
+| `reconc impact export` | `reconc impact export [repo] (--session \| evidence flags) [--complete CLASS] [--case-id ID] [--output PATH]` | export a deterministic privacy-bounded replay corpus | json, file |
+| `reconc exec` | `reconc exec [repo] [--staged] [--shell] -- COMMAND [ARG ...]` | execute and record real command evidence | text |
+| `reconc assert` | `reconc assert <rule-id> [repo] [evidence flags]` | evaluate one rule by id | text, json |
+| `reconc can` | `reconc can write <path> [repo] [--why] [--json]` | return an ultra-terse yes/no policy decision | text, json |
+| `reconc diff` | `reconc diff <lockfile-a> <lockfile-b> [--json]` | compare two compiled lockfiles | text, json |
+| `reconc explain` | `reconc explain [repo] [evidence flags] \| --report-file PATH` | render a check report as text or Markdown | text, markdown, json, file |
+| `reconc fix` | `reconc fix [repo] [evidence flags]` | build a structured remediation plan | text, json, file |
+| `reconc why` | `reconc why <rule-id\|action\|mcp> [repo] [--terse] [--json]` | print one compiled rule, the canonical action plan, or its MCP compatibility view | text, json |
+| `reconc mcp` | `reconc mcp gateway [repo] [flags] -- COMMAND [ARG...]` | run an enforcing tools-only MCP stdio gateway | mcp |
+| `reconc mcp gateway` | `reconc mcp gateway [repo] --server LABEL (--expect-lock-digest SHA256 \| --allow-repository-managed-policy) --principal LABEL [trusted-context flags] -- COMMAND [ARG...]` | enforce one operator-selected downstream MCP stdio server | mcp |
+| `reconc preset` | `reconc preset <list\|show>` | list or show bundled and user presets | text, json, file |
+| `reconc preset list` | `reconc preset list [--json] [--output PATH]` | list bundled and user presets | text, json, file |
+| `reconc preset show` | `reconc preset show <name> [--json] [--output PATH]` | show one resolved preset | text, json, file |
+| `reconc template` | `reconc template <list\|show>` | list or show bundled and user rule templates | text, json |
+| `reconc template list` | `reconc template list [--json]` | list rule templates | text, json |
+| `reconc template show` | `reconc template show <name> [--json]` | show one resolved rule template | text, json |
+| `reconc hook` | `reconc hook <subcommand>` | manage, inspect, or execute agent runtime hooks | text, json, file |
+| `reconc hook generate` | `reconc hook generate <kind> [--json] [--output PATH]` | print one hook artifact | text, json, file |
+| `reconc hook install` | `reconc hook install <kind> [repo] [--force] [--json] [--output PATH]` | install generated hooks into a repository | text, json, file |
+| `reconc hook uninstall` | `reconc hook uninstall <kind> [repo] [--json] [--output PATH]` | remove one Reconc-managed hook safely | text, json, file |
+| `reconc hook status` | `reconc hook status [repo] [--json]` | inspect registered hook installation and liveness | text, json |
+| `reconc hook verify` | `reconc hook verify [--host KIND [--surface SURFACE]] [--json]` | verify generated hook transports offline or prepare an explicit live probe | text, json |
+| `reconc hook bridge` | `reconc hook bridge <runtime> <host-event> [repo]` | dispatch a declarative repository-owned custom runtime event | json |
+| `reconc hook conform` | `reconc hook conform <manifest.json> <fixtures.json> [--json]` | verify a custom runtime adapter contract offline | text, json |
+| `reconc hook sync-scaffold` | `reconc hook sync-scaffold <repo-root-scaffold> [--json]` | synchronize generated scaffold hook artifacts | text, json |
+| `reconc hook claim` | `reconc hook claim <repo> <claim-name> [--session ID] [--json] [--output PATH]` | record one explicit session claim | text, json, file |
+| `reconc hook evidence-status` | `reconc hook evidence-status [repo] [--json]` | inspect persistent evidence taint without mutation | text, json |
+| `reconc hook evidence-resolve` | `reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]` | resolve reviewed persistent evidence taint explicitly | text, json |
+| `reconc agent-intro` | `reconc agent-intro [--section NAME \| --list-sections] [--json]` | print the embedded agent integration guide | text, json |
+| `reconc audit` | `reconc audit <tail\|stats\|export\|verify>` | inspect, export, or cryptographically verify decision evidence | text, json, jsonl |
+| `reconc audit tail` | `reconc audit tail [repo] [filters]` | tail filtered audit decisions | text, json |
+| `reconc audit stats` | `reconc audit stats [repo] [--json]` | aggregate audit decision statistics | text, json |
+| `reconc audit export` | `reconc audit export [repo]` | export raw audit JSONL | jsonl |
+| `reconc audit verify` | `reconc audit verify [repo] [--json]` | verify every retained record and detached chain head | text, json |
+| `reconc action` | `reconc action <evidence\|key\|log>` | initialize action state, inspect decisions, or produce technical control evidence | text, json, file |
+| `reconc action evidence` | `reconc action evidence <export\|verify>` | export or verify local technical control-evidence mappings | text, json, file |
+| `reconc action evidence export` | `reconc action evidence export [repo] --as-of RFC3339 [evidence flags] [--format json\|markdown] [--output PATH]` | export deterministic privacy-bounded technical control evidence | json, markdown, file |
+| `reconc action evidence verify` | `reconc action evidence verify [repo] --as-of RFC3339 [evidence flags] [--json]` | verify current technical evidence and fail unless every selected mapping is covered | text, json |
+| `reconc action key` | `reconc action key init` | initialize private operator-owned action state | text, json, file |
+| `reconc action key init` | `reconc action key init [--reconc-home PATH] [--json]` | create the action identity key exactly once | text, json |
+| `reconc action log` | `reconc action log <tail\|stats\|verify\|export>` | inspect, verify, or export the action decision ledger | text, json, file |
+| `reconc action log tail` | `reconc action log tail [repo] [filters]` | tail bounded action ledger events | text, json |
+| `reconc action log stats` | `reconc action log stats [repo] [filters]` | aggregate explicit action call lifecycles | text, json |
+| `reconc action log verify` | `reconc action log verify [repo] [--json]` | verify retained action records, archives, and detached head | text, json |
+| `reconc action log export` | `reconc action log export [repo] [filters] [--output PATH]` | export complete privacy-bounded Impact Lab action cases | json, file |
+| `reconc run` | `reconc run <on\|off\|reset\|status\|log>` | operate durable repository run control | text, json |
+| `reconc run on` | `reconc run on [repo] [--force] [--json]` | enable repository run control | text, json |
+| `reconc run off` | `reconc run off [repo] [--json]` | disable repository run control | text, json |
+| `reconc run reset` | `reconc run reset [repo] [--json]` | recover a clean disabled run state | text, json |
+| `reconc run status` | `reconc run status [repo] [--verbose \| --json]` | inspect run and TASK state | text, json |
+| `reconc run log` | `reconc run log [repo] [-n N] [--branch B] [--session S] [--follow] [--json]` | inspect or follow bounded run decisions | text, json |
+| `reconc task` | `reconc task <subcommand>` | inspect or mutate the typed TASK lifecycle | text, json |
+| `reconc task status` | `reconc task status [repo] [--json]` | print compact current TASK context | text, json |
+| `reconc task validate` | `reconc task validate [repo] [--json]` | validate the typed TASK control plane | text, json |
+| `reconc task check-done` | `reconc task check-done [repo] [--task ID] [--json]` | validate TASK completion evidence | text, json |
+| `reconc task new` | `reconc task new [repo] --title TEXT [--id ID] [--json]` | create a grammar-correct queued TASK | text, json |
+| `reconc task claim` | `reconc task claim <ID> [repo] [--json]` | activate one queued TASK | text, json |
+| `reconc task block` | `reconc task block [repo] --reason TEXT [--next ID \| --no-next] [--json]` | block the current TASK | text, json |
+| `reconc task resume` | `reconc task resume <ID> [repo] [--json]` | reactivate one blocked TASK | text, json |
+| `reconc task split` | `reconc task split [repo] --children ID,ID [--json]` | split a parent into pre-created children | text, json |
+| `reconc task promote` | `reconc task promote [repo] [--next ID] [--json]` | archive current TASK and activate the next | text, json |
+| `reconc task archive` | `reconc task archive [repo] [--json]` | archive the terminal current TASK | text, json |
+| `reconc task recover` | `reconc task recover [repo] [--json]` | recover an interrupted TASK transaction | text, json |
+| `reconc prune` | `reconc prune [repo] [--dry-run] [--json]` | bound runtime state and owned temporary residue | text, json |
+| `reconc session-briefing` | `reconc session-briefing [repo] [--json]` | print the versioned session and reentry delta | text, json |
+| `reconc context` | `reconc context size [repo] [flags]` | check canonical session files against a token budget | text, json |
+| `reconc context size` | `reconc context size [repo] [--limit N] [--files PATH,...] [--json]` | measure canonical session context | text, json |
+| `reconc start` | `reconc start [repo] [--minimal \| --json]` | render canonical onboarding context without mutation | text, json |
+| `reconc tui` | `reconc tui [repo] [--json] [--output PATH]` | render the terminal policy and completion dashboard | text, json, file |
+| `reconc completion` | `reconc completion <bash\|zsh\|fish>` | emit a shell completion script | script |
+| `reconc manpage` | `reconc manpage` | emit a groff man(1) page | roff |
+| `reconc version` | `reconc version [--json]` | print the build version | text, json |
+
+<!-- END RECONC GENERATED COMMAND REFERENCE -->
+
 ## Daily path
 
 Install a portable build explicitly with `PATH/TO/reconc install-cli`, or invoke

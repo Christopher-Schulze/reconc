@@ -126,6 +126,10 @@ require_text "$root/AGENTS.md" "The current source line is \`$release_line\`; th
 require_text "$root/docs/documentation.md" "The current source line is \`$release_line\`; the source version is \`v$project_version\`."
 require_text "$root/.github/releases/reconc-v$project_version.md" "# reconc v$project_version"
 require_text "$root/Makefile" "publication-audit:"
+require_text "$root/Makefile" "reference-docs-check:"
+require_text "$root/Makefile" '$(GO) run ./scripts/build/reference-docs --root . --check'
+(cd "$root" && make --no-print-directory reference-docs-check) \
+  || fail "generated reference drift check failed"
 require_text "$root/Makefile" "TEST_PARALLELISM ?= 2"
 require_text "$root/Makefile" "test-fast: check-test-parallelism"
 require_text "$root/Makefile" '$(GO) test -p=$(TEST_PARALLELISM) $(PKG)'

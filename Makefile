@@ -23,6 +23,8 @@
 #   make verify-release      -- verify dist/ against the canonical release matrix
 #   make self-host          -- run the clean-repository bootstrap golden path
 #   make publication-audit  -- scan the public tree and post-boundary history
+#   make reference-docs     -- regenerate registry-owned Markdown reference sections
+#   make reference-docs-check -- fail when generated Markdown references drift
 
 GO        ?= go
 PYTHON    ?= python3
@@ -46,7 +48,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test-fast test test-langchain test-release-trust self-host publication-audit harness-pack-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices checksums verify-release bench check-test-parallelism
+.PHONY: build test-fast test test-langchain test-release-trust self-host publication-audit harness-pack-check reference-docs reference-docs-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices checksums verify-release bench check-test-parallelism
 
 build:
 	@mkdir -p $(BINDIR)
@@ -65,6 +67,7 @@ check-test-parallelism:
 
 test-fast: check-test-parallelism
 	$(MAKE) --no-print-directory fmt-check
+	$(MAKE) --no-print-directory reference-docs-check
 	$(GO) test -p=$(TEST_PARALLELISM) $(PKG)
 	(cd harness/template && $(GO) test -p=$(TEST_PARALLELISM) ./...)
 
@@ -85,11 +88,18 @@ self-host: build
 	RECONC_BIN="$(CURDIR)/$(BINDIR)/$(BIN)" ./scripts/tests/self-hosting.sh
 
 publication-audit:
+	$(MAKE) --no-print-directory reference-docs-check
 	$(GO) run ./scripts/audits/publication --root .
 	$(MAKE) --no-print-directory harness-pack-check
 
 harness-pack-check:
 	$(GO) run ./scripts/build/harness-pack --check
+
+reference-docs:
+	$(GO) run ./scripts/build/reference-docs --root .
+
+reference-docs-check:
+	$(GO) run ./scripts/build/reference-docs --root . --check
 
 fmt-check:
 	@unformatted="$$(git ls-files -co --exclude-standard -z -- '*.go' | xargs -0 gofmt -l)"; \
