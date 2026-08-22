@@ -13,14 +13,18 @@ func TestEvidenceRotationPreservesByteBoundedCommands(t *testing.T) {
 	if _, err := InitializeSessionState(repo, "byte-rotation"); err != nil {
 		t.Fatal(err)
 	}
+	commands := make([]string, 400)
+	boundary := 0
+	bytes := 0
 	for index := 0; index < 400; index++ {
-		command := fmt.Sprintf("%04d-%s", index, strings.Repeat("x", 500))
-		if _, err := MutateSessionState(repo, "byte-rotation", func(state SessionState) SessionState {
-			return AppendCommand(state, command)
-		}); err != nil {
-			t.Fatal(err)
+		commands[index] = fmt.Sprintf("%04d-%s", index, strings.Repeat("x", 500))
+		if bytes+len(commands[index]) <= maxCommandEvidenceBytes {
+			bytes += len(commands[index])
+			boundary = index + 1
 		}
 	}
+	appendCommandValues(t, repo, "byte-rotation", commands[:boundary])
+	appendCommandValues(t, repo, "byte-rotation", commands[boundary:])
 	state, err := LoadSessionState(repo, "byte-rotation")
 	if err != nil {
 		t.Fatal(err)
@@ -42,14 +46,8 @@ func TestEvidenceRotationPreservesItemBoundedCommands(t *testing.T) {
 	if _, err := InitializeSessionState(repo, "item-rotation"); err != nil {
 		t.Fatal(err)
 	}
-	for index := 0; index < maxCommandEvidenceItems+8; index++ {
-		command := fmt.Sprintf("command-%04d", index)
-		if _, err := MutateSessionState(repo, "item-rotation", func(state SessionState) SessionState {
-			return AppendCommand(state, command)
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
+	appendCommandRange(t, repo, "item-rotation", 0, maxCommandEvidenceItems)
+	appendCommandRange(t, repo, "item-rotation", maxCommandEvidenceItems, 8)
 	state, err := LoadSessionState(repo, "item-rotation")
 	if err != nil {
 		t.Fatal(err)
@@ -199,9 +197,18 @@ func TestCommandResultIdentityPreservesNullableValues(t *testing.T) {
 
 func appendCommandRange(t *testing.T, repo, sessionID string, start, count int) {
 	t.Helper()
+	commands := make([]string, count)
+	for index := range commands {
+		commands[index] = fmt.Sprintf("command-%04d", start+index)
+	}
+	appendCommandValues(t, repo, sessionID, commands)
+}
+
+func appendCommandValues(t *testing.T, repo, sessionID string, commands []string) {
+	t.Helper()
 	if _, err := MutateSessionState(repo, sessionID, func(state SessionState) SessionState {
-		for index := start; index < start+count; index++ {
-			state = AppendCommand(state, fmt.Sprintf("command-%04d", index))
+		for _, command := range commands {
+			state = AppendCommand(state, command)
 		}
 		return state
 	}); err != nil {
@@ -214,14 +221,12 @@ func TestEvidenceSegmentChainRejectsTampering(t *testing.T) {
 	if _, err := InitializeSessionState(repo, "tamper"); err != nil {
 		t.Fatal(err)
 	}
-	for index := 0; index < maxCommandEvidenceItems+1; index++ {
-		command := fmt.Sprintf("command-%04d-%s", index, strings.Repeat("x", 20))
-		if _, err := MutateSessionState(repo, "tamper", func(state SessionState) SessionState {
-			return AppendCommand(state, command)
-		}); err != nil {
-			t.Fatal(err)
-		}
+	commands := make([]string, maxCommandEvidenceItems+1)
+	for index := range commands {
+		commands[index] = fmt.Sprintf("command-%04d-%s", index, strings.Repeat("x", 20))
 	}
+	appendCommandValues(t, repo, "tamper", commands[:maxCommandEvidenceItems])
+	appendCommandValues(t, repo, "tamper", commands[maxCommandEvidenceItems:])
 	state, err := LoadSessionState(repo, "tamper")
 	if err != nil {
 		t.Fatal(err)
@@ -252,14 +257,8 @@ func TestSessionEndRemovesOnlyVerifiedCleanSegments(t *testing.T) {
 	if _, err := InitializeSessionState(repo, "clean-segments"); err != nil {
 		t.Fatal(err)
 	}
-	for index := 0; index < maxCommandEvidenceItems+1; index++ {
-		command := fmt.Sprintf("command-%04d", index)
-		if _, err := MutateSessionState(repo, "clean-segments", func(state SessionState) SessionState {
-			return AppendCommand(state, command)
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
+	appendCommandRange(t, repo, "clean-segments", 0, maxCommandEvidenceItems)
+	appendCommandRange(t, repo, "clean-segments", maxCommandEvidenceItems, 1)
 	state, err := LoadSessionState(repo, "clean-segments")
 	if err != nil {
 		t.Fatal(err)

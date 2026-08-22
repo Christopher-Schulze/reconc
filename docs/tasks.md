@@ -2,12 +2,19 @@
 
 ## Active
 
+- [~] 258 Decompose large source owners -> tasks/258-decompose-large-source-owners.md
+
 ## Queue
+
+- [ ] 259 Generate canonical reference surfaces -> tasks/259-generate-canonical-reference-surfaces.md
+- [ ] 260 Calibrate benchmark history -> tasks/260-calibrate-benchmark-history.md
+- [ ] 261 Improve policy authoring UX -> tasks/261-improve-policy-authoring-ux.md
 
 ## Blocked
 
 ## Done
 
+- [x] 257 Consolidate expensive test fixtures -> tasks/done/257-consolidate-expensive-test-fixtures.md
 - [x] 256 Reduce verification friction and refresh toolchain trust -> tasks/done/256-reduce-verification-friction-and-refresh-toolchain-trust.md
 - [x] 255 Serialize active-session private directory publication -> tasks/done/255-serialize-active-session-private-directory-publication.md
 - [x] 254 Make RECONC_HOME override test platform-neutral -> tasks/done/254-make-reconc-home-override-test-platform-neutral.md
@@ -17,4 +24,3 @@
 - [x] 250 Close assurance semantic-validation gaps -> tasks/done/250-close-assurance-semantic-validation-gaps.md
 - [x] 249 Bound custom-runtime decoding with Go 1.27 jsontext -> tasks/done/249-bound-custom-runtime-decoding-with-go-1-27-jsontext.md
 - [x] 248 Preserve bootstrap provenance and repository transactions -> tasks/done/248-preserve-bootstrap-provenance-and-repository-transactions.md
-- [x] 247 Secure harness claims and layout portability -> tasks/done/247-secure-harness-claims-and-layout-portability.md

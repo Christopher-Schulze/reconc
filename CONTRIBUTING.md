@@ -84,6 +84,13 @@ release generation, schemas, completion, manpages, installers, or provenance
 should also run the relevant release command documented in the
 [Makefile](Makefile).
 
+Test setup may cache only immutable, authenticated inputs and must return
+detached values to each caller. Repository roots, receipts, policy locks, Git
+state, process environment, and runtime evidence remain test-owned because
+their identities or mutations are part of the behavior under test. Batch
+fixture mutations only when they cross the same production boundary and retain
+separate assertions for persistence, rotation, tampering, and cleanup.
+
 ## Pull Requests
 
 Describe the problem, the bounded solution, externally visible behavior, and
