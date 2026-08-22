@@ -118,8 +118,8 @@ func removeValidatedRegularFile(path, expectedSHA string) bool {
 	if err != nil {
 		return false
 	}
+	defer record.close()
 	if record.sha256 != expectedSHA {
-		record.close()
 		return false
 	}
 	return removeCreatedRecord(&record) == nil

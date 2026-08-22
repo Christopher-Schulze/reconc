@@ -904,23 +904,3 @@ func bootstrapTreeSnapshot(t *testing.T, root string) []string {
 	sort.Strings(entries)
 	return entries
 }
-
-func TestCopyStagedExclusiveRefusesExistingTarget(t *testing.T) {
-	dir := t.TempDir()
-	stage := filepath.Join(dir, "stage.tmp")
-	target := filepath.Join(dir, "target")
-	if err := os.WriteFile(stage, []byte("payload"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := copyStagedExclusive(stage, target, 0o644); err != nil {
-		t.Fatalf("first copy must succeed: %v", err)
-	}
-	body, err := os.ReadFile(target)
-	if err != nil || string(body) != "payload" {
-		t.Fatalf("target content mismatch: %q %v", body, err)
-	}
-	// Create-only: an existing target must fail exactly like os.Link.
-	if err := copyStagedExclusive(stage, target, 0o644); !os.IsExist(err) {
-		t.Fatalf("expected os.ErrExist for existing target, got %v", err)
-	}
-}

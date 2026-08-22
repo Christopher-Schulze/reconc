@@ -3,7 +3,6 @@ package bootstrap
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -139,34 +138,12 @@ func loadInstallReceipt(plan *Plan) (*InstallReceipt, string, error) {
 	if !linkInfo.Mode().IsRegular() || linkInfo.Mode()&os.ModeSymlink != 0 {
 		return nil, relative, fmt.Errorf("bootstrap install receipt must be a real regular file: %s", relative)
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, relative, fmt.Errorf("open bootstrap install receipt %s: %w", relative, err)
-	}
-	info, err := file.Stat()
-	if err != nil {
-		closeErr := file.Close()
-		return nil, relative, combineWriteFailure("stat bootstrap install receipt", err, closeErr, nil)
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > maxInstallReceiptBytes {
-		_ = file.Close()
+	if linkInfo.Size() > maxInstallReceiptBytes {
 		return nil, relative, fmt.Errorf("bootstrap install receipt is not a bounded regular file: %s", relative)
 	}
-	decoder := json.NewDecoder(io.LimitReader(file, maxInstallReceiptBytes+1))
-	decoder.DisallowUnknownFields()
 	var receipt InstallReceipt
-	decodeErr := decoder.Decode(&receipt)
-	var extra interface{}
-	extraErr := decoder.Decode(&extra)
-	closeErr := file.Close()
-	if decodeErr != nil {
-		return nil, relative, fmt.Errorf("decode bootstrap install receipt: %w", decodeErr)
-	}
-	if extraErr != io.EOF {
-		return nil, relative, fmt.Errorf("bootstrap install receipt must contain exactly one JSON document")
-	}
-	if closeErr != nil {
-		return nil, relative, fmt.Errorf("close bootstrap install receipt: %w", closeErr)
+	if err := decodeStrictJSONSnapshot(path, "bootstrap install receipt", maxInstallReceiptBytes, &receipt); err != nil {
+		return nil, relative, fmt.Errorf("read bootstrap install receipt %s: %w", relative, err)
 	}
 	if err := validateInstallReceipt(plan, &receipt); err != nil {
 		return nil, relative, err

@@ -286,18 +286,8 @@ func TestBootstrapTransactionHelpersPreserveCreateOnlyBoundaries(t *testing.T) {
 	}
 
 	copySource := filepath.Join(root, "copy-source")
-	copyTarget := filepath.Join(root, "copy-target")
 	if err := os.WriteFile(copySource, []byte("copy"), 0o644); err != nil {
 		t.Fatal(err)
-	}
-	if err := copyStagedExclusive(copySource, copyTarget, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := copyStagedExclusive(copySource, copyTarget, 0o600); !errors.Is(err, os.ErrExist) {
-		t.Fatalf("exclusive copy existing-target error = %v", err)
-	}
-	if err := copyStagedExclusive(filepath.Join(root, "missing"), filepath.Join(root, "unused"), 0o600); err == nil {
-		t.Fatal("exclusive copy accepted a missing source")
 	}
 
 	inline := filepath.Join(root, "inline")
@@ -414,6 +404,7 @@ func TestBootstrapTransactionValidationAndRollbackBranches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer changedRecord.close()
 	if err := os.WriteFile(changedPath, []byte("after"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -562,6 +553,12 @@ func TestCopyStagedExclusiveRootReturnsThePublishedIdentity(t *testing.T) {
 	if err != nil {
 		_ = source.Close()
 		t.Fatal(err)
+	}
+	if duplicate, duplicateErr := copyStagedExclusiveRoot(parent, source, "target", 0o640); !errors.Is(duplicateErr, os.ErrExist) {
+		if duplicate != nil {
+			_ = duplicate.Close()
+		}
+		t.Fatalf("exclusive copy existing-target error = %v", duplicateErr)
 	}
 	targetInfo, err := published.Stat()
 	targetPathInfo, pathErr := parent.Lstat("target")

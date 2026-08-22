@@ -401,6 +401,13 @@ func preflightPlanState(plan *Plan) error {
 			if err != nil {
 				return fmt.Errorf("recheck bootstrap target %s: %w", action.Path, err)
 			}
+			if len(plan.PlanDigest) >= 12 {
+				if recoveryErr := validateBootstrapRecoveryPair(plan, action, target); recoveryErr == nil {
+					continue
+				} else {
+					return fmt.Errorf("bootstrap plan is stale: %s appeared after planning and has no exact recoverable stage: %w", action.Path, recoveryErr)
+				}
+			}
 			return fmt.Errorf("bootstrap plan is stale: %s appeared after planning", action.Path)
 		}
 		if err != nil {
@@ -423,10 +430,48 @@ func preflightPlanState(plan *Plan) error {
 	return nil
 }
 
+func validateBootstrapRecoveryPair(plan *Plan, action Action, target string) (resultErr error) {
+	parent, parentInfo, targetName, err := openCreatedParent(target)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, parent.Close())
+	}()
+	stageName := "." + targetName + ".reconc-bootstrap-" + plan.PlanDigest[:12] + ".tmp"
+	stagePath := filepath.Join(filepath.Dir(target), stageName)
+	stage, _, err := openCreatedFile(parent, stageName, stagePath)
+	if err != nil {
+		return err
+	}
+	stageSHA, _, stageErr := hashOpenedCreatedFile(stage, stagePath)
+	stageCloseErr := stage.Close()
+	if stageErr != nil || stageCloseErr != nil || stageSHA != action.DesiredSHA256 {
+		if stageErr == nil && stageSHA != action.DesiredSHA256 {
+			stageErr = fmt.Errorf("staging digest is %s, expected %s", stageSHA, action.DesiredSHA256)
+		}
+		return errors.Join(stageErr, stageCloseErr)
+	}
+	published, _, err := openCreatedFile(parent, targetName, target)
+	if err != nil {
+		return err
+	}
+	publishedSHA, _, publishedErr := hashOpenedCreatedFile(published, target)
+	publishedCloseErr := published.Close()
+	if publishedErr != nil || publishedCloseErr != nil || publishedSHA != action.DesiredSHA256 {
+		if publishedErr == nil && publishedSHA != action.DesiredSHA256 {
+			publishedErr = fmt.Errorf("published digest is %s, expected %s", publishedSHA, action.DesiredSHA256)
+		}
+		return errors.Join(publishedErr, publishedCloseErr)
+	}
+	return validateCreatedParent(parent, parentInfo, target)
+}
+
 type publicationHooks struct {
-	beforeChmod   func(string) error
-	beforeHash    func(string) error
-	beforeCleanup func(string) error
+	beforeParentValidation func(string) error
+	beforeChmod            func(string) error
+	beforeHash             func(string) error
+	beforeCleanup          func(string) error
 }
 
 func publishArtifact(root string, artifact desiredArtifact, relative, expectedSHA, planDigest string) (createdRecord, []createdDirectory, error) {
@@ -454,9 +499,13 @@ func publishArtifactWithHooks(root string, artifact desiredArtifact, relative, e
 	}()
 	stageName := "." + name + ".reconc-bootstrap-" + planDigest[:12] + ".tmp"
 	stagePath := filepath.Join(filepath.Dir(target), stageName)
-	file, err := parent.OpenFile(stageName, os.O_CREATE|os.O_EXCL|os.O_RDWR, os.FileMode(artifact.mode))
+	file, recovered, err := openBootstrapStage(parent, parentInfo, name, target, stageName, stagePath, expectedSHA, os.FileMode(artifact.mode))
 	if err != nil {
 		return createdRecord{}, createdDirs, fmt.Errorf("create bootstrap staging file for %s: %w", relative, err)
+	}
+	if recovered != nil {
+		closeParent = false
+		return *recovered, createdDirs, nil
 	}
 	stageOpen := true
 	cleanupStage := func() error {
@@ -529,10 +578,20 @@ func publishArtifactWithHooks(root string, artifact desiredArtifact, relative, e
 		parent: parent, parentInfo: parentInfo, name: name,
 	}
 	closeParent = false
-	if err := validateCreatedParent(parent, parentInfo, target); err != nil {
+	var parentValidationErr error
+	if hooks.beforeParentValidation != nil {
+		parentValidationErr = hooks.beforeParentValidation(target)
+	}
+	if parentValidationErr == nil {
+		parentValidationErr = validateCreatedParent(parent, parentInfo, target)
+	}
+	if parentValidationErr != nil {
 		cleanupErr := cleanupStage()
-		_ = record.close()
-		return createdRecord{}, createdDirs, combineWriteFailure("verify published bootstrap artifact "+relative, err, nil, cleanupErr)
+		removeTargetErr := removeCreatedRecord(&record)
+		if removeTargetErr == nil {
+			record = createdRecord{}
+		}
+		return record, createdDirs, combineWriteFailure("verify published bootstrap artifact "+relative, parentValidationErr, removeTargetErr, cleanupErr)
 	}
 	var modeErr error
 	if hooks.beforeChmod != nil {
@@ -600,6 +659,139 @@ func publishArtifactWithHooks(root string, artifact desiredArtifact, relative, e
 	return record, createdDirs, nil
 }
 
+// openBootstrapStage is called only below the repository transaction lock. A
+// deterministic stage left by a crashed transaction is recoverable only when
+// its exact path, regular-file identity, and content digest match the current
+// publication. Ambiguous residue is preserved for manual inspection.
+func openBootstrapStage(
+	parent *os.Root,
+	parentInfo os.FileInfo,
+	targetName, targetPath, stageName, stagePath, expectedSHA string,
+	mode os.FileMode,
+) (*os.File, *createdRecord, error) {
+	file, err := parent.OpenFile(stageName, os.O_CREATE|os.O_EXCL|os.O_RDWR, mode)
+	if err == nil {
+		return file, nil, nil
+	}
+	if !errors.Is(err, os.ErrExist) {
+		return nil, nil, err
+	}
+	recovered, recoverErr := recoverBootstrapStage(
+		parent, parentInfo, targetName, targetPath, stageName, stagePath, expectedSHA, mode,
+	)
+	if recoverErr != nil {
+		return nil, nil, recoverErr
+	}
+	if recovered != nil {
+		return nil, recovered, nil
+	}
+	file, err = parent.OpenFile(stageName, os.O_CREATE|os.O_EXCL|os.O_RDWR, mode)
+	if err != nil {
+		return nil, nil, fmt.Errorf("recreate after exact stale-stage recovery: %w", err)
+	}
+	return file, nil, nil
+}
+
+func recoverBootstrapStage(
+	parent *os.Root,
+	parentInfo os.FileInfo,
+	targetName, targetPath, stageName, stagePath, expectedSHA string,
+	mode os.FileMode,
+) (*createdRecord, error) {
+	if err := validateCreatedParent(parent, parentInfo, targetPath); err != nil {
+		return nil, fmt.Errorf("refuse stale-stage recovery after parent replacement: %w", err)
+	}
+	stage, _, err := openCreatedFile(parent, stageName, stagePath)
+	if err != nil {
+		return nil, staleBootstrapStageError(stagePath, err)
+	}
+	stageSHA, stableStageInfo, err := hashOpenedCreatedFile(stage, stagePath)
+	if err != nil || stageSHA != expectedSHA {
+		if err == nil {
+			err = fmt.Errorf("content digest is %s, expected %s", stageSHA, expectedSHA)
+		}
+		return nil, errors.Join(staleBootstrapStageError(stagePath, err), stage.Close())
+	}
+	stageInfo := stableStageInfo
+
+	targetPathInfo, targetErr := parent.Lstat(targetName)
+	if errors.Is(targetErr, os.ErrNotExist) {
+		closeErr := stage.Close()
+		if closeErr != nil {
+			return nil, staleBootstrapStageError(stagePath, closeErr)
+		}
+		currentStage, inspectErr := parent.Lstat(stageName)
+		if inspectErr != nil || !sameCreatedFile(stageInfo, currentStage) {
+			if inspectErr == nil && !sameCreatedFile(stageInfo, currentStage) {
+				inspectErr = errors.New("staging file changed identity before recovery")
+			}
+			return nil, staleBootstrapStageError(stagePath, inspectErr)
+		}
+		if err := parent.Remove(stageName); err != nil {
+			return nil, staleBootstrapStageError(stagePath, fmt.Errorf("remove exact residue: %w", err))
+		}
+		return nil, nil
+	}
+	if targetErr != nil {
+		return nil, errors.Join(staleBootstrapStageError(stagePath, targetErr), stage.Close())
+	}
+	if targetPathInfo.Mode()&os.ModeSymlink != 0 || !targetPathInfo.Mode().IsRegular() {
+		return nil, errors.Join(staleBootstrapStageError(stagePath, errors.New("published target is not a real regular file")), stage.Close())
+	}
+	target, _, err := openCreatedFile(parent, targetName, targetPath)
+	if err != nil {
+		return nil, errors.Join(staleBootstrapStageError(stagePath, err), stage.Close())
+	}
+	closeBoth := func(primary error) (*createdRecord, error) {
+		return nil, errors.Join(staleBootstrapStageError(stagePath, primary), target.Close(), stage.Close())
+	}
+	targetSHA, _, err := hashOpenedCreatedFile(target, targetPath)
+	if err != nil || targetSHA != expectedSHA {
+		if err == nil {
+			err = fmt.Errorf("published target digest is %s, expected %s", targetSHA, expectedSHA)
+		}
+		return closeBoth(err)
+	}
+	if err := target.Chmod(mode); err != nil {
+		return closeBoth(fmt.Errorf("restore published target mode: %w", err))
+	}
+	targetSHA, stableTargetInfo, err := hashOpenedCreatedFile(target, targetPath)
+	if err != nil || targetSHA != expectedSHA {
+		if err == nil {
+			err = errors.New("published target changed while restoring its mode")
+		}
+		return closeBoth(err)
+	}
+	if err := stage.Close(); err != nil {
+		return nil, errors.Join(staleBootstrapStageError(stagePath, err), target.Close())
+	}
+	currentStage, err := parent.Lstat(stageName)
+	if err != nil || !sameCreatedFile(stageInfo, currentStage) {
+		if err == nil {
+			err = errors.New("staging file changed identity before recovery")
+		}
+		return nil, errors.Join(staleBootstrapStageError(stagePath, err), target.Close())
+	}
+	if err := parent.Remove(stageName); err != nil {
+		return nil, errors.Join(staleBootstrapStageError(stagePath, fmt.Errorf("remove exact residue: %w", err)), target.Close())
+	}
+	record := &createdRecord{
+		path: targetPath, sha256: expectedSHA, file: target, info: stableTargetInfo,
+		parent: parent, parentInfo: parentInfo, name: targetName,
+	}
+	if err := validateCreatedTarget(record); err != nil {
+		return nil, errors.Join(staleBootstrapStageError(stagePath, err), record.close())
+	}
+	return record, nil
+}
+
+func staleBootstrapStageError(path string, cause error) error {
+	return fmt.Errorf(
+		"reserved bootstrap staging residue is ambiguous at %s; inspect it and remove it manually only after confirming no repository transaction is active: %w",
+		path, cause,
+	)
+}
+
 func copyStagedExclusiveRoot(parent *os.Root, source *os.File, target string, mode os.FileMode) (*os.File, error) {
 	if _, err := source.Seek(0, io.SeekStart); err != nil {
 		return nil, err
@@ -618,36 +810,6 @@ func copyStagedExclusiveRoot(parent *os.Root, source *os.File, target string, mo
 		return cleanup(err)
 	}
 	return out, nil
-}
-
-// copyStagedExclusive publishes the staged file to target with the same
-// create-only semantics as os.Link: an existing target fails with
-// os.ErrExist and is never overwritten.
-func copyStagedExclusive(stage, target string, mode os.FileMode) error {
-	source, err := os.Open(stage)
-	if err != nil {
-		return err
-	}
-	defer source.Close()
-	out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, source); err != nil {
-		_ = out.Close()
-		_ = os.Remove(target)
-		return err
-	}
-	if err := out.Sync(); err != nil {
-		_ = out.Close()
-		_ = os.Remove(target)
-		return err
-	}
-	if err := out.Close(); err != nil {
-		_ = os.Remove(target)
-		return err
-	}
-	return nil
 }
 
 func writeArtifactBody(target *os.File, artifact desiredArtifact) error {
@@ -796,16 +958,15 @@ func captureCreatedDirectory(path string) (createdDirectory, error) {
 }
 
 func removeCreatedRecord(record *createdRecord) error {
-	defer record.close()
 	if record.parent == nil || record.file == nil || record.info == nil {
 		if _, err := os.Lstat(record.path); errors.Is(err, os.ErrNotExist) {
-			return nil
+			return record.close()
 		}
 		return fmt.Errorf("created file identity is unavailable")
 	}
 	current, err := record.parent.Lstat(record.name)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return record.close()
 	}
 	if err != nil {
 		return fmt.Errorf("inspect created file: %w", err)
@@ -831,7 +992,7 @@ func removeCreatedRecord(record *createdRecord) error {
 	if err := record.parent.Remove(record.name); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	return nil
+	return record.close()
 }
 
 func captureCreatedRecord(path string) (createdRecord, error) {

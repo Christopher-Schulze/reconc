@@ -591,7 +591,13 @@ checksum verification, and transaction ownership capture. Rollback reuses
 that descriptor and an opened parent identity, revalidates both before rooted
 removal, and preserves any externally replaced target. Hard-link publication
 and the exclusive-copy fallback share the same descriptor and cleanup
-contract. On failure, rollback removes only transaction-owned files whose
+contract. A retry under the same repository transaction lock recovers only the
+exact reserved stage for the same plan and target when its regular-file
+identity and complete content digest match. If that stage proves an already
+published exact target, the retry adopts its open identity and completes the
+transaction. Changed, foreign, similarly named, linked, or otherwise ambiguous
+residue is preserved with manual recovery guidance. On failure, rollback
+removes only transaction-owned files whose
 file identity and checksum still match, plus transaction-created directories
 that are still empty.
 Verification is read-only and checks artifacts, lockfile freshness, selected

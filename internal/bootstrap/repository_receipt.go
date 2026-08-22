@@ -3,7 +3,6 @@ package bootstrap
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -129,35 +128,12 @@ func LoadRepositoryReceipt(repoRoot string) (*RepositoryReceipt, error) {
 	if !linkInfo.Mode().IsRegular() || linkInfo.Mode()&os.ModeSymlink != 0 {
 		return nil, fmt.Errorf("repository receipt must be a real regular file")
 	}
-	file, err := os.Open(receiptPath)
-	if err != nil {
-		return nil, fmt.Errorf("open repository receipt: %w", err)
-	}
-	info, err := file.Stat()
-	if err != nil {
-		closeErr := file.Close()
-		return nil, combineWriteFailure("stat repository receipt", err, closeErr, nil)
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
-		info.Size() <= 0 || info.Size() > maxRepositoryReceiptBytes {
-		_ = file.Close()
+	if linkInfo.Size() <= 0 || linkInfo.Size() > maxRepositoryReceiptBytes {
 		return nil, fmt.Errorf("repository receipt must be a bounded regular file")
 	}
-	decoder := json.NewDecoder(io.LimitReader(file, maxRepositoryReceiptBytes+1))
-	decoder.DisallowUnknownFields()
 	var receipt RepositoryReceipt
-	decodeErr := decoder.Decode(&receipt)
-	var extra interface{}
-	extraErr := decoder.Decode(&extra)
-	closeErr := file.Close()
-	if decodeErr != nil {
-		return nil, fmt.Errorf("decode repository receipt: %w", decodeErr)
-	}
-	if extraErr != io.EOF {
-		return nil, fmt.Errorf("repository receipt must contain exactly one JSON document")
-	}
-	if closeErr != nil {
-		return nil, fmt.Errorf("close repository receipt: %w", closeErr)
+	if err := decodeStrictJSONSnapshot(receiptPath, "repository receipt", maxRepositoryReceiptBytes, &receipt); err != nil {
+		return nil, fmt.Errorf("read repository receipt: %w", err)
 	}
 	if err := ValidateRepositoryReceipt(&receipt); err != nil {
 		return nil, err

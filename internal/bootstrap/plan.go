@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -185,41 +184,12 @@ func LoadPlan(path string) (*Plan, error) {
 	if !linkInfo.Mode().IsRegular() || linkInfo.Mode()&os.ModeSymlink != 0 {
 		return nil, fmt.Errorf("bootstrap plan must be a real regular file")
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("open bootstrap plan: %w", err)
-	}
-	info, err := file.Stat()
-	if err != nil {
-		closeErr := file.Close()
-		return nil, combineWriteFailure("stat bootstrap plan", err, closeErr, nil)
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		_ = file.Close()
-		return nil, fmt.Errorf("bootstrap plan is not a regular file")
-	}
-	if info.Size() > maxPlanBytes {
-		closeErr := file.Close()
-		if closeErr != nil {
-			return nil, fmt.Errorf("bootstrap plan exceeds %d bytes; close: %w", maxPlanBytes, closeErr)
-		}
+	if linkInfo.Size() > maxPlanBytes {
 		return nil, fmt.Errorf("bootstrap plan exceeds %d bytes", maxPlanBytes)
 	}
-	decoder := json.NewDecoder(io.LimitReader(file, maxPlanBytes))
-	decoder.DisallowUnknownFields()
 	var plan Plan
-	decodeErr := decoder.Decode(&plan)
-	var extra interface{}
-	extraErr := decoder.Decode(&extra)
-	closeErr := file.Close()
-	if decodeErr != nil {
-		return nil, fmt.Errorf("decode bootstrap plan: %w", decodeErr)
-	}
-	if extraErr != io.EOF {
-		return nil, fmt.Errorf("bootstrap plan must contain exactly one JSON document")
-	}
-	if closeErr != nil {
-		return nil, fmt.Errorf("close bootstrap plan: %w", closeErr)
+	if err := decodeStrictJSONSnapshot(path, "bootstrap plan", maxPlanBytes, &plan); err != nil {
+		return nil, fmt.Errorf("read bootstrap plan: %w", err)
 	}
 	if err := ValidatePlan(&plan); err != nil {
 		return nil, err

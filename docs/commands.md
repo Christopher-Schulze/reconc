@@ -551,7 +551,11 @@ Repository targets are create-only. Exact files remain unchanged; any drift
 creates hash-addressed candidate files and prevents all normal target installs.
 Stale plans fail before publication and print the full copy-paste
 `bootstrap plan ... --replace-output` command reconstructed from the saved
-selection. Failures roll back only transaction-owned
+selection. A process crash may leave the exact hidden stage for one target.
+The next apply, under the same repository lock, removes or adopts that residue
+only when its reserved name, regular-file identity, complete digest, plan, and
+target all match. Ambiguous residue is retained and reported with manual
+inspection guidance. Failures roll back only transaction-owned
 files whose identity and checksum still match. Status `drift` exits 1.
 Successful reports contain one compact created/preserved/drifted/skipped and
 installed/configured/live summary, a tamper-evident receipt path, and exactly

@@ -272,35 +272,12 @@ func LoadSyncPlan(planPath string) (*SyncPlan, error) {
 	if !linkInfo.Mode().IsRegular() || linkInfo.Mode()&os.ModeSymlink != 0 {
 		return nil, fmt.Errorf("repository sync plan must be a real regular file")
 	}
-	file, err := os.Open(planPath)
-	if err != nil {
-		return nil, fmt.Errorf("open repository sync plan: %w", err)
-	}
-	info, err := file.Stat()
-	if err != nil {
-		closeErr := file.Close()
-		return nil, combineWriteFailure("stat repository sync plan", err, closeErr, nil)
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
-		info.Size() <= 0 || info.Size() > maxSyncPlanBytes {
-		_ = file.Close()
+	if linkInfo.Size() <= 0 || linkInfo.Size() > maxSyncPlanBytes {
 		return nil, fmt.Errorf("repository sync plan must be a bounded regular file")
 	}
-	decoder := json.NewDecoder(io.LimitReader(file, maxSyncPlanBytes+1))
-	decoder.DisallowUnknownFields()
 	var plan SyncPlan
-	decodeErr := decoder.Decode(&plan)
-	var extra interface{}
-	extraErr := decoder.Decode(&extra)
-	closeErr := file.Close()
-	if decodeErr != nil {
-		return nil, fmt.Errorf("decode repository sync plan: %w", decodeErr)
-	}
-	if extraErr != io.EOF {
-		return nil, fmt.Errorf("repository sync plan must contain exactly one JSON document")
-	}
-	if closeErr != nil {
-		return nil, fmt.Errorf("close repository sync plan: %w", closeErr)
+	if err := decodeStrictJSONSnapshot(planPath, "repository sync plan", maxSyncPlanBytes, &plan); err != nil {
+		return nil, fmt.Errorf("read repository sync plan: %w", err)
 	}
 	if err := ValidateSyncPlan(&plan); err != nil {
 		return nil, err

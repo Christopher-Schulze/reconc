@@ -93,7 +93,8 @@ while reducing allocation volume and repeated computation.
   Govulncheck v1.7.0 for both modules with no vulnerabilities; publication and
   harness-pack audits; release-trust tamper cases; self-hosting; calibrated
   benchmark comparison; and the hash-pinned Python 3.13.14 LangChain boundary.
-  Coverage is 82.6951% for the root module and 84.0628% for the template.
+  Coverage for both modules was retained as review evidence without a numeric
+  pass/fail policy.
 - The first local LangChain command used the machine's default Python 3.14 and
   correctly rejected its missing pinned packages. The same proof then passed
   in a disposable Python 3.13.14 environment installed from the hash-pinned
