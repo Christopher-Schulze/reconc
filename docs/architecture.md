@@ -1203,7 +1203,11 @@ publication is rebuilt only after recovery verifies the retained chain.
 No production path calls the raw blocking `filelock.Lock` or `RLock` APIs.
 Immediate probes use `TryLock`/`TryRLock`; operational locks use the bounded
 `LockContext`/`RLockContext` loop and return typed cancellation or timeout
-errors. The legacy APIs without a context use the explicit ten-second default;
+errors. Unix lock, try-lock, and unlock syscalls retry `EINTR`; context-bound
+acquisition checks cancellation and deadline between interrupted attempts while
+contention still waits on the existing polling interval. Windows lock semantics
+are unchanged. The legacy APIs without a context use the explicit ten-second
+default;
 the hook-runtime state boundary uses a thirty-second contention budget because
 its concurrent writers perform bounded JSON/state work under the lock.
 
@@ -1213,6 +1217,8 @@ TASK lifecycle, command-proof, compiler, and bootstrap locks are independent
 transaction boundaries and are never acquired while holding one of those
 other class locks. Command-proof retention runs only after its capture lock is
 released. Unlock and close errors are joined with the operation result.
+Directory durability helpers likewise join fsync and close failures, so a close
+failure can never replace the original durability failure.
 
 ### Incremental Stop decision cache
 

@@ -64,20 +64,20 @@ func acquireContext(ctx context.Context, file *os.File, timeout time.Duration, s
 	if err := ctx.Err(); err != nil {
 		return nil, &AcquireError{Kind: errors.Join(ErrLockCanceled, err), Timeout: timeout}
 	}
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
+	boundedContext, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		var unlock func() error
-		var err error
-		if shared {
-			unlock, err = TryRLock(file)
-		} else {
-			unlock, err = TryLock(file)
-		}
+		unlock, err := tryLockContext(boundedContext, file, shared)
 		if err == nil {
 			return unlock, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, &AcquireError{Kind: errors.Join(ErrLockCanceled, err), Timeout: timeout}
+		}
+		if errors.Is(boundedContext.Err(), context.DeadlineExceeded) {
+			return nil, &AcquireError{Kind: ErrLockTimeout, Timeout: timeout}
 		}
 		if !IsContended(err) {
 			return nil, err
@@ -85,7 +85,10 @@ func acquireContext(ctx context.Context, file *os.File, timeout time.Duration, s
 		select {
 		case <-ctx.Done():
 			return nil, &AcquireError{Kind: errors.Join(ErrLockCanceled, ctx.Err()), Timeout: timeout}
-		case <-deadline.C:
+		case <-boundedContext.Done():
+			if err := ctx.Err(); err != nil {
+				return nil, &AcquireError{Kind: errors.Join(ErrLockCanceled, err), Timeout: timeout}
+			}
 			return nil, &AcquireError{Kind: ErrLockTimeout, Timeout: timeout}
 		case <-ticker.C:
 		}

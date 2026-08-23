@@ -2,19 +2,24 @@
 
 package actionstate
 
-import "os"
+import (
+	"errors"
+	"os"
+)
+
+type directorySyncCloser interface {
+	Sync() error
+	Close() error
+}
 
 func syncStateDirectory(path string) error {
 	directory, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	if err := directory.Sync(); err != nil {
-		closeErr := directory.Close()
-		if closeErr != nil {
-			return closeErr
-		}
-		return err
-	}
-	return directory.Close()
+	return syncAndCloseStateDirectory(directory)
+}
+
+func syncAndCloseStateDirectory(directory directorySyncCloser) error {
+	return errors.Join(directory.Sync(), directory.Close())
 }

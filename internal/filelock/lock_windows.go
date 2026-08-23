@@ -3,6 +3,7 @@
 package filelock
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -42,6 +43,13 @@ func RLock(file *os.File) (func() error, error) {
 // TryRLock takes a shared lock without waiting for an exclusive owner.
 func TryRLock(file *os.File) (func() error, error) {
 	return lock(file, lockfileFailImmediately)
+}
+
+func tryLockContext(_ context.Context, file *os.File, shared bool) (func() error, error) {
+	if shared {
+		return TryRLock(file)
+	}
+	return TryLock(file)
 }
 
 // IsContended reports whether a non-blocking lock failed only because another

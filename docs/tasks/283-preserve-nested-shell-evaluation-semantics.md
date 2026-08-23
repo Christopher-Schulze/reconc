@@ -32,7 +32,7 @@ reporting the input as complete.
 
 ## Sub-Tasks
 
-- [ ] Specify the exact static word representation needed for nested eval reconstruction
+- [~] Specify the exact static word representation needed for nested eval reconstruction
 - [ ] Preserve post-expansion word bytes separately from display rendering
 - [ ] Reconstruct and parse eval bodies without lossy whitespace joining
 - [ ] Keep every dynamic/ambiguous path explicitly uncertain

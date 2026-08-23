@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/pathidentity"
@@ -185,14 +186,11 @@ func directoryComponents(path string) (string, []string, error) {
 
 func splitComponents(path string) []string {
 	parts := []string{}
-	for _, part := range filepath.SplitList(path) {
-		_ = part
-	}
 	for path != "." && path != "" {
 		directory, name := filepath.Split(path)
 		name = filepath.Clean(name)
 		if name != "" && name != "." && name != string(filepath.Separator) {
-			parts = append([]string{name}, parts...)
+			parts = append(parts, name)
 		}
 		trimmed := filepath.Clean(directory)
 		if trimmed == path {
@@ -200,6 +198,7 @@ func splitComponents(path string) []string {
 		}
 		path = trimmed
 	}
+	slices.Reverse(parts)
 	return parts
 }
 

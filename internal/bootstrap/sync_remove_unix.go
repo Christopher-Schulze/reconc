@@ -3,6 +3,7 @@
 package bootstrap
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 )
@@ -12,9 +13,5 @@ func syncRemovalParent(path string) error {
 	if err != nil {
 		return err
 	}
-	if err := directory.Sync(); err != nil {
-		_ = directory.Close()
-		return err
-	}
-	return directory.Close()
+	return errors.Join(directory.Sync(), directory.Close())
 }

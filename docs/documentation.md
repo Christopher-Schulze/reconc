@@ -2881,7 +2881,7 @@ summarizes the core runtime responsibilities:
 - `internal/runtime/agentsession`: hook-runtime session state and event handling
 - `internal/audit`: opt-in SHA-256-linked decision log, detached head, verification, and rotation
 - `internal/atomicfile`: atomic write-on-change publication
-- `internal/filelock`: Unix/Windows cross-process file locking
+- `internal/filelock`: Unix/Windows cross-process file locking with bounded context acquisition and Unix interrupted-syscall retry
 - `internal/grokacp`: strict Grok ACP client plus Unix-socket and Windows named-pipe leader steering/probing
 - `internal/jsonl`: bounded, locked JSONL append and archive rings
 - `internal/pathidentity`: Unix symlink and Windows reparse-point/8.3 filesystem identity

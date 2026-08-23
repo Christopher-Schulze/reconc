@@ -31,14 +31,14 @@ semantics should be exact before further callers build on them.
 
 ## Sub-Tasks
 
-- [~] Define retryable syscall errors for each platform lock implementation
-- [ ] Retry Unix lock and unlock on `EINTR` without altering contention semantics
-- [ ] Join directory sync and close errors consistently
-- [ ] Remove the dead path-list loop from private component parsing
-- [ ] Audit touched callers for exact close/unlock error propagation
-- [ ] Add syscall fault-injection and cross-platform path tests
-- [ ] Update low-level filesystem contract documentation if behavior is user-visible
-- [ ] Run platform, race, durability, and complete repository verification
+- [x] Define retryable syscall errors for each platform lock implementation
+- [x] Retry Unix lock and unlock on `EINTR` without altering contention semantics
+- [x] Join directory sync and close errors consistently
+- [x] Remove the dead path-list loop from private component parsing
+- [x] Audit touched callers for exact close/unlock error propagation
+- [x] Add syscall fault-injection and cross-platform path tests
+- [x] Update low-level filesystem contract documentation if behavior is user-visible
+- [x] Run platform, race, durability, and complete repository verification
 
 ## Notes
 
@@ -53,6 +53,24 @@ semantics should be exact before further callers build on them.
 - Repeated archive hashing during JSONL rotation and repeated audit-layout
   security stats are not included. They currently validate recovery/security
   boundaries; optimize them only from measured evidence with equivalent proof.
+- Unix blocking, non-blocking, shared, exclusive, and unlock operations now
+  share one `EINTR` retry primitive. Context-bound acquisition passes its
+  deadline into that primitive and reclassifies parent cancellation versus
+  timeout exactly; contention still uses the existing 5 ms poll cadence.
+- Action-state directory publication joins fsync and close errors through a
+  narrow interface-tested helper. The two adjacent helpers with the same
+  proven masking pattern, bootstrap removal and managed hook artifact parent
+  sync, received the same surgical join. Existing policy-proof and atomic-file
+  helpers already joined both failures.
+- Private component parsing removed the unrelated `SplitList` loop and now
+  appends then reverses once, avoiding both dead path-list semantics and
+  quadratic slice prepending. Unix separator/colon cases plus Windows
+  drive/UNC roots compile under their native build constraints.
+- Verification passed: syscall fault injection for intermittent/repeated
+  `EINTR`, contention and cancellation/deadline; dual fsync/close failures;
+  focused package and Race tests; Windows/Linux cross-compilation; complete
+  fast repository tests; publication/harness audits; Vet; Staticcheck; and
+  self-hosting.
 
 ## Deviations
 
