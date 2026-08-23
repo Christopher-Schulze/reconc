@@ -33,6 +33,21 @@ func TestDisabledRunEventsCreateNoStateFiles(t *testing.T) {
 	}
 }
 
+func TestBestEffortStopDecisionFailureIsBoundedDiagnostic(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(runDecisionLogPathResolved(repo), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err := logRunStopDecision(repo, "interrupt_release", &HookPayload{SessionID: "session"}, "codex", repositoryRunState{}, repositoryRunState{}, false, 0)
+	if err == nil {
+		t.Fatal("decision append unexpectedly succeeded against a directory")
+	}
+	diagnostic := bestEffortStopDecisionDiagnostic(err)
+	if !strings.HasPrefix(diagnostic, "reconc run decision log (warn): ") || len(diagnostic) > 4096+len("reconc run decision log (warn): ") {
+		t.Fatalf("unbounded or missing diagnostic: %q", diagnostic)
+	}
+}
+
 func TestUnchangedRepositoryRunStateIsNotRewritten(t *testing.T) {
 	repo := t.TempDir()
 	state := repositoryRunState{Enabled: true}

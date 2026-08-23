@@ -18,6 +18,7 @@ import (
 const (
 	stopGenerationVersion       = "stop-generation-v2"
 	maxStopDecisionCacheEntries = 64
+	maxVerifiedEvidenceBytes    = 16 << 20
 )
 
 // StopDecisionCache is the session-owned worker's conservative unchanged-state
@@ -25,9 +26,12 @@ const (
 // path. Entries are memory-only: durable report ownership remains in the
 // atomic session state and report files.
 type StopDecisionCache struct {
-	mu      sync.Mutex
-	entries map[string]stopDecisionCacheEntry
-	order   []string
+	mu            sync.Mutex
+	entries       map[string]stopDecisionCacheEntry
+	order         []string
+	evidence      map[string]verifiedEvidencePrefix
+	evidenceOrder []string
+	evidenceBytes int
 }
 
 type stopDecisionCacheEntry struct {
@@ -83,6 +87,7 @@ type stopGenerationCapture struct {
 // phase and consumers compare complete snapshots rather than mixing fields
 // observed at different times.
 type stopPolicyAttemptSnapshot struct {
+	Boundary         stopPolicyCaptureBoundary
 	State            SessionState
 	EvidenceRevision string
 	Git              stopPolicyGitSnapshot
@@ -92,7 +97,16 @@ type stopPolicyAttemptSnapshot struct {
 	Scan             stopPolicyLockScan
 }
 
-func captureStopPolicyAttemptSnapshot(
+type stopPolicyCaptureBoundary string
+
+const (
+	stopCaptureBeforeEvaluation       stopPolicyCaptureBoundary = "before_evaluation"
+	stopCaptureAfterEvaluation        stopPolicyCaptureBoundary = "after_evaluation"
+	stopCaptureBeforeCachePublication stopPolicyCaptureBoundary = "before_cache_publication"
+)
+
+func captureStopPolicyBoundarySnapshot(
+	boundary stopPolicyCaptureBoundary,
 	root string,
 	state SessionState,
 	evidenceRevision string,
@@ -100,13 +114,28 @@ func captureStopPolicyAttemptSnapshot(
 	gitSnapshot stopPolicyGitSnapshot,
 	scanCache *stopPolicyScanCache,
 ) stopPolicyAttemptSnapshot {
-	return captureStopPolicyAttemptSnapshotWithSourceIdentity(
-		root, state, evidenceRevision, taskSnapshot, gitSnapshot, scanCache,
+	return captureStopPolicyAttemptSnapshotWithSourceIdentityAtBoundary(
+		boundary, root, state, evidenceRevision, taskSnapshot, gitSnapshot, scanCache,
 		stopPolicySourceIdentity,
 	)
 }
 
 func captureStopPolicyAttemptSnapshotWithSourceIdentity(
+	root string,
+	state SessionState,
+	evidenceRevision string,
+	taskSnapshot stopTaskSnapshot,
+	gitSnapshot stopPolicyGitSnapshot,
+	scanCache *stopPolicyScanCache,
+	loadSourceIdentity func(string) (string, int, error),
+) stopPolicyAttemptSnapshot {
+	return captureStopPolicyAttemptSnapshotWithSourceIdentityAtBoundary(
+		stopCaptureBeforeEvaluation, root, state, evidenceRevision, taskSnapshot, gitSnapshot, scanCache, loadSourceIdentity,
+	)
+}
+
+func captureStopPolicyAttemptSnapshotWithSourceIdentityAtBoundary(
+	boundary stopPolicyCaptureBoundary,
 	root string,
 	state SessionState,
 	evidenceRevision string,
@@ -121,7 +150,7 @@ func captureStopPolicyAttemptSnapshotWithSourceIdentity(
 		count = 0
 	}
 	return stopPolicyAttemptSnapshot{
-		State: state, EvidenceRevision: evidenceRevision, Git: gitSnapshot,
+		Boundary: boundary, State: state, EvidenceRevision: evidenceRevision, Git: gitSnapshot,
 		Task: taskSnapshot, PolicyDigest: digest, PolicyCount: count,
 		Scan: scanCache.get(root, state.WritePaths),
 	}
@@ -139,7 +168,10 @@ func (s stopPolicyAttemptSnapshot) generationCapture() stopGenerationCapture {
 // worker. It has no process-global state and opens no watcher or background
 // lifecycle.
 func NewStopDecisionCache() *StopDecisionCache {
-	return &StopDecisionCache{entries: make(map[string]stopDecisionCacheEntry)}
+	return &StopDecisionCache{
+		entries:  make(map[string]stopDecisionCacheEntry),
+		evidence: make(map[string]verifiedEvidencePrefix),
+	}
 }
 
 func captureStopTaskSnapshot(root string) (stopTaskSnapshot, error) {

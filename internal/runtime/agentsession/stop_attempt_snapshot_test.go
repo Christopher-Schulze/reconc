@@ -21,6 +21,9 @@ func TestStopPolicyAttemptSnapshotCapturesSourceIdentityOncePerPhase(t *testing.
 	if loads != 1 {
 		t.Fatalf("before phase loaded policy source identity %d times, want 1", loads)
 	}
+	if before.Boundary != stopCaptureBeforeEvaluation {
+		t.Fatalf("before boundary = %q", before.Boundary)
+	}
 	for range 3 {
 		input := stopPolicyFingerprintInputForSnapshotWithScan(
 			"", state, before.Git, before.Task, before.generationCapture(), scanCache,
@@ -33,8 +36,8 @@ func TestStopPolicyAttemptSnapshotCapturesSourceIdentityOncePerPhase(t *testing.
 		t.Fatalf("before phase consumers recaptured policy source identity: loads=%d", loads)
 	}
 
-	after := captureStopPolicyAttemptSnapshotWithSourceIdentity(
-		"", state, "revision-after", stopTaskSnapshot{}, stopPolicyGitSnapshot{}, scanCache,
+	after := captureStopPolicyAttemptSnapshotWithSourceIdentityAtBoundary(
+		stopCaptureAfterEvaluation, "", state, "revision-after", stopTaskSnapshot{}, stopPolicyGitSnapshot{}, scanCache,
 		loadSourceIdentity,
 	)
 	if loads != 2 {
@@ -42,5 +45,15 @@ func TestStopPolicyAttemptSnapshotCapturesSourceIdentityOncePerPhase(t *testing.
 	}
 	if before.PolicyDigest == after.PolicyDigest || before.PolicyCount == after.PolicyCount {
 		t.Fatalf("phase mutation was not represented: before=%+v after=%+v", before, after)
+	}
+	if after.Boundary != stopCaptureAfterEvaluation {
+		t.Fatalf("after boundary = %q", after.Boundary)
+	}
+	publication := captureStopPolicyAttemptSnapshotWithSourceIdentityAtBoundary(
+		stopCaptureBeforeCachePublication, "", state, "revision-publication",
+		stopTaskSnapshot{}, stopPolicyGitSnapshot{}, scanCache, loadSourceIdentity,
+	)
+	if publication.Boundary != stopCaptureBeforeCachePublication || loads != 3 {
+		t.Fatalf("publication boundary=%q loads=%d", publication.Boundary, loads)
 	}
 }

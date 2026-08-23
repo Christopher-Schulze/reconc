@@ -939,13 +939,28 @@ func RecordWriteEvent(state SessionState, paths []string) SessionState {
 	if state.WriteEpochs == nil {
 		state.WriteEpochs = map[string]uint64{}
 	}
-	for _, path := range paths {
+	if len(paths) == 1 {
+		path := paths[0]
 		before := len(state.WritePaths)
 		state = AppendWritePath(state, path)
+		if path != "" && (len(state.WritePaths) > before || containsString(state.WritePaths, path)) {
+			state.WriteEpochs[path] = state.EvidenceEpoch
+		}
+		return state
+	}
+	seen := makeStringSet(state.WritePaths)
+	retainedBytes := stringBytes(state.WritePaths)
+	for _, path := range paths {
 		if path == "" {
 			continue
 		}
-		if len(state.WritePaths) > before || containsString(state.WritePaths, path) {
+		_, existed := seen[path]
+		added := appendBoundedExactStringPrepared(
+			&state, &state.WritePaths, path,
+			maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "write_paths",
+			seen, &retainedBytes,
+		)
+		if existed || added {
 			state.WriteEpochs[path] = state.EvidenceEpoch
 		}
 	}

@@ -101,27 +101,51 @@ func appendBoundedString(state *SessionState, values *[]string, item string, max
 }
 
 func appendBoundedExactString(state *SessionState, values *[]string, item string, maxItems, maxBytes, maxItemBytes int, field string) {
+	retainedBytes := stringBytes(*values)
+	appendBoundedExactStringPrepared(state, values, item, maxItems, maxBytes, maxItemBytes, field, nil, &retainedBytes)
+}
+
+func appendBoundedExactStringPrepared(
+	state *SessionState,
+	values *[]string,
+	item string,
+	maxItems, maxBytes, maxItemBytes int,
+	field string,
+	seen map[string]struct{},
+	retainedBytes *int,
+) bool {
 	if item == "" {
-		return
+		return false
 	}
-	for _, current := range *values {
-		if current == item {
-			return
+	if seen != nil {
+		if _, exists := seen[item]; exists {
+			return false
+		}
+	} else {
+		for _, current := range *values {
+			if current == item {
+				return false
+			}
 		}
 	}
 	if len(item) > maxItemBytes {
 		markEvidenceOverflowWithLimit(state, field, "item_bytes")
-		return
+		return false
 	}
 	if len(*values) >= maxItems {
 		markEvidenceOverflowWithLimit(state, field, "item_count")
-		return
+		return false
 	}
-	if stringBytes(*values)+len(item) > maxBytes {
+	if *retainedBytes+len(item) > maxBytes {
 		markEvidenceOverflowWithLimit(state, field, "byte_budget")
-		return
+		return false
 	}
 	*values = append(*values, item)
+	*retainedBytes += len(item)
+	if seen != nil {
+		seen[item] = struct{}{}
+	}
+	return true
 }
 
 func appendBoundedCommandResult(state *SessionState, result CommandResult) {

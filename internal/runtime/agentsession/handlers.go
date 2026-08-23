@@ -137,8 +137,8 @@ func runPassiveEventResolved(root string, payloadBytes []byte) Result {
 	return Result{ExitCode: 0}
 }
 
-func logRunStopDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after repositoryRunState, policyBlocked bool, violationCount int) {
-	_ = appendRunStopDecision(repoRoot, branch, payload, runtime, before, after, policyBlocked, violationCount)
+func logRunStopDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after repositoryRunState, policyBlocked bool, violationCount int) error {
+	return appendRunStopDecision(repoRoot, branch, payload, runtime, before, after, policyBlocked, violationCount)
 }
 
 func appendRunStopDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after repositoryRunState, policyBlocked bool, violationCount int) error {

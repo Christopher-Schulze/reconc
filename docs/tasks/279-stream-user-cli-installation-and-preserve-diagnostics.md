@@ -38,7 +38,7 @@ lock appears between two probes.
 
 ## Sub-Tasks
 
-- [ ] Specify the bounded streaming candidate, backup, publication, and rollback state machine
+- [~] Specify the bounded streaming candidate, backup, publication, and rollback state machine
 - [ ] Add streaming download/local-copy with simultaneous size and digest verification
 - [ ] Replace in-memory binary backup with a private identity-checked backup file
 - [ ] Publish and verify candidates atomically without full-byte materialization

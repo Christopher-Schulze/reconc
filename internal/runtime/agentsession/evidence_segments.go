@@ -41,6 +41,19 @@ type evidenceSegment struct {
 	Digest         string            `json:"digest"`
 }
 
+type verifiedEvidenceSegment struct {
+	identity os.FileInfo
+	bodyHash [sha256.Size]byte
+	segment  evidenceSegment
+}
+
+type verifiedEvidencePrefix struct {
+	count    uint64
+	head     string
+	bytes    int
+	segments []verifiedEvidenceSegment
+}
+
 type evidenceTaint struct {
 	FormatVersion string `json:"format_version"`
 	RepoRoot      string `json:"repo_root"`
@@ -161,9 +174,16 @@ func rotateSessionEvidenceLocked(repoRoot string, state SessionState) (SessionSt
 }
 
 func loadCompleteSessionEvidence(repoRoot string, state SessionState) (SessionState, error) {
+	return loadCompleteSessionEvidenceWithCache(repoRoot, state, nil)
+}
+
+func loadCompleteSessionEvidenceWithCache(repoRoot string, state SessionState, cache *StopDecisionCache) (SessionState, error) {
 	if state.EvidenceSegmentCount == 0 {
+		cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
 		return state, nil
 	}
+	cached, _ := cache.verifiedEvidencePrefix(repoRoot, state.SessionID)
+	verified := make([]verifiedEvidenceSegment, 0, state.EvidenceSegmentCount)
 	complete := state
 	complete.ReadPaths = []string{}
 	complete.WritePaths = []string{}
@@ -175,25 +195,117 @@ func loadCompleteSessionEvidence(repoRoot string, state SessionState) (SessionSt
 	merger := newEvidenceMerger(&complete)
 	previousDigest := ""
 	for index := uint64(1); index <= state.EvidenceSegmentCount; index++ {
-		segment, err := readEvidenceSegment(repoRoot, state.SessionID, index)
+		path := evidenceSegmentPath(repoRoot, state.SessionID, index)
+		body, identity, err := boundedio.ReadRegularFileSnapshot(path, maxEvidenceSegmentBytes)
 		if err != nil {
-			return SessionState{}, persistEvidenceChainFailure(repoRoot, state, err)
+			cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
+			return SessionState{}, persistEvidenceChainFailure(repoRoot, state,
+				fmt.Errorf("read evidence segment %d: %w", index, err))
+		}
+		bodyHash := sha256.Sum256(body)
+		var segment evidenceSegment
+		cachedIndex := int(index - 1)
+		if cached.count == state.EvidenceSegmentCount && cached.head == state.EvidenceSegmentDigest &&
+			cachedIndex < len(cached.segments) &&
+			verifiedEvidenceSegmentMatches(cached.segments[cachedIndex], identity, bodyHash) {
+			segment = cached.segments[cachedIndex].segment
+		} else {
+			segment, err = decodeEvidenceSegment(repoRoot, state.SessionID, index, body)
+			if err != nil {
+				cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
+				return SessionState{}, persistEvidenceChainFailure(repoRoot, state, err)
+			}
 		}
 		if segment.PreviousDigest != previousDigest {
+			cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
 			return SessionState{}, persistEvidenceChainFailure(repoRoot, state,
 				fmt.Errorf("evidence segment %d previous digest mismatch", index))
 		}
 		merger.merge(segment.ReadPaths, segment.WritePaths, segment.WriteEpochs,
 			segment.Commands, segment.Claims, segment.CommandResults)
 		previousDigest = segment.Digest
+		verified = append(verified, verifiedEvidenceSegment{identity: identity, bodyHash: bodyHash, segment: segment})
 	}
 	if previousDigest != state.EvidenceSegmentDigest {
+		cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
 		return SessionState{}, persistEvidenceChainFailure(repoRoot, state,
 			errors.New("evidence segment chain head does not match session state"))
 	}
 	merger.merge(state.ReadPaths, state.WritePaths, state.WriteEpochs,
 		state.Commands, state.Claims, state.CommandResults)
+	retainedBytes := 0
+	for _, segment := range verified {
+		retainedBytes += int(segment.identity.Size())
+	}
+	cache.storeVerifiedEvidencePrefix(repoRoot, state.SessionID, verifiedEvidencePrefix{
+		count: state.EvidenceSegmentCount, head: state.EvidenceSegmentDigest, bytes: retainedBytes, segments: verified,
+	})
 	return complete, nil
+}
+
+func verifiedEvidenceSegmentMatches(cached verifiedEvidenceSegment, current os.FileInfo, bodyHash [sha256.Size]byte) bool {
+	return cached.identity != nil && current != nil && os.SameFile(cached.identity, current) &&
+		cached.identity.Mode() == current.Mode() && cached.identity.Size() == current.Size() &&
+		cached.identity.ModTime().Equal(current.ModTime()) && cached.bodyHash == bodyHash
+}
+
+func (cache *StopDecisionCache) verifiedEvidencePrefix(repoRoot, sessionID string) (verifiedEvidencePrefix, bool) {
+	if cache == nil {
+		return verifiedEvidencePrefix{}, false
+	}
+	key := stopDecisionCacheKey(repoRoot, sessionID)
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	prefix, ok := cache.evidence[key]
+	prefix.segments = append([]verifiedEvidenceSegment(nil), prefix.segments...)
+	return prefix, ok
+}
+
+func (cache *StopDecisionCache) storeVerifiedEvidencePrefix(repoRoot, sessionID string, prefix verifiedEvidencePrefix) {
+	if cache == nil || prefix.count == 0 || uint64(len(prefix.segments)) != prefix.count || prefix.head == "" || prefix.bytes <= 0 {
+		return
+	}
+	key := stopDecisionCacheKey(repoRoot, sessionID)
+	prefix.segments = append([]verifiedEvidenceSegment(nil), prefix.segments...)
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if cache.evidence == nil {
+		cache.evidence = make(map[string]verifiedEvidencePrefix)
+	}
+	cache.removeVerifiedEvidencePrefixLocked(key)
+	if prefix.bytes > maxVerifiedEvidenceBytes {
+		return
+	}
+	cache.evidenceOrder = append(cache.evidenceOrder, key)
+	for len(cache.evidenceOrder) > maxStopDecisionCacheEntries || cache.evidenceBytes+prefix.bytes > maxVerifiedEvidenceBytes {
+		oldest := cache.evidenceOrder[0]
+		cache.removeVerifiedEvidencePrefixLocked(oldest)
+	}
+	cache.evidence[key] = prefix
+	cache.evidenceBytes += prefix.bytes
+}
+
+func (cache *StopDecisionCache) dropVerifiedEvidencePrefix(repoRoot, sessionID string) {
+	if cache == nil {
+		return
+	}
+	key := stopDecisionCacheKey(repoRoot, sessionID)
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	cache.removeVerifiedEvidencePrefixLocked(key)
+}
+
+func (cache *StopDecisionCache) removeVerifiedEvidencePrefixLocked(key string) {
+	if previous, exists := cache.evidence[key]; exists {
+		cache.evidenceBytes -= previous.bytes
+		delete(cache.evidence, key)
+	}
+	for index, candidate := range cache.evidenceOrder {
+		if candidate == key {
+			cache.evidenceOrder = append(cache.evidenceOrder[:index], cache.evidenceOrder[index+1:]...)
+			break
+		}
+	}
 }
 
 func persistEvidenceChainFailure(repoRoot string, state SessionState, cause error) error {
@@ -212,6 +324,10 @@ func readEvidenceSegment(repoRoot, sessionID string, index uint64) (evidenceSegm
 	if err != nil {
 		return evidenceSegment{}, fmt.Errorf("read evidence segment %d: %w", index, err)
 	}
+	return decodeEvidenceSegment(repoRoot, sessionID, index, body)
+}
+
+func decodeEvidenceSegment(repoRoot, sessionID string, index uint64, body []byte) (evidenceSegment, error) {
 	var segment evidenceSegment
 	if err := json.Unmarshal(body, &segment); err != nil {
 		return evidenceSegment{}, fmt.Errorf("evidence segment %d is not valid JSON: %w", index, err)

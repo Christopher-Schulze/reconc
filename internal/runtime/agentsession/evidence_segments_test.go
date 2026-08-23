@@ -99,6 +99,83 @@ func TestEvidenceSegmentChainLinksMultipleSegments(t *testing.T) {
 	}
 }
 
+func TestVerifiedEvidencePrefixRevalidatesIdentityAndContent(t *testing.T) {
+	_, repo := withStateRoot(t)
+	const sessionID = "verified-prefix"
+	if _, err := InitializeSessionState(repo, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	appendCommandRange(t, repo, sessionID, 0, maxCommandEvidenceItems)
+	appendCommandRange(t, repo, sessionID, maxCommandEvidenceItems, 1)
+	state, err := LoadSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := NewStopDecisionCache()
+	first, err := loadCompleteSessionEvidenceWithCache(state.RepoRoot, state, cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix, ok := cache.verifiedEvidencePrefix(state.RepoRoot, sessionID)
+	if !ok || prefix.count != 1 || len(prefix.segments) != 1 {
+		t.Fatalf("verified prefix was not cached: %+v", prefix)
+	}
+	if second, err := loadCompleteSessionEvidenceWithCache(state.RepoRoot, state, cache); err != nil || len(second.Commands) != len(first.Commands) {
+		t.Fatalf("verified prefix reuse failed: commands=%d err=%v", len(second.Commands), err)
+	}
+
+	path := evidenceSegmentPath(state.RepoRoot, sessionID, 1)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := path + ".replacement"
+	if err := os.WriteFile(replacement, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadCompleteSessionEvidenceWithCache(state.RepoRoot, state, cache); err != nil {
+		t.Fatalf("byte-identical identity replacement should revalidate and decode safely: %v", err)
+	}
+	refreshed, ok := cache.verifiedEvidencePrefix(state.RepoRoot, sessionID)
+	current, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || !os.SameFile(refreshed.segments[0].identity, current) || os.SameFile(prefix.segments[0].identity, current) {
+		t.Fatal("replacement identity was not recaptured")
+	}
+
+	body[len(body)/2] ^= 1
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadCompleteSessionEvidenceWithCache(state.RepoRoot, state, cache); err == nil {
+		t.Fatal("cached prefix accepted changed segment bytes")
+	}
+	if _, ok := cache.verifiedEvidencePrefix(state.RepoRoot, sessionID); ok {
+		t.Fatal("corrupt prefix remained cached")
+	}
+}
+
+func TestVerifiedEvidencePrefixCacheHasAggregateByteBudget(t *testing.T) {
+	cache := NewStopDecisionCache()
+	for index := 0; index < 3; index++ {
+		cache.storeVerifiedEvidencePrefix("/repo", fmt.Sprintf("session-%d", index), verifiedEvidencePrefix{
+			count: 1, head: fmt.Sprintf("head-%d", index), bytes: 8 << 20,
+			segments: []verifiedEvidenceSegment{{}},
+		})
+	}
+	if cache.evidenceBytes > maxVerifiedEvidenceBytes || len(cache.evidence) != 2 {
+		t.Fatalf("evidence cache entries=%d bytes=%d", len(cache.evidence), cache.evidenceBytes)
+	}
+	if _, ok := cache.verifiedEvidencePrefix("/repo", "session-0"); ok {
+		t.Fatal("oldest evidence prefix survived byte-budget eviction")
+	}
+}
+
 func TestEvidenceSegmentChainRejectsRedigestedBrokenLink(t *testing.T) {
 	_, repo := withStateRoot(t)
 	const sessionID = "broken-link"

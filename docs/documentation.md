@@ -3615,7 +3615,8 @@ per report build with default `--untracked-files=normal`, dirty-path
 content/index hashes, policy-source identity, typed TASK state, direct
 loose/packed/worktree HEAD resolution, and a
 per-session report lock instead of full `git diff --binary` output or repeated
-status walks. The same bounded status snapshot scopes Stop-time write evidence
+status walks. Packed refs are scanned line by line from the single bounded read
+without materializing every unrelated ref as a string. The same bounded status snapshot scopes Stop-time write evidence
 to paths that are both session-recorded and still uncommitted; unknown Git or
 path state keeps the full session write set and therefore fails closed. The
 completed report is cached under that initial fingerprint and the exact
@@ -3628,8 +3629,12 @@ untracked-tree metadata, policy lock and sources, every reachable
 policy-declared input, typed TASK state, configuration, and session evidence.
 The cache owns at most 64
 repository/session entries and starts no watcher or background process.
-Equivalent concurrent Stops serialize under the report lock and reload session
-evidence before reuse or evaluation. Generation state is sampled around report
+Equivalent concurrent Stops serialize under the report lock and load complete
+session evidence once before evaluation. Persistent workers retain at most
+16 MiB of decoded, digest-bound evidence-segment prefixes across 64 keys. Every
+reuse still rereads bounded regular files and rechecks exact bytes, identity,
+metadata, segment count, chain head, linkage, and the newest state revision;
+replacement, append, corruption, or drift invalidates reuse. Generation state is sampled around report
 loading and revalidated after the final evidence reload. If evidence or an
 exact cache input changes during policy evaluation, Stop re-evaluates current
 state up to three times and then fails closed instead of returning or warming a
@@ -3789,6 +3794,7 @@ samples exclude process startup and Git and are observations rather than
 performance promises. Reproducible Stop, audit, and concurrent-cache
 benchmarks live beside their regression tests and run with
 `go test ./internal/runtime/agentsession -run '^$' -bench 'RepositoryRunStopHotpath|StopPolicy' -benchmem`
+and `go test ./internal/runtime/agentsession -run '^$' -bench 'VerifiedEvidencePrefix|PackedRefLookup|RecordWriteEventLargeState' -benchmem`
 and `go test ./internal/audit -run '^$' -bench AuditAppendRetainedChain -benchmem`
 and `go test ./harness/template/audits -run '^$' -bench RunWithCache -benchmem`.
 Storage hot paths run with

@@ -81,9 +81,9 @@ func runStopResolvedWithEvaluatorAndCache(
 	// state remains enabled until `reconc run off` or terminal TASK exhaustion.
 	if isUserStopInterrupt(payload) {
 		if repositoryRunEnabled(runState) {
-			logRunStopDecision(root, "interrupt_release", payload, runtimeName, runState, runState, false, 0)
+			err = logRunStopDecision(root, "interrupt_release", payload, runtimeName, runState, runState, false, 0)
 		}
-		return Result{ExitCode: 0}
+		return Result{ExitCode: 0, Stderr: bestEffortStopDecisionDiagnostic(err)}
 	}
 
 	taskSnapshot, err := captureStopTaskSnapshot(root)
@@ -105,7 +105,7 @@ func runStopResolvedWithEvaluatorAndCache(
 		if state.EvidenceOverflow {
 			return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON(evidenceOverflowMessage(state))}
 		}
-		state, loadErr = loadCompleteSessionEvidence(root, state)
+		state, loadErr = loadCompleteSessionEvidenceWithCache(root, state, stopCache)
 		if loadErr != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): load evidence chain: %s", loadErr)}
 		}
@@ -135,7 +135,7 @@ func runStopResolvedWithEvaluatorAndCache(
 		}
 		return Result{ExitCode: 0, Stderr: evidenceOverflowMessage(state) + " Stop released as uncertified because repository run is disabled."}
 	}
-	state, err = loadCompleteSessionEvidence(root, state)
+	state, err = loadCompleteSessionEvidenceWithCache(root, state, stopCache)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): load evidence chain: %s", err)}
 	}
@@ -144,10 +144,11 @@ func runStopResolvedWithEvaluatorAndCache(
 		evidenceHash := stopPolicyEvidenceHash(state)
 		if _, ok := cachedCleanStopPolicyReportForEvidenceWithCache(root, state, evidenceHash, stopCache, taskSnapshot); ok {
 			currentRun, _ := loadRepositoryRunStateResolved(root)
+			var logErr error
 			if repositoryRunEnabled(currentRun) {
-				logRunStopDecision(root, "stop_hook_active_clean_cache", payload, runtimeName, currentRun, currentRun, false, 0)
+				logErr = logRunStopDecision(root, "stop_hook_active_clean_cache", payload, runtimeName, currentRun, currentRun, false, 0)
 			}
-			return Result{ExitCode: 0}
+			return Result{ExitCode: 0, Stderr: bestEffortStopDecisionDiagnostic(logErr)}
 		}
 	}
 
@@ -168,8 +169,8 @@ func runStopResolvedWithEvaluatorAndCache(
 		// Avoid endless loops when the agent is already continuing because
 		// of this hook.
 		if payload.StopHookActive && !payload.StrictContinuation {
-			logRunStopDecision(root, "policy_block_stop_hook_active", payload, runtimeName, currentRun, currentRun, true, len(violations))
-			return Result{ExitCode: 0}
+			logErr := logRunStopDecision(root, "policy_block_stop_hook_active", payload, runtimeName, currentRun, currentRun, true, len(violations))
+			return Result{ExitCode: 0, Stderr: bestEffortStopDecisionDiagnostic(logErr)}
 		}
 		// A user stop/interrupt must always win. Runtimes like Cursor never set
 		// StopHookActive, so without this escape an unresolved blocking violation
@@ -179,11 +180,11 @@ func runStopResolvedWithEvaluatorAndCache(
 		// told not to resolve it. This is the Cursor-equivalent of the
 		// StopHookActive escape above.
 		if vh := hashBlockingViolations(violations); !payload.StrictContinuation && vh != "" && state.LastStopBlockViolationHash == vh {
-			logRunStopDecision(root, "policy_block_released_on_repeat", payload, runtimeName, currentRun, currentRun, true, len(violations))
-			return Result{ExitCode: 0}
+			logErr := logRunStopDecision(root, "policy_block_released_on_repeat", payload, runtimeName, currentRun, currentRun, true, len(violations))
+			return Result{ExitCode: 0, Stderr: bestEffortStopDecisionDiagnostic(logErr)}
 		}
-		logRunStopDecision(root, "policy_block", payload, runtimeName, currentRun, currentRun, true, len(violations))
-		return Result{ExitCode: 0, Stdout: stopBlockJSONOutput(root, state.SessionID, report, violations)}
+		logErr := logRunStopDecision(root, "policy_block", payload, runtimeName, currentRun, currentRun, true, len(violations))
+		return Result{ExitCode: 0, Stdout: stopBlockJSONOutput(root, state.SessionID, report, violations), Stderr: bestEffortStopDecisionDiagnostic(logErr)}
 	}
 
 	if result, blocked, terminalErr := taskCompletionCommitGate(policyResult.TaskSnapshot, policyResult.GitSnapshot); terminalErr != nil {
@@ -399,4 +400,11 @@ func joinStderr(existing, extra string) string {
 		return existing
 	}
 	return existing + "\n" + extra
+}
+
+func bestEffortStopDecisionDiagnostic(err error) string {
+	if err == nil {
+		return ""
+	}
+	return "reconc run decision log (warn): " + truncateBytes(err.Error(), 4096)
 }

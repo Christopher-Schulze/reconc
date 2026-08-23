@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -111,6 +112,7 @@ func readLooseGitRef(roots []string, cleanRef string) (string, bool, error) {
 }
 
 func readPackedGitRef(roots []string, ref string) (string, bool, error) {
+	refBytes := []byte(ref)
 	for _, root := range roots {
 		body, err := readBoundedFile(filepath.Join(root, "packed-refs"), maxPackedRefsBytes)
 		if err != nil {
@@ -119,14 +121,37 @@ func readPackedGitRef(roots []string, ref string) (string, bool, error) {
 			}
 			return "", false, err
 		}
-		for _, line := range strings.Split(string(body), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) == 2 && fields[1] == ref {
-				return fields[0], true, nil
+		for len(body) > 0 {
+			line := body
+			if newline := bytes.IndexByte(body, '\n'); newline >= 0 {
+				line, body = body[:newline], body[newline+1:]
+			} else {
+				body = nil
+			}
+			objectID, candidate, ok := packedRefFields(line)
+			if ok && bytes.Equal(candidate, refBytes) {
+				return string(objectID), true, nil
 			}
 		}
 	}
 	return "", false, nil
+}
+
+func packedRefFields(line []byte) (objectID, ref []byte, ok bool) {
+	line = bytes.TrimSpace(line)
+	if len(line) == 0 || line[0] == '#' || line[0] == '^' {
+		return nil, nil, false
+	}
+	separator := bytes.IndexAny(line, " \t")
+	if separator <= 0 {
+		return nil, nil, false
+	}
+	objectID = line[:separator]
+	ref = bytes.TrimSpace(line[separator:])
+	if len(ref) == 0 || bytes.ContainsAny(ref, " \t") {
+		return nil, nil, false
+	}
+	return objectID, ref, true
 }
 
 func resolveGitDir(repoRoot string) (string, error) {

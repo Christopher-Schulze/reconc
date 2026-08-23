@@ -1212,7 +1212,11 @@ released. Unlock and close errors are joined with the operation result.
 
 One-shot hook processes always use the exact Stop fingerprint. A persistent
 session worker additionally owns an isolated, memory-only cache of at most 64
-repository/session generations. After an exact successful report for a costly
+repository/session generations and a separate 16 MiB aggregate cache of
+verified evidence-segment prefixes. Prefix hits reread each bounded segment
+through an identity-stable regular-file snapshot and compare its exact byte
+hash before reusing decoded immutable evidence; segment count, chain head,
+linkage, and the current state revision remain mandatory. After an exact successful report for a costly
 dirty state, a repeated Stop may replace dirty-file content hashing with
 conservative generation samples. The generation binds canonical root identity,
 Git status, HEAD and index entries, platform file identity and change time,
@@ -1244,8 +1248,9 @@ and prevents report reuse or cache publication. No scan state crosses workers
 or repositories.
 Each attempt phase also carries a typed `stopPolicyAttemptSnapshot` containing
 the complete session-evidence revision, Git view, TASK view, policy-source
-digest/count, and lock-scan identity. Before, post-evaluation, and post-report
-checks exchange these snapshots explicitly; generation comparisons therefore
+digest/count, and lock-scan identity. The explicit `before_evaluation`,
+`after_evaluation`, and `before_cache_publication` boundaries exchange these
+snapshots; generation comparisons therefore
 cannot accidentally combine source, Git, or TASK observations from different
 capture times.
 
