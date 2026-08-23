@@ -14,7 +14,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dlclark/regexp2"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 
 	"reconc.dev/reconc/internal/compiler"
@@ -289,7 +288,7 @@ func compileRegisteredSchemas(t *testing.T) map[string]*jsonschema.Schema {
 	compiler := jsonschema.NewCompiler()
 	compiler.DefaultDraft(jsonschema.Draft2020)
 	compiler.AssertFormat()
-	compiler.UseRegexpEngine(compileECMAScriptRegexp)
+	compiler.UseRegexpEngine(contractschema.CompileBoundedECMAScriptRegexp)
 	for _, contract := range contractschema.Contracts() {
 		document := readSchemaResource(t, contract.LocalPath)
 		if err := compiler.AddResource(contract.DefaultURL, document); err != nil {
@@ -605,23 +604,4 @@ type rejectNetworkSchemaLoader struct{}
 
 func (rejectNetworkSchemaLoader) Load(url string) (any, error) {
 	return nil, fmt.Errorf("unregistered schema URL %q; registry validation is offline", url)
-}
-
-type ecmaScriptRegexp regexp2.Regexp
-
-func (regexp *ecmaScriptRegexp) MatchString(value string) bool {
-	matched, err := (*regexp2.Regexp)(regexp).MatchString(value)
-	return err == nil && matched
-}
-
-func (regexp *ecmaScriptRegexp) String() string {
-	return (*regexp2.Regexp)(regexp).String()
-}
-
-func compileECMAScriptRegexp(expression string) (jsonschema.Regexp, error) {
-	compiled, err := regexp2.Compile(expression, regexp2.ECMAScript)
-	if err != nil {
-		return nil, err
-	}
-	return (*ecmaScriptRegexp)(compiled), nil
 }

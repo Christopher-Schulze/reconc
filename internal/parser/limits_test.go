@@ -78,6 +78,18 @@ func TestParserRejectsYAMLAmplificationAndDuplicateKeys(t *testing.T) {
 	}
 }
 
+func TestParserDistinguishesEmptyDocumentFromExplicitNull(t *testing.T) {
+	for _, empty := range []string{"", "# comment only\n"} {
+		if _, err := decodeYAMLDocumentBounded(empty, "empty.yml"); err != nil {
+			t.Fatalf("empty policy %q: %v", empty, err)
+		}
+	}
+	if _, err := decodeYAMLDocumentBounded("null\n", "null.yml"); err == nil ||
+		!strings.Contains(err.Error(), "explicit null is not an empty policy") {
+		t.Fatalf("explicit null policy error = %v", err)
+	}
+}
+
 func FuzzDecodeYAMLDocumentBounded(f *testing.F) {
 	for _, seed := range []string{
 		"rules:\n  - id: one\n    kind: deny_write\n    paths: ['x']\n    message: ok\n",

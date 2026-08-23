@@ -27,6 +27,7 @@ import (
 	"reconc.dev/reconc/internal/boundedio"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/safename"
+	"reconc.dev/reconc/internal/yamlbound"
 )
 
 // HomeEnvVar overrides the location of the reconc home directory.
@@ -277,13 +278,17 @@ func SuggestForStacks(stacks []string) ([]Metadata, error) {
 }
 
 func parseManifest(name, content string) (*Manifest, error) {
+	root, _, err := yamlbound.DecodeMapping([]byte(content), "preset "+name)
+	if err != nil {
+		return nil, &rerrors.PresetError{Message: "parse preset " + name, Cause: err}
+	}
 	var document struct {
 		Pack  yaml.Node `yaml:"pack"`
 		Rules []struct {
 			ID string `yaml:"id"`
 		} `yaml:"rules"`
 	}
-	if err := yaml.Unmarshal([]byte(content), &document); err != nil {
+	if err := root.Decode(&document); err != nil {
 		return nil, &rerrors.PresetError{Message: "parse preset " + name, Cause: err}
 	}
 	if document.Pack.Kind == 0 {

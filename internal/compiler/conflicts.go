@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"reconc.dev/reconc/internal/policy"
@@ -35,6 +36,8 @@ const (
 	ConflictDuplicateRequireCmd    = "duplicate_require_command"
 	ConflictDuplicateRequireClaim  = "duplicate_require_claim"
 	ConflictForbidVsRequireCommand = "forbid_vs_require_command"
+	ConflictAnalysisTruncated      = "analysis_truncated"
+	MaxStaticConflicts             = 65536
 )
 
 // DetectConflicts runs the full static-analysis pass over a parsed
@@ -42,6 +45,20 @@ const (
 // returned sorted by (RuleIDA, RuleIDB, Kind)).
 func DetectConflicts(rules []policy.Rule) []Conflict {
 	var out []Conflict
+	truncated := false
+	appendConflicts := func(found []Conflict, more bool) {
+		remaining := MaxStaticConflicts - len(out)
+		if remaining <= 0 {
+			truncated = truncated || len(found) != 0 || more
+			return
+		}
+		if len(found) > remaining {
+			found = found[:remaining]
+			more = true
+		}
+		out = append(out, found...)
+		truncated = truncated || more
+	}
 
 	// Index rules by kind for targeted scans. Composite rules
 	// (all_of / any_of / not) are intentionally skipped here; they
@@ -52,10 +69,14 @@ func DetectConflicts(rules []policy.Rule) []Conflict {
 	}
 
 	// --- Exact-match duplicates within the same kind -----------------
-	out = append(out, findExactDuplicates(byKind[policy.KindDenyWrite], "paths", ConflictDuplicateDeny)...)
-	out = append(out, findDuplicateRequireReads(byKind[policy.KindRequireRead])...)
-	out = append(out, findExactDuplicates(byKind[policy.KindRequireCommand], "commands", ConflictDuplicateRequireCmd)...)
-	out = append(out, findExactDuplicates(byKind[policy.KindRequireClaim], "claims", ConflictDuplicateRequireClaim)...)
+	found, more := findExactDuplicates(byKind[policy.KindDenyWrite], "paths", ConflictDuplicateDeny, MaxStaticConflicts)
+	appendConflicts(found, more)
+	found, more = findDuplicateRequireReads(byKind[policy.KindRequireRead], MaxStaticConflicts-len(out))
+	appendConflicts(found, more)
+	found, more = findExactDuplicates(byKind[policy.KindRequireCommand], "commands", ConflictDuplicateRequireCmd, MaxStaticConflicts-len(out))
+	appendConflicts(found, more)
+	found, more = findExactDuplicates(byKind[policy.KindRequireClaim], "claims", ConflictDuplicateRequireClaim, MaxStaticConflicts-len(out))
+	appendConflicts(found, more)
 
 	// --- Cross-kind contradictions -----------------------------------
 	// deny_write X + require_read when_paths=X => writing X is forbidden
@@ -68,12 +89,20 @@ func DetectConflicts(rules []policy.Rule) []Conflict {
 	// writable-never and writing-triggers-reads). Let's surface that as
 	// a heads-up rather than an error: it's legal but almost always
 	// indicates a rule-authoring mistake.
-	out = append(out, findDenyVsRequireRead(byKind[policy.KindDenyWrite], byKind[policy.KindRequireRead])...)
+	found, more = findDenyVsRequireRead(byKind[policy.KindDenyWrite], byKind[policy.KindRequireRead], MaxStaticConflicts-len(out))
+	appendConflicts(found, more)
 
 	// A require_command rule is satisfiable when any listed command runs.
 	// It only conflicts with one forbid_command rule when their trigger scopes
 	// overlap and that forbid rule blocks every required alternative.
-	out = append(out, findForbidVsRequireCommand(byKind[policy.KindForbidCommand], byKind[policy.KindRequireCommand])...)
+	found, more = findForbidVsRequireCommand(byKind[policy.KindForbidCommand], byKind[policy.KindRequireCommand], MaxStaticConflicts-len(out))
+	appendConflicts(found, more)
+	if truncated {
+		out = append(out, Conflict{
+			Kind: ConflictAnalysisTruncated, RuleIDA: "~analysis", RuleIDB: "~limit",
+			Description: "static conflict output exceeded 65536 pairs and was deterministically truncated",
+		})
+	}
 
 	// Stable ordering.
 	sort.Slice(out, func(i, j int) bool {
@@ -91,60 +120,69 @@ func DetectConflicts(rules []policy.Rule) []Conflict {
 // findExactDuplicates emits a Conflict for every pair of rules of the
 // same kind whose target slice (selected by `field`) matches exactly
 // after sorting. A pair is only reported once (smaller id first).
-func findExactDuplicates(rules []policy.Rule, field string, kind string) []Conflict {
+func findExactDuplicates(rules []policy.Rule, field string, kind string, limit int) ([]Conflict, bool) {
 	var out []Conflict
-	for i := 0; i < len(rules); i++ {
-		for j := i + 1; j < len(rules); j++ {
-			a := rules[i]
-			b := rules[j]
-			if !slicesEqualSorted(selectField(a, field), selectField(b, field)) {
-				continue
+	groups := groupRulesByLists(rules, func(rule policy.Rule) [][]string {
+		return [][]string{selectField(rule, field)}
+	})
+	for _, group := range groups {
+		for i := 0; i < len(group); i++ {
+			for j := i + 1; j < len(group); j++ {
+				if len(out) >= limit {
+					return out, true
+				}
+				a, b := group[i], group[j]
+				idA, idB := a.ID, b.ID
+				if idB < idA {
+					idA, idB = idB, idA
+				}
+				out = append(out, Conflict{
+					Kind:        kind,
+					RuleIDA:     idA,
+					RuleIDB:     idB,
+					Description: "rules '" + idA + "' and '" + idB + "' have identical " + field + " and are redundant",
+					Paths:       append([]string(nil), selectField(a, field)...),
+				})
 			}
-			idA, idB := a.ID, b.ID
-			if idB < idA {
-				idA, idB = idB, idA
-			}
-			out = append(out, Conflict{
-				Kind:        kind,
-				RuleIDA:     idA,
-				RuleIDB:     idB,
-				Description: "rules '" + idA + "' and '" + idB + "' have identical " + field + " and are redundant",
-				Paths:       append([]string(nil), selectField(a, field)...),
-			})
 		}
 	}
-	return out
+	return out, false
 }
 
 // findDuplicateRequireReads compares the complete read-order obligation.
 // paths selects writes governed by the rule; before_paths selects the reads
 // that must precede them. Both non-empty lists must match for rules to be
 // semantically redundant.
-func findDuplicateRequireReads(rules []policy.Rule) []Conflict {
+func findDuplicateRequireReads(rules []policy.Rule, limit int) ([]Conflict, bool) {
 	var out []Conflict
-	for i := 0; i < len(rules); i++ {
-		for j := i + 1; j < len(rules); j++ {
-			a, b := rules[i], rules[j]
-			if !slicesEqualSorted(a.Paths, b.Paths) || !slicesEqualSorted(a.BeforePaths, b.BeforePaths) {
-				continue
+	groups := groupRulesByLists(rules, func(rule policy.Rule) [][]string {
+		return [][]string{rule.Paths, rule.BeforePaths}
+	})
+	for _, group := range groups {
+		for i := 0; i < len(group); i++ {
+			for j := i + 1; j < len(group); j++ {
+				if len(out) >= limit {
+					return out, true
+				}
+				a, b := group[i], group[j]
+				idA, idB := a.ID, b.ID
+				if idB < idA {
+					idA, idB = idB, idA
+				}
+				out = append(out, Conflict{
+					Kind:        ConflictDuplicateRequireRead,
+					RuleIDA:     idA,
+					RuleIDB:     idB,
+					Description: "rules '" + idA + "' and '" + idB + "' have identical paths and before_paths and are redundant",
+					Paths:       append([]string(nil), a.Paths...),
+				})
 			}
-			idA, idB := a.ID, b.ID
-			if idB < idA {
-				idA, idB = idB, idA
-			}
-			out = append(out, Conflict{
-				Kind:        ConflictDuplicateRequireRead,
-				RuleIDA:     idA,
-				RuleIDB:     idB,
-				Description: "rules '" + idA + "' and '" + idB + "' have identical paths and before_paths and are redundant",
-				Paths:       append([]string(nil), a.Paths...),
-			})
 		}
 	}
-	return out
+	return out, false
 }
 
-func findDenyVsRequireRead(denies, reads []policy.Rule) []Conflict {
+func findDenyVsRequireRead(denies, reads []policy.Rule, limit int) ([]Conflict, bool) {
 	var out []Conflict
 	for _, d := range denies {
 		denySet := map[string]struct{}{}
@@ -154,6 +192,9 @@ func findDenyVsRequireRead(denies, reads []policy.Rule) []Conflict {
 		for _, r := range reads {
 			for _, w := range r.WhenPaths {
 				if _, ok := denySet[w]; ok {
+					if len(out) >= limit {
+						return out, true
+					}
 					idA, idB := d.ID, r.ID
 					if idB < idA {
 						idA, idB = idB, idA
@@ -170,10 +211,10 @@ func findDenyVsRequireRead(denies, reads []policy.Rule) []Conflict {
 			}
 		}
 	}
-	return out
+	return out, false
 }
 
-func findForbidVsRequireCommand(forbids, requires []policy.Rule) []Conflict {
+func findForbidVsRequireCommand(forbids, requires []policy.Rule, limit int) ([]Conflict, bool) {
 	var out []Conflict
 	for _, f := range forbids {
 		forbidSet := map[string]struct{}{}
@@ -202,6 +243,9 @@ func findForbidVsRequireCommand(forbids, requires []policy.Rule) []Conflict {
 			if len(required) == 0 || len(blocked) != len(required) {
 				continue
 			}
+			if len(out) >= limit {
+				return out, true
+			}
 			idA, idB := f.ID, r.ID
 			if idB < idA {
 				idA, idB = idB, idA
@@ -215,7 +259,7 @@ func findForbidVsRequireCommand(forbids, requires []policy.Rule) []Conflict {
 			})
 		}
 	}
-	return out
+	return out, false
 }
 
 func normalizeStaticCommand(command string) string {
@@ -270,22 +314,50 @@ func selectField(r policy.Rule, field string) []string {
 // slicesEqualSorted returns true when sorted copies of a and b contain
 // the same strings. Comparing sorted copies keeps the check order-
 // insensitive so ['a','b'] matches ['b','a'].
-func slicesEqualSorted(a, b []string) bool {
-	if len(a) != len(b) || len(a) == 0 {
-		return false
+func groupRulesByLists(
+	rules []policy.Rule,
+	selectLists func(policy.Rule) [][]string,
+) [][]policy.Rule {
+	groups := make(map[string][]policy.Rule)
+	order := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		key, ok := normalizedListsKey(selectLists(rule))
+		if !ok {
+			continue
+		}
+		if _, exists := groups[key]; !exists {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], rule)
 	}
-	aa := make([]string, len(a))
-	bb := make([]string, len(b))
-	for i := range a {
-		aa[i] = strings.TrimSpace(a[i])
-		bb[i] = strings.TrimSpace(b[i])
-	}
-	sort.Strings(aa)
-	sort.Strings(bb)
-	for i := range aa {
-		if aa[i] != bb[i] {
-			return false
+	result := make([][]policy.Rule, 0, len(order))
+	for _, key := range order {
+		if len(groups[key]) > 1 {
+			result = append(result, groups[key])
 		}
 	}
-	return true
+	return result
+}
+
+func normalizedListsKey(lists [][]string) (string, bool) {
+	var key strings.Builder
+	for _, values := range lists {
+		if len(values) == 0 {
+			return "", false
+		}
+		normalized := make([]string, len(values))
+		for index, value := range values {
+			normalized[index] = strings.TrimSpace(value)
+		}
+		sort.Strings(normalized)
+		key.WriteString(strconv.Itoa(len(normalized)))
+		key.WriteByte(':')
+		for _, value := range normalized {
+			key.WriteString(strconv.Itoa(len(value)))
+			key.WriteByte(':')
+			key.WriteString(value)
+		}
+		key.WriteByte(';')
+	}
+	return key.String(), true
 }

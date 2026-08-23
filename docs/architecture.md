@@ -768,6 +768,13 @@ retain the rule ID, check index, kind, and source path in diagnostics. The
 current v6 lock schema carries the same kind conditions as an overlay; legacy
 published schemas remain immutable.
 
+The parser owns one compile-scoped template cache and validates every cached
+resolution again before returning the parsed policy. Preset manifests and
+policy sources share `yamlbound` node, alias, depth, scalar, and
+single-document admission. Compiler conflict analysis groups rules by
+length-delimited normalized semantic keys and caps materialized pairs with an
+explicit truncation record; it never repeats list sorting inside a pair loop.
+
 Template grammar is owned by `internal/templates/variables.go`: `{name}` is
 the only capture token, balanced comma alternatives remain glob syntax, and
 unescaped malformed braces fail closed. Parser path masking, compiler

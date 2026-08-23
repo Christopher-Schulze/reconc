@@ -35,7 +35,9 @@ func DecodeMapping(body []byte, context string) (*yaml.Node, map[string]interfac
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(body))
 	var document yaml.Node
-	if err := decoder.Decode(&document); err != nil {
+	if err := decoder.Decode(&document); err == io.EOF {
+		return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}, map[string]interface{}{}, nil
+	} else if err != nil {
 		return nil, nil, &rerrors.RuleValidationError{Message: "invalid yaml in " + context, Cause: err}
 	}
 	var trailing yaml.Node
@@ -54,11 +56,10 @@ func DecodeMapping(body []byte, context string) (*yaml.Node, map[string]interfac
 		return nil, nil, &rerrors.RuleValidationError{Message: "invalid yaml in " + context, Cause: err}
 	}
 	if decoded == nil {
-		root := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		if len(document.Content) == 1 {
-			root = document.Content[0]
+		if len(document.Content) == 0 {
+			return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}, map[string]interface{}{}, nil
 		}
-		return root, map[string]interface{}{}, nil
+		return nil, nil, &rerrors.RuleValidationError{Message: "expected a YAML mapping in " + context + "; explicit null is not an empty policy"}
 	}
 	mapping, ok := decoded.(map[string]interface{})
 	if !ok || len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {

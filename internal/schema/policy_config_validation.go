@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dlclark/regexp2"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 
 	"reconc.dev/reconc/internal/yamlbound"
@@ -24,12 +23,15 @@ func ValidatePolicyConfigYAML(body []byte) error {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return fmt.Errorf("policy YAML must contain an object")
 	}
-	_, document, err := yamlbound.DecodeMapping(body, "policy-config schema candidate")
+	root, document, err := yamlbound.DecodeMapping(body, "policy-config schema candidate")
 	if errors.Is(err, io.EOF) {
 		return fmt.Errorf("policy YAML must contain an object")
 	}
 	if err != nil {
 		return fmt.Errorf("bound policy YAML for schema validation: %w", err)
+	}
+	if root.Line == 0 {
+		return fmt.Errorf("policy YAML must contain an object")
 	}
 	definition, err := loadPolicyConfigSchema()
 	if err != nil {
@@ -45,7 +47,7 @@ func compilePolicyConfigSchema() (*jsonschema.Schema, error) {
 	compiler := jsonschema.NewCompiler()
 	compiler.DefaultDraft(jsonschema.Draft2020)
 	compiler.AssertFormat()
-	compiler.UseRegexpEngine(compilePolicyConfigRegexp)
+	compiler.UseRegexpEngine(CompileBoundedECMAScriptRegexp)
 	for _, version := range []string{"2", "4"} {
 		contract, ok := ContractVersion(PolicyConfig, version)
 		if !ok {
@@ -85,23 +87,4 @@ type rejectPolicyConfigNetworkLoader struct{}
 
 func (rejectPolicyConfigNetworkLoader) Load(url string) (any, error) {
 	return nil, fmt.Errorf("unregistered policy-config schema URL %q", url)
-}
-
-type policyConfigRegexp regexp2.Regexp
-
-func (regexp *policyConfigRegexp) MatchString(value string) bool {
-	matched, err := (*regexp2.Regexp)(regexp).MatchString(value)
-	return err == nil && matched
-}
-
-func (regexp *policyConfigRegexp) String() string {
-	return (*regexp2.Regexp)(regexp).String()
-}
-
-func compilePolicyConfigRegexp(expression string) (jsonschema.Regexp, error) {
-	compiled, err := regexp2.Compile(expression, regexp2.ECMAScript)
-	if err != nil {
-		return nil, err
-	}
-	return (*policyConfigRegexp)(compiled), nil
 }

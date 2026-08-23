@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"fmt"
 	"testing"
 
 	"reconc.dev/reconc/internal/policy"
@@ -10,6 +11,53 @@ func TestDetectConflictsEmptyRules(t *testing.T) {
 	c := DetectConflicts(nil)
 	if len(c) != 0 {
 		t.Errorf("expected no conflicts for empty ruleset, got %v", c)
+	}
+}
+
+func BenchmarkDetectConflictsGroupedDuplicates(b *testing.B) {
+	rules := make([]policy.Rule, 256)
+	for index := range rules {
+		rules[index] = policy.Rule{
+			ID: fmt.Sprintf("deny-%03d", index), Kind: policy.KindDenyWrite,
+			Paths: []string{"generated/**", "dist/**"},
+		}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if conflicts := DetectConflicts(rules); len(conflicts) != 32640 {
+			b.Fatalf("conflicts = %d", len(conflicts))
+		}
+	}
+}
+
+func BenchmarkDetectConflictsUniqueRules(b *testing.B) {
+	rules := make([]policy.Rule, 4096)
+	for index := range rules {
+		rules[index] = policy.Rule{
+			ID: fmt.Sprintf("deny-%04d", index), Kind: policy.KindDenyWrite,
+			Paths: []string{fmt.Sprintf("generated/%04d/**", index)},
+		}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if conflicts := DetectConflicts(rules); len(conflicts) != 0 {
+			b.Fatalf("conflicts = %d", len(conflicts))
+		}
+	}
+}
+
+func TestDetectConflictsReportsDeterministicOutputLimit(t *testing.T) {
+	rules := make([]policy.Rule, 363)
+	for index := range rules {
+		rules[index] = policy.Rule{
+			ID: fmt.Sprintf("deny-%03d", index), Kind: policy.KindDenyWrite,
+			Paths: []string{"same/**"},
+		}
+	}
+	conflicts := DetectConflicts(rules)
+	if len(conflicts) != MaxStaticConflicts+1 ||
+		conflicts[len(conflicts)-1].Kind != ConflictAnalysisTruncated {
+		t.Fatalf("bounded conflicts = %d, last=%#v", len(conflicts), conflicts[len(conflicts)-1])
 	}
 }
 

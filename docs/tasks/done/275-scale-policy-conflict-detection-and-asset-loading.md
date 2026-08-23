@@ -40,17 +40,17 @@ empty mapping despite the decoder's mapping-only contract.
 
 ## Sub-Tasks
 
-- [~] Capture deterministic conflict output and maximum-cardinality baselines
-- [ ] Precompute semantic rule keys and group duplicate candidates
-- [ ] Bound or stream quadratic conflict output while preserving exact order
-- [ ] Add a compile-scoped identity-checked template cache
-- [ ] Route preset manifests through shared bounded YAML admission
-- [ ] Resolve and document empty versus explicit-null policy semantics
-- [ ] Add finite regexp timeouts and fail-loud adapter errors
-- [ ] Remove only proven duplicate parser-bound walks
-- [ ] Add scaling, determinism, alias-bomb, replacement, and compatibility tests
-- [ ] Update policy authoring, limits, schema, and performance documentation
-- [ ] Run parser/compiler/schema/fuzz/race and complete repository gates
+- [x] Capture deterministic conflict output and maximum-cardinality baselines
+- [x] Precompute semantic rule keys and group duplicate candidates
+- [x] Bound or stream quadratic conflict output while preserving exact order
+- [x] Add a compile-scoped identity-checked template cache
+- [x] Route preset manifests through shared bounded YAML admission
+- [x] Resolve and document empty versus explicit-null policy semantics
+- [x] Add finite regexp timeouts and fail-loud adapter errors
+- [x] Remove only proven duplicate parser-bound walks
+- [x] Add scaling, determinism, alias-bomb, replacement, and compatibility tests
+- [x] Update policy authoring, limits, schema, and performance documentation
+- [x] Run parser/compiler/schema/fuzz/race and complete repository gates
 
 ## Notes
 
@@ -68,6 +68,30 @@ empty mapping despite the decoder's mapping-only contract.
   and should be changed only if profiling shows a material duplicate pass.
 - `optionalInt` does not need an extra `uint64` arm unless an actual decoder path
   can produce that type. Do not add unreachable compatibility code.
+- Duplicate candidates now use one length-delimited normalized semantic key per
+  rule. Exact conflict descriptions and final ordering remain unchanged below
+  the explicit 65,536-pair publication limit; overflow adds one deterministic
+  `analysis_truncated` sentinel instead of materializing unbounded output.
+- Template values are cached for one compilation and re-resolved in sorted name
+  order before publication. Any disappearance or identity/content replacement
+  fails the whole compilation.
+- Empty and comment-only policy documents remain valid zero-rule inputs.
+  Explicit YAML `null` is rejected with migration text. Preset manifests now
+  pass through the same bounded YAML admission as policy inputs.
+- The shared ECMAScript regexp adapter caps evaluation at 100 ms and fails
+  closed on engine errors. The JSON Schema callback cannot return a distinct
+  runtime error, so a timeout becomes a validation mismatch rather than being
+  silently accepted.
+- Security-motivated pre-expansion and post-template bound checks remain. No
+  parser pass was removed without evidence that its postcondition was already
+  guaranteed.
+- Performance history advanced to `reconc.performance-history/v7`. On Apple M1,
+  the 4,096-unique-rule calibration median was 3.73 ms/op and the 32,640-pair
+  grouped case was 11.20 ms/op; output construction dominates the latter by
+  design.
+- Verification: focused compiler/parser/preset/schema race tests; three fuzz
+  runs totaling 308,143 executions; `make test-fast`; `make vet`; `make lint`;
+  benchmark record/baseline/compare; and `make publication-audit` all passed.
 
 ## Deviations
 

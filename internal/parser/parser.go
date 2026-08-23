@@ -9,6 +9,7 @@ package parser
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -79,6 +80,7 @@ func parseRuleDocumentsWithDecoder(bundle *ingest.SourceBundle, decode sourceDoc
 	seen := map[string]string{} // rule id -> source path of first sighting
 	var mcpPolicy *policy.MCPPolicy
 	var actionPolicy *action.Plan
+	templateCache := make(map[string]*templates.Template)
 
 	for _, src := range bundle.Sources {
 		// Skip context-only sources; their fenced blocks land as
@@ -138,7 +140,7 @@ func parseRuleDocumentsWithDecoder(bundle *ingest.SourceBundle, decode sourceDoc
 			}
 		}
 
-		coerced, err := coerceRules(src, doc)
+		coerced, err := coerceRules(src, doc, templateCache)
 		if err != nil {
 			return nil, err
 		}
@@ -156,7 +158,7 @@ func parseRuleDocumentsWithDecoder(bundle *ingest.SourceBundle, decode sourceDoc
 		// path filter. We expand them into normal rules carrying
 		// ScopePaths/ScopeID so the runtime can pre-filter by scope
 		// without a new evaluator code path.
-		scoped, err := coerceScopes(src, doc)
+		scoped, err := coerceScopes(src, doc, templateCache)
 		if err != nil {
 			return nil, err
 		}
@@ -169,6 +171,9 @@ func parseRuleDocumentsWithDecoder(bundle *ingest.SourceBundle, decode sourceDoc
 			seen[r.ID] = src.Path
 			rules = append(rules, r)
 		}
+	}
+	if err := validateTemplateCache(templateCache); err != nil {
+		return nil, err
 	}
 
 	return &ParsedPolicy{
@@ -305,7 +310,11 @@ func mcpStringList(mapping map[string]interface{}, field, context, sourcePath st
 //
 // Scopes are the W17 monorepo-support feature: lets one .reconc.yml
 // hold per-subtree rules without users writing per-rule path filters.
-func coerceScopes(src policy.PolicySource, doc map[string]interface{}) ([]policy.Rule, error) {
+func coerceScopes(
+	src policy.PolicySource,
+	doc map[string]interface{},
+	templateCache map[string]*templates.Template,
+) ([]policy.Rule, error) {
 	rawScopes, ok := doc["scopes"]
 	if !ok || rawScopes == nil {
 		return nil, nil
@@ -359,7 +368,7 @@ func coerceScopes(src policy.PolicySource, doc map[string]interface{}) ([]policy
 					Message: "rule #" + strconv.Itoa(j) + " of scope #" + strconv.Itoa(i) + " in " + src.Path + " must be a mapping",
 				}
 			}
-			rule, err := validateRuleItem(rmap, src, j)
+			rule, err := validateRuleItem(rmap, src, j, templateCache)
 			if err != nil {
 				return nil, err
 			}
@@ -374,7 +383,11 @@ func coerceScopes(src policy.PolicySource, doc map[string]interface{}) ([]policy
 // coerceRules pulls the `rules:` slice out of a parsed YAML mapping
 // and validates each entry, returning fully-typed Rule values with
 // source provenance attached.
-func coerceRules(src policy.PolicySource, doc map[string]interface{}) ([]policy.Rule, error) {
+func coerceRules(
+	src policy.PolicySource,
+	doc map[string]interface{},
+	templateCache map[string]*templates.Template,
+) ([]policy.Rule, error) {
 	rawRules, ok := doc["rules"]
 	if !ok || rawRules == nil {
 		return nil, nil
@@ -393,7 +406,7 @@ func coerceRules(src policy.PolicySource, doc map[string]interface{}) ([]policy.
 				Message: "each rule must be a YAML mapping in " + src.Path,
 			}
 		}
-		rule, err := validateRuleItem(mapping, src, i)
+		rule, err := validateRuleItem(mapping, src, i, templateCache)
 		if err != nil {
 			return nil, err
 		}
@@ -404,12 +417,17 @@ func coerceRules(src policy.PolicySource, doc map[string]interface{}) ([]policy.
 
 // validateRuleItem checks a single rule mapping against the schema and
 // returns the typed Rule on success.
-func validateRuleItem(item map[string]interface{}, src policy.PolicySource, index int) (policy.Rule, error) {
+func validateRuleItem(
+	item map[string]interface{},
+	src policy.PolicySource,
+	index int,
+	templateCache map[string]*templates.Template,
+) (policy.Rule, error) {
 	// Template expansion (W18): if the rule references a template, merge
 	// the template's fields as defaults before schema validation. User
 	// fields always win. The template: field itself is consumed here.
 	if tmplName, ok := item["template"].(string); ok && strings.TrimSpace(tmplName) != "" {
-		expanded, err := expandTemplate(item, tmplName, src, index)
+		expanded, err := expandTemplate(item, tmplName, src, index, templateCache)
 		if err != nil {
 			return policy.Rule{}, err
 		}
@@ -1327,8 +1345,22 @@ func validateGlobPatterns(patterns []string, context string) error {
 //
 // Any error from templates.Resolve is wrapped in a RuleValidationError
 // so the rule's source context surfaces correctly in CLI output.
-func expandTemplate(userItem map[string]interface{}, name string, src policy.PolicySource, index int) (map[string]interface{}, error) {
-	tmpl, err := templates.Resolve(name)
+func expandTemplate(
+	userItem map[string]interface{},
+	name string,
+	src policy.PolicySource,
+	index int,
+	cache map[string]*templates.Template,
+) (map[string]interface{}, error) {
+	cacheKey := strings.TrimSpace(name)
+	tmpl := cache[cacheKey]
+	var err error
+	if tmpl == nil {
+		tmpl, err = templates.Resolve(name)
+		if err == nil {
+			cache[cacheKey] = tmpl
+		}
+	}
 	if err != nil {
 		return nil, &rerrors.RuleValidationError{
 			Message: "rule #" + strconv.Itoa(index) + " in " + src.Path + ": " + err.Error(),
@@ -1336,4 +1368,22 @@ func expandTemplate(userItem map[string]interface{}, name string, src policy.Pol
 		}
 	}
 	return templates.Apply(tmpl, userItem), nil
+}
+
+func validateTemplateCache(cache map[string]*templates.Template) error {
+	names := make([]string, 0, len(cache))
+	for name := range cache {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		current, err := templates.Resolve(name)
+		if err != nil || !reflect.DeepEqual(current, cache[name]) {
+			return &rerrors.RuleValidationError{
+				Message: "template '" + name + "' changed during policy compilation",
+				Cause:   err,
+			}
+		}
+	}
+	return nil
 }

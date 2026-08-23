@@ -1910,7 +1910,8 @@ The shipped v2 and current v4 policy-config schema files are embedded into the
 Go binary for offline authoring validation. Embedded bytes are digest-checked
 against the canonical schema registry in tests; schema validation is an early
 diagnostic and never substitutes for the parser, compiler, conflict, preset,
-template, or runtime checks.
+template, or runtime checks. ECMAScript regexp matching uses one shared adapter
+with a 100 ms match timeout and treats engine failure as a validation failure.
 
 Rule fields are also kind-specific. After template expansion, the compiler
 rejects any known field that the selected kind cannot evaluate, including empty
@@ -1951,7 +1952,12 @@ aliases, and any limit overflow fail closed with source path/block, rule, field,
 actual value, and maximum where a rule is identifiable. Required-file,
 evidence, assurance, scope, and composite sub-check collections use the same
 item and text ceilings, so a source cannot bypass bounds by moving data into a
-nested variant.
+nested variant. Empty and comment-only rule sources remain valid empty
+documents; explicit YAML `null` is rejected because it is not a policy mapping.
+User preset manifests enter this same bounded YAML admission path. Template
+resolution is cached once per compile by normalized name and exact resolved
+source content, then re-resolved before publication so replacement during the
+compile fails closed.
 Runtime resolves every such path against the filesystem identity of the
 repository root and rejects symlink, reparse-point, or missing-tail resolution
 that escapes it. One evaluation owns one resolved root identity and one bounded
@@ -2131,6 +2137,10 @@ is not reported as a contradiction. This analysis is deliberately conservative:
 it compares exact top-level rule targets and does not recursively prove
 composite sub-checks conflict-free. Composite rules are still parsed and
 evaluated normally; authors must review their cross-rule interactions.
+Conflict-relevant lists are normalized and keyed once, so clean or mostly
+unique rule sets avoid pairwise sorting. Pair output remains deterministic and
+is capped at 65,536 entries; a final `analysis_truncated` record makes any
+pathological overflow explicit instead of allowing unbounded materialization.
 
 Single-identifier brace groups such as `{task_id}` are template captures only
 for capture-aware rule kinds. In other glob fields they retain doublestar's

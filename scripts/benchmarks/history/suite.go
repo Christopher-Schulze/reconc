@@ -30,6 +30,7 @@ var benchmarkSuite = []groupSpec{
 	{Name: "action-ledger-checkpoint", Package: "./internal/actionledger", Calibration: "BenchmarkLedgerCheckpointAdvanceNoActiveCalls", Targets: []string{"BenchmarkLedgerCheckpointAdvanceActive256", "BenchmarkLedgerCheckpointAdvanceTerminal65536"}},
 	{Name: "action-structured-inspection", Package: "./internal/actioninspect", Calibration: "BenchmarkStructuredJSONRepresentative", Targets: []string{"BenchmarkMaximumLegalContentArray"}},
 	{Name: "compiler-canonical-json", Package: "./internal/compiler", Calibration: "BenchmarkNormalizeJSONValueTwice", Targets: []string{"BenchmarkNormalizeJSONValueOnce"}},
+	{Name: "compiler-conflict-scaling", Package: "./internal/compiler", Calibration: "BenchmarkDetectConflictsUniqueRules", Targets: []string{"BenchmarkDetectConflictsGroupedDuplicates"}},
 	{Name: "hook-worker-frame-growth", Package: "./internal/cli", Calibration: "BenchmarkHookWorkerFrameRepresentativeCalibrated", Targets: []string{"BenchmarkHookWorkerFrameLarge"}},
 	{Name: "ingest-source-context", Package: "./internal/ingest", Calibration: "BenchmarkLoadPolicySourcesWithDiscovery", Targets: []string{"BenchmarkLoadPolicySourcesWithContext"}},
 	{Name: "mcp-frame-routing", Package: "./internal/mcpgateway", Calibration: "BenchmarkParseFrameSmall", Targets: []string{"BenchmarkParseFrameProgress", "BenchmarkParseFrameRepresentative"}},

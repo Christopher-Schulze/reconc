@@ -35,7 +35,7 @@ paid by every one-shot CLI process.
 
 ## Sub-Tasks
 
-- [ ] Add event-count and lockfile-stage benchmarks with allocation profiles
+- [~] Add event-count and lockfile-stage benchmarks with allocation profiles
 - [ ] Replace per-event `MergedWith` with one bounded accumulator
 - [ ] Design the strict current-format raw-envelope decoder
 - [ ] Capture rule field presence during the strict token pass

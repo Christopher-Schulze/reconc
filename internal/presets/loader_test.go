@@ -52,6 +52,13 @@ func TestListReturnsBundledPresetsSorted(t *testing.T) {
 	}
 }
 
+func TestParseManifestAppliesBoundedYAMLAdmission(t *testing.T) {
+	aliases := "base: &base\n  id: one\nrules:\n" + strings.Repeat("  - *base\n", 1025)
+	if _, err := parseManifest("bounded", aliases); err == nil || !strings.Contains(err.Error(), "yaml aliases") {
+		t.Fatalf("preset alias amplification error = %v", err)
+	}
+}
+
 func TestListMarksBundledSource(t *testing.T) {
 	withRECONCHome(t)
 	got, err := List()
