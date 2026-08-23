@@ -73,6 +73,104 @@ func BenchmarkLoadLockfile(b *testing.B) {
 	}
 }
 
+func BenchmarkLoadExecutionInputsEvents256(b *testing.B) {
+	benchmarkLoadExecutionInputsEvents(b, 256)
+}
+
+func BenchmarkLoadExecutionInputsEvents8192(b *testing.B) {
+	benchmarkLoadExecutionInputsEvents(b, 8192)
+}
+
+func benchmarkLoadExecutionInputsEvents(b *testing.B, count int) {
+	events := make([]interface{}, 0, count)
+	for index := 0; index < count; index++ {
+		events = append(events, map[string]interface{}{
+			"kind": EventKindWrite,
+			"path": "src/" + strconv.Itoa(index) + ".go",
+		})
+	}
+	payload := map[string]interface{}{
+		"read_paths": []interface{}{"README.md"},
+		"events":     events,
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := LoadExecutionInputs(payload); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkDecodeCurrentLockfileRepresentative(b *testing.B) {
+	benchmarkDecodeCurrentLockfile(b, 64)
+}
+
+func BenchmarkDecodeCurrentLockfileMaximumRules(b *testing.B) {
+	benchmarkDecodeCurrentLockfile(b, 4096)
+}
+
+func benchmarkDecodeCurrentLockfile(b *testing.B, ruleCount int) {
+	repo := b.TempDir()
+	writeFileBench(b, repo, "AGENTS.md", "# t\n")
+	var policyText strings.Builder
+	policyText.WriteString("rules:\n")
+	for index := 0; index < ruleCount; index++ {
+		id := strconv.Itoa(index)
+		policyText.WriteString("  - id: rule-" + id + "\n    kind: deny_write\n    paths: ['generated/" + id + "/**']\n    mode: warn\n    message: rule\n")
+	}
+	writeFileBench(b, repo, "policies/rules.yml", policyText.String())
+	if _, err := compiler.CompileRepoPolicy(repo, "bench"); err != nil {
+		b.Fatal(err)
+	}
+	body, err := readLockfileBytes(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := decodeLockfile(body); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkDecodeLockfileFormats(b *testing.B) {
+	repo := b.TempDir()
+	writeFileBench(b, repo, "AGENTS.md", "# t\n")
+	writeFileBench(b, repo, "policies/rules.yml", "rules: []\n")
+	if _, err := compiler.CompileRepoPolicy(repo, "bench"); err != nil {
+		b.Fatal(err)
+	}
+	body, err := readLockfileBytes(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	var current map[string]interface{}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&current); err != nil {
+		b.Fatal(err)
+	}
+	for _, version := range []string{"1", "2", "3", "4", "5", "6"} {
+		payload := cloneRuntimeLockPayload(b, current)
+		prepareRuntimeLockVersion(b, payload, version)
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.Run("format-"+version, func(b *testing.B) {
+			b.ReportAllocs()
+			for range b.N {
+				if _, err := decodeLockfile(encoded); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkValidateCurrentLockfileFreshness(b *testing.B) {
 	repo := b.TempDir()
 	writeFileBench(b, repo, "AGENTS.md", "# t\n")

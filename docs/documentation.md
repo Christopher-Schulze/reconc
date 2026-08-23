@@ -1819,17 +1819,19 @@ did not exist yet. Formats 2 through 5 require their legacy schema and
 whole-payload digest to pass before migration;
 their sources are reparsed and must retain exact embedded rule and canonical
 action parity.
-The lockfile boundary performs one bounded recursive
-`encoding/json/jsontext` token decode: it rejects duplicate keys, invalid
-Unicode, excessive nesting, non-object roots, and trailing values while
-retaining `json.Number` values. The action-value boundary uses the same strict
-token API while preserving decimal normalization, aggregate cardinality,
-string, numeric, argument-size, and depth limits plus the public error-kind
-contract. Invalid-input classification performs the legacy Unicode validation
-only after token decoding rejects a value, so valid payloads are not scanned
-twice. The decoded rules and actions are encoded once into typed-plan inputs;
-the compiled action plan is carried forward to runtime construction instead of
-being marshaled and validated again.
+The lockfile boundary performs a bounded recursive
+`encoding/json/jsontext` admission scan before allocation: it rejects duplicate
+keys, invalid Unicode, more than 1,048,576 aggregate JSON items, excessive
+nesting, non-object roots, and trailing values. A strictly admitted current
+format is then decoded directly into one typed envelope. Its rules and actions
+remain raw JSON subtrees in the compatibility payload, are decoded once into
+typed plans, and rule/check/assurance field presence is collected with a token
+walk rather than maps of `json.RawMessage`. Current large arrays are therefore
+never boxed into `interface{}` or re-marshaled to recover their bytes. Formats
+1 through 5 retain the generic migration table and exact historical digest
+semantics. The action-value boundary uses the same strict token API while
+preserving decimal normalization, aggregate cardinality, string, numeric,
+argument-size, and depth limits plus the public error-kind contract.
 Source compilation uses an evaluation-scoped `SourceLoadContext`: discovery,
 canonical root identity, config identity, and the per-default-glob fragment
 inventory travel together through one load and are revalidated before and
@@ -1968,8 +1970,12 @@ revalidated during evaluation, while evidence snapshots still revalidate the
 resolved file identity and metadata before reusing bytes. Policy sources are
 limited to 8 MiB each, 4,096 sources, and
 64 MiB in aggregate; compiled lockfiles and execution-input JSON files are
-limited to 16 MiB; evidence and TASK control files are limited to 4 MiB. An
-oversized or boundary-escaping input fails closed before evaluation.
+limited to 16 MiB. Execution-input JSON additionally admits at most 64 nesting
+levels and 262,144 aggregate tokens/items before generic decoding. Bulk
+evidence and ordered events are appended into one capacity-planned accumulator,
+preserving bulk-first order and causal write epochs without copying all prior
+events for every merge. Evidence and TASK control files are limited to 4 MiB.
+An oversized or boundary-escaping input fails closed before evaluation.
 
 The managed target-repository block uses these exact rules. It ignores mutable
 runtime state while explicitly re-including `.reconc/install.lock.json` and

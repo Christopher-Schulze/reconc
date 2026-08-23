@@ -165,7 +165,7 @@ func TestRuntimePlanRejectsDeadCheckPathFieldsAcrossAllLockFormats(t *testing.T)
 	}
 }
 
-func cloneRuntimeLockPayload(t *testing.T, payload map[string]interface{}) map[string]interface{} {
+func cloneRuntimeLockPayload(t testing.TB, payload map[string]interface{}) map[string]interface{} {
 	t.Helper()
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -180,7 +180,7 @@ func cloneRuntimeLockPayload(t *testing.T, payload map[string]interface{}) map[s
 	return clone
 }
 
-func prepareRuntimeLockVersion(t *testing.T, payload map[string]interface{}, version string) {
+func prepareRuntimeLockVersion(t testing.TB, payload map[string]interface{}, version string) {
 	t.Helper()
 	payload["$schema"] = contractschema.ResolveVersion(contractschema.PolicyLock, version)
 	payload["format_version"] = version
@@ -210,7 +210,7 @@ func prepareRuntimeLockVersion(t *testing.T, payload map[string]interface{}, ver
 	payload["lock_digest"] = digest
 }
 
-func decodeRuntimeLockPayload(t *testing.T, payload map[string]interface{}) *decodedLockfile {
+func decodeRuntimeLockPayload(t testing.TB, payload map[string]interface{}) *decodedLockfile {
 	t.Helper()
 	body, err := json.Marshal(payload)
 	if err != nil {

@@ -12,7 +12,11 @@ import (
 	rerrors "reconc.dev/reconc/internal/errors"
 )
 
-const maxExecutionInputFileBytes int64 = 16 << 20
+const (
+	maxExecutionInputFileBytes int64 = 16 << 20
+	maxExecutionInputJSONDepth       = 64
+	maxExecutionInputItems           = 262144
+)
 
 // Event-payload constants.
 const (
@@ -98,6 +102,9 @@ func LoadExecutionInputs(payload map[string]interface{}) (ExecutionInputs, error
 	if payload == nil {
 		return Empty(), nil
 	}
+	if executionInputItemCount(payload) > maxExecutionInputItems {
+		return Empty(), &rerrors.EvidenceError{Message: fmt.Sprintf("execution input contains more than %d aggregate items", maxExecutionInputItems)}
+	}
 
 	reads, err := coercePathList(payload["read_paths"], "read_paths")
 	if err != nil {
@@ -141,16 +148,25 @@ func LoadExecutionInputs(payload map[string]interface{}) (ExecutionInputs, error
 	if !isList {
 		return Empty(), &rerrors.EvidenceError{Message: "'events' must be a JSON array"}
 	}
-
-	merged := bulk
+	counts := countEventKinds(eventsList)
+	merged := ExecutionInputs{
+		ReadPaths:      append(make([]string, 0, len(bulk.ReadPaths)+counts.reads), bulk.ReadPaths...),
+		WritePaths:     append(make([]string, 0, len(bulk.WritePaths)+counts.writes), bulk.WritePaths...),
+		WriteEpochs:    make(map[string]uint64, len(bulk.WriteEpochs)+counts.writes),
+		Commands:       append(make([]string, 0, len(bulk.Commands)+counts.commands), bulk.Commands...),
+		Claims:         append(make([]string, 0, len(bulk.Claims)+counts.claims), bulk.Claims...),
+		CommandResults: append(make([]CommandResult, 0, len(bulk.CommandResults)+counts.results), bulk.CommandResults...),
+	}
+	for path, writeEpoch := range bulk.WriteEpochs {
+		merged.WriteEpochs[path] = writeEpoch
+	}
 	epoch := maxEvidenceEpoch(merged.WriteEpochs, merged.CommandResults)
 	for i, ev := range eventsList {
-		parsed, nextEpoch, err := parseEvent(ev, i, epoch)
+		nextEpoch, err := appendEvent(&merged, ev, i, epoch)
 		if err != nil {
 			return Empty(), err
 		}
 		epoch = nextEpoch
-		merged = merged.MergedWith(parsed)
 	}
 	return merged, nil
 }
@@ -159,6 +175,16 @@ func LoadExecutionInputs(payload map[string]interface{}) (ExecutionInputs, error
 // `source` label appears in error messages so users can tell stdin
 // from a file.
 func LoadExecutionInputsText(text, source string) (ExecutionInputs, error) {
+	if err := validateBoundedJSON([]byte(text), maxExecutionInputJSONDepth, maxExecutionInputItems); err != nil {
+		message := fmt.Sprintf("execution input payload from %s is not valid bounded JSON", source)
+		if strings.Contains(err.Error(), "multiple JSON values") {
+			message = fmt.Sprintf("execution input payload from %s must contain exactly one JSON value", source)
+		}
+		return Empty(), &rerrors.EvidenceError{
+			Message: message,
+			Cause:   err,
+		}
+	}
 	var payload map[string]interface{}
 	dec := json.NewDecoder(strings.NewReader(text))
 	dec.UseNumber()
@@ -352,22 +378,64 @@ func coerceCommandResultList(value interface{}, field string) ([]CommandResult, 
 	return out, nil
 }
 
-func parseEvent(ev interface{}, index int, epoch uint64) (ExecutionInputs, uint64, error) {
+type eventCounts struct {
+	reads, writes, commands, claims, results int
+}
+
+func countEventKinds(events []interface{}) eventCounts {
+	var counts eventCounts
+	for _, event := range events {
+		mapping, ok := event.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		kind, _ := mapping["kind"].(string)
+		switch strings.TrimSpace(kind) {
+		case EventKindRead:
+			counts.reads++
+		case EventKindWrite:
+			counts.writes++
+		case EventKindCommand:
+			counts.commands++
+			if outcome, present := mapping["outcome"]; present && outcome != nil {
+				counts.results++
+			}
+		case EventKindClaim:
+			counts.claims++
+		}
+	}
+	return counts
+}
+
+func executionInputItemCount(payload map[string]interface{}) int {
+	count := 0
+	for _, field := range []string{"read_paths", "write_paths", "commands", "claims", "command_results", "events"} {
+		if values, ok := payload[field].([]interface{}); ok {
+			count += len(values)
+		}
+	}
+	if epochs, ok := payload["write_epochs"].(map[string]interface{}); ok {
+		count += len(epochs)
+	}
+	return count
+}
+
+func appendEvent(out *ExecutionInputs, ev interface{}, index int, epoch uint64) (uint64, error) {
 	mapping, ok := ev.(map[string]interface{})
 	if !ok {
-		return Empty(), epoch, &rerrors.EvidenceError{
+		return epoch, &rerrors.EvidenceError{
 			Message: fmt.Sprintf("events[%d] must be a JSON object", index),
 		}
 	}
 	kindRaw, ok := mapping["kind"]
 	if !ok {
-		return Empty(), epoch, &rerrors.EvidenceError{
+		return epoch, &rerrors.EvidenceError{
 			Message: fmt.Sprintf("events[%d] must contain a string 'kind'", index),
 		}
 	}
 	kindStr, isStr := kindRaw.(string)
 	if !isStr || strings.TrimSpace(kindStr) == "" {
-		return Empty(), epoch, &rerrors.EvidenceError{
+		return epoch, &rerrors.EvidenceError{
 			Message: fmt.Sprintf("events[%d] must contain a string 'kind'", index),
 		}
 	}
@@ -378,48 +446,44 @@ func parseEvent(ev interface{}, index int, epoch uint64) (ExecutionInputs, uint6
 	case EventKindRead:
 		path, err := requirePathString(mapping["path"], "path", ctx)
 		if err != nil {
-			return Empty(), epoch, err
+			return epoch, err
 		}
-		out := Empty()
-		out.ReadPaths = []string{path}
-		return out, epoch, nil
+		out.ReadPaths = append(out.ReadPaths, path)
+		return epoch, nil
 	case EventKindWrite:
 		path, err := requirePathString(mapping["path"], "path", ctx)
 		if err != nil {
-			return Empty(), epoch, err
+			return epoch, err
 		}
 		if epoch < ExplicitEvidenceEpoch-1 {
 			epoch++
 		}
-		out := Empty()
-		out.WritePaths = []string{path}
+		out.WritePaths = append(out.WritePaths, path)
 		out.WriteEpochs[path] = epoch
-		return out, epoch, nil
+		return epoch, nil
 	case EventKindCommand:
 		cmd, err := requireString(mapping["command"], "command", ctx)
 		if err != nil {
-			return Empty(), epoch, err
+			return epoch, err
 		}
-		out := Empty()
-		out.Commands = []string{cmd}
+		out.Commands = append(out.Commands, cmd)
 		if outcomeRaw, present := mapping["outcome"]; present && outcomeRaw != nil {
 			outcome, err := requireOutcome(outcomeRaw, ctx+" outcome")
 			if err != nil {
-				return Empty(), epoch, err
+				return epoch, err
 			}
-			out.CommandResults = []CommandResult{{Command: cmd, Outcome: outcome, EvidenceEpoch: epoch}}
+			out.CommandResults = append(out.CommandResults, CommandResult{Command: cmd, Outcome: outcome, EvidenceEpoch: epoch})
 		}
-		return out, epoch, nil
+		return epoch, nil
 	case EventKindClaim:
 		claim, err := requireString(mapping["claim"], "claim", ctx)
 		if err != nil {
-			return Empty(), epoch, err
+			return epoch, err
 		}
-		out := Empty()
-		out.Claims = []string{claim}
-		return out, epoch, nil
+		out.Claims = append(out.Claims, claim)
+		return epoch, nil
 	default:
-		return Empty(), epoch, &rerrors.EvidenceError{
+		return epoch, &rerrors.EvidenceError{
 			Message: fmt.Sprintf("events[%d] kind '%s' is unsupported; expected one of: claim, command, read, write", index, kind),
 		}
 	}

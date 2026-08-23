@@ -35,15 +35,15 @@ paid by every one-shot CLI process.
 
 ## Sub-Tasks
 
-- [~] Add event-count and lockfile-stage benchmarks with allocation profiles
-- [ ] Replace per-event `MergedWith` with one bounded accumulator
-- [ ] Design the strict current-format raw-envelope decoder
-- [ ] Capture rule field presence during the strict token pass
-- [ ] Decode current rules/actions/envelope without interface boxing or re-marshaling
-- [ ] Preserve the map-based migration path for every legacy format
-- [ ] Add duplicate-key, missing-field, number, depth, maximum-size, and migration tests
-- [ ] Update runtime lockfile and execution-input documentation plus benchmark history
-- [ ] Run fuzz, schema, migration, runtime, CLI, and complete verification
+- [x] Add event-count and lockfile-stage benchmarks with allocation profiles
+- [x] Replace per-event `MergedWith` with one bounded accumulator
+- [x] Design the strict current-format raw-envelope decoder
+- [x] Capture rule field presence during the strict token pass
+- [x] Decode current rules/actions/envelope without interface boxing or re-marshaling
+- [x] Preserve the map-based migration path for every legacy format
+- [x] Add duplicate-key, missing-field, number, depth, maximum-size, and migration tests
+- [x] Update runtime lockfile and execution-input documentation plus benchmark history
+- [x] Run fuzz, schema, migration, runtime, CLI, and complete verification
 
 ## Notes
 
@@ -58,6 +58,32 @@ paid by every one-shot CLI process.
   strict boundary also rejects duplicate keys and enforces bounded depth/items.
 - Do not remove legacy migration or weaken current-vs-legacy schema identity to
   obtain the fast path.
+- Event ingestion now performs a non-failing kind count for capacity planning,
+  clones bulk collections once, and appends validated events directly. Error
+  order, bulk-first ordering, write epochs, duplicate behavior, and path bytes
+  remain unchanged; the former per-event six-container allocation and complete
+  accumulated-copy path are gone.
+- Text inputs pass a 64-level and 262,144-item strict token admission before
+  generic decoding. Direct structured callers receive the same aggregate
+  evidence cardinality bound.
+- Current format-6 locks are selected only after strict bounded JSON admission.
+  Top-level fields are retained as raw messages, the envelope/rules/actions are
+  decoded directly, and canonical raw `rules`/`actions` remain outside the
+  compatibility interface tree. Rule, check, and assurance field layouts are
+  collected by `jsontext` token scans instead of per-object raw maps.
+- Formats 1 through 5 still enter the original generic migration table. A
+  dedicated benchmark exercises every supported format, and existing parity,
+  digest, schema, and malformed-field tests remain unchanged.
+- Performance history advanced to `reconc.performance-history/v8`. Apple M1
+  medians: 256 events 38.15 us/28,841 B/520 allocs; 8,192 events 1.81 ms/
+  1,016,795 B/24,358 allocs; 64-rule current lock 320.99 us/222,524 B/568
+  allocs; maximum 4,096-rule lock 16.15 ms/19,571,611 B/12,957 allocs.
+- Verification: full runtime race suite; all six migration-format benchmarks;
+  three fuzz runs totaling 378,923 executions; benchmark record/baseline/
+  compare; `make test-fast`; `make vet`; `make lint`; and
+  `make publication-audit` passed. The one cumulative full race/release gate is
+  intentionally retained for TASK 283 so the same six-minute suite is not run
+  once per independent task.
 
 ## Deviations
 

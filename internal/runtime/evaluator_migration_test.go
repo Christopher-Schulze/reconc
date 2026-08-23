@@ -235,6 +235,28 @@ func TestDecodeLockfileCachesTypedPartsForCurrentAndMigratedLocks(t *testing.T) 
 	assertDecodedLockfilePartsMatchFallback(t, legacyBytes, true)
 }
 
+func TestCurrentLockfileKeepsLargePlansOutOfInterfaceTree(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules:\n  - id: r\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: x\n")
+	body, err := os.ReadFile(filepath.Join(repo, ".reconc", "policy.lock.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := decodeLockfile(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := lock.payload["rules"].(json.RawMessage); !ok {
+		t.Fatalf("current rules were boxed into %T", lock.payload["rules"])
+	}
+	if _, ok := lock.payload["actions"].(json.RawMessage); !ok {
+		t.Fatalf("current actions were boxed into %T", lock.payload["actions"])
+	}
+	if lock.envelope == nil || len(lock.rules) != 1 || lock.actions == nil {
+		t.Fatalf("typed current lock parts are incomplete: envelope=%p rules=%d actions=%p", lock.envelope, len(lock.rules), lock.actions)
+	}
+}
+
 func assertDecodedLockfilePartsMatchFallback(t *testing.T, body []byte, wantMigrated bool) {
 	t.Helper()
 	lock, err := decodeLockfile(body)

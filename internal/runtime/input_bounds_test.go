@@ -79,3 +79,15 @@ func TestDecodeLockfileRejectsNonStrictJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestExecutionInputRejectsDepthAndAggregateItemsBeforeDecode(t *testing.T) {
+	deep := strings.Repeat(`{"x":`, maxExecutionInputJSONDepth+1) + `null` + strings.Repeat(`}`, maxExecutionInputJSONDepth+1)
+	if _, err := LoadExecutionInputsText(deep, "deep"); err == nil || !strings.Contains(err.Error(), "nesting exceeds") {
+		t.Fatalf("deep execution input error = %v", err)
+	}
+
+	items := `{"read_paths":[` + strings.Repeat(`"x",`, maxExecutionInputItems) + `"x"]}`
+	if _, err := LoadExecutionInputsText(items, "wide"); err == nil || !strings.Contains(err.Error(), "aggregate items") {
+		t.Fatalf("wide execution input error = %v", err)
+	}
+}

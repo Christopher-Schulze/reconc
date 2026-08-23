@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/boundedio"
@@ -22,7 +23,10 @@ import (
 
 const maxLockfileBytes = compiler.MaxLockfileBytes
 
-const maxLockfileJSONDepth = action.MaxJSONDepth + 2*action.MaxConditionDepth + 16
+const (
+	maxLockfileJSONDepth = action.MaxJSONDepth + 2*action.MaxConditionDepth + 16
+	maxLockfileJSONItems = 1 << 20
+)
 
 // --- Lockfile loading + freshness ---
 
@@ -33,6 +37,8 @@ type decodedLockfile struct {
 	rulesJSON   []byte
 	actionsJSON []byte
 	actions     *action.CompiledPlan
+	envelope    *runtimeEnvelope
+	rules       []policy.Rule
 }
 
 // lockfileDefaultMode extracts the validated default_mode from a loaded
@@ -94,6 +100,24 @@ func readLockfileBytes(root string) ([]byte, error) {
 }
 
 func decodeLockfile(data []byte) (*decodedLockfile, error) {
+	if int64(len(data)) > maxLockfileBytes {
+		return nil, &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile exceeds %d bytes", maxLockfileBytes)}
+	}
+	if err := validateBoundedJSON(data, maxLockfileJSONDepth, maxLockfileJSONItems); err != nil {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile is not strict bounded JSON", Cause: classifyStrictLockfileJSONError(data, err)}
+	}
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawFields); err != nil {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile is not strict JSON", Cause: classifyStrictLockfileJSONError(data, err)}
+	}
+	var formatVersion string
+	if rawFormat, ok := rawFields["format_version"]; ok {
+		_ = json.Unmarshal(rawFormat, &formatVersion)
+	}
+	if formatVersion == compiler.LockfileFormatVersion {
+		return decodeCurrentLockfile(data, rawFields)
+	}
+
 	payload, err := decodeStrictLockfileJSON(data)
 	if err != nil {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile is not strict JSON", Cause: err}
@@ -161,6 +185,60 @@ func decodeLockfile(data []byte) (*decodedLockfile, error) {
 	}, nil
 }
 
+func decodeCurrentLockfile(data []byte, rawFields map[string]json.RawMessage) (*decodedLockfile, error) {
+	payload, err := decodeCurrentLockfilePayload(rawFields)
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "decode current compiled lockfile fields", Cause: err}
+	}
+	if err := compiler.ValidateLockfileEnvelope(payload); err != nil {
+		return nil, err
+	}
+	envelope, err := decodeRuntimeEnvelopeJSON(data)
+	if err != nil {
+		return nil, err
+	}
+	rules, err := decodeRuntimeRulesTyped(envelope.Rules, false)
+	if err != nil {
+		return nil, err
+	}
+	if envelope.RuleCount < 0 || len(rules) != envelope.RuleCount {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile rule_count does not match the embedded rules"}
+	}
+	if envelope.SourceCount < 0 || len(envelope.Sources) != envelope.SourceCount {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile source_count does not match the embedded sources"}
+	}
+	actions, err := decodeActionPlanJSON(envelope.Actions)
+	if err != nil {
+		return nil, err
+	}
+	return &decodedLockfile{
+		payload: payload, rulesJSON: envelope.Rules, actionsJSON: envelope.Actions,
+		actions: actions, envelope: envelope, rules: rules,
+	}, nil
+}
+
+func decodeCurrentLockfilePayload(rawFields map[string]json.RawMessage) (map[string]interface{}, error) {
+	payload := make(map[string]interface{}, len(rawFields))
+	for name, raw := range rawFields {
+		if name == "rules" || name == "actions" {
+			formatted := jsontext.Value(append([]byte(nil), raw...))
+			if err := formatted.Format(jsontext.ReorderRawObjects(true), jsontext.EscapeForHTML(true)); err != nil {
+				return nil, fmt.Errorf("format %s: %w", name, err)
+			}
+			payload[name] = json.RawMessage(formatted)
+			continue
+		}
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		var value interface{}
+		if err := decoder.Decode(&value); err != nil {
+			return nil, fmt.Errorf("decode %s: %w", name, err)
+		}
+		payload[name] = value
+	}
+	return payload, nil
+}
+
 func decodeStrictLockfileJSON(data []byte) (map[string]interface{}, error) {
 	decoder := jsontext.NewDecoder(bytes.NewReader(data))
 	value, err := decodeStrictJSONValue(decoder, 1)
@@ -185,6 +263,9 @@ func decodeStrictLockfileJSON(data []byte) (map[string]interface{}, error) {
 func classifyStrictLockfileJSONError(data []byte, err error) error {
 	if stderrors.Is(err, jsontext.ErrDuplicateName) {
 		return fmt.Errorf("duplicate object key: %w", err)
+	}
+	if strings.Contains(err.Error(), "after top-level value") {
+		return fmt.Errorf("multiple JSON values are not allowed")
 	}
 	if unicodeErr := action.ValidateJSONUnicode(data); unicodeErr != nil {
 		return unicodeErr
@@ -339,7 +420,7 @@ func ValidatePolicyLockfileSnapshot(root string, bundle *ingest.SourceBundle, pa
 	if err := validateLockfileFreshnessSnapshot(lock.payload, lock.migrated, bundle, currentDigest, parsed); err != nil {
 		return lockfileRefreshRequired(err)
 	}
-	if _, err := compileRuntimePlanWithParts(lock.payload, lock.rulesJSON, lock.actionsJSON, lock.actions); err != nil {
+	if _, err := compileRuntimePlanFromLock(lock); err != nil {
 		return lockfileRefreshRequired(err)
 	}
 	return nil
@@ -369,7 +450,10 @@ func LoadFreshCustomRuntimeManifestDigests(startPath string) (map[string]string,
 	if err := validateLockfileFreshnessBundle(lock.payload, lock.migrated, bundle, currentDigest); err != nil {
 		return nil, lockfileRefreshRequired(err)
 	}
-	envelope, err := decodeRuntimeEnvelopeWithParts(lock.payload, lock.rulesJSON, lock.actionsJSON)
+	envelope := lock.envelope
+	if envelope == nil {
+		envelope, err = decodeRuntimeEnvelopeWithParts(lock.payload, lock.rulesJSON, lock.actionsJSON)
+	}
 	if err != nil {
 		return nil, lockfileRefreshRequired(err)
 	}

@@ -53,7 +53,7 @@ func NewCompiledPolicyEvaluator(lockfile []byte) (*CompiledPolicyEvaluator, erro
 	if err != nil {
 		return nil, err
 	}
-	plan, err := compileRuntimePlanWithParts(decoded.payload, decoded.rulesJSON, decoded.actionsJSON, decoded.actions)
+	plan, err := compileRuntimePlanFromLock(decoded)
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	stderrors "errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -176,6 +177,30 @@ func TestBulkAndEventsCombined(t *testing.T) {
 	}`)
 	if len(got.WritePaths) != 2 {
 		t.Errorf("expected 2 write paths (bulk + event), got %d", len(got.WritePaths))
+	}
+}
+
+func TestLoadExecutionInputsPreservesLargeEventOrderAndEpochs(t *testing.T) {
+	const eventCount = 8192
+	events := make([]interface{}, 0, eventCount)
+	for index := 0; index < eventCount; index++ {
+		events = append(events, map[string]interface{}{
+			"kind": EventKindWrite,
+			"path": fmt.Sprintf("src/%05d.go", index),
+		})
+	}
+	inputs, err := LoadExecutionInputs(map[string]interface{}{
+		"write_paths": []interface{}{"bulk.go"},
+		"events":      events,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inputs.WritePaths) != eventCount+1 || inputs.WritePaths[0] != "bulk.go" || inputs.WritePaths[eventCount] != "src/08191.go" {
+		t.Fatalf("write order or count drifted: first=%q last=%q count=%d", inputs.WritePaths[0], inputs.WritePaths[len(inputs.WritePaths)-1], len(inputs.WritePaths))
+	}
+	if inputs.WriteEpochs["src/00000.go"] != 1 || inputs.WriteEpochs["src/08191.go"] != eventCount {
+		t.Fatalf("write epochs drifted: first=%d last=%d", inputs.WriteEpochs["src/00000.go"], inputs.WriteEpochs["src/08191.go"])
 	}
 }
 

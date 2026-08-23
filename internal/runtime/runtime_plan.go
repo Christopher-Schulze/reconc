@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"io"
 	"sort"
@@ -145,7 +146,7 @@ func (e *Evaluator) loadRuntimePlan(root string) (*runtimePlan, error) {
 		delete(e.plans, root)
 		return nil, err
 	}
-	plan, err := compileRuntimePlanWithParts(lock.payload, lock.rulesJSON, lock.actionsJSON, lock.actions)
+	plan, err := compileRuntimePlanFromLock(lock)
 	if err != nil {
 		delete(e.plans, root)
 		return nil, err
@@ -189,13 +190,40 @@ func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
 }
 
 func compileRuntimePlanWithParts(payload map[string]interface{}, rulesJSON, actionsJSON []byte, compiledActions *action.CompiledPlan) (*runtimePlan, error) {
-	envelope, err := decodeRuntimeEnvelopeWithParts(payload, rulesJSON, actionsJSON)
+	return compileRuntimePlanPrepared(payload, nil, rulesJSON, actionsJSON, nil, compiledActions)
+}
+
+func compileRuntimePlanFromLock(lock *decodedLockfile) (*runtimePlan, error) {
+	if lock == nil {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile is nil"}
+	}
+	if lock.rules != nil {
+		if err := validateRuntimeRuleFieldPresence(lock.rulesJSON, lock.rules); err != nil {
+			return nil, err
+		}
+	}
+	return compileRuntimePlanPrepared(lock.payload, lock.envelope, lock.rulesJSON, lock.actionsJSON, lock.rules, lock.actions)
+}
+
+func compileRuntimePlanPrepared(
+	payload map[string]interface{},
+	envelope *runtimeEnvelope,
+	rulesJSON, actionsJSON []byte,
+	rules []policy.Rule,
+	compiledActions *action.CompiledPlan,
+) (*runtimePlan, error) {
+	var err error
+	if envelope == nil {
+		envelope, err = decodeRuntimeEnvelopeWithParts(payload, rulesJSON, actionsJSON)
+	}
 	if err != nil {
 		return nil, err
 	}
-	rules, err := decodeRuntimeRulesJSON(envelope.Rules)
-	if err != nil {
-		return nil, err
+	if rules == nil {
+		rules, err = decodeRuntimeRulesJSON(envelope.Rules)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if envelope.RuleCount < 0 || len(rules) != envelope.RuleCount {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile rule_count does not match the typed runtime plan"}
@@ -300,9 +328,15 @@ func decodeRuntimeRules(raw interface{}) ([]policy.Rule, error) {
 }
 
 func decodeRuntimeRulesJSON(data []byte) ([]policy.Rule, error) {
+	return decodeRuntimeRulesTyped(data, true)
+}
+
+func decodeRuntimeRulesTyped(data []byte, validatePresence bool) ([]policy.Rule, error) {
 	var rules []policy.Rule
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
+	if validatePresence {
+		decoder.DisallowUnknownFields()
+	}
 	if err := decoder.Decode(&rules); err != nil {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile rules are invalid", Cause: err}
 	}
@@ -313,8 +347,10 @@ func decodeRuntimeRulesJSON(data []byte) ([]policy.Rule, error) {
 	if rules == nil {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile rules must contain a list"}
 	}
-	if err := validateRuntimeRuleFieldPresence(data, rules); err != nil {
-		return nil, err
+	if validatePresence {
+		if err := validateRuntimeRuleFieldPresence(data, rules); err != nil {
+			return nil, err
+		}
 	}
 	return rules, nil
 }
@@ -373,6 +409,10 @@ func decodeRuntimeEnvelopeWithParts(payload map[string]interface{}, rulesJSON, a
 	if err != nil {
 		return nil, &rerrors.LockfileError{Message: "encode compiled lockfile for typed runtime plan", Cause: err}
 	}
+	return decodeRuntimeEnvelopeJSON(data)
+}
+
+func decodeRuntimeEnvelopeJSON(data []byte) (*runtimeEnvelope, error) {
 	var envelope runtimeEnvelope
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -399,11 +439,11 @@ func decodeRuntimeEnvelopeWithParts(payload map[string]interface{}, rulesJSON, a
 }
 
 func validateRuntimeRuleFieldPresence(data []byte, rules []policy.Rule) error {
-	var rawRules []map[string]json.RawMessage
-	if err := json.Unmarshal(data, &rawRules); err != nil || len(rawRules) != len(rules) {
+	layouts, err := scanRuntimeRuleLayouts(data)
+	if err != nil || len(layouts) != len(rules) {
 		return &rerrors.LockfileError{Message: "compiled lockfile rule field layout is invalid", Cause: err}
 	}
-	for index, rawRule := range rawRules {
+	for index, layout := range layouts {
 		allowed := runtimeFieldSet(
 			"source_path", "source_block_id",
 			"scope_paths", "scope_id",
@@ -415,16 +455,16 @@ func validateRuntimeRuleFieldPresence(data []byte, rules []policy.Rule) error {
 				runtimeAddFields(allowed, field)
 			}
 		}
-		if err := rejectRuntimeFields(rawRule, allowed, fmt.Sprintf("rules[%d]", index)); err != nil {
+		if err := rejectRuntimeFields(layout.fields, allowed, fmt.Sprintf("rules[%d]", index)); err != nil {
 			return err
 		}
-		if rawChecks, present := rawRule["checks"]; present {
-			if err := validateRuntimeCheckFieldPresence(rawChecks, rules[index].Checks, index); err != nil {
+		if _, present := layout.fields["checks"]; present {
+			if err := validateRuntimeCheckFieldPresence(layout.checks, rules[index].Checks, index); err != nil {
 				return err
 			}
 		}
-		if rawAssurance, present := rawRule["assurance"]; present {
-			if err := validateRuntimeAssuranceFieldPresence(rawAssurance, rules[index].Assurance, index); err != nil {
+		if _, present := layout.fields["assurance"]; present {
+			if err := validateRuntimeAssuranceFieldPresence(layout.assurance, rules[index].Assurance, index); err != nil {
 				return err
 			}
 		}
@@ -432,12 +472,11 @@ func validateRuntimeRuleFieldPresence(data []byte, rules []policy.Rule) error {
 	return nil
 }
 
-func validateRuntimeCheckFieldPresence(data json.RawMessage, checks []policy.Check, ruleIndex int) error {
-	var rawChecks []map[string]json.RawMessage
-	if err := json.Unmarshal(data, &rawChecks); err != nil || len(rawChecks) != len(checks) {
-		return &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile rules[%d].checks field layout is invalid", ruleIndex), Cause: err}
+func validateRuntimeCheckFieldPresence(layouts []map[string]struct{}, checks []policy.Check, ruleIndex int) error {
+	if len(layouts) != len(checks) {
+		return &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile rules[%d].checks field layout is invalid", ruleIndex)}
 	}
-	for index, rawCheck := range rawChecks {
+	for index, layout := range layouts {
 		allowed := runtimeFieldSet("kind", "optional")
 		switch checks[index].Kind {
 		case policy.KindRequireFreshFile:
@@ -453,19 +492,18 @@ func validateRuntimeCheckFieldPresence(data json.RawMessage, checks []policy.Che
 		case policy.KindRequireScript:
 			runtimeAddFields(allowed, "script", "args", "timeout_sec", "cache_inputs")
 		}
-		if err := rejectRuntimeFields(rawCheck, allowed, fmt.Sprintf("rules[%d].checks[%d]", ruleIndex, index)); err != nil {
+		if err := rejectRuntimeFields(layout, allowed, fmt.Sprintf("rules[%d].checks[%d]", ruleIndex, index)); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateRuntimeAssuranceFieldPresence(data json.RawMessage, gates []policy.AssuranceGate, ruleIndex int) error {
-	var rawGates []map[string]json.RawMessage
-	if err := json.Unmarshal(data, &rawGates); err != nil || len(rawGates) != len(gates) {
-		return &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile rules[%d].assurance field layout is invalid", ruleIndex), Cause: err}
+func validateRuntimeAssuranceFieldPresence(layouts []map[string]struct{}, gates []policy.AssuranceGate, ruleIndex int) error {
+	if len(layouts) != len(gates) {
+		return &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile rules[%d].assurance field layout is invalid", ruleIndex)}
 	}
-	for index, rawGate := range rawGates {
+	for index, layout := range layouts {
 		allowed := runtimeFieldSet("id", "type", "applicable_if")
 		switch gates[index].Type {
 		case policy.AssuranceRepositoryLayout:
@@ -485,14 +523,109 @@ func validateRuntimeAssuranceFieldPresence(data json.RawMessage, gates []policy.
 		case policy.AssuranceGoConcurrency, policy.AssuranceGoFormat, policy.AssuranceSourceHygiene:
 			runtimeAddFields(allowed, "scan_paths", "exclude_paths", "exemptions")
 		}
-		if err := rejectRuntimeFields(rawGate, allowed, fmt.Sprintf("rules[%d].assurance[%d]", ruleIndex, index)); err != nil {
+		if err := rejectRuntimeFields(layout, allowed, fmt.Sprintf("rules[%d].assurance[%d]", ruleIndex, index)); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func rejectRuntimeFields(fields map[string]json.RawMessage, allowed map[string]struct{}, context string) error {
+type runtimeRuleLayout struct {
+	fields    map[string]struct{}
+	checks    []map[string]struct{}
+	assurance []map[string]struct{}
+}
+
+func scanRuntimeRuleLayouts(data []byte) ([]runtimeRuleLayout, error) {
+	decoder := jsontext.NewDecoder(bytes.NewReader(data))
+	opening, err := decoder.ReadToken()
+	if err != nil || opening.Kind() != jsontext.KindBeginArray {
+		return nil, fmt.Errorf("rules must contain a JSON array")
+	}
+	layouts := make([]runtimeRuleLayout, 0)
+	for decoder.PeekKind() != jsontext.KindEndArray {
+		layout, err := scanRuntimeRuleLayout(decoder)
+		if err != nil {
+			return nil, err
+		}
+		layouts = append(layouts, layout)
+	}
+	closing, err := decoder.ReadToken()
+	if err != nil || closing.Kind() != jsontext.KindEndArray {
+		return nil, fmt.Errorf("rules array is not closed")
+	}
+	if _, err := decoder.ReadToken(); err != io.EOF {
+		return nil, fmt.Errorf("rules contain trailing JSON")
+	}
+	return layouts, nil
+}
+
+func scanRuntimeRuleLayout(decoder *jsontext.Decoder) (runtimeRuleLayout, error) {
+	opening, err := decoder.ReadToken()
+	if err != nil || opening.Kind() != jsontext.KindBeginObject {
+		return runtimeRuleLayout{}, fmt.Errorf("rule must contain a JSON object")
+	}
+	layout := runtimeRuleLayout{fields: make(map[string]struct{})}
+	for decoder.PeekKind() != jsontext.KindEndObject {
+		nameToken, err := decoder.ReadToken()
+		if err != nil || nameToken.Kind() != jsontext.KindString {
+			return runtimeRuleLayout{}, fmt.Errorf("rule field name must be a string")
+		}
+		name := nameToken.String()
+		layout.fields[name] = struct{}{}
+		switch name {
+		case "checks":
+			layout.checks, err = scanRuntimeObjectArray(decoder, "checks")
+		case "assurance":
+			layout.assurance, err = scanRuntimeObjectArray(decoder, "assurance")
+		default:
+			err = decoder.SkipValue()
+		}
+		if err != nil {
+			return runtimeRuleLayout{}, err
+		}
+	}
+	closing, err := decoder.ReadToken()
+	if err != nil || closing.Kind() != jsontext.KindEndObject {
+		return runtimeRuleLayout{}, fmt.Errorf("rule object is not closed")
+	}
+	return layout, nil
+}
+
+func scanRuntimeObjectArray(decoder *jsontext.Decoder, field string) ([]map[string]struct{}, error) {
+	opening, err := decoder.ReadToken()
+	if err != nil || opening.Kind() != jsontext.KindBeginArray {
+		return nil, fmt.Errorf("%s must contain a JSON array", field)
+	}
+	layouts := make([]map[string]struct{}, 0)
+	for decoder.PeekKind() != jsontext.KindEndArray {
+		opening, err := decoder.ReadToken()
+		if err != nil || opening.Kind() != jsontext.KindBeginObject {
+			return nil, fmt.Errorf("%s entry must contain a JSON object", field)
+		}
+		fields := make(map[string]struct{})
+		for decoder.PeekKind() != jsontext.KindEndObject {
+			nameToken, err := decoder.ReadToken()
+			if err != nil || nameToken.Kind() != jsontext.KindString {
+				return nil, fmt.Errorf("%s field name must be a string", field)
+			}
+			fields[nameToken.String()] = struct{}{}
+			if err := decoder.SkipValue(); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := decoder.ReadToken(); err != nil {
+			return nil, err
+		}
+		layouts = append(layouts, fields)
+	}
+	if _, err := decoder.ReadToken(); err != nil {
+		return nil, err
+	}
+	return layouts, nil
+}
+
+func rejectRuntimeFields(fields map[string]struct{}, allowed map[string]struct{}, context string) error {
 	unknown := make([]string, 0)
 	for field := range fields {
 		if _, ok := allowed[field]; !ok {
@@ -503,7 +636,7 @@ func rejectRuntimeFields(fields map[string]json.RawMessage, allowed map[string]s
 		return nil
 	}
 	sort.Strings(unknown)
-	return &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile %s contains field(s) invalid for its kind: %s", context, strings.Join(unknown, ", "))}
+	return &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile %s contains unknown field(s) invalid for its kind: %s", context, strings.Join(unknown, ", "))}
 }
 
 func runtimeFieldSet(fields ...string) map[string]struct{} {

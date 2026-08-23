@@ -38,7 +38,7 @@ worker requests. Composite checks ignore their configured script kill timeout.
 
 ## Sub-Tasks
 
-- [ ] Measure memo entry sizes, matcher allocations, and plan-lock contention
+- [~] Measure memo entry sizes, matcher allocations, and plan-lock contention
 - [ ] Add byte accounting and bounded eviction to match-context memoization
 - [ ] Replace evidence-option hash keys only with an exact immutable comparable key
 - [ ] Remove empty literal-template capture allocations
