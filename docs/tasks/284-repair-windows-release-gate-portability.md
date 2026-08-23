@@ -49,6 +49,11 @@ Windows safely blocked replacement of opened identities.
 - Windows can block rename of an opened file or repository root. Decode and
   source-reader tests now prove either stable rejection after a successful swap
   or stable original bytes after an operating-system refusal.
+- The first fix run (`32628831075`) cleared every original package failure and
+  exposed one remaining `internal/usercli` post-stream assertion: it compared
+  exact POSIX `0700` bits instead of the Windows readonly boundary. The release
+  candidate verifier now shares the same platform-native mode contract and has
+  a direct writable/readonly regression table.
 - No release tag or GitHub release exists. Publication remains blocked until a
   fresh candidate has successful CI and CodeQL runs.
 - Local verification passed: focused package tests and race tests, Windows

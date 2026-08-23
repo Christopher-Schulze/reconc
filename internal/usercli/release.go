@@ -605,8 +605,9 @@ func materializeCandidate(ctx context.Context, release selectedRelease, destinat
 	}
 	closed = true
 	after, err := os.Lstat(destination)
-	if err != nil || !os.SameFile(before, after) || after.Size() != release.asset.Size || after.Mode().Perm() != 0o700 {
-		return errors.Join(errors.New("release candidate changed identity, size, or mode after streaming"), err)
+	modeMatches, modeErr := releaseCandidateModeMatches(destination, after, 0o700)
+	if err != nil || modeErr != nil || !os.SameFile(before, after) || after.Size() != release.asset.Size || !modeMatches {
+		return errors.Join(errors.New("release candidate changed identity, size, or mode after streaming"), err, modeErr)
 	}
 	provenance, err := buildprovenance.InspectBinary(destination)
 	if err != nil {
