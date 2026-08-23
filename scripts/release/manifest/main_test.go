@@ -69,6 +69,14 @@ func TestRunRejectsInvalidVersionIrregularAndEmptyInventory(t *testing.T) {
 	if err := run([]string{"--output-dir", t.TempDir(), "--version", "1.2.3"}, &bytes.Buffer{}); err == nil {
 		t.Fatal("empty inventory passed")
 	}
+	invalidNameDirectory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(invalidNameDirectory, "_completion"), []byte("unsafe"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"--output-dir", invalidNameDirectory, "--version", "1.2.3"}, &bytes.Buffer{}); err == nil ||
+		!strings.Contains(err.Error(), "invalid release asset") {
+		t.Fatalf("consumer-invalid release name error = %v", err)
+	}
 	if runtime.GOOS == "windows" {
 		return
 	}

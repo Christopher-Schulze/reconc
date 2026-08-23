@@ -13,7 +13,7 @@ fail() {
 asset_specs() {
   cat <<'EOF'
 completion bash reconc.bash
-completion zsh _reconc
+completion zsh reconc.zsh
 completion fish reconc.fish
 manpage - reconc.1
 manifest - release-manifest.json
@@ -37,7 +37,7 @@ expand_name() {
 
 validate_name() {
   case "$1" in
-    ''|*/*|*'..'*|*[!A-Za-z0-9._-]*) fail "unsafe generated release asset name: $1" ;;
+    ''|[!A-Za-z0-9]*|*/*|*'..'*|*[!A-Za-z0-9._-]*) fail "unsafe generated release asset name: $1" ;;
   esac
 }
 

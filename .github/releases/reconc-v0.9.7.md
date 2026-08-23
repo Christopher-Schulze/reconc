@@ -102,6 +102,9 @@ identity.
   not only discovery. A bare `reconc update` returns an exact-version
   installation to the default stable channel, while leaving preview still
   requires explicit intent.
+- The downloadable Zsh completion is named `reconc.zsh`; the release producer
+  validates its complete manifest with the same filename contract used by
+  existing updater binaries before publication.
 
 ## Evidence, review, and privacy hardening
 

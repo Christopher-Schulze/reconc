@@ -585,7 +585,7 @@ func TestReleaseManifestRejectsIdentityInventoryAndOrderingDrift(t *testing.T) {
 		Version:       "1.0.0",
 		Assets:        []ReleaseAsset{validAsset},
 	}
-	if err := validateReleaseManifest(valid); err != nil {
+	if err := ValidateReleaseManifest(valid); err != nil {
 		t.Fatal(err)
 	}
 	tests := []struct {
@@ -621,7 +621,7 @@ func TestReleaseManifestRejectsIdentityInventoryAndOrderingDrift(t *testing.T) {
 			candidate := valid
 			candidate.Assets = append([]ReleaseAsset(nil), valid.Assets...)
 			test.mutate(&candidate)
-			err := validateReleaseManifest(candidate)
+			err := ValidateReleaseManifest(candidate)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("manifest validation error = %v", err)
 			}

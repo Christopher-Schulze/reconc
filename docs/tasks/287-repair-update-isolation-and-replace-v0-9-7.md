@@ -36,7 +36,10 @@ on `main` and must be replaced without changing the product version.
 - [x] Repair the existing direct installation through the verified installer
 - [x] Detect the exact-receipt default-channel refusal through a real update
 - [x] Make bare `reconc update` select stable from an exact installation
-- [~] Commit the final repair and require fresh green CI and CodeQL
+- [x] Commit the exact-channel repair and require fresh green CI and CodeQL
+- [x] Detect the producer/consumer release-asset mismatch through a real update
+- [x] Align the Zsh asset and validate producer manifests with consumer rules
+- [~] Commit the compatibility repair and require fresh green CI and CodeQL
 - [ ] Replace and verify the published `reconc-v0.9.7` release
 - [ ] Apply and verify the replacement through bare `reconc update`
 - [ ] Archive the completed TASK
@@ -80,6 +83,11 @@ on `main` and must be replaced without changing the product version.
   defect: an exact-version receipt refused the documented stable default unless
   `--channel stable` was repeated. The final replacement must include the
   narrow exact-to-stable default repair and preserve explicit preview exit.
+- Release run `32641194751` then passed every gate from commit `1878ee3e`, but
+  the old installed updater rejected the live manifest because the generated
+  Zsh asset `_reconc` violated its alphanumeric-first asset-name contract. The
+  producer accepted a name the consumer rejected. The final compatible release
+  uses `reconc.zsh` and makes manifest generation call the consumer validator.
 
 ## Deviations
 

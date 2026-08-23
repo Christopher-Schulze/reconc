@@ -127,11 +127,15 @@ func buildManifest(directory string, version string) (usercli.ReleaseManifest, e
 	sort.Slice(assets, func(left, right int) bool {
 		return assets[left].Name < assets[right].Name
 	})
-	return usercli.ReleaseManifest{
+	manifest := usercli.ReleaseManifest{
 		FormatVersion: manifestFormat, Repository: repository,
 		Tag: "reconc-v" + version, Version: version,
 		Prerelease: strings.Contains(version, "-"), Assets: assets,
-	}, nil
+	}
+	if err := usercli.ValidateReleaseManifest(manifest); err != nil {
+		return usercli.ReleaseManifest{}, err
+	}
+	return manifest, nil
 }
 
 func hashReleaseAsset(path string, before os.FileInfo) (string, int64, error) {

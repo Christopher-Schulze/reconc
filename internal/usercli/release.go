@@ -404,7 +404,7 @@ func decodeReleaseManifest(body []byte) (ReleaseManifest, error) {
 	if err := requireJSONEOF(decoder); err != nil {
 		return ReleaseManifest{}, fmt.Errorf("decode release manifest: %w", err)
 	}
-	if err := validateReleaseManifest(manifest); err != nil {
+	if err := ValidateReleaseManifest(manifest); err != nil {
 		return ReleaseManifest{}, err
 	}
 	return manifest, nil
@@ -442,7 +442,9 @@ func releaseAssetByName(manifest ReleaseManifest, name string) (ReleaseAsset, bo
 	return ReleaseAsset{}, false
 }
 
-func validateReleaseManifest(manifest ReleaseManifest) error {
+// ValidateReleaseManifest enforces the release inventory accepted by update
+// consumers and release producers.
+func ValidateReleaseManifest(manifest ReleaseManifest) error {
 	if manifest.FormatVersion != releaseManifestFormat || manifest.Repository != releaseRepository {
 		return errors.New("unsupported release manifest identity")
 	}

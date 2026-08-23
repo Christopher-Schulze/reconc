@@ -334,7 +334,7 @@ require_text "$root/scripts/release/verify-artifacts.sh" 'scripts/release/schema
 if grep -Fq '.schema.json' "$root/scripts/release/copied-assets.tsv"; then
   fail "copied-assets.tsv duplicates the typed schema registry"
 fi
-for duplicated_name in reconc.bash _reconc reconc.fish release-manifest.json '.spdx.json' '.cdx.json' THIRD_PARTY_NOTICES.txt; do
+for duplicated_name in reconc.bash reconc.zsh reconc.fish release-manifest.json '.spdx.json' '.cdx.json' THIRD_PARTY_NOTICES.txt; do
   if grep -Fq "$duplicated_name" "$root/Makefile" || grep -Fq "$duplicated_name" "$root/scripts/release/verify-artifacts.sh"; then
     fail "generated release asset $duplicated_name escaped the canonical generated-assets inventory"
   fi
