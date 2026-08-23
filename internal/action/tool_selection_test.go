@@ -36,8 +36,16 @@ func TestOptionalToolFingerprintIsAValidatedWildcard(t *testing.T) {
 	}
 	selected, id := evaluator.selectTool(request)
 	detectors := compiled.DetectorPolicies(request)
-	if selected == nil || id != "query" || len(detectors) != 1 {
+	views := compiled.DetectorPolicyViews(request)
+	if selected == nil || id != "query" || len(detectors) != 1 || len(views) != 1 {
 		t.Fatalf("wildcard selection = tool %#v, id %q, detectors %d", selected, id, len(detectors))
+	}
+	detectors[0].Policy.PackDigest = "sha256:" + strings.Repeat("f", 64)
+	if views[0].PackDigest() == detectors[0].Policy.PackDigest || views[0].FieldCount() != 1 {
+		t.Fatal("read-only detector view exposed or followed a detached clone mutation")
+	}
+	if _, _, err := views[0].ResolveField(Value{}, -1); err == nil {
+		t.Fatal("detector view accepted an invalid field index")
 	}
 }
 

@@ -117,6 +117,8 @@ func TestLikelySecretValueUsesBoundedContext(t *testing.T) {
 		{name: "mixed synthetic", value: "q7m9v2p4r8x6l3n5", want: true},
 		{name: "long hex", value: "0123456789abcdef0123456789abcdef", want: true},
 		{name: "encoded synthetic", value: "abcdefghijklmnop/qrstuv", want: true},
+		{name: "unicode mixed", value: "密碼a1b2c3d4e5", want: true},
+		{name: "unicode repeated", value: "密密密密密密a111111111111", want: false},
 		{name: "descriptive phrase", value: "must-have-twelve-characters", want: false},
 		{name: "repeated", value: "00000000000000000000", want: false},
 		{name: "short", value: "a1b2c3", want: false},
@@ -127,6 +129,17 @@ func TestLikelySecretValueUsesBoundedContext(t *testing.T) {
 				t.Fatalf("likelySecretValue() = %t, want %t", got, test.want)
 			}
 		})
+	}
+}
+
+func TestLikelySecretValueASCIIPathDoesNotAllocate(t *testing.T) {
+	value := "q7m9v2p4r8x6l3n5"
+	if allocations := testing.AllocsPerRun(100, func() {
+		if !likelySecretValue(value) {
+			t.Fatal("synthetic secret was not detected")
+		}
+	}); allocations != 0 {
+		t.Fatalf("ASCII secret allocations = %f, want 0", allocations)
 	}
 }
 

@@ -32,15 +32,15 @@ remain repeated work in inspected MCP calls and evidence publication.
 
 ## Sub-Tasks
 
-- [~] Profile residual engine, detector-policy, scanner, and evidence-pack allocations
-- [ ] Compute selected-field value identities once per pointer state
-- [ ] Add an immutable non-copying detector-policy iteration boundary
-- [ ] Implement bounded stack-first distinct-character counting
-- [ ] Reuse the canonical fact-selector membership set
-- [ ] Evaluate and, only if equivalent, reuse report canonical bytes
-- [ ] Add isolation, privacy, allocation, benchmark, fuzz, and race tests
-- [ ] Update inspection/evidence performance documentation and history
-- [ ] Run focused and complete repository verification
+- [x] Profile residual engine, detector-policy, scanner, and evidence-pack allocations
+- [x] Compute selected-field value identities once per pointer state
+- [x] Add an immutable non-copying detector-policy iteration boundary
+- [x] Implement bounded stack-first distinct-character counting
+- [x] Reuse the canonical fact-selector membership set
+- [x] Evaluate and, only if equivalent, reuse report canonical bytes
+- [x] Add isolation, privacy, allocation, benchmark, fuzz, and race tests
+- [x] Update inspection/evidence performance documentation and history
+- [x] Run focused and complete repository verification
 
 ## Notes
 
@@ -55,6 +55,28 @@ remain repeated work in inspected MCP calls and evidence publication.
   structured JSON walkers to `ArrayItem`. Do not duplicate those tasks.
 - Double canonicalization in action approval is security-motivated and out of
   scope. Do not collapse sign/verify boundaries merely to reduce allocations.
+- The detector boundary now returns interfaces implemented by an unexported
+  view. Callers can read scalars, memberships, forbidden terms, and resolved
+  indexed fields but cannot obtain or mutate plan-owned slices or pointer
+  tokens. The detached `DetectorPolicies` API remains unchanged.
+- Report identity bytes and published report bytes are not byte-identical. The
+  compact identity payload clears `identity`; final publication independently
+  validates that digest and emits indented JSON. The second identity check is a
+  deliberate security boundary and was retained.
+- Apple M1, 100 fixed iterations: representative structured inspection uses
+  4,944 B/op and 69 allocs/op versus the checked baseline's 6,384 B/op and 90
+  allocs/op. ASCII diversity scanning and canonical selector validation are
+  both allocation-free.
+- Maximum-content inspection improved from the checked 10,733,285 ns/op,
+  178,336 B/op, and 88 allocs/op medians to 9,598,411 ns/op, 176,912 B/op,
+  and 68 allocs/op. The calibrated history entry was refreshed only for the
+  changed action-inspection group; every absolute target metric improved and
+  the normalized comparison passes.
+- Verification passed focused package and race tests, 61 root fuzz targets,
+  calibrated benchmark record/compare, `make test-fast`, Vet, Staticcheck,
+  publication and release-trust checks, and the complete root/template
+  `make test` race gate. Release-trust used temporary fixtures; no tag or
+  release was created.
 
 ## Deviations
 

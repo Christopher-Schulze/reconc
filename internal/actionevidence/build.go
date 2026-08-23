@@ -37,6 +37,9 @@ func Build(input BuildInput) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
+	// MarshalJSON independently revalidates the report identity before emitting
+	// its distinct indented wire representation. Reusing the earlier compact
+	// identity payload here would collapse that final validation boundary.
 	if _, err := MarshalJSON(report); err != nil {
 		return Report{}, err
 	}
@@ -365,11 +368,10 @@ func setScenarioFacts(facts map[FactID]Fact, input BuildInput) {
 }
 
 func canonicalFacts(values map[FactID]Fact) []Fact {
-	out := make([]Fact, 0, len(AllFactIDs()))
-	for _, id := range AllFactIDs() {
+	out := make([]Fact, 0, len(allFactIDs))
+	for _, id := range allFactIDs {
 		out = append(out, values[id])
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
 

@@ -141,6 +141,102 @@ type CompiledDetectorPolicy struct {
 	Fields []CompiledDetectorField
 }
 
+// DetectorPolicyView exposes immutable detector-policy operations without
+// returning plan-owned slices or maps. Views are valid for the lifetime of the
+// immutable compiled plan that created them.
+type DetectorPolicyView interface {
+	PackDigest() string
+	Limits() InspectionLimits
+	SchemaPolicy() SchemaPolicy
+	PreCallDecision() Decision
+	PostResultDisposition() ResultDisposition
+	ProgressDisposition() ProgressDisposition
+	AllowsContentType(ContentType) bool
+	TrustsAnnotationField(string) bool
+	VisitCategories(func(DetectorCategory))
+	ForbiddenTermCount() int
+	ForbiddenTerm(int) (string, bool)
+	FieldCount() int
+	ResolveField(Value, int) (DetectorField, PointerResult, error)
+	AddressesResultPointer(string) bool
+}
+
+type compiledDetectorPolicyView struct {
+	policy *CompiledDetectorPolicy
+}
+
+func (v compiledDetectorPolicyView) PackDigest() string         { return v.policy.Policy.PackDigest }
+func (v compiledDetectorPolicyView) Limits() InspectionLimits   { return v.policy.Policy.Limits }
+func (v compiledDetectorPolicyView) SchemaPolicy() SchemaPolicy { return v.policy.Policy.SchemaPolicy }
+func (v compiledDetectorPolicyView) PreCallDecision() Decision {
+	return v.policy.Policy.PreCallDecision
+}
+func (v compiledDetectorPolicyView) PostResultDisposition() ResultDisposition {
+	return v.policy.Policy.PostResultDisposition
+}
+func (v compiledDetectorPolicyView) ProgressDisposition() ProgressDisposition {
+	return v.policy.Policy.ProgressDisposition
+}
+
+func (v compiledDetectorPolicyView) AllowsContentType(value ContentType) bool {
+	for _, candidate := range v.policy.Policy.AllowedContentTypes {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
+}
+
+func (v compiledDetectorPolicyView) TrustsAnnotationField(value string) bool {
+	for _, candidate := range v.policy.Policy.TrustedAnnotationFields {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
+}
+
+func (v compiledDetectorPolicyView) VisitCategories(visit func(DetectorCategory)) {
+	for _, category := range v.policy.Policy.Categories {
+		visit(category)
+	}
+}
+
+func (v compiledDetectorPolicyView) ForbiddenTermCount() int {
+	return len(v.policy.Policy.ForbiddenTerms)
+}
+
+func (v compiledDetectorPolicyView) ForbiddenTerm(index int) (string, bool) {
+	if index < 0 || index >= len(v.policy.Policy.ForbiddenTerms) {
+		return "", false
+	}
+	return v.policy.Policy.ForbiddenTerms[index], true
+}
+
+func (v compiledDetectorPolicyView) FieldCount() int { return len(v.policy.Fields) }
+
+func (v compiledDetectorPolicyView) ResolveField(root Value, index int) (DetectorField, PointerResult, error) {
+	if index < 0 || index >= len(v.policy.Fields) {
+		return DetectorField{}, PointerResult{}, fmt.Errorf("compiled detector field index is out of range")
+	}
+	field := v.policy.Fields[index]
+	selected, err := ResolveCompiledPointer(root, field.Tokens)
+	return field.Field, selected, err
+}
+
+func (v compiledDetectorPolicyView) AddressesResultPointer(pointer string) bool {
+	for _, field := range v.policy.Fields {
+		if field.Field.Source != SourceResult {
+			continue
+		}
+		selected := field.Field.Pointer
+		if selected == "" || selected == pointer || strings.HasPrefix(pointer, selected+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeDetectorPolicy(
 	policy *DetectorPolicy,
 	tools []Tool,
@@ -451,6 +547,32 @@ func (p *CompiledPlan) DetectorPolicies(request Request) []CompiledDetectorPolic
 	for _, policy := range p.detectors {
 		if selectorMatches(policy.Policy.Selector, request, toolID) {
 			out = append(out, cloneCompiledDetectorPolicy(policy))
+		}
+	}
+	return out
+}
+
+// DetectorPolicyViews returns allocation-light read-only views over matching
+// immutable compiled policies. Unlike DetectorPolicies, it does not deep-clone
+// policy collections.
+func (p *CompiledPlan) DetectorPolicyViews(request Request) []DetectorPolicyView {
+	if p == nil {
+		return []DetectorPolicyView{}
+	}
+	toolID := ""
+	tool := Tool{
+		Transport: request.Transport, Platform: request.Platform,
+		ServerLabel: request.ServerLabel, ServerFingerprint: request.ServerFingerprint,
+		Tool: request.Tool,
+	}
+	if index, ok := lookupToolIndex(p.toolByExact, tool); ok && index >= 0 && index < len(p.plan.Tools) {
+		toolID = p.plan.Tools[index].ID
+	}
+	out := make([]DetectorPolicyView, 0, len(p.detectors))
+	for index := range p.detectors {
+		policy := &p.detectors[index]
+		if selectorMatches(policy.Policy.Selector, request, toolID) {
+			out = append(out, compiledDetectorPolicyView{policy: policy})
 		}
 	}
 	return out

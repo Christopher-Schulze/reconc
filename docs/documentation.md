@@ -2642,6 +2642,25 @@ allocs/op to 103,640 B/op and 1,027 allocs/op. The source-load median moved from
 8.410 ms to 3.338 ms in the recorded run; filesystem latency remains
 environment-sensitive, so the allocation reductions are the portable claim.
 
+Action inspection now consumes read-only compiled detector-policy views rather
+than deep-cloning every matching policy, field list, pointer-token list, and
+allowlist for each phase. Present and null selected values compute only their
+final body-bound keyed identity; missing pointer states retain their explicit
+state-bound identity. The common ASCII secret-candidate path uses a stack bitset
+and remains Unicode-correct through a bounded fallback set. Evidence selector
+admission binary-searches one canonical fact registry instead of rebuilding a
+map for every control. Public fact lists remain isolated copies.
+
+Five Apple M1 samples at 100 iterations measured representative structured
+inspection at 4,944 B/op and 69 allocations, down from the checked 6,384 B/op
+and 90 allocations. ASCII secret diversity and maximum fact-selector admission
+both measured zero allocations; their local medians were about 82.5 ns/op and
+401 ns/op. Report identity encoding and final canonical report validation stay
+independent: the identity hashes compact JSON with an empty identity field,
+while publication validates that binding again and emits bounded indented JSON.
+Those byte contracts are not identical, so merging them would weaken the final
+validation boundary rather than remove safe duplicate work.
+
 `MultiServerMCPClient.get_tools()` uses fresh sessions for discovery and calls;
 an explicit `client.session()` plus `load_mcp_tools()` owns one stateful
 session. Reconc binds principal, credential labels, run, session, budgets,

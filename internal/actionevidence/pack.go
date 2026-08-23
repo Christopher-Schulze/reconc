@@ -126,12 +126,8 @@ func validateControl(scanner *actioninspect.TextScanner, control Control) error 
 }
 
 func validateCanonicalSelectors(selectors []FactID) error {
-	known := make(map[FactID]bool, len(AllFactIDs()))
-	for _, id := range AllFactIDs() {
-		known[id] = true
-	}
 	for index, selector := range selectors {
-		if !known[selector] || index > 0 && selectors[index-1] >= selector {
+		if !knownFactID(selector) || index > 0 && selectors[index-1] >= selector {
 			return fmt.Errorf("evidence selectors must be known, unique, and lexically sorted")
 		}
 	}

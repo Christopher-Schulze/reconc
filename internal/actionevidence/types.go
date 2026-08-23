@@ -3,6 +3,7 @@
 package actionevidence
 
 import (
+	"slices"
 	"time"
 
 	"reconc.dev/reconc/internal/action"
@@ -76,14 +77,21 @@ const (
 	FactRepositoryIdentity      FactID = "identity.repository"
 )
 
+var allFactIDs = [...]FactID{
+	FactApprovalAuthority, FactApprovalReceipts, FactBudgetIdentity, FactBudgetState,
+	FactRepositoryIdentity, FactLedgerArchiveContinuity, FactLedgerCallsComplete,
+	FactLedgerEventsComplete, FactLedgerIntegrity, FactLedgerPolicyIdentity,
+	FactLedgerWindowComplete, FactPolicyActionRules, FactPolicyActionTools,
+	FactPolicyLockCurrent, FactScenarioCompleteness, FactHostCoverage, FactScenarioResults,
+}
+
 func AllFactIDs() []FactID {
-	return []FactID{
-		FactApprovalAuthority, FactApprovalReceipts, FactBudgetIdentity, FactBudgetState,
-		FactHostCoverage, FactRepositoryIdentity, FactLedgerArchiveContinuity, FactLedgerCallsComplete,
-		FactLedgerEventsComplete, FactLedgerIntegrity, FactLedgerPolicyIdentity,
-		FactLedgerWindowComplete, FactPolicyActionRules, FactPolicyActionTools,
-		FactPolicyLockCurrent, FactScenarioCompleteness, FactScenarioResults,
-	}
+	return slices.Clone(allFactIDs[:])
+}
+
+func knownFactID(id FactID) bool {
+	_, found := slices.BinarySearch(allFactIDs[:], id)
+	return found
 }
 
 type Source struct {

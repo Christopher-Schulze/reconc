@@ -359,6 +359,15 @@ offline internal references and a bounded RE2-compatible pattern subset,
 scans policy-selected argument, result, and progress fields through a
 content-digested detector pack, classifies unsupported content and annotations,
 and creates payload-free evidence or bounded withheld results. The separate
+compiled-plan boundary exposes detector policies to inspection only through
+read-only scalar, indexed-field, and membership operations; plan-owned slices
+and pointer tokens never cross the boundary or require request-time deep
+cloning. Present/null field identities bind canonical value bytes once, while
+missing states bind the explicit pointer state. The evidence control-map
+validator uses one immutable canonical fact registry and direct indexed
+membership rather than per-control selector maps. Report construction retains
+an independent final identity validation because compact identity JSON and the
+indented publication representation are different contracts. The separate
 Action Ledger records typed payload-free lifecycle evidence through private
 atomic append, bounded rotation, retained-chain verification, and detached-head
 recovery. `reconc action log tail|stats|verify|export` provides deterministic

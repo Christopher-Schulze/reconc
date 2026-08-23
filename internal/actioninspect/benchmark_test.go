@@ -16,6 +16,16 @@ func BenchmarkTextScanMaximumLegal(b *testing.B) {
 	benchmarkTextScan(b, strings.Repeat("a", action.MaxArgumentBytes))
 }
 
+func BenchmarkLikelySecretValueASCII(b *testing.B) {
+	value := "q7m9v2p4r8x6l3n5"
+	b.ReportAllocs()
+	for iteration := 0; iteration < b.N; iteration++ {
+		if !likelySecretValue(value) {
+			b.Fatal("synthetic secret was not detected")
+		}
+	}
+}
+
 func benchmarkTextScan(b *testing.B, text string) {
 	b.Helper()
 	scanner, err := NewTextScanner()

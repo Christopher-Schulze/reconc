@@ -241,13 +241,11 @@ func parseCanonicalTimestamp(value string) (time.Time, error) {
 }
 
 func validateReportFacts(scanner *actioninspect.TextScanner, facts []Fact) error {
-	if len(facts) != len(AllFactIDs()) {
+	if len(facts) != len(allFactIDs) {
 		return fmt.Errorf("action evidence report must contain every exact evidence fact")
 	}
-	want := AllFactIDs()
-	sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
 	for index, fact := range facts {
-		if fact.ID != want[index] || !fact.Status.Valid() || fact.Basis == nil || fact.Gaps == nil ||
+		if fact.ID != allFactIDs[index] || !fact.Status.Valid() || fact.Basis == nil || fact.Gaps == nil ||
 			!sort.StringsAreSorted(fact.Basis) || !sort.StringsAreSorted(fact.Gaps) ||
 			len(fact.Basis) > MaxGapsPerControl || len(fact.Gaps) > MaxGapsPerControl ||
 			fact.Status == StatusCovered && (len(fact.Basis) == 0 || len(fact.Gaps) != 0) ||

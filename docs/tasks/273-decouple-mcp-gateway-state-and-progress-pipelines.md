@@ -36,7 +36,7 @@ progress event can stall unrelated responses and notifications.
 
 ## Sub-Tasks
 
-- [ ] Map every `stateMu` invariant and assign it to the narrow owning component
+- [~] Map every `stateMu` invariant and assign it to the narrow owning component
 - [ ] Move policy, inspection, ledger, and diagnostic I/O outside the global critical section
 - [ ] Preserve atomic budget and approval transitions through their existing stores
 - [ ] Design the bounded ordered per-call progress queue and completion barrier

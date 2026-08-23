@@ -19,6 +19,16 @@ type testIdentityKey struct {
 	key []byte
 }
 
+type countingIdentityKey struct {
+	testIdentityKey
+	calls int
+}
+
+func (k *countingIdentityKey) Identity(domain actionstate.IdentityDomain, parts ...[]byte) string {
+	k.calls++
+	return k.testIdentityKey.Identity(domain, parts...)
+}
+
 func (k testIdentityKey) ID() string { return k.id }
 
 func (k testIdentityKey) Identity(domain actionstate.IdentityDomain, parts ...[]byte) string {
@@ -35,6 +45,29 @@ func writeTestIdentityPart(mac interface{ Write([]byte) (int, error) }, value []
 	binary.BigEndian.PutUint64(size[:], uint64(len(value)))
 	_, _ = mac.Write(size[:])
 	_, _ = mac.Write(value)
+}
+
+func TestPresentSelectedValueComputesOneFinalValueIdentity(t *testing.T) {
+	compiled := testCompiledPlan(t, action.PhasePreCall, []action.DetectorCategory{action.DetectorSecret}, nil, BuiltinPackIdentity())
+	key := &countingIdentityKey{testIdentityKey: testIdentityKey{
+		id: strings.Repeat("a", 32), key: []byte(strings.Repeat("k", 32)),
+	}}
+	engine, err := NewEngine(compiled, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	arguments := mustValue(t, `{"payload":"ordinary value"}`)
+	request := action.Request{
+		Transport: action.TransportMCPStdio, ServerLabel: "server", Tool: "inspect",
+		Phase: action.PhasePreCall, Arguments: &arguments,
+	}
+	evidence, err := engine.Inspect(context.Background(), request, nil, nil)
+	if err != nil || evidence == nil || len(evidence.Fields) != 1 {
+		t.Fatalf("inspection = %#v, %v", evidence, err)
+	}
+	if key.calls != 3 {
+		t.Fatalf("identity computations = %d, want pointer, final value, and evidence", key.calls)
+	}
 }
 
 func TestDecodeMCPToolResultStrictOfficialShapes(t *testing.T) {

@@ -80,13 +80,13 @@ func (e *Engine) Inspect(
 	if e == nil || e.plan == nil || e.key == nil {
 		return nil, fmt.Errorf("inspection engine is unavailable")
 	}
-	policies := e.plan.DetectorPolicies(request)
+	policies := e.plan.DetectorPolicyViews(request)
 	if len(policies) == 0 {
 		return nil, nil
 	}
 	accumulator := newInspectionAccumulator(request.Phase)
 	for _, policy := range policies {
-		accumulator.evidence.PackIdentities = appendUnique(accumulator.evidence.PackIdentities, policy.Policy.PackDigest)
+		accumulator.evidence.PackIdentities = appendUnique(accumulator.evidence.PackIdentities, policy.PackDigest())
 	}
 	root, source, err := inspectionRoot(request, result)
 	if err != nil {
@@ -167,17 +167,17 @@ func newInspectionAccumulator(phase action.Phase) inspectionAccumulator {
 	}
 }
 
-func shortestInspectionDuration(policies []action.CompiledDetectorPolicy) time.Duration {
+func shortestInspectionDuration(policies []action.DetectorPolicyView) time.Duration {
 	milliseconds := uint32(1000)
 	for _, policy := range policies {
-		milliseconds = min(milliseconds, policy.Policy.Limits.MaxMilliseconds)
+		milliseconds = min(milliseconds, policy.Limits().MaxMilliseconds)
 	}
 	return time.Duration(milliseconds) * time.Millisecond
 }
 
 func (e *Engine) inspectSchema(
 	accumulator *inspectionAccumulator,
-	policies []action.CompiledDetectorPolicy,
+	policies []action.DetectorPolicyView,
 	request action.Request,
 	result *MCPToolResult,
 	schema *OutputSchema,
@@ -188,7 +188,7 @@ func (e *Engine) inspectSchema(
 	}
 	required := false
 	for _, policy := range policies {
-		required = required || policy.Policy.SchemaPolicy == action.SchemaRequire
+		required = required || policy.SchemaPolicy() == action.SchemaRequire
 	}
 	if schema == nil {
 		accumulator.evidence.SchemaIdentity = "absent"
@@ -214,7 +214,7 @@ func (e *Engine) inspectSchema(
 
 func (e *Engine) inspectContent(
 	accumulator *inspectionAccumulator,
-	policies []action.CompiledDetectorPolicy,
+	policies []action.DetectorPolicyView,
 	request action.Request,
 	result *MCPToolResult,
 ) error {
@@ -227,7 +227,7 @@ func (e *Engine) inspectContent(
 	untrustedAnnotation := false
 	for _, field := range result.AnnotationFields {
 		for _, policy := range policies {
-			if stringListed(policy.Policy.TrustedAnnotationFields, field) {
+			if policy.TrustsAnnotationField(field) {
 				continue
 			}
 			e.addAnnotationEvidence(accumulator, field)
@@ -263,7 +263,7 @@ func (e *Engine) inspectContent(
 		if contentTypeRequiresExplicitAllow(block.Type) {
 			e.addBinaryEvidence(accumulator, block)
 			for _, policy := range policies {
-				if !contentTypeAllowed(policy.Policy.AllowedContentTypes, block.Type) {
+				if !policy.AllowsContentType(block.Type) {
 					unsupported = true
 					break
 				}
@@ -336,33 +336,34 @@ func (e *Engine) addValueEvidence(
 func (e *Engine) inspectPolicy(
 	ctx context.Context,
 	accumulator *inspectionAccumulator,
-	policy action.CompiledDetectorPolicy,
+	policy action.DetectorPolicyView,
 	source action.ValueSource,
 	root action.Value,
 	result *MCPToolResult,
 ) error {
-	categories := categorySet(policy.Policy.Categories)
+	categories := categorySet(policy)
 	binaryPointers := resultBinaryPointers(result)
 	var policyBytes uint64
 	var policyItems uint32
-	for _, field := range policy.Fields {
+	limits := policy.Limits()
+	for index := 0; index < policy.FieldCount(); index++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if field.Field.Source != source {
-			continue
-		}
-		selected, err := action.ResolveCompiledPointer(root, field.Tokens)
+		field, selected, err := policy.ResolveField(root, index)
 		if err != nil {
 			return err
 		}
+		if field.Source != source {
+			continue
+		}
 		bytes, items, err := e.inspectSelectedValue(
-			ctx, accumulator, policy, selected, field.Field, categories, binaryPointers,
+			ctx, accumulator, policy, selected, field, categories, binaryPointers,
 		)
 		if err != nil {
 			return err
 		}
-		if bytes > policy.Policy.Limits.MaxBytes-policyBytes || items > policy.Policy.Limits.MaxItems-policyItems {
+		if bytes > limits.MaxBytes-policyBytes || items > limits.MaxItems-policyItems {
 			return fmt.Errorf("%w: selected values exceed cumulative boundary", errInspectionLimit)
 		}
 		policyBytes += bytes
@@ -374,22 +375,24 @@ func (e *Engine) inspectPolicy(
 func (e *Engine) inspectSelectedValue(
 	ctx context.Context,
 	accumulator *inspectionAccumulator,
-	policy action.CompiledDetectorPolicy,
+	policy action.DetectorPolicyView,
 	selected action.PointerResult,
 	field action.DetectorField,
 	categories map[action.DetectorCategory]struct{},
 	binaryPointers map[string]struct{},
 ) (uint64, uint32, error) {
 	pointerIdentity := e.key.Identity(actionstate.DomainInspection, []byte("pointer"), []byte(field.Source), []byte(field.Pointer))
-	state := string(selected.State)
-	valueIdentity := e.key.Identity(actionstate.DomainInspection, []byte("value"), []byte(pointerIdentity), []byte(state))
-	evidence := action.InspectionFieldEvidence{Source: field.Source, PointerIdentity: pointerIdentity, ValueIdentity: valueIdentity}
+	evidence := action.InspectionFieldEvidence{Source: field.Source, PointerIdentity: pointerIdentity}
 	if selected.State != action.PointerPresent && selected.State != action.PointerNull {
+		evidence.ValueIdentity = e.key.Identity(
+			actionstate.DomainInspection, []byte("value"), []byte(pointerIdentity), []byte(selected.State),
+		)
 		accumulator.addField(evidence)
 		return 0, 0, nil
 	}
+	limits := policy.Limits()
 	items, err := countInspectionItems(
-		ctx, selected.Value, int(policy.Policy.Limits.MaxDepth), policy.Policy.Limits.MaxItems,
+		ctx, selected.Value, int(limits.MaxDepth), limits.MaxItems,
 	)
 	if err != nil {
 		return 0, 0, err
@@ -401,7 +404,7 @@ func (e *Engine) inspectSelectedValue(
 	if err := ctx.Err(); err != nil {
 		return 0, 0, err
 	}
-	if uint64(len(body)) > policy.Policy.Limits.MaxBytes {
+	if uint64(len(body)) > limits.MaxBytes {
 		return 0, 0, fmt.Errorf("%w: selected value exceeds byte boundary", errInspectionLimit)
 	}
 	evidence.ByteLength = uint64(len(body))
@@ -421,7 +424,7 @@ func (e *Engine) inspectSelectedValue(
 func (e *Engine) scanValue(
 	ctx context.Context,
 	accumulator *inspectionAccumulator,
-	policy action.CompiledDetectorPolicy,
+	policy action.DetectorPolicyView,
 	value action.Value,
 	pointer string,
 	categories map[action.DetectorCategory]struct{},
@@ -436,13 +439,13 @@ func (e *Engine) scanValue(
 	switch value.Kind() {
 	case action.ValueString:
 		text, _ := value.Text()
-		findings, err := e.pack.scan(
-			ctx, text, categories, policy.Policy.ForbiddenTerms, policy.Policy.Limits.MaxBytes,
+		findings, err := e.pack.scanPolicy(
+			ctx, text, categories, policy, policy.Limits().MaxBytes,
 		)
 		if err != nil {
 			return err
 		}
-		accumulator.addFindings(findings, policy.Policy, accumulator.evidence.SchemaStatus)
+		accumulator.addFindings(findings, policy, accumulator.evidence.SchemaStatus)
 	case action.ValueArray:
 		length, _ := value.ArrayLen()
 		for index := 0; index < length; index++ {
@@ -565,7 +568,7 @@ func (e *Engine) addBinaryEvidence(accumulator *inspectionAccumulator, block Con
 
 func (a *inspectionAccumulator) addFindings(
 	findings []Finding,
-	policy action.DetectorPolicy,
+	policy action.DetectorPolicyView,
 	schemaStatus action.InspectionSchemaStatus,
 ) {
 	for _, finding := range findings {
@@ -585,15 +588,15 @@ func (a *inspectionAccumulator) addFindings(
 }
 
 func inspectionDisposition(
-	policy action.DetectorPolicy,
+	policy action.DetectorPolicyView,
 	phase action.Phase,
 	schemaStatus action.InspectionSchemaStatus,
 ) (action.Decision, action.ReasonCode) {
 	switch phase {
 	case action.PhasePreCall:
-		return policy.PreCallDecision, action.ReasonRuleMatched
+		return policy.PreCallDecision(), action.ReasonRuleMatched
 	case action.PhasePostResult:
-		switch policy.PostResultDisposition {
+		switch policy.PostResultDisposition() {
 		case action.ResultDispositionWarn:
 			return action.DecisionWarn, action.ReasonRuleMatched
 		case action.ResultDispositionRequireSchema:
@@ -605,7 +608,7 @@ func inspectionDisposition(
 			return action.DecisionBlock, action.ReasonResultWithheld
 		}
 	case action.PhaseProgress:
-		if policy.ProgressDisposition == action.ProgressDispositionForward {
+		if policy.ProgressDisposition() == action.ProgressDispositionForward {
 			return action.DecisionWarn, action.ReasonRuleMatched
 		}
 		return action.DecisionBlock, action.ReasonResultWithheld
@@ -674,25 +677,14 @@ func resultBinaryPointers(result *MCPToolResult) map[string]struct{} {
 	return values
 }
 
-func categorySet(values []action.DetectorCategory) map[action.DetectorCategory]struct{} {
-	result := make(map[action.DetectorCategory]struct{}, len(values))
-	for _, value := range values {
-		result[value] = struct{}{}
-	}
+func categorySet(policy action.DetectorPolicyView) map[action.DetectorCategory]struct{} {
+	result := make(map[action.DetectorCategory]struct{})
+	policy.VisitCategories(func(value action.DetectorCategory) { result[value] = struct{}{} })
 	return result
 }
 
-func contentTypeAllowed(values []action.ContentType, value action.ContentType) bool {
-	for _, candidate := range values {
-		if candidate == value {
-			return true
-		}
-	}
-	return false
-}
-
 func contentAccepted(
-	policies []action.CompiledDetectorPolicy,
+	policies []action.DetectorPolicyView,
 	pointer string,
 	contentType action.ContentType,
 ) (bool, bool) {
@@ -702,14 +694,14 @@ func contentAccepted(
 			continue
 		}
 		inspectedByAll = false
-		if !contentTypeAllowed(policy.Policy.AllowedContentTypes, contentType) {
+		if !policy.AllowsContentType(contentType) {
 			return false, false
 		}
 	}
 	return true, inspectedByAll
 }
 
-func policiesAddressPointer(policies []action.CompiledDetectorPolicy, pointer string) bool {
+func policiesAddressPointer(policies []action.DetectorPolicyView, pointer string) bool {
 	for _, policy := range policies {
 		if !policyAddressesPointer(policy, pointer) {
 			return false
@@ -718,26 +710,8 @@ func policiesAddressPointer(policies []action.CompiledDetectorPolicy, pointer st
 	return true
 }
 
-func policyAddressesPointer(policy action.CompiledDetectorPolicy, pointer string) bool {
-	for _, field := range policy.Fields {
-		if field.Field.Source != action.SourceResult {
-			continue
-		}
-		selected := field.Field.Pointer
-		if selected == "" || selected == pointer || strings.HasPrefix(pointer, selected+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-func stringListed(values []string, value string) bool {
-	for _, candidate := range values {
-		if candidate == value {
-			return true
-		}
-	}
-	return false
+func policyAddressesPointer(policy action.DetectorPolicyView, pointer string) bool {
+	return policy.AddressesResultPointer(pointer)
 }
 
 func contentTypeRequiresExplicitAllow(value action.ContentType) bool {

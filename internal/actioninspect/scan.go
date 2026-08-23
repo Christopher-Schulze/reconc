@@ -114,6 +114,32 @@ func (p compiledDetectorPack) scan(
 	forbiddenTerms []string,
 	maxBytes uint64,
 ) ([]Finding, error) {
+	return p.scanTerms(ctx, text, categories, len(forbiddenTerms), func(index int) string {
+		return forbiddenTerms[index]
+	}, maxBytes)
+}
+
+func (p compiledDetectorPack) scanPolicy(
+	ctx context.Context,
+	text string,
+	categories map[action.DetectorCategory]struct{},
+	policy action.DetectorPolicyView,
+	maxBytes uint64,
+) ([]Finding, error) {
+	return p.scanTerms(ctx, text, categories, policy.ForbiddenTermCount(), func(index int) string {
+		term, _ := policy.ForbiddenTerm(index)
+		return term
+	}, maxBytes)
+}
+
+func (p compiledDetectorPack) scanTerms(
+	ctx context.Context,
+	text string,
+	categories map[action.DetectorCategory]struct{},
+	forbiddenTermCount int,
+	forbiddenTerm func(int) string,
+	maxBytes uint64,
+) ([]Finding, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -128,7 +154,7 @@ func (p compiledDetectorPack) scan(
 			needNormalized = true
 		}
 	}
-	if _, selected := categories[action.DetectorForbiddenData]; selected && len(forbiddenTerms) > 0 {
+	if _, selected := categories[action.DetectorForbiddenData]; selected && forbiddenTermCount > 0 {
 		needConfusable = true
 	}
 	var normalized, confusable string
@@ -161,7 +187,8 @@ func (p compiledDetectorPack) scan(
 		}
 	}
 	if _, selected := categories[action.DetectorForbiddenData]; selected {
-		for _, term := range forbiddenTerms {
+		for index := 0; index < forbiddenTermCount; index++ {
+			term := forbiddenTerm(index)
 			matched, err := p.matchWindows(ctx, confusable, func(window string) bool {
 				return strings.Contains(window, inspectionText(term, true))
 			})
@@ -302,12 +329,29 @@ func likelySecretValue(value string) bool {
 	if len(value) < 12 || len(value) > 512 {
 		return false
 	}
-	distinct := make(map[rune]struct{}, min(len(value), 64))
+	var ascii [2]uint64
+	var nonASCII map[rune]struct{}
+	distinct := 0
 	hasLetter := false
 	hasDigit := false
 	hasEncodedSymbol := false
 	for _, character := range value {
-		distinct[character] = struct{}{}
+		if character >= 0 && character < 128 {
+			word := character / 64
+			bit := uint64(1) << (character % 64)
+			if ascii[word]&bit == 0 {
+				ascii[word] |= bit
+				distinct++
+			}
+		} else {
+			if nonASCII == nil {
+				nonASCII = make(map[rune]struct{})
+			}
+			if _, exists := nonASCII[character]; !exists {
+				nonASCII[character] = struct{}{}
+				distinct++
+			}
+		}
 		switch {
 		case character >= 'a' && character <= 'z':
 			hasLetter = true
@@ -317,7 +361,7 @@ func likelySecretValue(value string) bool {
 			hasEncodedSymbol = true
 		}
 	}
-	if len(distinct) < 6 || !hasLetter {
+	if distinct < 6 || !hasLetter {
 		return false
 	}
 	return hasDigit || (hasEncodedSymbol && len(value) >= 20)

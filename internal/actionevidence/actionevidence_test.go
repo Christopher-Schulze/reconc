@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -84,6 +85,18 @@ func TestEveryFactStatusMutationDowngradesItsMappedControl(t *testing.T) {
 				t.Fatalf("mutated fact was promoted: %#v", result)
 			}
 		})
+	}
+}
+
+func TestAllFactIDsReturnsAnIsolatedCanonicalCopy(t *testing.T) {
+	first := AllFactIDs()
+	second := AllFactIDs()
+	if len(first) == 0 || !slices.IsSorted(first) || !slices.Equal(first, second) {
+		t.Fatalf("fact IDs are not canonical: %#v", first)
+	}
+	first[0] = FactID("mutated")
+	if second[0] == first[0] || !knownFactID(second[0]) || knownFactID(FactID("unknown")) {
+		t.Fatal("fact ID registry aliases caller-owned memory or accepts an unknown ID")
 	}
 }
 
