@@ -27,9 +27,9 @@ is contract-bounded, but the local addition should remain intrinsically safe.
 - [x] Remove the overflowing allocation-capacity expression
 - [x] Add adversarial diagnostic regression tests
 - [x] Run focused and package-level verification
-- [~] Commit and push the verified fix to `main`
-- [ ] Require fresh green CI and CodeQL and verify zero open alerts
-- [ ] Archive the completed TASK
+- [x] Commit and push the verified fix to `main`
+- [x] Require fresh green CI and CodeQL and verify zero open alerts
+- [x] Archive the completed TASK
 
 ## Notes
 
@@ -44,5 +44,10 @@ is contract-bounded, but the local addition should remain intrinsically safe.
   for plain text, single quotes, double quotes, newlines, and Unicode.
 - Verification passed for focused regressions, the complete runtime package,
   the complete runtime race suite, formatting, Vet, and Staticcheck.
+- Candidate `2305940fafafcf110a74b67e83961c15c95af2b6` passed CI run
+  `32633852831`, including the complete native Windows suite, and CodeQL run
+  `32633852809`.
+- GitHub's code-scanning API returned an empty open-alert array and
+  `OPEN_COUNT=0`; no alert was dismissed.
 
 ## Deviations
