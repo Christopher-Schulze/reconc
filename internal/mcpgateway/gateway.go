@@ -69,7 +69,7 @@ type Gateway struct {
 	tools        map[string]ToolContract
 	generation   uint64
 	refreshMu    sync.Mutex
-	stateMu      sync.Mutex
+	transitionMu sync.Mutex
 	lifecycleMu  sync.Mutex
 	diagnosticMu sync.Mutex
 	closing      bool
@@ -657,8 +657,6 @@ func (g *Gateway) shutdownPending(ctx context.Context) error {
 		}
 	}()
 	sort.Slice(pending, func(i, j int) bool { return pending[i].callID < pending[j].callID })
-	g.stateMu.Lock()
-	defer g.stateMu.Unlock()
 	for _, approval := range pending {
 		result, err := g.state.FinalizeApproval(ctx, actionstate.ApprovalFinalizeRequest{
 			RequestState: approval.requestState, ExpectedStateVersion: approval.issuanceVersion,

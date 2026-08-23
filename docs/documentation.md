@@ -2527,7 +2527,13 @@ The design keeps all Reconc-owned product and adapter code in Go. The gateway
 is one local, tool-only stdio MCP process around one operator-selected
 downstream stdio MCP server. It invokes the transport-neutral evaluator and
 inspection core before downstream dispatch and before upstream result or
-progress delivery. LangChain launches the Go binary through LangChain's own MCP
+progress delivery. Up to four calls prepare immutable policy and inspection
+state concurrently; action-state and ledger stores independently serialize
+their durable transitions and retry bounded optimistic reservation conflicts.
+Progress uses a 16-event per-call work queue inside the existing 128-event and
+1 MiB budgets. Notifications remain source-ordered, a slow upstream sink cannot
+block the transport reader, and final result processing waits for admitted
+progress to drain or cancel. LangChain launches the Go binary through LangChain's own MCP
 adapter; Reconc ships no Python or TypeScript LangChain adapter.
 
 ### LangChain MCP interoperability

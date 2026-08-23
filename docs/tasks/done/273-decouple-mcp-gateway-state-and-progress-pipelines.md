@@ -36,15 +36,15 @@ progress event can stall unrelated responses and notifications.
 
 ## Sub-Tasks
 
-- [~] Map every `stateMu` invariant and assign it to the narrow owning component
-- [ ] Move policy, inspection, ledger, and diagnostic I/O outside the global critical section
-- [ ] Preserve atomic budget and approval transitions through their existing stores
-- [ ] Design the bounded ordered per-call progress queue and completion barrier
-- [ ] Implement lifecycle-owned progress workers and deterministic shutdown
-- [ ] Add concurrent-call, slow-sink, saturation, ordering, cancellation, and leak tests
-- [ ] Add contention and end-to-end benchmarks plus calibrated evidence
-- [ ] Update MCP concurrency, progress, and failure-semantics documentation
-- [ ] Run race, leak, protocol, publication, and complete repository gates
+- [x] Map every `stateMu` invariant and assign it to the narrow owning component
+- [x] Move policy, inspection, ledger, and diagnostic I/O outside the global critical section
+- [x] Preserve atomic budget and approval transitions through their existing stores
+- [x] Design the bounded ordered per-call progress queue and completion barrier
+- [x] Implement lifecycle-owned progress workers and deterministic shutdown
+- [x] Add concurrent-call, slow-sink, saturation, ordering, cancellation, and leak tests
+- [x] Add contention and end-to-end benchmarks plus calibrated evidence
+- [x] Update MCP concurrency, progress, and failure-semantics documentation
+- [x] Run race, leak, protocol, publication, and complete repository gates
 
 ## Notes
 
@@ -60,6 +60,24 @@ progress event can stall unrelated responses and notifications.
 - The queue must not acknowledge/drop progress before its security decision is
   ordered relative to the final result. A fire-and-forget goroutine is not an
   acceptable implementation.
+- The broad `stateMu` was removed. The durable action-state and ledger stores
+  retain their own file/process locks; a gateway-local `transitionMu` now
+  covers only the pre-dispatch state-version sequence and approval transitions.
+  Downstream execution, progress, post-result inspection, settlement, failure,
+  and shutdown finalization no longer share that lock. Diagnostics retain their
+  separate bounded-output mutex.
+- Reservation conflicts expose a typed sentinel and retry at most four times.
+  This preserves multi-process safety without retrying unrelated failures.
+- Each progress-enabled call owns a 16-event queue inside the existing
+  128-event/1 MiB budgets. Its worker preserves source order, and `finishCall`
+  cannot begin until the queue drains or cancellation terminates the worker.
+- Apple M1 fixed five-iteration end-to-end probes measured 9,565,400 ns/op,
+  1,427,182 B/op, and 4,453 allocs/op at concurrency one versus 9,226,758
+  ns/op, 1,452,056 B/op, and 4,507 allocs/op at concurrency four.
+- Verification passed MCP/action-state race suites, progress ordering and
+  saturation tests, the one/four-call benchmark, `make test-fast`, Vet,
+  Staticcheck, publication audit, and self-host. The cumulative complete race
+  and release-trust gates remain part of the final TASK 283 verification.
 
 ## Deviations
 

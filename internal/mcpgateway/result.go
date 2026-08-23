@@ -27,9 +27,10 @@ func (g *Gateway) executeCall(
 	if err != nil {
 		return g.failUnknownDownstream(ctx, call, err)
 	}
-	g.stateMu.Lock()
+	if progressErr := g.finishProgress(call); progressErr != nil {
+		g.diagnostic("progress pipeline failed: " + progressErr.Error())
+	}
 	response, finishErr := g.finishCall(ctx, call, result)
-	g.stateMu.Unlock()
 	if state, callID, pending := legacyPendingState(finishErr); pending {
 		return g.elicitLegacyApproval(ctx, state, callID, call.progress)
 	}
@@ -44,8 +45,9 @@ func (g *Gateway) failUnknownDownstream(
 	terminalCtx, cancel := terminalContext(ctx)
 	defer cancel()
 	ctx = terminalCtx
-	g.stateMu.Lock()
-	defer g.stateMu.Unlock()
+	if progressErr := g.finishProgress(call); progressErr != nil {
+		g.diagnostic("progress pipeline failed: " + progressErr.Error())
+	}
 	reason := gatewayReason(cause, action.ReasonDownstreamUnknown)
 	if reason != action.ReasonCancelled && reason != action.ReasonDeadlineExceeded &&
 		reason != action.ReasonShutdown {

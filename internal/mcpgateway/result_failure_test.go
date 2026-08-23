@@ -104,11 +104,9 @@ func preparedGatewayCall(t *testing.T) (*rawGatewayHarness, *gatewayCall) {
 			`{"name":"echo","arguments":{"value":"failure-path"}}`,
 		),
 	}
-	harness.gateway.stateMu.Lock()
 	call, response := harness.gateway.prepareCall(
 		context.Background(), wire, contract, generation, callID, arguments, gatewayProtocolCurrent,
 	)
-	harness.gateway.stateMu.Unlock()
 	if response != nil || call == nil {
 		body, _ := json.Marshal(response)
 		t.Fatalf("prepare gateway failure-path call = %s", body)

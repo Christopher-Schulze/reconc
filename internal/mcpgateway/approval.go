@@ -55,21 +55,21 @@ func (g *Gateway) resumeApproval(
 	}
 	callCtx, cancel := context.WithTimeout(ctx, g.config.CallTimeout)
 	defer cancel()
-	g.stateMu.Lock()
+	g.transitionMu.Lock()
 	if pending.phase == action.PhasePostResult {
 		response, err := g.consumePostApproval(callCtx, pending, receipt)
-		g.stateMu.Unlock()
+		g.transitionMu.Unlock()
 		return response, err
 	}
 	progress, progressErr := newCallProgress(wire.params)
 	if progressErr != nil {
-		g.stateMu.Unlock()
+		g.transitionMu.Unlock()
 		return g.failPendingApproval(
 			callCtx, pending, actionapproval.StatusMalformed, action.ReasonInvalidRequest,
 		)
 	}
 	call, response := g.consumeApproval(callCtx, pending, receipt)
-	g.stateMu.Unlock()
+	g.transitionMu.Unlock()
 	if response != nil || call == nil {
 		return response, nil
 	}
@@ -156,14 +156,14 @@ func (g *Gateway) elicitLegacyApproval(
 		reason := gatewayReason(err, action.ReasonApprovalInvalid)
 		return g.failPendingApproval(ctx, pending, approvalFailureFinalizeStatus(err), reason)
 	}
-	g.stateMu.Lock()
+	g.transitionMu.Lock()
 	if pending.phase == action.PhasePostResult {
 		response, consumeErr := g.consumePostApproval(ctx, pending, receipt)
-		g.stateMu.Unlock()
+		g.transitionMu.Unlock()
 		return response, consumeErr
 	}
 	call, response := g.consumeApproval(ctx, pending, receipt)
-	g.stateMu.Unlock()
+	g.transitionMu.Unlock()
 	if response != nil || call == nil {
 		return response, nil
 	}
@@ -610,8 +610,8 @@ func (g *Gateway) failPendingApproval(
 	status actionapproval.Status,
 	reason action.ReasonCode,
 ) (*mcp.CallToolResult, error) {
-	g.stateMu.Lock()
-	defer g.stateMu.Unlock()
+	g.transitionMu.Lock()
+	defer g.transitionMu.Unlock()
 	call := callFromPending(pending)
 	result := g.finalizePendingApproval(ctx, pending, status)
 	if pending.phase == action.PhasePostResult {

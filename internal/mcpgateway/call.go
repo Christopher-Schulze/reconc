@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -104,11 +105,11 @@ func (g *Gateway) startCall(
 	}
 	callCtx, cancel := context.WithTimeout(ctx, g.config.CallTimeout)
 	defer cancel()
-	g.stateMu.Lock()
+	g.transitionMu.Lock()
 	call, response := g.prepareCall(
 		callCtx, wire, contract, generation, callID, arguments, sdkRequest.ProtocolVersion(),
 	)
-	g.stateMu.Unlock()
+	g.transitionMu.Unlock()
 	if response != nil || call == nil {
 		return response, nil
 	}
@@ -147,31 +148,55 @@ func (g *Gateway) prepareCall(
 	if err != nil {
 		return nil, blockedGatewayResultValue(callID, gatewayReason(err, action.ReasonPolicyStale))
 	}
-	stateVersion, err := g.state.CurrentStateVersion(ctx)
-	if err != nil {
-		return nil, blockedGatewayResultValue(callID, gatewayReason(err, action.ReasonStateUnavailable))
-	}
-	request, err := g.normalizedRequest(
-		snapshot, contract, callID, stateVersion, action.PhasePreCall, arguments,
-	)
-	if err != nil {
-		return nil, blockedGatewayResultValue(callID, gatewayReason(err, action.ReasonInvalidRequest))
-	}
-	tool, _, err := snapshot.Plan.BudgetContract(request)
-	if err != nil {
-		return nil, blockedGatewayResultValue(callID, action.ReasonPolicyMissing)
-	}
-	evidence, err := g.evidence(ctx, snapshot, request, tool)
-	if err != nil {
-		return nil, blockedGatewayResultValue(callID, action.ReasonInspectionIncomplete)
-	}
 	inspector, err := g.inspectionEngine(snapshot.Plan)
 	if err != nil {
 		return nil, blockedGatewayResultValue(callID, action.ReasonInspectionIncomplete)
 	}
-	inspection, err := inspector.Inspect(ctx, request, nil, nil)
-	if err != nil {
-		return nil, blockedGatewayResultValue(callID, gatewayReason(err, action.ReasonInspectionIncomplete))
+	var request action.Request
+	var tool action.Tool
+	var evidence EvidenceSnapshot
+	var inspection *action.InspectionEvidence
+	var reserve actionstate.ReserveResult
+	for attempt := 0; ; attempt++ {
+		stateVersion, stateErr := g.state.CurrentStateVersion(ctx)
+		if stateErr != nil {
+			return nil, blockedGatewayResultValue(
+				callID,
+				gatewayReason(stateErr, action.ReasonStateUnavailable),
+			)
+		}
+		request, err = g.normalizedRequest(
+			snapshot, contract, callID, stateVersion, action.PhasePreCall, arguments,
+		)
+		if err != nil {
+			return nil, blockedGatewayResultValue(callID, gatewayReason(err, action.ReasonInvalidRequest))
+		}
+		tool, _, err = snapshot.Plan.BudgetContract(request)
+		if err != nil {
+			return nil, blockedGatewayResultValue(callID, action.ReasonPolicyMissing)
+		}
+		evidence, err = g.evidence(ctx, snapshot, request, tool)
+		if err != nil {
+			return nil, blockedGatewayResultValue(callID, action.ReasonInspectionIncomplete)
+		}
+		inspection, err = inspector.Inspect(ctx, request, nil, nil)
+		if err != nil {
+			return nil, blockedGatewayResultValue(
+				callID,
+				gatewayReason(err, action.ReasonInspectionIncomplete),
+			)
+		}
+		reserve, err = g.state.Reserve(ctx, actionstate.ReserveRequest{
+			Plan: snapshot.Plan, Request: request, Context: g.boundContext,
+			Authority: g.config.PolicyAuthority, Server: g.server,
+		})
+		if err == nil {
+			break
+		}
+		if errors.Is(err, actionstate.ErrStateVersionChanged) && attempt < MaxConcurrentCalls {
+			continue
+		}
+		break
 	}
 	ledger, err := newCallLedger(g, snapshot, request, tool.ID)
 	if err != nil {
@@ -180,10 +205,6 @@ func (g *Gateway) prepareCall(
 	if err := ledger.requestAccepted(ctx); err != nil {
 		return nil, blockedGatewayResultValue(callID, action.ReasonLedgerUnavailable)
 	}
-	reserve, err := g.state.Reserve(ctx, actionstate.ReserveRequest{
-		Plan: snapshot.Plan, Request: request, Context: g.boundContext,
-		Authority: g.config.PolicyAuthority, Server: g.server,
-	})
 	if err != nil {
 		g.diagnostic("budget reservation failed: " + string(gatewayReason(err, action.ReasonStateUnavailable)))
 		_ = ledger.terminalFailure(

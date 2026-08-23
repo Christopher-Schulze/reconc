@@ -434,6 +434,12 @@ The implemented topology is one local, tool-only stdio MCP gateway around one
 operator-selected downstream stdio MCP server. Every routed `tools/call`
 enters one canonical compiled action plan before dispatch, and every downstream
 result or progress event enters the same plan before upstream delivery.
+Calls do not share a gateway-wide state mutex. Immutable policy and inspection
+work proceeds concurrently, while the durable action-state and ledger owners
+linearize only their own transitions. Each call owns a bounded ordered progress
+queue; the transport reader admits notifications without waiting for inspection
+or upstream output, and result publication waits for that queue to drain or
+cancel before recording the terminal transition.
 Native LangChain tools, clients configured directly against the downstream
 server, prompts, resources, sampling, roots, tasks, HTTP, SSE, and arbitrary
 framework calls remain outside that boundary.

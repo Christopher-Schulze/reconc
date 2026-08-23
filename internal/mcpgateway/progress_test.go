@@ -190,3 +190,71 @@ func TestSDKDownstreamStopsRouteAfterSinkFailure(t *testing.T) {
 		t.Fatal("failed progress sink remained active")
 	}
 }
+
+func TestCallProgressQueuesInOrderWithoutBlockingProducer(t *testing.T) {
+	progress := &callProgress{}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	processed := make(chan int, 2)
+	progress.start(context.Background(), func(event ProgressEvent) error {
+		if event.FrameBytes == 1 {
+			close(started)
+			<-release
+		}
+		processed <- int(event.FrameBytes)
+		return nil
+	})
+	if err := progress.enqueue(context.Background(), ProgressEvent{FrameBytes: 1}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	enqueued := make(chan error, 1)
+	go func() {
+		enqueued <- progress.enqueue(context.Background(), ProgressEvent{FrameBytes: 2})
+	}()
+	select {
+	case err := <-enqueued:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("slow progress consumer blocked the producer")
+	}
+	close(release)
+	if reason, recorded, err := progress.finish(); err != nil || reason != "" || recorded {
+		t.Fatalf("finish = %v, %q, %t", err, reason, recorded)
+	}
+	if first, second := <-processed, <-processed; first != 1 || second != 2 {
+		t.Fatalf("progress order = %d, %d", first, second)
+	}
+}
+
+func TestCallProgressQueueSaturationFailsClosed(t *testing.T) {
+	progress := &callProgress{}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	progress.start(context.Background(), func(event ProgressEvent) error {
+		if event.FrameBytes == 1 {
+			close(started)
+			<-release
+		}
+		return nil
+	})
+	if err := progress.enqueue(context.Background(), ProgressEvent{FrameBytes: 1}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	for index := 0; index < MaxProgressQueueEvents; index++ {
+		if err := progress.enqueue(context.Background(), ProgressEvent{FrameBytes: uint64(index + 2)}); err != nil {
+			t.Fatalf("fill queue at %d: %v", index, err)
+		}
+	}
+	if err := progress.enqueue(context.Background(), ProgressEvent{FrameBytes: 1}); err == nil {
+		t.Fatal("saturated progress queue accepted another event")
+	}
+	close(release)
+	reason, recorded, _ := progress.finish()
+	if reason != action.ReasonLimitExceeded || recorded {
+		t.Fatalf("saturation result = %q, recorded=%t", reason, recorded)
+	}
+}

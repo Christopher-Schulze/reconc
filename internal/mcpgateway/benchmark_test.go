@@ -95,12 +95,21 @@ func BenchmarkGatewayCallEndToEnd(b *testing.B) {
 	params := &mcp.CallToolParams{
 		Name: "echo", Arguments: json.RawMessage(`{"value":"benchmark"}`),
 	}
-	b.ReportAllocs()
-	b.ResetTimer()
-	for iteration := 0; iteration < b.N; iteration++ {
-		result, err := harness.session.CallTool(context.Background(), params)
-		if err != nil || result == nil || result.IsError {
-			b.Fatalf("gateway call = %#v, %v", result, err)
-		}
+	for _, concurrency := range []int{1, MaxConcurrentCalls} {
+		b.Run(fmt.Sprintf("concurrency-%d", concurrency), func(b *testing.B) {
+			semaphore := make(chan struct{}, concurrency)
+			b.ReportAllocs()
+			b.RunParallel(func(worker *testing.PB) {
+				for worker.Next() {
+					semaphore <- struct{}{}
+					result, callErr := harness.session.CallTool(context.Background(), params)
+					<-semaphore
+					if callErr != nil || result == nil || result.IsError {
+						b.Errorf("gateway call = %#v, %v", result, callErr)
+						return
+					}
+				}
+			})
+		})
 	}
 }

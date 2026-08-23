@@ -18,12 +18,19 @@ import (
 type callProgress struct {
 	mu              sync.Mutex
 	token           any
+	queue           chan ProgressEvent
+	done            chan struct{}
+	startOnce       sync.Once
+	finishOnce      sync.Once
 	events          uint64
 	bytes           uint64
 	inspectionTime  time.Duration
 	lastProgress    action.Decimal
 	hasLastProgress bool
 	stopped         bool
+	workerErr       error
+	terminalReason  action.ReasonCode
+	failureRecorded bool
 }
 
 type normalizedProgress struct {
@@ -82,9 +89,94 @@ func (g *Gateway) progressSink(ctx context.Context, call *gatewayCall) ProgressS
 	if call == nil || call.progress == nil {
 		return nil
 	}
-	return func(_ context.Context, event ProgressEvent) error {
+	call.progress.start(ctx, func(event ProgressEvent) error {
 		return g.handleProgress(ctx, call, event)
+	})
+	return func(_ context.Context, event ProgressEvent) error {
+		return call.progress.enqueue(ctx, event)
 	}
+}
+
+func (p *callProgress) start(ctx context.Context, handle func(ProgressEvent) error) {
+	p.startOnce.Do(func() {
+		p.queue = make(chan ProgressEvent, MaxProgressQueueEvents)
+		p.done = make(chan struct{})
+		go func() {
+			defer close(p.done)
+			for {
+				select {
+				case <-ctx.Done():
+					p.setWorkerError(ctx.Err(), false)
+					return
+				case event, ok := <-p.queue:
+					if !ok {
+						return
+					}
+					if err := handle(event); err != nil {
+						p.setWorkerError(err, true)
+						return
+					}
+				}
+			}
+		}()
+	})
+}
+
+func (p *callProgress) enqueue(ctx context.Context, event ProgressEvent) error {
+	if reason := p.admit(ctx, event); reason != "" {
+		p.setTerminalReason(reason)
+		return fmt.Errorf("suppress downstream progress: %s", reason)
+	}
+	select {
+	case p.queue <- event:
+		return nil
+	default:
+		p.stop()
+		p.setTerminalReason(action.ReasonLimitExceeded)
+		return fmt.Errorf("suppress downstream progress: %s", action.ReasonLimitExceeded)
+	}
+}
+
+func (p *callProgress) finish() (action.ReasonCode, bool, error) {
+	if p == nil || p.done == nil {
+		return "", false, nil
+	}
+	p.finishOnce.Do(func() { close(p.queue) })
+	<-p.done
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.terminalReason, p.failureRecorded, p.workerErr
+}
+
+func (p *callProgress) setWorkerError(err error, failureRecorded bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.workerErr == nil {
+		p.workerErr = err
+	}
+	p.failureRecorded = p.failureRecorded || failureRecorded
+	p.stopped = true
+}
+
+func (p *callProgress) setTerminalReason(reason action.ReasonCode) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.failureRecorded && p.terminalReason == "" {
+		p.terminalReason = reason
+	}
+}
+
+func (g *Gateway) finishProgress(call *gatewayCall) error {
+	if call == nil || call.progress == nil {
+		return nil
+	}
+	reason, failureRecorded, workerErr := call.progress.finish()
+	if reason == "" || failureRecorded {
+		return workerErr
+	}
+	terminalCtx, cancel := terminalContext(g.ctx)
+	defer cancel()
+	return errors.Join(workerErr, g.recordProgressFailure(terminalCtx, call, reason))
 }
 
 func (g *Gateway) handleProgress(
@@ -93,10 +185,6 @@ func (g *Gateway) handleProgress(
 	event ProgressEvent,
 ) error {
 	started := time.Now()
-	if reason := call.progress.admit(ctx, event); reason != "" {
-		ledgerErr := g.recordProgressFailure(ctx, call, reason)
-		return errors.Join(fmt.Errorf("suppress downstream progress: %s", reason), ledgerErr)
-	}
 	progress, err := normalizeProgress(event.Params)
 	if err != nil {
 		call.progress.stop()

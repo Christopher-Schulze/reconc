@@ -1,6 +1,7 @@
 package actionstate
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -268,6 +269,8 @@ type StateError struct {
 	Message string
 	Cause   error
 }
+
+var ErrStateVersionChanged = errors.New("action state version changed")
 
 func (e *StateError) Error() string {
 	if e == nil {

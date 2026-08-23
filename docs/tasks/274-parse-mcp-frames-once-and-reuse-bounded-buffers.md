@@ -33,7 +33,7 @@ large transient allocation and CPU spikes.
 
 ## Sub-Tasks
 
-- [ ] Inventory frame ownership and every current parse/copy boundary
+- [~] Inventory frame ownership and every current parse/copy boundary
 - [ ] Extend strict validation to return bounded envelope metadata
 - [ ] Rewire observers and progress routing to the validated envelope
 - [ ] Define safe raw-slice lifetime and clone only data that escapes the frame

@@ -44,7 +44,11 @@ func (s *Store) reserveLocked(input ReserveRequest) (ReserveResult, error) {
 		return ReserveResult{}, err
 	}
 	if input.Request.StateVersion != state.Digest {
-		return ReserveResult{}, stateError(action.ReasonStateUnavailable, "action state changed before reservation", nil)
+		return ReserveResult{}, stateError(
+			action.ReasonStateUnavailable,
+			"action state changed before reservation",
+			ErrStateVersionChanged,
+		)
 	}
 	if err := rejectTerminalOrUnsafeRetry(state, input.Request.CallID, s.ownerID); err != nil {
 		return ReserveResult{}, err

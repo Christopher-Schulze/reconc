@@ -31,6 +31,7 @@ const (
 	MaxStderrBytes          = 256 << 10
 	MaxProgressTokenBytes   = 4096
 	MaxProgressEvents       = 128
+	MaxProgressQueueEvents  = 16
 	MaxProgressEventBytes   = 64 << 10
 	MaxProgressBytes        = 1 << 20
 	MaxDiagnosticBytes      = 4096

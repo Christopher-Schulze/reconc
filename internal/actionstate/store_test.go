@@ -294,6 +294,17 @@ func TestBudgetStoreReturnsCanonicalAbsentSnapshotWithoutMutation(t *testing.T) 
 	}
 }
 
+func TestBudgetStoreIdentifiesOptimisticReservationConflict(t *testing.T) {
+	fixture := newStoreFixture(t, []action.Budget{storeBudget(
+		"conflict", action.BudgetLimits{CallCount: 2}, action.BudgetResetNever,
+	)})
+	input, _ := fixture.reserve(t, callID("o"))
+	input.Request.CallID = callID("s")
+	if _, err := fixture.store.Reserve(context.Background(), input); !errors.Is(err, ErrStateVersionChanged) {
+		t.Fatalf("stale reservation error = %v", err)
+	}
+}
+
 func TestBudgetReservationRetryRequiresExactTrustedCallIdentity(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"retry", action.BudgetLimits{CallCount: 2, ArgumentBytes: 4096}, action.BudgetResetNever,
