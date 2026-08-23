@@ -2,6 +2,7 @@
 
 ## Active
 
+- [~] 285 Stabilize the Windows MCP lifecycle release gate -> tasks/285-stabilize-windows-mcp-lifecycle-release-gate.md
 
 ## Queue
 

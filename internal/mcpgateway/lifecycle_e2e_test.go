@@ -604,7 +604,7 @@ func TestGatewayTerminalizesApprovedReservationWhenRequiredLedgerFails(t *testin
 	}()
 	select {
 	case <-elicitationStarted:
-	case <-time.After(2 * time.Second):
+	case <-time.After(ShutdownTimeout):
 		t.Fatal("approval elicitation did not start")
 	}
 	harness.gateway.pendingMu.Lock()
@@ -625,7 +625,7 @@ func TestGatewayTerminalizesApprovedReservationWhenRequiredLedgerFails(t *testin
 			marshalErr != nil || !bytes.Contains(body, []byte(action.ReasonLedgerUnavailable)) {
 			t.Fatalf("required-ledger failure result = %#v, %v; body=%s, marshal=%v", outcome.result, outcome.err, body, marshalErr)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(ShutdownTimeout):
 		t.Fatal("required-ledger failure call did not terminate")
 	}
 	status, err := harness.gateway.state.Status(context.Background())
