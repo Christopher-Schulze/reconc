@@ -292,6 +292,38 @@ func TestFrameAndProtocolIDRejectUnsafeShapes(t *testing.T) {
 	}
 }
 
+func TestParseFrameJSONExtractsEnvelopeWithoutCopying(t *testing.T) {
+	body := []byte(` { "params" : {"progressToken":"token","progress":1}, "method":"notifications/progress", "id":7, "result":{"ok":true} } `)
+	frame, err := parseFrameJSON(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frame.method != "notifications/progress" || string(frame.id) != "7" ||
+		string(frame.params) != `{"progressToken":"token","progress":1}` ||
+		string(frame.result) != `{"ok":true}` {
+		t.Fatalf("parsed frame = %#v", frame)
+	}
+	paramsStart := bytes.Index(body, frame.params)
+	if len(frame.params) == 0 || paramsStart < 0 || &frame.params[0] != &body[paramsStart] {
+		t.Fatal("parsed params do not alias the validated frame")
+	}
+}
+
+func TestStrictFrameWriterClearsRetainedBuffer(t *testing.T) {
+	output := &scriptedWriteCloser{}
+	writer := newStrictFrameWriter(output, nil)
+	frame := []byte(`{"jsonrpc":"2.0","id":1,"result":{"secret":"sensitive"}}` + "\n")
+	if _, err := writer.Write(frame); err != nil {
+		t.Fatal(err)
+	}
+	retained := writer.pending[:cap(writer.pending)]
+	for index, value := range retained {
+		if value != 0 {
+			t.Fatalf("retained writer byte %d was not cleared", index)
+		}
+	}
+}
+
 type scriptedWriteCloser struct {
 	bytes.Buffer
 	writeSizes []int

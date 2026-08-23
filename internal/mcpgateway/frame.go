@@ -5,18 +5,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
 	"sort"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/action"
 )
 
 const maxFrameNumberBytes = 1024
+
+const maxRetainedFrameBufferBytes = 256 << 10
 
 type observedResponse struct {
 	result json.RawMessage
@@ -115,29 +117,32 @@ func (o *protocolObserver) wait(ctx context.Context, call *pendingProtocolCall) 
 }
 
 func (o *protocolObserver) outbound(frame []byte) error {
-	var envelope struct {
-		ID     json.RawMessage `json:"id"`
-		Method string          `json:"method"`
-		Params json.RawMessage `json:"params"`
+	parsed, err := parseFrameJSON(frame)
+	if err != nil {
+		return err
 	}
-	if err := json.Unmarshal(frame, &envelope); err != nil || envelope.Method == "" || len(envelope.ID) == 0 {
+	return o.outboundFrame(parsed)
+}
+
+func (o *protocolObserver) outboundFrame(frame validatedFrame) error {
+	if frame.method == "" || len(frame.id) == 0 {
 		return nil
 	}
 	o.mu.Lock()
-	pendingMethod := o.pendingMethods[envelope.Method] != 0
+	pendingMethod := o.pendingMethods[frame.method] != 0
 	o.mu.Unlock()
 	if !pendingMethod {
 		return nil
 	}
-	id, err := canonicalProtocolID(envelope.ID)
+	id, err := canonicalProtocolID(frame.id)
 	if err != nil {
 		return err
 	}
-	paramsKey, err := correlationParamsKey(envelope.Params)
+	paramsKey, err := correlationParamsKey(frame.params)
 	if err != nil {
 		return err
 	}
-	request := protocolRequestKey(envelope.Method, paramsKey)
+	request := protocolRequestKey(frame.method, paramsKey)
 	o.mu.Lock()
 	if _, duplicate := o.byID[id]; duplicate {
 		o.mu.Unlock()
@@ -146,7 +151,7 @@ func (o *protocolObserver) outbound(frame []byte) error {
 	calls := o.pending[request]
 	if len(calls) == 0 {
 		o.mu.Unlock()
-		return fmt.Errorf("outbound %s request does not match its observed parameters", envelope.Method)
+		return fmt.Errorf("outbound %s request does not match its observed parameters", frame.method)
 	}
 	call := calls[0]
 	if len(calls) == 1 {
@@ -154,9 +159,9 @@ func (o *protocolObserver) outbound(frame []byte) error {
 	} else {
 		o.pending[request] = calls[1:]
 	}
-	o.pendingMethods[envelope.Method]--
-	if o.pendingMethods[envelope.Method] == 0 {
-		delete(o.pendingMethods, envelope.Method)
+	o.pendingMethods[frame.method]--
+	if o.pendingMethods[frame.method] == 0 {
+		delete(o.pendingMethods, frame.method)
 	}
 	o.byID[id] = call
 	o.mu.Unlock()
@@ -214,15 +219,18 @@ func correlationParamsKey(raw []byte) (string, error) {
 }
 
 func (o *protocolObserver) inbound(frame []byte) error {
-	var envelope struct {
-		ID     json.RawMessage `json:"id"`
-		Result json.RawMessage `json:"result"`
-		Error  json.RawMessage `json:"error"`
+	parsed, err := parseFrameJSON(frame)
+	if err != nil {
+		return err
 	}
-	if err := json.Unmarshal(frame, &envelope); err != nil || len(envelope.ID) == 0 {
+	return o.inboundFrame(parsed)
+}
+
+func (o *protocolObserver) inboundFrame(frame validatedFrame) error {
+	if len(frame.id) == 0 {
 		return nil
 	}
-	id, err := canonicalProtocolID(envelope.ID)
+	id, err := canonicalProtocolID(frame.id)
 	if err != nil {
 		return err
 	}
@@ -237,12 +245,12 @@ func (o *protocolObserver) inbound(frame []byte) error {
 		call.completed()
 	}
 	response := observedResponse{}
-	if len(envelope.Error) != 0 && !bytes.Equal(envelope.Error, []byte("null")) {
+	if len(frame.err) != 0 && !bytes.Equal(frame.err, []byte("null")) {
 		response.err = fmt.Errorf("downstream JSON-RPC error")
-	} else if len(envelope.Result) == 0 {
+	} else if len(frame.result) == 0 {
 		response.err = fmt.Errorf("downstream JSON-RPC response omitted result")
 	} else {
-		response.result = bytes.Clone(envelope.Result)
+		response.result = bytes.Clone(frame.result)
 	}
 	call.response <- response
 	return nil
@@ -267,21 +275,24 @@ func canonicalProtocolID(raw []byte) (string, error) {
 }
 
 type strictFrameReader struct {
+	mu          sync.Mutex
 	reader      *bufio.Reader
 	closer      io.Closer
-	observer    func([]byte) error
-	transformer func([]byte) ([]byte, error)
+	observer    func(validatedFrame) error
+	transformer func(validatedFrame) ([]byte, error)
 	current     *bytes.Reader
+	currentBody []byte
+	reusable    []byte
 	failed      error
 }
 
-func newStrictFrameReader(reader io.ReadCloser, observer func([]byte) error) *strictFrameReader {
+func newStrictFrameReader(reader io.ReadCloser, observer func(validatedFrame) error) *strictFrameReader {
 	return &strictFrameReader{reader: bufio.NewReaderSize(reader, 64<<10), closer: reader, observer: observer}
 }
 
 func newStrictTransformingFrameReader(
 	reader io.ReadCloser,
-	transformer func([]byte) ([]byte, error),
+	transformer func(validatedFrame) ([]byte, error),
 ) *strictFrameReader {
 	return &strictFrameReader{
 		reader: bufio.NewReaderSize(reader, 64<<10), closer: reader, transformer: transformer,
@@ -289,52 +300,87 @@ func newStrictTransformingFrameReader(
 }
 
 func (r *strictFrameReader) Read(output []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.failed != nil {
 		return 0, r.failed
 	}
 	if r.current == nil || r.current.Len() == 0 {
-		frame, err := readFrame(r.reader)
+		r.releaseCurrent()
+		frame, err := readFrame(r.reader, r.reusable)
+		r.reusable = nil
 		if err != nil {
 			r.failed = err
 			return 0, err
 		}
 		body := frame[:len(frame)-1]
-		if err := validateFrameJSON(body); err != nil {
+		parsed, err := parseFrameJSON(body)
+		if err != nil {
 			r.failed = err
 			return 0, err
 		}
 		if r.observer != nil {
-			if err := r.observer(body); err != nil {
+			if err := r.observer(parsed); err != nil {
 				r.failed = err
 				return 0, err
 			}
 		}
 		if r.transformer != nil {
-			body, err = r.transformer(body)
-			if err != nil {
-				r.failed = err
-				return 0, err
+			transformed, transformErr := r.transformer(parsed)
+			if transformErr != nil {
+				r.failed = transformErr
+				return 0, transformErr
 			}
+			if bytes.Equal(body, transformed) {
+				transformed = body
+			}
+			body = transformed
 			if len(body)+1 > MaxProtocolFrameBytes {
 				err = fmt.Errorf("transformed MCP frame exceeds %d bytes", MaxProtocolFrameBytes)
 				r.failed = err
 				return 0, err
 			}
-			if err = validateFrameJSON(body); err != nil {
-				r.failed = err
-				return 0, err
+			if !bytes.Equal(body, parsed.raw) {
+				if _, err = parseFrameJSON(body); err != nil {
+					r.failed = err
+					return 0, err
+				}
 			}
-			frame = append(bytes.Clone(body), '\n')
+			if len(body) == len(parsed.raw) && len(body) > 0 && &body[0] == &parsed.raw[0] {
+				frame = frame[:len(body)+1]
+			} else {
+				frame = append(bytes.Clone(body), '\n')
+			}
 		}
+		r.currentBody = frame
 		r.current = bytes.NewReader(frame)
 	}
 	return r.current.Read(output)
 }
 
-func (r *strictFrameReader) Close() error { return r.closer.Close() }
+func (r *strictFrameReader) Close() error {
+	err := r.closer.Close()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.releaseCurrent()
+	clear(r.reusable)
+	r.reusable = nil
+	return err
+}
 
-func readFrame(reader *bufio.Reader) ([]byte, error) {
-	frame := make([]byte, 0, 64<<10)
+func (r *strictFrameReader) releaseCurrent() {
+	if r.currentBody == nil {
+		return
+	}
+	clear(r.currentBody)
+	if cap(r.currentBody) <= maxRetainedFrameBufferBytes {
+		r.reusable = r.currentBody[:0]
+	}
+	r.currentBody = nil
+}
+
+func readFrame(reader *bufio.Reader, frame []byte) ([]byte, error) {
+	frame = frame[:0]
 	for {
 		part, err := reader.ReadSlice('\n')
 		if len(part) > MaxProtocolFrameBytes-len(frame) {
@@ -360,12 +406,12 @@ type strictFrameWriter struct {
 	mu       sync.Mutex
 	writer   io.Writer
 	closer   io.Closer
-	observer func([]byte) error
+	observer func(validatedFrame) error
 	pending  []byte
 	failed   error
 }
 
-func newStrictFrameWriter(writer io.WriteCloser, observer func([]byte) error) *strictFrameWriter {
+func newStrictFrameWriter(writer io.WriteCloser, observer func(validatedFrame) error) *strictFrameWriter {
 	return &strictFrameWriter{writer: writer, closer: writer, observer: observer}
 }
 
@@ -394,12 +440,13 @@ func (w *strictFrameWriter) Write(input []byte) (int, error) {
 			continue
 		}
 		frame := w.pending[:len(w.pending)-1]
-		if err := validateFrameJSON(frame); err != nil {
+		parsed, err := parseFrameJSON(frame)
+		if err != nil {
 			w.failed = err
 			return written, err
 		}
 		if w.observer != nil {
-			if err := w.observer(frame); err != nil {
+			if err := w.observer(parsed); err != nil {
 				w.failed = err
 				return written, err
 			}
@@ -424,7 +471,12 @@ func (w *strictFrameWriter) Write(input []byte) (int, error) {
 			w.failed = err
 			return written, err
 		}
-		w.pending = w.pending[:0]
+		clear(w.pending)
+		if cap(w.pending) > maxRetainedFrameBufferBytes {
+			w.pending = nil
+		} else {
+			w.pending = w.pending[:0]
+		}
 	}
 	return written, nil
 }
@@ -435,108 +487,161 @@ func (w *strictFrameWriter) Close() error {
 	if len(w.pending) != 0 && w.failed == nil {
 		w.failed = fmt.Errorf("MCP output ended with a partial frame")
 	}
+	clear(w.pending)
+	w.pending = nil
 	return errors.Join(w.failed, w.closer.Close())
 }
 
-type frameContainer struct {
-	object    bool
-	expectKey bool
-	keys      map[string]struct{}
+type validatedFrame struct {
+	raw    []byte
+	id     json.RawMessage
+	method string
+	params json.RawMessage
+	result json.RawMessage
+	err    json.RawMessage
+}
+
+type frameScanner struct {
+	decoder *jsontext.Decoder
+	items   int
 }
 
 func validateFrameJSON(frame []byte) error {
-	if len(frame) == 0 || len(frame) > MaxProtocolFrameBytes || !utf8.Valid(frame) {
-		return fmt.Errorf("MCP frame is empty, oversized, or invalid UTF-8")
-	}
-	if bytes.ContainsAny(frame, "\r\n") {
-		return fmt.Errorf("MCP frame contains an embedded line delimiter")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(frame))
-	decoder.UseNumber()
-	stack := make([]frameContainer, 0, 40)
-	items := 0
-	rootComplete := false
-	for {
-		token, err := decoder.Token()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("decode MCP frame: %w", err)
-		}
-		if rootComplete {
-			return fmt.Errorf("MCP frame contains trailing data")
-		}
-		items++
-		if items == 1 {
-			delimiter, object := token.(json.Delim)
-			if !object || delimiter != '{' {
-				return fmt.Errorf("MCP frame root must be a JSON object")
-			}
-		}
-		if items > action.MaxJSONItems+4096 {
-			return fmt.Errorf("MCP frame exceeds the JSON item boundary")
-		}
-		switch value := token.(type) {
-		case json.Delim:
-			switch value {
-			case '{':
-				if len(stack) >= action.MaxJSONDepth+8 {
-					return fmt.Errorf("MCP frame exceeds the JSON depth boundary")
-				}
-				stack = append(stack, frameContainer{object: true, expectKey: true, keys: make(map[string]struct{})})
-			case '[':
-				if len(stack) >= action.MaxJSONDepth+8 {
-					return fmt.Errorf("MCP frame exceeds the JSON depth boundary")
-				}
-				stack = append(stack, frameContainer{})
-			case '}', ']':
-				if len(stack) == 0 {
-					return fmt.Errorf("MCP frame contains an unmatched delimiter")
-				}
-				stack = stack[:len(stack)-1]
-				rootComplete = markFrameValueConsumed(stack)
-			}
-		case string:
-			if len(value) > action.MaxJSONStringBytes {
-				return fmt.Errorf("MCP frame string exceeds the byte boundary")
-			}
-			if len(stack) > 0 && stack[len(stack)-1].object && stack[len(stack)-1].expectKey {
-				top := &stack[len(stack)-1]
-				if _, duplicate := top.keys[value]; duplicate {
-					return fmt.Errorf("MCP frame contains a duplicate object key")
-				}
-				top.keys[value] = struct{}{}
-				top.expectKey = false
-			} else {
-				rootComplete = markFrameValueConsumed(stack)
-			}
-		case json.Number:
-			if len(value.String()) > maxFrameNumberBytes {
-				return fmt.Errorf("MCP frame number exceeds the byte boundary")
-			}
-			rootComplete = markFrameValueConsumed(stack)
-		default:
-			rootComplete = markFrameValueConsumed(stack)
-		}
-	}
-	if len(stack) != 0 {
-		return fmt.Errorf("MCP frame contains an unterminated container")
-	}
-	if !rootComplete {
-		return fmt.Errorf("MCP frame contains no complete JSON value")
-	}
-	return nil
+	_, err := parseFrameJSON(frame)
+	return err
 }
 
-func markFrameValueConsumed(stack []frameContainer) bool {
-	if len(stack) == 0 {
-		return true
+func parseFrameJSON(frame []byte) (validatedFrame, error) {
+	if len(frame) == 0 || len(frame) > MaxProtocolFrameBytes {
+		return validatedFrame{}, fmt.Errorf("MCP frame is empty, oversized, or invalid UTF-8")
 	}
-	if len(stack) > 0 && stack[len(stack)-1].object && !stack[len(stack)-1].expectKey {
-		stack[len(stack)-1].expectKey = true
+	if bytes.ContainsAny(frame, "\r\n") {
+		return validatedFrame{}, fmt.Errorf("MCP frame contains an embedded line delimiter")
 	}
-	return false
+	scanner := frameScanner{decoder: jsontext.NewDecoder(bytes.NewReader(frame))}
+	if scanner.decoder.PeekKind() != jsontext.KindBeginObject {
+		return validatedFrame{}, fmt.Errorf("MCP frame root must be a JSON object")
+	}
+	if _, err := scanner.readToken(); err != nil {
+		return validatedFrame{}, err
+	}
+	parsed := validatedFrame{raw: frame}
+	for scanner.decoder.PeekKind() != jsontext.KindEndObject {
+		name, err := scanner.readToken()
+		if err != nil {
+			return validatedFrame{}, err
+		}
+		if name.Kind() != jsontext.KindString {
+			return validatedFrame{}, fmt.Errorf("decode MCP frame: object name is not a string")
+		}
+		field := name.String()
+		if len(field) > action.MaxJSONStringBytes {
+			return validatedFrame{}, fmt.Errorf("MCP frame string exceeds the byte boundary")
+		}
+		start, err := frameValueStart(frame, int(scanner.decoder.InputOffset()))
+		if err != nil {
+			return validatedFrame{}, err
+		}
+		kind, text, err := scanner.scanValue(1)
+		if err != nil {
+			return validatedFrame{}, err
+		}
+		end := int(scanner.decoder.InputOffset())
+		raw := json.RawMessage(frame[start:end])
+		switch field {
+		case "id":
+			parsed.id = raw
+		case "method":
+			if kind == jsontext.KindString {
+				parsed.method = text
+			}
+		case "params":
+			parsed.params = raw
+		case "result":
+			parsed.result = raw
+		case "error":
+			parsed.err = raw
+		}
+	}
+	if _, err := scanner.readToken(); err != nil {
+		return validatedFrame{}, err
+	}
+	if _, err := scanner.decoder.ReadToken(); err != io.EOF {
+		if err == nil {
+			return validatedFrame{}, fmt.Errorf("MCP frame contains trailing data")
+		}
+		return validatedFrame{}, fmt.Errorf("decode MCP frame: %w", err)
+	}
+	return parsed, nil
+}
+
+func (s *frameScanner) readToken() (jsontext.Token, error) {
+	token, err := s.decoder.ReadToken()
+	if err != nil {
+		return jsontext.Token{}, fmt.Errorf("decode MCP frame: %w", err)
+	}
+	s.items++
+	if s.items > action.MaxJSONItems+4096 {
+		return jsontext.Token{}, fmt.Errorf("MCP frame exceeds the JSON item boundary")
+	}
+	if token.Kind() == jsontext.KindString && len(token.String()) > action.MaxJSONStringBytes {
+		return jsontext.Token{}, fmt.Errorf("MCP frame string exceeds the byte boundary")
+	}
+	if token.Kind() == jsontext.KindNumber && len(token.String()) > maxFrameNumberBytes {
+		return jsontext.Token{}, fmt.Errorf("MCP frame number exceeds the byte boundary")
+	}
+	return token, nil
+}
+
+func (s *frameScanner) scanValue(depth int) (jsontext.Kind, string, error) {
+	kind := s.decoder.PeekKind()
+	if kind == jsontext.KindBeginObject || kind == jsontext.KindBeginArray {
+		if depth >= action.MaxJSONDepth+8 {
+			return jsontext.KindInvalid, "", fmt.Errorf("MCP frame exceeds the JSON depth boundary")
+		}
+		if _, err := s.readToken(); err != nil {
+			return jsontext.KindInvalid, "", err
+		}
+		end := jsontext.KindEndObject
+		if kind == jsontext.KindBeginArray {
+			end = jsontext.KindEndArray
+		}
+		for s.decoder.PeekKind() != end {
+			if kind == jsontext.KindBeginObject {
+				name, err := s.readToken()
+				if err != nil {
+					return jsontext.KindInvalid, "", err
+				}
+				if name.Kind() != jsontext.KindString {
+					return jsontext.KindInvalid, "", fmt.Errorf("decode MCP frame: object name is not a string")
+				}
+			}
+			if _, _, err := s.scanValue(depth + 1); err != nil {
+				return jsontext.KindInvalid, "", err
+			}
+		}
+		_, err := s.readToken()
+		return kind, "", err
+	}
+	token, err := s.readToken()
+	if err != nil {
+		return jsontext.KindInvalid, "", err
+	}
+	return token.Kind(), token.String(), nil
+}
+
+func frameValueStart(frame []byte, offset int) (int, error) {
+	for offset < len(frame) && (frame[offset] == ' ' || frame[offset] == '\t') {
+		offset++
+	}
+	if offset >= len(frame) || frame[offset] != ':' {
+		return 0, fmt.Errorf("decode MCP frame: object member separator is absent")
+	}
+	offset++
+	for offset < len(frame) && (frame[offset] == ' ' || frame[offset] == '\t') {
+		offset++
+	}
+	return offset, nil
 }
 
 func waitObserved(ctx context.Context, call *pendingProtocolCall) (json.RawMessage, error) {

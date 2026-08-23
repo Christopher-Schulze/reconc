@@ -30,6 +30,29 @@ func BenchmarkToolDiscovery(b *testing.B) {
 	}
 }
 
+func BenchmarkParseFrameSmall(b *testing.B) {
+	benchmarkParseFrame(b, []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+}
+
+func BenchmarkParseFrameProgress(b *testing.B) {
+	benchmarkParseFrame(b, []byte(`{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"token","progress":1,"message":"working"}}`))
+}
+
+func BenchmarkParseFrameRepresentative(b *testing.B) {
+	benchmarkParseFrame(b, []byte(`{"jsonrpc":"2.0","id":"request","method":"tools/call","params":{"name":"echo","arguments":{"value":"payload","items":[1,2,3,4]}}}`))
+}
+
+func benchmarkParseFrame(b *testing.B, frame []byte) {
+	b.Helper()
+	b.ReportAllocs()
+	b.SetBytes(int64(len(frame)))
+	for b.Loop() {
+		if _, err := parseFrameJSON(frame); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func benchmarkToolDiscovery(b *testing.B, unique bool, pageCount, toolsPerPage int) {
 	pages := make(map[string]ToolPage, pageCount)
 	toolIndex := 0

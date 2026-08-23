@@ -40,7 +40,7 @@ empty mapping despite the decoder's mapping-only contract.
 
 ## Sub-Tasks
 
-- [ ] Capture deterministic conflict output and maximum-cardinality baselines
+- [~] Capture deterministic conflict output and maximum-cardinality baselines
 - [ ] Precompute semantic rule keys and group duplicate candidates
 - [ ] Bound or stream quadratic conflict output while preserving exact order
 - [ ] Add a compile-scoped identity-checked template cache

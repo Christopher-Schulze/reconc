@@ -44,15 +44,18 @@ func newUpstreamObserver() *upstreamObserver {
 }
 
 func (o *upstreamObserver) instrumentInbound(frame []byte) ([]byte, error) {
-	var envelope struct {
-		ID     json.RawMessage `json:"id"`
-		Method string          `json:"method"`
-		Params json.RawMessage `json:"params"`
+	parsed, err := parseFrameJSON(frame)
+	if err != nil {
+		return nil, err
 	}
-	if err := json.Unmarshal(frame, &envelope); err != nil || envelope.Method == "" || len(envelope.ID) == 0 {
-		return bytes.Clone(frame), nil
+	return o.instrumentInboundFrame(parsed)
+}
+
+func (o *upstreamObserver) instrumentInboundFrame(frame validatedFrame) ([]byte, error) {
+	if frame.method == "" || len(frame.id) == 0 {
+		return frame.raw, nil
 	}
-	id, err := canonicalProtocolID(envelope.ID)
+	id, err := canonicalProtocolID(frame.id)
 	if err != nil {
 		return nil, err
 	}
@@ -69,9 +72,9 @@ func (o *upstreamObserver) instrumentInbound(frame []byte) ([]byte, error) {
 		o.drained = make(chan struct{})
 	}
 	o.active[id] = struct{}{}
-	if envelope.Method != "tools/call" {
+	if frame.method != "tools/call" {
 		o.mu.Unlock()
-		return bytes.Clone(frame), nil
+		return frame.raw, nil
 	}
 	if o.next == ^uint64(0) {
 		o.deleteActiveLocked(id)
@@ -81,7 +84,7 @@ func (o *upstreamObserver) instrumentInbound(frame []byte) ([]byte, error) {
 	o.next++
 	correlation := strconv.FormatUint(o.next, 10)
 	o.mu.Unlock()
-	transformed, err := injectUpstreamCorrelation(frame, correlation)
+	transformed, err := injectUpstreamCorrelation(frame.raw, correlation)
 	if err != nil || len(transformed)+1 > MaxProtocolFrameBytes {
 		o.mu.Lock()
 		o.deleteActiveLocked(id)
@@ -93,7 +96,7 @@ func (o *upstreamObserver) instrumentInbound(frame []byte) ([]byte, error) {
 	}
 	o.mu.Lock()
 	o.byCorrelation[correlation] = upstreamWireCall{
-		id: bytes.Clone(envelope.ID), params: bytes.Clone(envelope.Params),
+		id: bytes.Clone(frame.id), params: bytes.Clone(frame.params),
 	}
 	o.correlationByID[id] = correlation
 	o.mu.Unlock()
@@ -139,14 +142,18 @@ func injectUpstreamCorrelation(frame []byte, correlation string) ([]byte, error)
 }
 
 func (o *upstreamObserver) outbound(frame []byte) error {
-	var envelope struct {
-		ID     json.RawMessage `json:"id"`
-		Method string          `json:"method"`
+	parsed, err := parseFrameJSON(frame)
+	if err != nil {
+		return err
 	}
-	if err := json.Unmarshal(frame, &envelope); err != nil || len(envelope.ID) == 0 || envelope.Method != "" {
+	return o.outboundFrame(parsed)
+}
+
+func (o *upstreamObserver) outboundFrame(frame validatedFrame) error {
+	if len(frame.id) == 0 || frame.method != "" {
 		return nil
 	}
-	id, err := canonicalProtocolID(envelope.ID)
+	id, err := canonicalProtocolID(frame.id)
 	if err != nil {
 		return err
 	}
@@ -288,9 +295,9 @@ func (g *Gateway) serve() error {
 	}
 	g.upstreamMu.Unlock()
 	reader := newStrictTransformingFrameReader(
-		readCloser{g.config.Input}, g.upstreamWire.instrumentInbound,
+		readCloser{g.config.Input}, g.upstreamWire.instrumentInboundFrame,
 	)
-	writer := newStrictFrameWriter(writeCloser{g.config.Output}, g.upstreamWire.outbound)
+	writer := newStrictFrameWriter(writeCloser{g.config.Output}, g.upstreamWire.outboundFrame)
 	session, err := upstream.Connect(
 		g.ctx, &upstreamTransport{IOTransport: &mcp.IOTransport{Reader: reader, Writer: writer}}, nil,
 	)

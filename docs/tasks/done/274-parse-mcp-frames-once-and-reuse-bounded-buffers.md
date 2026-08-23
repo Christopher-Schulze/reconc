@@ -33,16 +33,16 @@ large transient allocation and CPU spikes.
 
 ## Sub-Tasks
 
-- [~] Inventory frame ownership and every current parse/copy boundary
-- [ ] Extend strict validation to return bounded envelope metadata
-- [ ] Rewire observers and progress routing to the validated envelope
-- [ ] Define safe raw-slice lifetime and clone only data that escapes the frame
-- [ ] Reuse bounded reader/writer storage with retention and clearing rules
-- [ ] Avoid redundant post-transform validation when content is unchanged
-- [ ] Add fuzz, aliasing, pool-reuse, maximum-frame, and protocol tests
-- [ ] Add frame benchmarks and calibrated history
-- [ ] Update MCP framing and memory-bound documentation
-- [ ] Run race, fuzz, E2E, publication, and complete verification
+- [x] Inventory frame ownership and every current parse/copy boundary
+- [x] Extend strict validation to return bounded envelope metadata
+- [x] Rewire observers and progress routing to the validated envelope
+- [x] Define safe raw-slice lifetime and clone only data that escapes the frame
+- [x] Reuse bounded reader/writer storage with retention and clearing rules
+- [x] Avoid redundant post-transform validation when content is unchanged
+- [x] Add fuzz, aliasing, pool-reuse, maximum-frame, and protocol tests
+- [x] Add frame benchmarks and calibrated history
+- [x] Update MCP framing and memory-bound documentation
+- [x] Run race, fuzz, E2E, publication, and complete verification
 
 ## Notes
 
@@ -56,6 +56,28 @@ large transient allocation and CPU spikes.
   budgets; dimensions-only parsing would weaken it.
 - Do not replace the strict validator with `json.Valid`, which does not enforce
   the complete Reconc framing and cardinality contract.
+- The strict Go 1.27 `jsontext` walk now validates grammar, UTF-8, duplicate
+  names, root shape, depth, item, string, number, and trailing-data limits while
+  retaining borrowed root `id`, `method`, `params`, `result`, and `error`
+  slices. Protocol observers consume that one result; retained results,
+  upstream correlation fields, and queued progress parameters clone only their
+  escaping subslices.
+- Original bytes continue directly to the SDK. Upstream correlation mutation
+  is the only transform path; byte-identical output skips a second strict walk,
+  while changed output is fully rescanned before delivery.
+- Reader/writer buffers are cleared before reuse and retained only through
+  256 KiB. Larger frame backing arrays become unreachable after the current
+  frame, preventing a legal near-limit frame from permanently inflating the
+  connection's retained heap.
+- Calibrated Apple M1 medians at 100 fixed iterations: small frame 2,468 ns/op,
+  744 B/op, 15 allocs/op; progress frame 4,379 ns/op, 928 B/op, 25 allocs/op;
+  representative tool call 4,113 ns/op, 1,208 B/op, 32 allocs/op. Benchmark
+  history format is now `reconc.performance-history/v6`.
+- Verification passed the complete MCP race suite, 137,483 dedicated frame
+  fuzz executions, alias/clearing/protocol regressions, calibrated benchmark
+  record/baseline/compare, Vet, Staticcheck, and publication/reference checks.
+  The cumulative complete race and release-trust gates remain part of the final
+  TASK 283 verification.
 
 ## Deviations
 

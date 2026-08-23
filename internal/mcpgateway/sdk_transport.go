@@ -38,7 +38,7 @@ func newSDKDownstream(
 		observer: newProtocolObserver(), progress: make(map[string]ProgressSink),
 	}
 	reader := newStrictFrameReader(process.stdout, downstream.observeInbound)
-	writer := newStrictFrameWriter(process.stdin, downstream.observer.outbound)
+	writer := newStrictFrameWriter(process.stdin, downstream.observer.outboundFrame)
 	client := mcp.NewClient(
 		&mcp.Implementation{Name: "reconc-gateway", Title: "Reconc MCP Gateway", Version: version},
 		&mcp.ClientOptions{
@@ -177,29 +177,30 @@ func (d *sdkDownstream) unregisterProgress(token string) {
 	d.progressMu.Unlock()
 }
 
-func (d *sdkDownstream) observeInbound(frame []byte) error {
-	if err := d.observer.inbound(frame); err != nil {
+func (d *sdkDownstream) observeInbound(frame validatedFrame) error {
+	if err := d.observer.inboundFrame(frame); err != nil {
 		return err
 	}
-	d.routeProgress(frame)
+	d.routeProgressFrame(frame)
 	return nil
 }
 
 func (d *sdkDownstream) routeProgress(frame []byte) {
-	var envelope struct {
-		JSONRPC string          `json:"jsonrpc"`
-		ID      json.RawMessage `json:"id"`
-		Method  string          `json:"method"`
-		Params  json.RawMessage `json:"params"`
+	parsed, err := parseFrameJSON(frame)
+	if err != nil {
+		return
 	}
-	if err := json.Unmarshal(frame, &envelope); err != nil || envelope.JSONRPC != "2.0" ||
-		envelope.Method != "notifications/progress" || len(envelope.ID) != 0 || len(envelope.Params) == 0 {
+	d.routeProgressFrame(parsed)
+}
+
+func (d *sdkDownstream) routeProgressFrame(frame validatedFrame) {
+	if frame.method != "notifications/progress" || len(frame.id) != 0 || len(frame.params) == 0 {
 		return
 	}
 	var tokenEnvelope struct {
 		ProgressToken json.RawMessage `json:"progressToken"`
 	}
-	if err := json.Unmarshal(envelope.Params, &tokenEnvelope); err != nil {
+	if err := json.Unmarshal(frame.params, &tokenEnvelope); err != nil {
 		return
 	}
 	var token string
@@ -213,7 +214,7 @@ func (d *sdkDownstream) routeProgress(frame []byte) {
 		return
 	}
 	if err := sink(context.Background(), ProgressEvent{
-		Params: bytes.Clone(envelope.Params), FrameBytes: uint64(len(frame)),
+		Params: bytes.Clone(frame.params), FrameBytes: uint64(len(frame.raw)),
 	}); err != nil {
 		d.unregisterProgress(token)
 	}

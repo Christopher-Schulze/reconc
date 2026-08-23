@@ -1503,7 +1503,12 @@ reconc's non-stdlib dependencies processing the payload:
 Repository hook payload decoding uses stdlib `encoding/json` behind Reconc's
 depth-limited reader. MCP frames additionally pass through the pinned official
 SDK only after Reconc's strict bounded frame reader and before independent
-canonical argument, schema, policy, and result validation.
+canonical argument, schema, policy, and result validation. The Go 1.27
+`jsontext` scanner performs the strict UTF-8, duplicate-name, depth, item,
+string, number, root, and trailing-data pass once while exposing borrowed root
+envelope slices to observers. Only fields that escape the read callback are
+cloned. Reader and writer storage is cleared between frames and retained only
+up to 256 KiB; transformed frames are rescanned only when their bytes changed.
 
 ### What this threat model does NOT cover
 
