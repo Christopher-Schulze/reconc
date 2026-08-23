@@ -310,6 +310,8 @@ installers:
 - require `gh` and verify GitHub build provenance against the fixed repository,
   release workflow, immutable source tag, and downloaded candidate bytes;
 - smoke-test the candidate before replacing an existing binary;
+- stream candidate publication and private rollback backups through bounded
+  128 KiB buffers instead of retaining complete binaries in memory;
 - publish the binary and checksum-bound installation receipt under one lock;
 - treat every non-zero `install-cli` result as a failed transaction and retain,
   restore, or report the exact recoverable partial state.
@@ -341,7 +343,8 @@ identity, and then publishes a private source-ownership receipt. A successful
 repository bootstrap therefore never leaves operators navigating versioned
 artifact paths. Use `reconc doctor --global` for independent read-only
 diagnosis of owner, channel, running and resolved binaries, shadows, checksum,
-and provenance.
+and provenance. Unreadable binaries and broken PATH entries remain explicit
+diagnostics instead of being reduced to misleading stale or missing status.
 
 The shipped CLI has no Bun, Node, Python, Docker, or service dependency. Bun
 `1.3.14` is required only by contributors running the executable OpenCode,

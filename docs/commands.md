@@ -469,6 +469,8 @@ are explicit and mutually exclusive. Direct updates verify release identity,
 bounded bytes, `SHA256SUMS`, embedded version, target, source provenance,
 mandatory GitHub build-provenance attestation, and an actual candidate
 `--version` smoke test before atomic replacement and receipt publication. A
+fixed-size streaming transaction verifies size and SHA-256 while copying;
+private candidate and rollback files replace full-binary memory buffers. A
 release with the same semantic version is current only when the installed
 receipt's artifact SHA-256 matches the selected release asset; different bytes
 at the same version still take the verified replacement path. Any publication
@@ -718,11 +720,15 @@ and target binary identities, ownership manager, channel, receipt validity,
 checksum identity, PATH shadows, release provenance, evidence, and one exact
 next action. The shadow scan walks PATH in resolution order and, on Windows,
 every name PATHEXT makes executable, so a `reconc.bat` ahead of the installed
-`reconc.exe` is reported rather than missed. The stable JSON contract is
+`reconc.exe` is reported rather than missed. Broken or unreadable entries are
+reported as structured warnings without hiding a later resolvable candidate;
+binary checksum/read failures are structured failures rather than a false
+outdated result. The stable JSON contract is
 `schemas/v1/global-diagnostic.schema.json`. When installation state exists,
 diagnosis takes a validated shared lock on the persistent lock inode without
 creating, repairing, chmodding, or rewriting state. When state is absent it
-creates nothing. Status is `healthy`, `unowned`,
+creates nothing. A concurrently appearing lock triggers receipt-generation
+revalidation without executing the diagnostic callback twice. Status is `healthy`, `unowned`,
 `stale`, `shadowed`, `ambiguous`, or `invalid`; all except `healthy` and a
 single deterministic legacy `unowned` installation exit 1. `--global` cannot
 be combined with `--deep` or a repository operand. Classification is

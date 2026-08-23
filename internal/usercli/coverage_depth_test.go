@@ -21,7 +21,7 @@ func TestInspectCurrentDistinguishesInstalledExecutableCurrentAndPATHReady(t *te
 		t.Fatalf("missing status = %+v", missing)
 	}
 
-	body, err := readBoundedBinary(missing.SourcePath)
+	body, err := os.ReadFile(missing.SourcePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,9 +95,6 @@ func TestInstallDirectoryResolutionAndFilesystemGuards(t *testing.T) {
 
 func TestUserCLIBoundedReadersAndNextActionsFailPrecisely(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing")
-	if _, err := readBoundedBinary(missing); err == nil || !strings.Contains(err.Error(), "open running Reconc binary") {
-		t.Fatalf("missing binary read error = %v", err)
-	}
 	if _, err := fileSHA256(missing); err == nil || !strings.Contains(err.Error(), "checksum") {
 		t.Fatalf("missing checksum error = %v", err)
 	}

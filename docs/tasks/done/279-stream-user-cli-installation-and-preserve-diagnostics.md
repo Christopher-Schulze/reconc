@@ -38,16 +38,16 @@ lock appears between two probes.
 
 ## Sub-Tasks
 
-- [~] Specify the bounded streaming candidate, backup, publication, and rollback state machine
-- [ ] Add streaming download/local-copy with simultaneous size and digest verification
-- [ ] Replace in-memory binary backup with a private identity-checked backup file
-- [ ] Publish and verify candidates atomically without full-byte materialization
-- [ ] Preserve checksum and PATH inspection errors as structured diagnostics
-- [ ] Make receipt read-lock acquisition single-execution and race-safe
-- [ ] Add cancellation, short-write, corruption, rollback, PATH, and near-limit tests
-- [ ] Measure peak RSS and allocation behavior
-- [ ] Update user CLI install/update/recovery documentation and scripts
-- [ ] Run platform, release-trust, race, publication, and complete gates
+- [x] Specify the bounded streaming candidate, backup, publication, and rollback state machine
+- [x] Add streaming download/local-copy with simultaneous size and digest verification
+- [x] Replace in-memory binary backup with a private identity-checked backup file
+- [x] Publish and verify candidates atomically without full-byte materialization
+- [x] Preserve checksum and PATH inspection errors as structured diagnostics
+- [x] Make receipt read-lock acquisition single-execution and race-safe
+- [x] Add cancellation, short-write, corruption, rollback, PATH, and near-limit tests
+- [x] Measure peak RSS and allocation behavior
+- [x] Update user CLI install/update/recovery documentation and scripts
+- [x] Run platform, release-trust, race, publication, and complete gates
 
 ## Notes
 
@@ -62,6 +62,20 @@ lock appears between two probes.
 - PATH error handling must mirror actual OS executable resolution. Do not skip
   a first entry if the shell itself would stop/fail there; test platform
   semantics before changing the result.
+- The completed transaction uses 128 KiB copy buffers for source installation,
+  local and HTTP candidates, private backup, publication, checksum, and
+  rollback. Full-binary byte slices were removed from production install and
+  update paths.
+- Near-limit 256 MiB benchmark evidence on darwin/arm64 Apple M1:
+  `BenchmarkCopyReleaseCandidateNearLimitLocal` 406.3 ms, 164,560 B/op, 17
+  allocs/op; HTTP 408.5 ms, 166,928 B/op, 36 allocs/op.
+- Native installer scripts already download candidates to bounded files and
+  required no behavioral edit. `make test-release-trust` exercised their real
+  artifact, tamper, install, update, and rollback contracts successfully.
+- Verification passed: focused unit tests, focused race tests, Windows and
+  Linux amd64 test-binary compilation, `go vet`, pinned Staticcheck,
+  `make test-fast`, reference generation checks, publication audit, harness
+  pack verification, and release trust.
 
 ## Deviations
 

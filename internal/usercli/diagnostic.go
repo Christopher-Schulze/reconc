@@ -110,8 +110,14 @@ func diagnoseGlobalUnlocked(version string, paths receiptPaths) (*GlobalDiagnost
 		Name: "running-binary", Status: "pass",
 		Detail: fmt.Sprintf("%s (%s)", status.SourcePath, status.ExpectedSHA256),
 	})
+	report.Checks = append(report.Checks, status.Diagnostics...)
+	for _, diagnostic := range status.Diagnostics {
+		if diagnostic.Status == "fail" {
+			report.promoteStatus(DiagnosticInvalid)
+		}
+	}
 
-	candidates, err := pathCandidates()
+	candidates, _, err := pathCandidatesDetailed()
 	if err != nil {
 		return nil, err
 	}
@@ -316,13 +322,19 @@ func diagnosticRemediation(report *GlobalDiagnostic) (string, []DiagnosticAction
 }
 
 func pathCandidates() ([]string, error) {
+	candidates, _, err := pathCandidatesDetailed()
+	return candidates, err
+}
+
+func pathCandidatesDetailed() ([]string, []DiagnosticCheck, error) {
 	entries := filepath.SplitList(os.Getenv("PATH"))
 	if len(entries) > maxPATHEntries {
-		return nil, fmt.Errorf("PATH contains more than %d entries", maxPATHEntries)
+		return nil, nil, fmt.Errorf("PATH contains more than %d entries", maxPATHEntries)
 	}
 	names := executableCandidateNames()
 	seen := map[string]bool{}
 	candidates := []string{}
+	diagnostics := []DiagnosticCheck{}
 	for _, directory := range entries {
 		if strings.TrimSpace(directory) == "" {
 			continue
@@ -336,18 +348,21 @@ func pathCandidates() ([]string, error) {
 				continue
 			}
 			if err != nil {
-				return nil, fmt.Errorf("inspect PATH candidate %s: %w", candidate, err)
+				diagnostics = append(diagnostics, pathCandidateDiagnostic(candidate, "inspect", err))
+				continue
 			}
 			if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
 				continue
 			}
 			resolved, err := pathidentity.ResolveExisting(candidate)
 			if err != nil {
-				return nil, fmt.Errorf("resolve PATH candidate %s: %w", candidate, err)
+				diagnostics = append(diagnostics, pathCandidateDiagnostic(candidate, "resolve", err))
+				continue
 			}
 			info, err = os.Stat(resolved)
 			if err != nil {
-				return nil, fmt.Errorf("inspect resolved PATH candidate %s: %w", candidate, err)
+				diagnostics = append(diagnostics, pathCandidateDiagnostic(candidate, "inspect resolved", err))
+				continue
 			}
 			if !info.Mode().IsRegular() ||
 				(runtime.GOOS != "windows" && info.Mode()&0o111 == 0) {
@@ -361,7 +376,14 @@ func pathCandidates() ([]string, error) {
 			candidates = append(candidates, resolved)
 		}
 	}
-	return candidates, nil
+	return candidates, diagnostics, nil
+}
+
+func pathCandidateDiagnostic(path, operation string, err error) DiagnosticCheck {
+	return DiagnosticCheck{
+		Name: "path-candidate", Status: "warn",
+		Detail: fmt.Sprintf("%s PATH candidate %s: %v", operation, path, err),
+	}
 }
 
 // defaultWindowsPATHEXT is the extension set cmd.exe assumes when PATHEXT is

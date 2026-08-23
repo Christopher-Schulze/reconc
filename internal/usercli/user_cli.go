@@ -4,7 +4,6 @@ package usercli
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/pathidentity"
 )
 
@@ -23,17 +22,18 @@ const (
 )
 
 type Status struct {
-	FormatVersion  string `json:"format_version"`
-	SourcePath     string `json:"source_path"`
-	TargetPath     string `json:"target_path"`
-	ResolvedPath   string `json:"resolved_path,omitempty"`
-	ExpectedSHA256 string `json:"expected_sha256"`
-	Installed      bool   `json:"installed"`
-	Executable     bool   `json:"executable"`
-	Current        bool   `json:"current"`
-	PathVisible    bool   `json:"path_visible"`
-	Ready          bool   `json:"ready"`
-	NextAction     string `json:"next_action"`
+	FormatVersion  string            `json:"format_version"`
+	SourcePath     string            `json:"source_path"`
+	TargetPath     string            `json:"target_path"`
+	ResolvedPath   string            `json:"resolved_path,omitempty"`
+	ExpectedSHA256 string            `json:"expected_sha256"`
+	Installed      bool              `json:"installed"`
+	Executable     bool              `json:"executable"`
+	Current        bool              `json:"current"`
+	PathVisible    bool              `json:"path_visible"`
+	Ready          bool              `json:"ready"`
+	NextAction     string            `json:"next_action"`
+	Diagnostics    []DiagnosticCheck `json:"diagnostics"`
 }
 
 // BareStatus reports whether the command resolved by bare `reconc` has the
@@ -109,7 +109,7 @@ func InspectCurrent(installDir string) (*Status, error) {
 	target := filepath.Join(directory, executableName())
 	status := &Status{
 		FormatVersion: FormatVersion, SourcePath: source, TargetPath: target,
-		ExpectedSHA256: expected,
+		ExpectedSHA256: expected, Diagnostics: []DiagnosticCheck{},
 	}
 	if info, statErr := os.Lstat(target); statErr == nil {
 		if info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular() {
@@ -117,15 +117,20 @@ func InspectCurrent(installDir string) (*Status, error) {
 			status.Executable = runtime.GOOS == "windows" || info.Mode()&0o111 != 0
 			if digest, hashErr := fileSHA256(target); hashErr == nil {
 				status.Current = digest == expected
+			} else {
+				status.Diagnostics = append(status.Diagnostics, DiagnosticCheck{
+					Name: "target-checksum", Status: "fail", Detail: hashErr.Error(),
+				})
 			}
 		}
 	} else if !os.IsNotExist(statErr) {
 		return nil, fmt.Errorf("inspect user CLI target: %w", statErr)
 	}
-	candidates, err := pathCandidates()
+	candidates, pathDiagnostics, err := pathCandidatesDetailed()
 	if err != nil {
 		return nil, fmt.Errorf("inspect user CLI PATH: %w", err)
 	}
+	status.Diagnostics = append(status.Diagnostics, pathDiagnostics...)
 	if len(candidates) > 0 {
 		resolved := candidates[0]
 		status.PathVisible = true
@@ -134,7 +139,15 @@ func InspectCurrent(installDir string) (*Status, error) {
 			samePath(resolved, targetIdentity) {
 			if digest, hashErr := fileSHA256(resolved); hashErr == nil {
 				status.Ready = digest == expected
+			} else {
+				status.Diagnostics = append(status.Diagnostics, DiagnosticCheck{
+					Name: "resolved-checksum", Status: "fail", Detail: hashErr.Error(),
+				})
 			}
+		} else if targetErr != nil && status.Installed {
+			status.Diagnostics = append(status.Diagnostics, DiagnosticCheck{
+				Name: "target-identity", Status: "fail", Detail: targetErr.Error(),
+			})
 		}
 	}
 	status.NextAction = nextAction(status, directory)
@@ -163,91 +176,51 @@ func installCurrent(installDir string, options InstallOptions, publishReceipt bo
 		if err := ensureRealDirectory(filepath.Dir(status.TargetPath)); err != nil {
 			return err
 		}
-		backup, err := captureBinaryBackup(status.TargetPath)
-		if err != nil {
-			return err
-		}
-		body, err := readBoundedBinary(status.SourcePath)
-		if err != nil {
-			return err
-		}
-		changed, err := atomicfile.WriteIfChanged(status.TargetPath, body, 0o755)
-		if err != nil {
-			return fmt.Errorf("install user CLI: %w", err)
-		}
-		verified, err := InspectCurrent(installDir)
-		if err != nil {
-			return rollbackInstall(status.TargetPath, backup, changed, err)
-		}
-		if !verified.Installed || !verified.Executable || !verified.Current {
-			verificationErr := fmt.Errorf("installed user CLI failed checksum or executable verification: %s", verified.TargetPath)
-			return rollbackInstall(status.TargetPath, backup, changed, verificationErr)
-		}
-		report = &InstallReport{Status: verified, Changed: changed}
-		if !publishReceipt || !verified.Ready {
+		changed := !status.Installed || !status.Executable || !status.Current
+		install := func(backup *binaryBackup) error {
+			if changed {
+				if err := publishBinaryFromFile(status.TargetPath, status.SourcePath, 0o755); err != nil {
+					return rollbackInstall(status.TargetPath, backup, true, fmt.Errorf("install user CLI: %w", err))
+				}
+			}
+			verified, err := InspectCurrent(installDir)
+			if err != nil {
+				return rollbackInstall(status.TargetPath, backup, changed, err)
+			}
+			if !verified.Installed || !verified.Executable || !verified.Current {
+				verificationErr := fmt.Errorf("installed user CLI failed checksum or executable verification: %s", verified.TargetPath)
+				return rollbackInstall(status.TargetPath, backup, changed, verificationErr)
+			}
+			report = &InstallReport{Status: verified, Changed: changed}
+			if !publishReceipt || !verified.Ready {
+				return nil
+			}
+			input, err := installReceiptInput(verified, options)
+			if err != nil {
+				return rollbackInstall(status.TargetPath, backup, changed, err)
+			}
+			receipt, err := NewReceipt(input)
+			if err != nil {
+				return rollbackInstall(status.TargetPath, backup, changed, err)
+			}
+			receiptChanged, err := writeReceiptUnlocked(paths.receipt, receipt)
+			if err != nil {
+				return rollbackInstall(status.TargetPath, backup, changed, err)
+			}
+			report.Receipt = receipt
+			report.ReceiptPath = paths.receipt
+			report.Changed = report.Changed || receiptChanged
 			return nil
 		}
-		input, err := installReceiptInput(verified, options)
-		if err != nil {
-			return rollbackInstall(status.TargetPath, backup, changed, err)
+		if !changed {
+			return install(&binaryBackup{})
 		}
-		receipt, err := NewReceipt(input)
-		if err != nil {
-			return rollbackInstall(status.TargetPath, backup, changed, err)
-		}
-		receiptChanged, err := writeReceiptUnlocked(paths.receipt, receipt)
-		if err != nil {
-			return rollbackInstall(status.TargetPath, backup, changed, err)
-		}
-		report.Receipt = receipt
-		report.ReceiptPath = paths.receipt
-		report.Changed = report.Changed || receiptChanged
-		return nil
+		return withBinaryBackup(status.TargetPath, install)
 	})
 	if err != nil {
 		return nil, err
 	}
 	return report, nil
-}
-
-type binaryBackup struct {
-	exists bool
-	body   []byte
-	mode   os.FileMode
-}
-
-func captureBinaryBackup(path string) (binaryBackup, error) {
-	info, err := os.Lstat(path)
-	if os.IsNotExist(err) {
-		return binaryBackup{}, nil
-	}
-	if err != nil {
-		return binaryBackup{}, fmt.Errorf("inspect previous user CLI: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return binaryBackup{}, fmt.Errorf("previous user CLI is not a regular file: %s", path)
-	}
-	body, err := readBoundedBinary(path)
-	if err != nil {
-		return binaryBackup{}, fmt.Errorf("capture previous user CLI: %w", err)
-	}
-	return binaryBackup{exists: true, body: body, mode: info.Mode().Perm()}, nil
-}
-
-func rollbackInstall(path string, backup binaryBackup, changed bool, cause error) error {
-	if !changed {
-		return cause
-	}
-	if backup.exists {
-		if _, err := atomicfile.WriteIfChanged(path, backup.body, backup.mode); err != nil {
-			return errors.Join(cause, fmt.Errorf("restore previous user CLI: %w", err))
-		}
-		return cause
-	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return errors.Join(cause, fmt.Errorf("remove failed user CLI publication: %w", err))
-	}
-	return cause
 }
 
 func installReceiptInput(status *Status, options InstallOptions) (ReceiptInput, error) {
@@ -335,6 +308,11 @@ func executableName() string {
 }
 
 func nextAction(status *Status, directory string) string {
+	for _, diagnostic := range status.Diagnostics {
+		if diagnostic.Status == "fail" {
+			return "Resolve user CLI diagnostic `" + diagnostic.Name + "` before reinstalling: " + diagnostic.Detail
+		}
+	}
 	install := quote(status.SourcePath) + " install-cli"
 	if directory != defaultInstallDirectory() {
 		install += " --install-dir " + quote(directory)
@@ -373,41 +351,20 @@ func quote(value string) string {
 	return `'` + strings.ReplaceAll(value, `'`, `'\''`) + `'`
 }
 
-func readBoundedBinary(path string) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("open running Reconc binary: %w", err)
-	}
-	body, readErr := io.ReadAll(io.LimitReader(file, maxBinaryBytes+1))
-	closeErr := file.Close()
-	if readErr != nil {
-		return nil, fmt.Errorf("read running Reconc binary: %w", readErr)
-	}
-	if closeErr != nil {
-		return nil, fmt.Errorf("close running Reconc binary: %w", closeErr)
-	}
-	if len(body) > maxBinaryBytes {
-		return nil, fmt.Errorf("running Reconc binary exceeds %d bytes", maxBinaryBytes)
-	}
-	return body, nil
-}
-
 func fileSHA256(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", fmt.Errorf("open %s for checksum: %w", path, err)
-	}
 	hash := sha256.New()
-	written, copyErr := io.Copy(hash, io.LimitReader(file, maxBinaryBytes+1))
-	closeErr := file.Close()
-	if copyErr != nil {
-		return "", fmt.Errorf("hash %s: %w", path, copyErr)
-	}
-	if closeErr != nil {
-		return "", fmt.Errorf("close %s after checksum: %w", path, closeErr)
-	}
-	if written > maxBinaryBytes {
-		return "", fmt.Errorf("binary exceeds %d bytes: %s", maxBinaryBytes, path)
+	err := boundedio.WithRegularFileSnapshot(path, maxBinaryBytes, func(file *os.File, info os.FileInfo) error {
+		written, copyErr := io.CopyBuffer(hash, file, make([]byte, binaryCopyBufferBytes))
+		if copyErr != nil {
+			return copyErr
+		}
+		if written != info.Size() {
+			return fmt.Errorf("hashed %d of %d bytes", written, info.Size())
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("open or hash %s for checksum: %w", path, err)
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }

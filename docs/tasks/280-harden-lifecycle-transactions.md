@@ -35,7 +35,7 @@ newest-first although validation currently enforces only the count.
 
 ## Sub-Tasks
 
-- [ ] Unify pending-journal type, identity, and size admission
+- [~] Unify pending-journal type, identity, and size admission
 - [ ] Extend transaction planning with created-directory rollback records
 - [ ] Implement identity-checked deepest-first rollback cleanup
 - [ ] Join lock, unlock, close, and journal-cleanup errors

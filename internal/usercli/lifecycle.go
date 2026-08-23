@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 
-	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/schema"
 )
@@ -136,28 +135,22 @@ func uninstallOwned(report *LifecycleReport, request UninstallRequest) (*Lifecyc
 		if digest != receipt.ArtifactSHA256 {
 			return errors.New("owned binary checksum no longer matches the installation receipt")
 		}
-		backup, err := captureBinaryBackup(receipt.BinaryPath)
-		if err != nil {
-			return err
-		}
-		if err := os.Remove(receipt.BinaryPath); err != nil {
-			return fmt.Errorf("remove owned binary: %w", err)
-		}
-		if err := os.Remove(paths.receipt); err != nil {
-			if backup.exists {
-				_, restoreErr := atomicfile.WriteIfChanged(receipt.BinaryPath, backup.body, backup.mode)
-				return errors.Join(fmt.Errorf("remove installation receipt: %w", err), restoreErr)
+		return withBinaryBackup(receipt.BinaryPath, func(backup *binaryBackup) error {
+			if err := os.Remove(receipt.BinaryPath); err != nil {
+				return fmt.Errorf("remove owned binary: %w", err)
 			}
-			return fmt.Errorf("remove installation receipt: %w", err)
-		}
-		mutationCommitted = true
-		removedPath = receipt.BinaryPath
-		if request.PurgeState {
-			if err := purgeInstallationState(paths); err != nil {
-				return err
+			if err := os.Remove(paths.receipt); err != nil {
+				return rollbackInstall(receipt.BinaryPath, backup, true, fmt.Errorf("remove installation receipt: %w", err))
 			}
-		}
-		return nil
+			mutationCommitted = true
+			removedPath = receipt.BinaryPath
+			if request.PurgeState {
+				if err := purgeInstallationState(paths); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
 	})
 	if err != nil {
 		if mutationCommitted {

@@ -2,6 +2,7 @@ package usercli
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -28,6 +29,27 @@ func TestInstallationPurgePreservesOneLockIdentity(t *testing.T) {
 	}
 	if !os.SameFile(before, after) {
 		t.Fatal("purge replaced the installation coordination lock")
+	}
+}
+
+func TestReceiptReadReportsConcurrentReceiptChangeWithoutRepeatingOperation(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	paths, err := resolveReceiptPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	err = withReceiptReadLock(paths, func() error {
+		calls++
+		return withReceiptLock(paths, func() error {
+			return os.WriteFile(paths.receipt, []byte("changed"), 0o600)
+		})
+	})
+	if err == nil || !strings.Contains(err.Error(), "changed during unlocked read") {
+		t.Fatalf("concurrent receipt error = %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("read operation ran %d times, want exactly one execution", calls)
 	}
 }
 
@@ -97,7 +119,7 @@ func TestReceiptReadLockDoesNotCreateMissingState(t *testing.T) {
 	}
 }
 
-func TestReceiptReadRetriesUnderLockWhenInstallationStarts(t *testing.T) {
+func TestReceiptReadRevalidatesWithoutRepeatingOperationWhenInstallationStarts(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	paths, err := resolveReceiptPaths()
 	if err != nil {
@@ -106,14 +128,11 @@ func TestReceiptReadRetriesUnderLockWhenInstallationStarts(t *testing.T) {
 	calls := 0
 	if err := withReceiptReadLock(paths, func() error {
 		calls++
-		if calls == 1 {
-			return withReceiptLock(paths, func() error { return nil })
-		}
-		return nil
+		return withReceiptLock(paths, func() error { return nil })
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 {
-		t.Fatalf("read operation ran %d times, want unlocked observation plus locked retry", calls)
+	if calls != 1 {
+		t.Fatalf("read operation ran %d times, want exactly one execution", calls)
 	}
 }

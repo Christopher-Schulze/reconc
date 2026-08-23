@@ -313,8 +313,10 @@ candidate insertion and digest ordering.
    refuses external script rules before they can execute.
 
 5. **One stable interactive command.** `install-cli` atomically publishes the
-   exact running executable to the user install directory and verifies the
-   binary resolved by bare `reconc`. Under the same global lock it publishes a
+   exact running executable through bounded file streams and verifies the
+   binary resolved by bare `reconc`. Private, synced, identity-checked file
+   backups provide exact byte-and-mode rollback without full-binary heap
+   retention. Under the same global lock it publishes a
    strict, private, checksum-bound ownership receipt only after PATH identity
    passes. Mutating bootstrap performs that install and identity check before
    repository writes; transactional verification checks it again.
@@ -570,7 +572,8 @@ global manager -> installation receipt -> installed CLI
 
 - `internal/usercli` remains the global binary identity owner. It owns the
   locked receipt, manager classification, global diagnostic, update, and
-  uninstall boundaries.
+  uninstall boundaries. Receipt reads execute once and revalidate their
+  observed generation if a writer lock appears concurrently.
 - `internal/bootstrap` remains the only repository transaction owner.
   Canonical `init` and repository sync compose its plan, candidate, receipt,
   verification, journal, recovery, rollback, and path-identity primitives.

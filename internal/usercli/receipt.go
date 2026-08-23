@@ -289,14 +289,17 @@ func withReceiptLock(paths receiptPaths, operation func() error) (resultErr erro
 
 func withReceiptReadLock(paths receiptPaths, operation func() error) (resultErr error) {
 	if _, err := os.Lstat(paths.lock); errors.Is(err, os.ErrNotExist) {
-		if err := operation(); err != nil {
-			return err
+		before, snapshotErr := snapshotReceiptGeneration(paths.receipt)
+		if snapshotErr != nil {
+			return snapshotErr
 		}
+		operationErr := operation()
 		if _, err := os.Lstat(paths.lock); errors.Is(err, os.ErrNotExist) {
-			return nil
+			return operationErr
 		} else if err != nil {
-			return fmt.Errorf("reinspect installation receipt lock: %w", err)
+			return errors.Join(operationErr, fmt.Errorf("reinspect installation receipt lock: %w", err))
 		}
+		return validateUnlockedReceiptResult(paths, before, operationErr)
 	} else if err != nil {
 		return fmt.Errorf("inspect installation receipt lock: %w", err)
 	}
@@ -315,6 +318,44 @@ func withReceiptReadLock(paths receiptPaths, operation func() error) (resultErr 
 		resultErr = errors.Join(resultErr, unlock())
 	}()
 	return operation()
+}
+
+type receiptGeneration struct {
+	exists bool
+	digest string
+}
+
+func snapshotReceiptGeneration(path string) (receiptGeneration, error) {
+	body, _, err := boundedio.ReadRegularFileSnapshot(path, maxInstallationReceipt)
+	if errors.Is(err, os.ErrNotExist) {
+		return receiptGeneration{}, nil
+	}
+	if err != nil {
+		return receiptGeneration{}, fmt.Errorf("snapshot installation receipt: %w", err)
+	}
+	digest := sha256.Sum256(body)
+	return receiptGeneration{exists: true, digest: hex.EncodeToString(digest[:])}, nil
+}
+
+func validateUnlockedReceiptResult(paths receiptPaths, before receiptGeneration, operationErr error) (resultErr error) {
+	lockFile, err := privatefs.OpenExistingLockReadOnly(paths.lock)
+	if err != nil {
+		return errors.Join(operationErr, fmt.Errorf("open installation receipt lock for result validation: %w", err))
+	}
+	defer func() { resultErr = errors.Join(resultErr, lockFile.Close()) }()
+	unlock, err := filelock.RLockContext(context.Background(), lockFile, filelock.DefaultTimeout)
+	if err != nil {
+		return errors.Join(operationErr, fmt.Errorf("lock installation receipt for result validation: %w", err))
+	}
+	defer func() { resultErr = errors.Join(resultErr, unlock()) }()
+	after, err := snapshotReceiptGeneration(paths.receipt)
+	if err != nil {
+		return errors.Join(operationErr, err)
+	}
+	if before != after {
+		return errors.Join(operationErr, errors.New("installation receipt changed during unlocked read; rerun the read-only command"))
+	}
+	return operationErr
 }
 
 func ensurePrivateDirectory(path string) error {

@@ -558,33 +558,55 @@ func parseChecksumManifest(body []byte) (map[string]string, error) {
 }
 
 func materializeCandidate(ctx context.Context, release selectedRelease, destination string) error {
-	var body []byte
-	var err error
+	before, err := os.Lstat(destination)
+	if err != nil || before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() || before.Size() != 0 {
+		return fmt.Errorf("update candidate must be a new empty regular file: %s", destination)
+	}
+	file, err := os.OpenFile(destination, os.O_WRONLY, 0)
+	if err != nil {
+		return fmt.Errorf("open update candidate: %w", err)
+	}
+	opened, statErr := file.Stat()
+	afterOpen, pathErr := os.Lstat(destination)
+	if statErr != nil || pathErr != nil || !os.SameFile(before, opened) || !os.SameFile(opened, afterOpen) {
+		return errors.Join(errors.New("update candidate changed identity while opening"), statErr, pathErr, file.Close())
+	}
+	closed := false
+	closeWith := func(primary error) error {
+		if closed {
+			return primary
+		}
+		closed = true
+		return errors.Join(primary, file.Close())
+	}
+	if err := file.Chmod(0o700); err != nil {
+		return closeWith(fmt.Errorf("make release candidate executable: %w", err))
+	}
+	write := func(source io.Reader) error {
+		return copyReleaseCandidate(ctx, file, source, release.asset)
+	}
 	if release.localDir != "" {
 		source := filepath.Join(release.localDir, release.asset.Name)
-		info, statErr := os.Lstat(source)
-		if statErr != nil || !info.Mode().IsRegular() {
-			return fmt.Errorf("local candidate is missing or irregular: %s", source)
-		}
-		body, err = boundedio.ReadRegularFile(source, maxBinaryBytes)
+		err = boundedio.WithRegularFileSnapshot(source, maxBinaryBytes, func(sourceFile *os.File, _ os.FileInfo) error {
+			return write(sourceFile)
+		})
 	} else {
-		body, err = downloadBounded(ctx, release.asset.URL, maxBinaryBytes)
+		err = streamDownload(ctx, release.asset.URL, write)
 	}
 	if err != nil {
-		return err
+		return closeWith(err)
 	}
-	if int64(len(body)) != release.asset.Size {
-		return errors.New("release candidate size mismatch")
+	if err := file.Sync(); err != nil {
+		return closeWith(fmt.Errorf("sync release candidate: %w", err))
 	}
-	sum := sha256.Sum256(body)
-	if hex.EncodeToString(sum[:]) != release.asset.SHA256 {
-		return errors.New("release candidate checksum mismatch")
+	if err := file.Close(); err != nil {
+		closed = true
+		return fmt.Errorf("close release candidate: %w", err)
 	}
-	if err := os.WriteFile(destination, body, 0o700); err != nil {
-		return err
-	}
-	if err := os.Chmod(destination, 0o700); err != nil {
-		return fmt.Errorf("make release candidate executable: %w", err)
+	closed = true
+	after, err := os.Lstat(destination)
+	if err != nil || !os.SameFile(before, after) || after.Size() != release.asset.Size || after.Mode().Perm() != 0o700 {
+		return errors.Join(errors.New("release candidate changed identity, size, or mode after streaming"), err)
 	}
 	provenance, err := buildprovenance.InspectBinary(destination)
 	if err != nil {
@@ -595,6 +617,64 @@ func materializeCandidate(ctx context.Context, release selectedRelease, destinat
 		return errors.New("release candidate embedded identity does not match target")
 	}
 	return nil
+}
+
+func copyReleaseCandidate(ctx context.Context, destination io.Writer, source io.Reader, asset ReleaseAsset) error {
+	if asset.Size <= 0 || asset.Size > maxBinaryBytes {
+		return fmt.Errorf("release candidate size %d is outside the supported range", asset.Size)
+	}
+	hash := sha256.New()
+	written, err := io.CopyBuffer(
+		io.MultiWriter(destination, hash),
+		io.LimitReader(&contextReader{ctx: ctx, reader: source}, maxBinaryBytes+1),
+		make([]byte, binaryCopyBufferBytes),
+	)
+	if err != nil {
+		return fmt.Errorf("stream release candidate: %w", err)
+	}
+	if written != asset.Size {
+		return fmt.Errorf("release candidate size mismatch: got %d, want %d", written, asset.Size)
+	}
+	if digest := hex.EncodeToString(hash.Sum(nil)); digest != asset.SHA256 {
+		return errors.New("release candidate checksum mismatch")
+	}
+	return nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader *contextReader) Read(buffer []byte) (int, error) {
+	select {
+	case <-reader.ctx.Done():
+		return 0, reader.ctx.Err()
+	default:
+		return reader.reader.Read(buffer)
+	}
+}
+
+func streamDownload(ctx context.Context, endpoint string, use func(io.Reader) error) (resultErr error) {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Scheme != "https" {
+		return fmt.Errorf("release URL must be valid HTTPS: %q", endpoint)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Accept", "application/octet-stream")
+	request.Header.Set("User-Agent", "reconc-update")
+	response, err := lifecycleHTTPClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, response.Body.Close()) }()
+	if response.StatusCode < 200 || response.StatusCode > 299 {
+		return fmt.Errorf("release endpoint returned HTTP %d", response.StatusCode)
+	}
+	return use(response.Body)
 }
 
 func checksumForAsset(manifest []byte, assetName string) (string, error) {

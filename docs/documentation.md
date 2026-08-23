@@ -406,7 +406,13 @@ download the exact platform binary and published `SHA256SUMS` over HTTPS,
 bound metadata to 2 MiB and binaries to 256 MiB, require exactly one matching
 hexadecimal SHA-256 entry, verify the payload
 before executing it, and delegate binary publication to the candidate's
-`install-cli` transaction. When the installed binary is current on PATH, that
+`install-cli` transaction. Candidate download, local source installation,
+private backup, atomic publication, checksum verification, and rollback use
+bounded files and fixed 128 KiB buffers; the transaction never retains complete
+old and new binaries as byte slices. Candidate and backup files are private,
+identity-checked, synced, and removed on every resolved path. A failed restore
+retains the only verified backup and reports its exact recovery path. When the
+installed binary is current on PATH, that
 same locked transaction writes a private, checksum-bound ownership receipt at
 `$RECONC_HOME/install/receipt.json`. An off-PATH invocation can publish the
 verified binary, but exits non-zero with exact PATH remediation and does not
@@ -536,7 +542,9 @@ State purge validates the complete recognized inventory but deliberately
 retains the private lock and its directory, preventing a concurrent process
 from locking a replacement inode. Diagnosis opens an existing lock without
 creating, repairing, chmodding, or rewriting state; a machine with no
-installation state remains untouched.
+installation state remains untouched. If the lock appears during an initially
+unlocked read, Reconc acquires it only to revalidate the observed receipt
+generation; the diagnostic operation itself executes exactly once.
 
 Private state directories and locks are created through the shared
 `internal/privatefs` boundary. It rejects symlink, irregular, wrong-owner, and
@@ -559,7 +567,11 @@ resolution, canonical target, additional PATH candidates, receipt checksum,
 and embedded build provenance. Candidates are collected in the order a shell
 resolves them, directory by directory, and on Windows across every name
 PATHEXT makes executable, so a `reconc.bat` or `reconc.cmd` ahead of the
-installed `reconc.exe` is reported as a shadow instead of being missed. It reports `healthy`,
+installed `reconc.exe` is reported as a shadow instead of being missed.
+Unreadable or broken candidates are retained as warnings while later usable
+candidates remain visible where platform command resolution would continue.
+Target and resolved-binary checksum failures are explicit structured failures,
+never aliases for `current=false`. It reports `healthy`,
 `unowned`, `stale`, `shadowed`, `ambiguous`, or `invalid` plus exactly one
 ownership-aware remediation. Malformed receipts, checksum drift, conflicting
 owners, and ambiguous legacy installations fail closed. The JSON contracts are

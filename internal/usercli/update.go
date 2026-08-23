@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"reconc.dev/reconc/buildprovenance"
-	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedexec"
 )
 
@@ -129,64 +128,49 @@ func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release sel
 		}
 		targetPath = receipt.BinaryPath
 		parent := filepath.Dir(targetPath)
-		candidate, err := os.CreateTemp(parent, ".reconc-update-*.candidate")
-		if err != nil {
-			return fmt.Errorf("create update candidate: %w", err)
-		}
-		candidatePath := candidate.Name()
-		if err := candidate.Close(); err != nil {
-			_ = os.Remove(candidatePath)
-			return err
-		}
-		defer os.Remove(candidatePath)
-		if err := materializeCandidate(ctx, release, candidatePath); err != nil {
-			return err
-		}
-		state, err := verifyAttestation(ctx, candidatePath, release)
-		if err != nil {
-			return err
-		}
-		provenanceState = state
-		if err := smokeCandidate(ctx, candidatePath, release.manifest.Version); err != nil {
-			return err
-		}
-		body, err := readBoundedBinary(candidatePath)
-		if err != nil {
-			return err
-		}
-		backup, err := captureBinaryBackup(targetPath)
-		if err != nil {
-			return err
-		}
-		changed, err := atomicfile.WriteIfChanged(targetPath, body, 0o755)
-		if err != nil {
-			return rollbackInstall(targetPath, backup, changed, fmt.Errorf("publish update: %w", err))
-		}
-		updatedDigest, err := fileSHA256(targetPath)
-		if err != nil || updatedDigest != release.asset.SHA256 {
-			return rollbackInstall(targetPath, backup, changed, errors.New("published update checksum verification failed"))
-		}
-		provenance, err := buildprovenance.InspectBinary(targetPath)
-		if err != nil {
-			return rollbackInstall(targetPath, backup, changed, err)
-		}
-		input := ReceiptInput{
-			Manager: ManagerDirect, Channel: channelForRelease(release),
-			Version: release.manifest.Version, SourceRepository: releaseRepository,
-			ReleaseTag: &release.manifest.Tag, ArtifactName: release.asset.Name,
-			ArtifactSHA256: release.asset.SHA256, BinaryPath: receipt.BinaryPath,
-			GOOS: provenance.GOOS, GOARCH: provenance.GOARCH,
-			SourceDigest: provenance.SourceDigest, ProvenanceState: provenanceState,
-			InstalledAt: time.Now().UTC(),
-		}
-		updatedReceipt, err := NewReceipt(input)
-		if err != nil {
-			return rollbackInstall(targetPath, backup, changed, err)
-		}
-		if _, err := writeReceiptUnlocked(paths.receipt, updatedReceipt); err != nil {
-			return rollbackInstall(targetPath, backup, changed, err)
-		}
-		return nil
+		return withPrivateTemporaryBinary(parent, ".reconc-update-*.candidate", func(candidatePath string) error {
+			if err := materializeCandidate(ctx, release, candidatePath); err != nil {
+				return err
+			}
+			state, err := verifyAttestation(ctx, candidatePath, release)
+			if err != nil {
+				return err
+			}
+			provenanceState = state
+			if err := smokeCandidate(ctx, candidatePath, release.manifest.Version); err != nil {
+				return err
+			}
+			return withBinaryBackup(targetPath, func(backup *binaryBackup) error {
+				if err := publishBinaryFromFile(targetPath, candidatePath, 0o755); err != nil {
+					return rollbackInstall(targetPath, backup, true, fmt.Errorf("publish update: %w", err))
+				}
+				updatedDigest, err := fileSHA256(targetPath)
+				if err != nil || updatedDigest != release.asset.SHA256 {
+					return rollbackInstall(targetPath, backup, true, errors.New("published update checksum verification failed"))
+				}
+				provenance, err := buildprovenance.InspectBinary(targetPath)
+				if err != nil {
+					return rollbackInstall(targetPath, backup, true, err)
+				}
+				input := ReceiptInput{
+					Manager: ManagerDirect, Channel: channelForRelease(release),
+					Version: release.manifest.Version, SourceRepository: releaseRepository,
+					ReleaseTag: &release.manifest.Tag, ArtifactName: release.asset.Name,
+					ArtifactSHA256: release.asset.SHA256, BinaryPath: receipt.BinaryPath,
+					GOOS: provenance.GOOS, GOARCH: provenance.GOARCH,
+					SourceDigest: provenance.SourceDigest, ProvenanceState: provenanceState,
+					InstalledAt: time.Now().UTC(),
+				}
+				updatedReceipt, err := NewReceipt(input)
+				if err != nil {
+					return rollbackInstall(targetPath, backup, true, err)
+				}
+				if _, err := writeReceiptUnlocked(paths.receipt, updatedReceipt); err != nil {
+					return rollbackInstall(targetPath, backup, true, err)
+				}
+				return nil
+			})
+		})
 	})
 	if err != nil {
 		report.Status = LifecycleFailed
