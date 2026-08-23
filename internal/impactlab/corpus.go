@@ -111,14 +111,12 @@ func MergeCorpora(corpora []Corpus) (Corpus, error) {
 
 // DecodeCorpusFile reads one bounded regular non-symlink corpus.
 func DecodeCorpusFile(filePath string) (Corpus, error) {
-	info, err := os.Lstat(filePath)
-	if err != nil {
+	if info, err := os.Lstat(filePath); err != nil {
 		return Corpus{}, err
-	}
-	if !info.Mode().IsRegular() {
+	} else if !info.Mode().IsRegular() {
 		return Corpus{}, fmt.Errorf("impact corpus %s must be a regular file and not a symlink", filePath)
 	}
-	body, err := boundedio.ReadFile(filePath, MaxCorpusBytes)
+	body, _, err := boundedio.ReadRegularFileSnapshot(filePath, MaxCorpusBytes)
 	if err != nil {
 		return Corpus{}, err
 	}

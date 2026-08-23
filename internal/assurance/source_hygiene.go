@@ -212,43 +212,28 @@ func containsCodeFoldWithQuoteMode(value, target []byte, singleQuoteStrings bool
 	if len(target) == 0 {
 		return true
 	}
+	var quote byte
 	for start := 0; start+len(target) <= len(value); start++ {
-		if bytes.EqualFold(value[start:start+len(target)], target) && codePosition(value, start, singleQuoteStrings) {
+		if quote == 0 && bytes.EqualFold(value[start:start+len(target)], target) {
 			return true
 		}
-	}
-	return false
-}
-
-func codePosition(line []byte, end int, singleQuoteStrings bool) bool {
-	var quote byte
-	for index := 0; index < end; index++ {
-		current := line[index]
+		current := value[start]
 		if quote != 0 {
-			if current == quote && !escapedAt(line, index) {
+			if current == quote && !escapedAt(value, start) {
 				quote = 0
 			}
 			continue
 		}
-		if current == '/' && index+1 < end && (line[index+1] == '/' || line[index+1] == '*') {
+		if current == '/' && start+1 < len(value) && (value[start+1] == '/' || value[start+1] == '*') {
 			return false
 		}
 		switch current {
 		case '"', '`':
 			quote = current
 		case '\'':
-			if singleQuoteStrings || hasClosingQuote(line, index+1, end, current) {
+			if singleQuoteStrings {
 				quote = current
 			}
-		}
-	}
-	return quote == 0
-}
-
-func hasClosingQuote(line []byte, start, end int, quote byte) bool {
-	for index := start; index < end; index++ {
-		if line[index] == quote && !escapedAt(line, index) {
-			return true
 		}
 	}
 	return false

@@ -63,14 +63,23 @@ func DefaultPolicy() Policy {
 	}
 }
 
+// InspectionStatus distinguishes measured zeroes from unavailable projections.
+type InspectionStatus string
+
+const (
+	InspectionComplete InspectionStatus = "complete"
+	InspectionUnknown  InspectionStatus = "unknown"
+)
+
 // ClassReport is the deterministic cleanup result for one storage class.
 type ClassReport struct {
-	Name         string `json:"name"`
-	FilesKept    int    `json:"files_kept"`
-	FilesDeleted int    `json:"files_deleted"`
-	BytesBefore  int64  `json:"bytes_before"`
-	BytesAfter   int64  `json:"bytes_after"`
-	BytesFreed   int64  `json:"bytes_freed"`
+	Name             string           `json:"name"`
+	InspectionStatus InspectionStatus `json:"inspection_status,omitempty"`
+	FilesKept        int              `json:"files_kept"`
+	FilesDeleted     int              `json:"files_deleted"`
+	BytesBefore      int64            `json:"bytes_before"`
+	BytesAfter       int64            `json:"bytes_after"`
+	BytesFreed       int64            `json:"bytes_freed"`
 }
 
 // Report describes one complete retention pass.

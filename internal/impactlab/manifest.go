@@ -47,14 +47,12 @@ func NewDeltaManifest(entries []ReviewedActionDelta) (DeltaManifest, error) {
 
 // DecodeDeltaManifestFile reads one bounded regular non-symlink manifest.
 func DecodeDeltaManifestFile(filePath string) (DeltaManifest, error) {
-	info, err := os.Lstat(filePath)
-	if err != nil {
+	if info, err := os.Lstat(filePath); err != nil {
 		return DeltaManifest{}, err
-	}
-	if !info.Mode().IsRegular() {
+	} else if !info.Mode().IsRegular() {
 		return DeltaManifest{}, fmt.Errorf("impact delta manifest %s must be a regular file and not a symlink", filePath)
 	}
-	body, err := boundedio.ReadFile(filePath, MaxDeltaManifestBytes)
+	body, _, err := boundedio.ReadRegularFileSnapshot(filePath, MaxDeltaManifestBytes)
 	if err != nil {
 		return DeltaManifest{}, err
 	}

@@ -66,26 +66,7 @@ func TestSyncWaitGroupValueRecognition(t *testing.T) {
 	}
 }
 
-func TestQuoteBoundaryHelpers(t *testing.T) {
-	for _, test := range []struct {
-		name  string
-		line  string
-		start int
-		end   int
-		quote byte
-		want  bool
-	}{
-		{name: "closing quote", line: `abc'def'`, start: 4, end: 8, quote: '\'', want: true},
-		{name: "escaped quote", line: `abc'def\\'`, start: 4, end: 9, quote: '\'', want: false},
-		{name: "no closing quote", line: `abc'def`, start: 4, end: 7, quote: '\'', want: false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if got := hasClosingQuote([]byte(test.line), test.start, test.end, test.quote); got != test.want {
-				t.Fatalf("hasClosingQuote(%q) = %v, want %v", test.line, got, test.want)
-			}
-		})
-	}
-
+func TestEscapedQuoteRecognition(t *testing.T) {
 	for _, test := range []struct {
 		line  string
 		index int

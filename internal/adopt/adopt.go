@@ -639,7 +639,7 @@ func isDir(path string) bool {
 }
 
 func contains(haystack []byte, needle string) bool {
-	return strings.Contains(string(haystack), needle)
+	return bytes.Contains(haystack, []byte(needle))
 }
 
 type packageJSONDocument struct {

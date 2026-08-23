@@ -561,7 +561,7 @@ func liveActiveSession(project, requested string, now time.Time, maxAge time.Dur
 }
 
 func enforceJSONL(name, path string, maxBytes int64, archives int, dryRun bool, report *Report) ClassReport {
-	class := ClassReport{Name: name}
+	class := ClassReport{Name: name, InspectionStatus: InspectionUnknown}
 	var err error
 	class.BytesBefore, class.FilesKept, err = jsonlRingSize(path, archives+32)
 	if err != nil {
@@ -572,22 +572,26 @@ func enforceJSONL(name, path string, maxBytes int64, archives int, dryRun bool, 
 		result, err := jsonl.Inspect(path, jsonl.Policy{MaxBytes: maxBytes, MaxArchives: archives})
 		if err != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("inspect %s: %v", name, err))
+			return class
 		}
+		class.InspectionStatus = InspectionComplete
 		class.BytesFreed = result.BytesFreed
 		class.FilesDeleted = result.FilesRemoved
 		class.BytesAfter = class.BytesBefore - result.BytesFreed
 		class.FilesKept -= result.FilesRemoved
 		return class
 	}
-	result, err := jsonl.Enforce(path, jsonl.Policy{MaxBytes: maxBytes, MaxArchives: archives})
-	if err != nil {
-		report.Errors = append(report.Errors, fmt.Sprintf("enforce %s: %v", name, err))
+	result, enforceErr := jsonl.Enforce(path, jsonl.Policy{MaxBytes: maxBytes, MaxArchives: archives})
+	if enforceErr != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("enforce %s: %v", name, enforceErr))
 	}
 	class.BytesFreed = result.BytesFreed
 	class.FilesDeleted = result.FilesRemoved
 	class.BytesAfter, class.FilesKept, err = jsonlRingSize(path, archives)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("inspect enforced %s ring: %v", name, err))
+	} else if enforceErr == nil {
+		class.InspectionStatus = InspectionComplete
 	}
 	return class
 }

@@ -152,7 +152,7 @@ func runPrune(args []string, stdout io.Writer) error {
 			verb = "would prune"
 		}
 		for _, class := range report.Classes {
-			fmt.Fprintf(stdout, "%s %s: deleted=%d freed=%dB kept=%d after=%dB\n", verb, class.Name, class.FilesDeleted, class.BytesFreed, class.FilesKept, class.BytesAfter)
+			writePruneClass(stdout, verb, class)
 		}
 		fmt.Fprintf(stdout, "budgets: projects=%d/%dB state=%d/%dB repo=%d/%dB temp=%d/%dB\n", report.ProjectStateBytes, report.ProjectStateBudget, report.StateBytesAfter, report.StateByteBudget, report.RepoBytesAfter, report.RepoByteBudget, report.OwnedTempBytes, report.OwnedTempBudget)
 	}
@@ -160,6 +160,18 @@ func runPrune(args []string, stdout io.Writer) error {
 		return &CLIError{ExitCode: 1, Message: "reconc prune: " + strings.Join(report.Errors, "; ")}
 	}
 	return nil
+}
+
+func writePruneClass(stdout io.Writer, verb string, class retention.ClassReport) {
+	if class.InspectionStatus == retention.InspectionUnknown {
+		fmt.Fprintf(stdout, "%s %s: inspection=unknown\n", verb, class.Name)
+		return
+	}
+	if class.InspectionStatus == retention.InspectionComplete {
+		fmt.Fprintf(stdout, "%s %s: inspection=complete deleted=%d freed=%dB kept=%d after=%dB\n", verb, class.Name, class.FilesDeleted, class.BytesFreed, class.FilesKept, class.BytesAfter)
+		return
+	}
+	fmt.Fprintf(stdout, "%s %s: deleted=%d freed=%dB kept=%d after=%dB\n", verb, class.Name, class.FilesDeleted, class.BytesFreed, class.FilesKept, class.BytesAfter)
 }
 
 // runAudit implements `reconc audit <tail|stats|export|verify>` (W29).

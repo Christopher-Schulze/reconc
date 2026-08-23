@@ -190,14 +190,14 @@ partial audit, run-log, checksum, release, or provenance snapshot.
 | --- | --- |
 | Policy and deep doctor sources | 8 MiB per source, 64 MiB aggregate, at most 4,096 policy sources. One rooted filesystem handle anchors each complete policy-source load; every opened file is revalidated against that root and its stable identity before and after the bounded read. Deep doctor derives freshness, parsed rules, conflicts, and references from one immutable snapshot. If full loading fails, a narrower bounded raw-reference fallback keeps source, preset, and template errors independently reportable. |
 | CLI lockfiles, reports, and extraction | Lockfile summaries are capped at 16 MiB; saved `why` reports at 32 MiB; session-briefing reports at 1 MiB; `extract --from` at 8 MiB and repository-relative only. |
-| Adoption and overlays | Root manifests are capped at 1 MiB, `.reconc.yml`, user presets, and user templates at 8 MiB; workflow, preset, and template directories stop at 4,096 entries and report incomplete inspection. |
+| Adoption and overlays | Root manifests are capped at 1 MiB, `.reconc.yml`, user presets, and user templates at 8 MiB; workflow, preset, and template directories stop at 4,096 entries and report incomplete inspection. Manifest marker detection searches the already validated byte snapshots directly without copying each complete input into a string. |
 | Run decisions | Each live or archived JSONL file is capped at 2 MiB and each record at 32 KiB. Two archives are retained. `run log --limit N` validates the full retained chain while keeping only the requested tail in memory. |
 | Audit evidence | Each live or archived JSONL file is capped at 2 MiB, each record at 32 KiB, the detached head at 16 KiB, and the ring at two archives. Audit parent directories use `0700`; live/archive/head/lock/journal/backup members use `0600` and are identity- and security-validated before reads or writes. Existing legacy modes are migrated in place only after regular-file checks; symlinks, special files, wrong owners, and invalid lock aliases are rejected without discarding evidence. Same-process append bursts serialize per audit directory before the bounded cross-process lock; the file lock remains authoritative across processes. Export streams only after the complete chain verifies. Portable workflow-audit files are strict non-symlink regular reads capped at 64 MiB; directory walks stop at 100,000 entries, task schemas and legacy prune policies at 1 MiB, and legacy retention directories at 4,096 entries. |
 | Bootstrap and repository sync | Managed text is capped at 16 MiB; bootstrap plans at 4 MiB; sync plans at 8 MiB; portable receipts at 4 MiB; rollback before-images at 64 MiB aggregate; journals at 96 MiB; binary artifacts at 256 MiB. Writes remain create-only or atomic and preserve user-owned bytes. |
 | Build provenance | Binary marker inspection streams at most 256 MiB without executing or retaining the binary. Production source hashing accepts at most 16,384 real files, 64 MiB per file, and 512 MiB aggregate. |
 | Command proofs and owned state | Each command proof is capped at 16 KiB and its directory at 4,096 entries; unresolved-policy proofs and workflow-audit cache state are capped at 8 MiB. All are strict regular-file reads that reject links and special files. Retention directories and tree walks have explicit entry ceilings and abort without deleting from a partial inventory. |
 | Policy script execution | A `require_script` target resolves inside the repository before launch, `timeout_sec` is capped at 300 seconds, and `kill_timeout_sec` at 60 seconds. Captured stdout and stderr stop at 64 KiB per stream. |
-| Impact Lab | Candidate policy files are capped at 8 MiB; strict replay corpora and full typed JSON reports at 64 MiB, corpora at 10,000 cases, and reviewed action-delta manifests at 8 MiB. JUnit, SARIF, and GitHub projections retain at most 1,024 findings and 8 MiB. |
+| Impact Lab | Candidate policy files are capped at 8 MiB; strict replay corpora and full typed JSON reports at 64 MiB, corpora at 10,000 cases, and reviewed action-delta manifests at 8 MiB. Corpus and delta-manifest files are accepted only from one stable non-symlink regular-file snapshot whose opened and path identities, size, mode, and modification time still agree after the read. JUnit, SARIF, and GitHub projections retain at most 1,024 findings and 8 MiB. |
 | Action approvals and state | Canonical approval objects are capped at 64 KiB, authority registries at 1 MiB, sealed request state at 4 KiB, approval TTL at 120 seconds, future issuance skew at 30 seconds, pending approvals at four, retained approval records at 65,536, and the complete private action state at 16 MiB. |
 | Action content inspection | Canonical action values are capped at 8 MiB, strings at 4 MiB, nesting at 32, and JSON items at 65,536. Output schemas are capped at 1 MiB and 8,192 items, MCP results at 4,096 content blocks, decoded binary blocks at 3 MiB, and inspection at 500 ms pre-call, 1 second post-result, or 250 ms progress. |
 | Action decision ledger | Each typed payload-free record is capped at 64 KiB, the live file and each of two archives at 4 MiB, the detached head at 8 KiB, and the authenticated incremental checkpoint at 16 MiB. Appends use a ten-second private cross-process transaction boundary; queries return records only after the retained chain, archives, and detached head verify. |
@@ -2033,6 +2033,12 @@ core explicitly. Unchanged session files, active-session pointers, reports,
 command proofs, and run state are byte-compared and never republished. No-op
 session mutations also skip normalization and atomic publication after identity
 validation; missing or non-private state and pointer modes are still repaired.
+Run-decision class reports include `inspection_status` when their JSONL ring is
+projected or enforced. `complete` makes zero deletion and byte values measured
+zeroes; `unknown` means inspection failed and no after/freed/deleted projection
+was derived. Legacy reports without the field remain decodable and represent an
+unspecified inspection status. Text output likewise prints
+`inspection=unknown` without zero-looking projection fields.
 Each registry-dispatched hook request resolves the repository filesystem
 identity once into an opaque validated root handle. Payload normalization,
 session handling, MCP extraction and enforcement, Stop, compaction, result
@@ -2351,7 +2357,7 @@ one pattern matches, so an earlier match cannot hide a malformed later pattern.
 | `live_verification` | Every or any configured command has current successful evidence | Current session |
 | `go_concurrency_boundary` | Changed production Go files contain no unowned bare `go` statements | Matching changed Go files, parsed with the Go AST |
 | `go_format` | Changed Go files are byte-identical to Go standard-library canonical formatting | Matching changed Go files |
-| `source_hygiene` | Changed shipped source contains no leading implementation-debt markers or language-specific unimplemented sentinels | Matching changed source files |
+| `source_hygiene` | Changed shipped source contains no leading implementation-debt markers or language-specific unimplemented sentinels; quote/comment state and case-folded sentinel comparison share one forward scan per line | Matching changed source files |
 
 Example:
 

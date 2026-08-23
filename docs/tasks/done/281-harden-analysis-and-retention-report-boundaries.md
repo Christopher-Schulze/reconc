@@ -35,14 +35,14 @@ read-only reporting paths.
 
 ## Sub-Tasks
 
-- [~] Replace Impact Lab path reads with stable regular-file snapshots
-- [ ] Model retention inspection failure separately from a successful zero result
-- [ ] Propagate any report-contract change through schemas and generated references
-- [ ] Linearize source-hygiene marker matching
-- [ ] Remove proven whole-buffer string copies in analysis helpers
-- [ ] Add replacement, mutation, failure, zero-result, and maximum-input tests
-- [ ] Update analysis/retention documentation and verification scripts
-- [ ] Run impact, retention, assurance, schema, race, and complete gates
+- [x] Replace Impact Lab path reads with stable regular-file snapshots
+- [x] Model retention inspection failure separately from a successful zero result
+- [x] Propagate any report-contract change through schemas and generated references
+- [x] Linearize source-hygiene marker matching
+- [x] Remove proven whole-buffer string copies in analysis helpers
+- [x] Add replacement, mutation, failure, zero-result, and maximum-input tests
+- [x] Update analysis/retention documentation and verification scripts
+- [x] Run impact, retention, assurance, schema, race, and complete gates
 
 ## Notes
 
@@ -59,6 +59,22 @@ read-only reporting paths.
 - The CI finding truncation counter is currently correct when an error replaces
   one retained non-error: exactly one other finding becomes omitted. Do not
   change it based on the reviewed claim.
+- `DecodeCorpusFile` and `DecodeDeltaManifestFile` retain their established
+  symlink diagnostic while acceptance now depends on
+  `ReadRegularFileSnapshot`, including post-read identity and metadata checks.
+- Run-decision class JSON adds optional `inspection_status`. `complete`
+  distinguishes a measured zero; `unknown` suppresses derived text metrics
+  after an inspection failure. Legacy decoders ignore the additive field and
+  new decoders treat its absence as legacy/unspecified.
+- Source sentinel matching now tracks quote/comment state in one forward pass.
+  The 1 MiB benchmark measured 0 allocations and about 240 MB/s on the audit
+  machine. Adoption's 1 MiB byte search also measured 0 allocations.
+- Existing redaction-count semantics and tests were left unchanged. No owned
+  schema or generated registry encodes the internal retention report shape;
+  `reference-docs-check` confirmed no generated-reference drift.
+- Verification passed: focused and complete package tests, focused Race,
+  Windows/Linux cross-compilation, reference-docs, publication/harness audits,
+  Vet, Staticcheck, and self-hosting.
 
 ## Deviations
 

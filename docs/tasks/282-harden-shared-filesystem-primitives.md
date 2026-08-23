@@ -31,7 +31,7 @@ semantics should be exact before further callers build on them.
 
 ## Sub-Tasks
 
-- [ ] Define retryable syscall errors for each platform lock implementation
+- [~] Define retryable syscall errors for each platform lock implementation
 - [ ] Retry Unix lock and unlock on `EINTR` without altering contention semantics
 - [ ] Join directory sync and close errors consistently
 - [ ] Remove the dead path-list loop from private component parsing

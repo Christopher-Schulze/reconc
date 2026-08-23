@@ -1511,7 +1511,11 @@ report, lock, staged command-proof, and product-wide project-root state; audit
 and run-decision JSONL rings; generated workflow-audit binaries; abandoned
 repo-local atomic/build temps; and owned `reconc-proof-*` temp trees.
 `--dry-run` reports file candidates without deleting them. Owned proof temp
-trees use a two-hour inactivity grace. The
+trees use a two-hour inactivity grace. Run-decision JSONL class output reports
+`inspection=complete` for measured projections and `inspection=unknown` without
+zero-looking projection values when inspection fails. JSON uses the additive
+`inspection_status` field; older decoders may ignore it, and its absence in a
+legacy report means unspecified status. The
 global project-state contract keeps at most 256 recognized roots / 128 MiB /
 30 days while preserving the current project, live sessions, unknown
 directories, recently active lifecycle roots, and every recognized root with a
