@@ -293,7 +293,7 @@ func TestDirectOfflineUpdateAndUninstallLifecycle(t *testing.T) {
 	}
 }
 
-func TestSameVersionDifferentArtifactIsUpdateAvailable(t *testing.T) {
+func TestSameVersionDifferentArtifactUpdatesExactInstallationByDefault(t *testing.T) {
 	if !supportedDirectTarget() {
 		t.Skip("unsupported direct release target")
 	}
@@ -306,7 +306,7 @@ func TestSameVersionDifferentArtifactIsUpdateAvailable(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	t.Setenv("RECONC_INSTALL_DIR", installDirectory)
 	t.Setenv("PATH", installDirectory)
-	writeDirectTestReceipt(t, target, "1.0.0")
+	writeDirectTestReceiptForChannel(t, target, "1.0.0", ChannelExact)
 
 	releaseDirectory := t.TempDir()
 	manifest := writeLocalRelease(t, releaseDirectory, replacementBinary, "1.0.0")
@@ -342,6 +342,19 @@ func TestSameVersionDifferentArtifactIsUpdateAvailable(t *testing.T) {
 	}
 	if receipt.Version != "1.0.0" || receipt.ArtifactSHA256 != manifest.Assets[0].SHA256 {
 		t.Fatalf("same-version replacement receipt = %+v", receipt)
+	}
+	if receipt.Channel != ChannelStable {
+		t.Fatalf("same-version replacement channel = %q", receipt.Channel)
+	}
+
+	writeDirectTestReceiptForChannel(t, target, "1.0.0", ChannelPreview)
+	previewReport, err := CheckUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDirectory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if previewReport.Status != LifecycleRefused ||
+		!strings.Contains(previewReport.NextAction, "--channel stable") {
+		t.Fatalf("implicit preview channel change = %+v", previewReport)
 	}
 }
 
@@ -747,6 +760,10 @@ func buildReleaseBinaryWithSourceDigest(t *testing.T, root string, version strin
 }
 
 func writeDirectTestReceipt(t *testing.T, binary string, version string) {
+	writeDirectTestReceiptForChannel(t, binary, version, ChannelStable)
+}
+
+func writeDirectTestReceiptForChannel(t *testing.T, binary string, version string, channel Channel) {
 	t.Helper()
 	digest, err := fileSHA256(binary)
 	if err != nil {
@@ -758,7 +775,7 @@ func writeDirectTestReceipt(t *testing.T, binary string, version string) {
 	}
 	tag := "reconc-v" + version
 	receipt, err := NewReceipt(ReceiptInput{
-		Manager: ManagerDirect, Channel: ChannelStable, Version: version,
+		Manager: ManagerDirect, Channel: channel, Version: version,
 		SourceRepository: releaseRepository, ReleaseTag: &tag,
 		ArtifactName: targetArtifact(version), ArtifactSHA256: digest,
 		BinaryPath: binary, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,

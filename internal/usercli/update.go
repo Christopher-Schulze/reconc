@@ -47,7 +47,11 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 		report.NextAction = channelErr.Error()
 		return report, nil
 	}
-	if diagnostic.Channel != nil && *diagnostic.Channel != requestedChannel &&
+	// An exact receipt records a one-time version selection, not a persistent
+	// update channel. Preview installations still require an explicit switch
+	// back to stable so a bare update cannot silently leave preview.
+	if diagnostic.Channel != nil && *diagnostic.Channel == ChannelPreview &&
+		*diagnostic.Channel != requestedChannel &&
 		request.Channel == "" && strings.TrimSpace(request.Version) == "" {
 		report.Status = LifecycleRefused
 		report.NextAction = "Select the channel explicitly with `--channel " + string(requestedChannel) + "`."

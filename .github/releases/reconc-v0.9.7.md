@@ -99,7 +99,9 @@ identity.
 - Release and installer tests bind both Reconc state and the fallback user home
   to temporary roots, preventing verification from changing a real installation
   receipt. Same-version update coverage applies and verifies replacement bytes,
-  not only discovery.
+  not only discovery. A bare `reconc update` returns an exact-version
+  installation to the default stable channel, while leaving preview still
+  requires explicit intent.
 
 ## Evidence, review, and privacy hardening
 

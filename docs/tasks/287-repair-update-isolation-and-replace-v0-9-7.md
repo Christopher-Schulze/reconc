@@ -31,11 +31,14 @@ on `main` and must be replaced without changing the product version.
 - [x] Strengthen same-version update regression coverage
 - [x] Synchronize release and operator documentation
 - [x] Run focused and complete local verification without receipt drift
-- [~] Commit and push the verified v0.9.7 source to `main`
-- [ ] Require fresh green CI and CodeQL on the exact source commit
-- [ ] Repair the existing direct installation through the verified installer
+- [x] Commit and push the verified v0.9.7 source to `main`
+- [x] Require fresh green CI and CodeQL on the exact source commit
+- [x] Repair the existing direct installation through the verified installer
+- [x] Detect the exact-receipt default-channel refusal through a real update
+- [x] Make bare `reconc update` select stable from an exact installation
+- [~] Commit the final repair and require fresh green CI and CodeQL
 - [ ] Replace and verify the published `reconc-v0.9.7` release
-- [ ] Apply and verify the replacement through `reconc update`
+- [ ] Apply and verify the replacement through bare `reconc update`
 - [ ] Archive the completed TASK
 
 ## Notes
@@ -66,6 +69,17 @@ on `main` and must be replaced without changing the product version.
   findings, Publication Audit, Self-Host, and the pinned LangChain proof on
   Python 3.13.14. Hard before/after hashing proved the operator receipt stayed
   unchanged after the final CLI and release-trust isolation repairs.
+- Commit `bbd6e84a09cc7331cff6fa38cba57f90c21f95ab` passed CI run
+  `32638212780`, including the native Windows full suite, and CodeQL run
+  `32638212773`.
+- The currently published v0.9.7 installer restored healthy direct ownership at
+  `~/.local/bin/reconc`; `reconc doctor --global` reports exact checksum
+  identity, no PATH shadows, and GitHub-verified provenance.
+- Release run `32638977670` replaced v0.9.7 from commit `bbd6e84a` and passed
+  every gate, but the required real bare update then exposed a remaining UX
+  defect: an exact-version receipt refused the documented stable default unless
+  `--channel stable` was repeated. The final replacement must include the
+  narrow exact-to-stable default repair and preserve explicit preview exit.
 
 ## Deviations
 

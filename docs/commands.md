@@ -465,7 +465,10 @@ source ownership. No receipt is published for an off-PATH binary.
 ### `reconc update [--channel stable|preview | --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]`
 Runs the complete ownership-aware update transaction under the global
 installation lock. Stable is the default; preview and exact version selection
-are explicit and mutually exclusive. Direct updates verify release identity,
+are explicit and mutually exclusive. An exact-version receipt records that one
+installation choice but does not pin future updates: a later bare
+`reconc update` selects stable. Leaving a recorded preview channel still
+requires an explicit `--channel stable`. Direct updates verify release identity,
 bounded bytes, `SHA256SUMS`, embedded version, target, source provenance,
 mandatory GitHub build-provenance attestation, and an actual candidate
 `--version` smoke test before atomic replacement and receipt publication. A
