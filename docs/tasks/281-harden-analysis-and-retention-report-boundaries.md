@@ -35,7 +35,7 @@ read-only reporting paths.
 
 ## Sub-Tasks
 
-- [ ] Replace Impact Lab path reads with stable regular-file snapshots
+- [~] Replace Impact Lab path reads with stable regular-file snapshots
 - [ ] Model retention inspection failure separately from a successful zero result
 - [ ] Propagate any report-contract change through schemas and generated references
 - [ ] Linearize source-hygiene marker matching

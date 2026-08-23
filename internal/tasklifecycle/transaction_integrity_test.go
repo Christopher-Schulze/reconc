@@ -244,7 +244,7 @@ func TestRecoverReversesLinkedMoveIntermediate(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, repo, transactionRel, body)
-	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+	if err := prepareTransactionDirectories(repo, journal.CreatedDirectories); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Link(source, destination); err != nil {
@@ -410,6 +410,7 @@ func TestTransactionJournalShapeRejectsCorruption(t *testing.T) {
 		want   string
 	}{
 		{name: "version", mutate: func(journal *transaction) { journal.FormatVersion++ }, want: "format_version"},
+		{name: "phase", mutate: func(journal *transaction) { journal.Phase = "unknown" }, want: "phase"},
 		{name: "action", mutate: func(journal *transaction) { journal.Action = "" }, want: "no action"},
 		{name: "path", mutate: func(journal *transaction) { journal.Files[0].Path = "../escape" }, want: "invalid path"},
 		{name: "duplicate file", mutate: func(journal *transaction) {
@@ -443,6 +444,12 @@ func TestTransactionJournalShapeRejectsCorruption(t *testing.T) {
 			addValidTestMove(journal)
 			journal.Moves[0].AfterHash = hashContent([]byte("different\n"))
 		}, want: "disagrees"},
+		{name: "directory path", mutate: func(journal *transaction) {
+			journal.CreatedDirectories = []transactionDirectory{{Path: "../escape", MarkerToken: strings.Repeat("a", 64)}}
+		}, want: "created directory"},
+		{name: "directory token", mutate: func(journal *transaction) {
+			journal.CreatedDirectories = []transactionDirectory{{Path: "docs/new", MarkerToken: "invalid"}}
+		}, want: "ownership token"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -536,6 +543,7 @@ func validTestTransaction() transaction {
 	return transaction{
 		FormatVersion: transactionVersion,
 		Action:        "test",
+		Phase:         transactionPhasePrepared,
 		Files: []transactionFile{{
 			Path:       "docs/tasks.md",
 			Before:     before,

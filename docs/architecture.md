@@ -288,7 +288,10 @@ candidate insertion and digest ordering.
    TASK lifecycle transactions independently bind every touched regular file
    and moved source to exact bytes and mode, revalidate the full precondition
    set and each operation, and publish moves through an atomic no-clobber
-   hard-link transition whose intermediate state is recoverable.
+   hard-link transition whose intermediate state is recoverable. Prepared and
+   committed journal phases plus private random markers bind newly created
+   parent directories to safe rollback or commit finalization; unproven or
+   non-empty directories are never removed.
    Bootstrap removal treats portable ownership as its maximum authority,
    SHA-verifies owned files, strips only managed blocks, and preserves drift
    and user-owned paths.

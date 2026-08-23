@@ -1495,7 +1495,13 @@ and move source has a byte-and-mode before-image. Publication revalidates all
 sources and destinations before mutation and again at each operation; recovery
 accepts only exact regular-file before, after, or linked-move states. Unknown
 journal fields, trailing JSON values, symlinked or non-canonical paths, type
-drift, content drift, and mode drift fail closed. Normal reads never open
+drift, content drift, and mode drift fail closed. Version 2 journals distinguish
+prepared rollback from committed finalization and ownership-mark every parent
+directory created by the transaction. Rollback removes only marker-proven empty
+parents, deepest first; user-created or replaced directories remain untouched.
+Legacy version 1 journals remain recoverable without claiming their unrecorded
+parent directories. Done rows are required newest-first before visible-window
+trimming. Lock, unlock, close, and cleanup failures remain explicit. Normal reads never open
 unlinked archive history. Briefings cap blockers/evidence and free text;
 transactions cap journals at 4 MiB.
 

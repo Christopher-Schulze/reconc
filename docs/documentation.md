@@ -1630,7 +1630,9 @@ grammar matches. Paths and the visible Done window are configurable. Unknown,
 mixed, duplicated, unsafe, or structurally inconsistent state fails closed
 with stable issue IDs and exact remediation. An absent `done_visible` uses the
 default of 10; an explicit value must be between 1 and 1000, so zero and
-negative values never silently select the default.
+negative values never silently select the default. Sectioned Done rows must be
+in descending numeric TASK order before the visible window is trimmed, so an
+out-of-order board can never discard a newer archived TASK.
 
 `completion.required_sections` and `completion.required_evidence_fields` may
 each contain at most 32 unique one-line names of at most 120 characters.
@@ -1688,7 +1690,7 @@ pre-created child TASKs whose Why section references the parent. Promotion
 checks every Sub-Task and configured evidence field before moving the detail;
 it never fabricates evidence. A crash leaves `.reconc/task-transaction.json`.
 All readers fail closed while that journal exists; `reconc task recover` rolls
-back only if every touched path still equals its recorded before or after
+back a prepared transaction only if every touched path still equals its recorded before or after
 image with its recorded regular-file type and permission mode, so an external
 edit is never overwritten. Recovery resolves and validates every rollback path
 before its first mutation and propagates every unsafe-path failure. Before
@@ -1696,10 +1698,21 @@ publication, the transaction revalidates
 every source, destination, content hash, and mode both as a complete set and
 immediately before its operation. Moves retain the source before-image and use
 a no-clobber hard-link transition; recovery safely recognizes the linked
-intermediate state. Journals reject unknown fields, trailing JSON values,
+intermediate state. Version 2 journals record `prepared` or `committed`; a
+committed journal is finalized without rolling back published work. Every
+missing parent created for a file or move receives a private random ownership
+marker recorded before creation. Prepared rollback validates those markers and
+removes only owned empty directories, deepest first; replaced, non-empty,
+pre-existing, or user-populated directories are preserved with an explicit
+recovery error. Committed finalization removes only markers. Version 1 journals
+remain recoverable, but their historically unrecorded empty parents remain
+because ownership cannot be proven. Lock acquisition, operation, unlock,
+close, marker cleanup, and journal cleanup errors remain explicit.
+Journals reject unknown fields, trailing JSON values,
 non-canonical paths, and inconsistent images. Archived detail bodies are not
 reopened by normal status or briefing reads. Runtime paths reject symlink
-components, journals are capped at 4 MiB, and rollback restores the original
+components; journal presence and decoding use one stable, non-symlink,
+identity-revalidated regular-file snapshot capped at 4 MiB. Rollback restores the original
 file bytes and permission mode. Running `task recover` with no journal is a
 successful idempotent no-op and reports `recovered: false`.
 

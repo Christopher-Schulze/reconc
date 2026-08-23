@@ -3,6 +3,7 @@ package tasklifecycle
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,17 +13,24 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 )
 
 const (
-	transactionRel      = ".reconc/task-transaction.json"
-	taskLockRel         = ".reconc/locks/task-lifecycle.lock"
-	transactionVersion  = 1
-	maxTransactionBytes = 4 << 20
+	transactionRel                 = ".reconc/task-transaction.json"
+	taskLockRel                    = ".reconc/locks/task-lifecycle.lock"
+	transactionVersion             = 2
+	legacyTransactionVersion       = 1
+	maxTransactionBytes            = 4 << 20
+	maxTransactionDirectoryEntries = 1024
+	transactionPhasePrepared       = "prepared"
+	transactionPhaseCommitted      = "committed"
+	transactionDirectoryMarker     = ".reconc-task-transaction-owner"
 )
 
 type fileMutation struct {
@@ -37,10 +45,12 @@ type moveMutation struct {
 }
 
 type transaction struct {
-	FormatVersion int               `json:"format_version"`
-	Action        string            `json:"action"`
-	Files         []transactionFile `json:"files"`
-	Moves         []transactionMove `json:"moves,omitempty"`
+	FormatVersion      int                    `json:"format_version"`
+	Action             string                 `json:"action"`
+	Phase              string                 `json:"phase,omitempty"`
+	Files              []transactionFile      `json:"files"`
+	Moves              []transactionMove      `json:"moves,omitempty"`
+	CreatedDirectories []transactionDirectory `json:"created_directories,omitempty"`
 }
 
 type transactionFile struct {
@@ -59,12 +69,24 @@ type transactionMove struct {
 	AfterHash   string `json:"after_hash"`
 }
 
+type transactionDirectory struct {
+	Path        string `json:"path"`
+	MarkerToken string `json:"marker_token"`
+}
+
+var (
+	acquireMutationLock = filelock.LockContext
+	closeMutationLock   = func(file *os.File) error { return file.Close() }
+)
+
 func transactionExists(repoRoot string) (bool, error) {
 	_, path, err := safeTransactionPath(repoRoot, transactionRel)
 	if err != nil {
 		return false, fmt.Errorf("inspect %s: %w", transactionRel, err)
 	}
-	_, err = os.Lstat(path)
+	err = boundedio.WithRegularFileSnapshot(path, maxTransactionBytes, func(*os.File, os.FileInfo) error {
+		return nil
+	})
 	if err == nil {
 		return true, nil
 	}
@@ -74,7 +96,7 @@ func transactionExists(repoRoot string) (bool, error) {
 	return false, fmt.Errorf("inspect %s: %w", transactionRel, err)
 }
 
-func withMutationLock(repoRoot string, fn func() error) error {
+func withMutationLock(repoRoot string, fn func() error) (resultErr error) {
 	path := filepath.Join(repoRoot, filepath.FromSlash(taskLockRel))
 	if err := rejectSymlinkComponents(repoRoot, path); err != nil {
 		return fmt.Errorf("unsafe TASK lock path: %w", err)
@@ -86,12 +108,12 @@ func withMutationLock(repoRoot string, fn func() error) error {
 	if err != nil {
 		return fmt.Errorf("open TASK lock: %w", err)
 	}
-	defer file.Close()
-	unlock, err := filelock.LockContext(context.Background(), file, filelock.DefaultTimeout)
+	defer func() { resultErr = errors.Join(resultErr, closeMutationLock(file)) }()
+	unlock, err := acquireMutationLock(context.Background(), file, filelock.DefaultTimeout)
 	if err != nil {
 		return fmt.Errorf("lock TASK lifecycle: %w", err)
 	}
-	defer unlock()
+	defer func() { resultErr = errors.Join(resultErr, unlock()) }()
 	return fn()
 }
 
@@ -103,19 +125,15 @@ func applyTransaction(repoRoot, action string, files []fileMutation, moves []mov
 	if err := validateTransactionShape(journal); err != nil {
 		return err
 	}
-	body, err := json.MarshalIndent(journal, "", "  ")
+	body, err := encodeTransaction(journal)
 	if err != nil {
-		return fmt.Errorf("marshal TASK transaction: %w", err)
-	}
-	body = append(body, '\n')
-	if len(body) > maxTransactionBytes {
-		return fmt.Errorf("TASK transaction journal is %d bytes; maximum is %d", len(body), maxTransactionBytes)
+		return err
 	}
 	_, journalPath, err := safeTransactionPath(repoRoot, transactionRel)
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(journalPath); err == nil {
+	if _, _, err := boundedio.ReadRegularFileSnapshot(journalPath, maxTransactionBytes); err == nil {
 		return fmt.Errorf("pending %s exists; run `reconc task recover %s`", transactionRel, repoRoot)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect TASK transaction: %w", err)
@@ -133,14 +151,50 @@ func applyTransaction(repoRoot, action string, files []fileMutation, moves []mov
 		}
 		return fmt.Errorf("publish TASK transaction: %w (rolled back)", err)
 	}
+	committed := journal
+	committed.Phase = transactionPhaseCommitted
+	committedBody, err := encodeTransaction(committed)
+	if err != nil {
+		rollbackErr := rollbackTransaction(repoRoot, journal)
+		return errors.Join(err, rollbackErr)
+	}
+	if _, err := atomicfile.WritePrivateIfChanged(journalPath, committedBody, 0o600); err != nil {
+		observed, readErr := readTransaction(repoRoot)
+		if readErr != nil || observed.Phase == transactionPhaseCommitted {
+			return errors.Join(
+				fmt.Errorf("TASK transaction publication completed but commit-state durability is uncertain: %w; run `reconc task recover %s`", err, repoRoot),
+				readErr,
+			)
+		}
+		rollbackErr := rollbackTransaction(repoRoot, journal)
+		if rollbackErr != nil {
+			return fmt.Errorf("mark TASK transaction committed: %w; automatic rollback failed: %v; run `reconc task recover %s`", err, rollbackErr, repoRoot)
+		}
+		return fmt.Errorf("mark TASK transaction committed: %w (rolled back)", err)
+	}
+	if err := cleanupCommittedDirectoryMarkers(repoRoot, committed.CreatedDirectories); err != nil {
+		return fmt.Errorf("TASK transaction committed but directory-marker cleanup failed: %w; run `reconc task recover %s`", err, repoRoot)
+	}
 	if err := os.Remove(journalPath); err != nil {
 		return fmt.Errorf("TASK transaction committed but journal cleanup failed: %w; run `reconc task recover %s`", err, repoRoot)
 	}
 	return nil
 }
 
+func encodeTransaction(journal transaction) ([]byte, error) {
+	body, err := json.MarshalIndent(journal, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal TASK transaction: %w", err)
+	}
+	body = append(body, '\n')
+	if len(body) > maxTransactionBytes {
+		return nil, fmt.Errorf("TASK transaction journal is %d bytes; maximum is %d", len(body), maxTransactionBytes)
+	}
+	return body, nil
+}
+
 func buildTransaction(repoRoot, action string, files []fileMutation, moves []moveMutation) (transaction, error) {
-	journal := transaction{FormatVersion: transactionVersion, Action: action}
+	journal := transaction{FormatVersion: transactionVersion, Action: action, Phase: transactionPhasePrepared}
 	transactionFiles, afterByPath, err := buildTransactionFiles(repoRoot, files)
 	if err != nil {
 		return transaction{}, err
@@ -165,7 +219,77 @@ func buildTransaction(repoRoot, action string, files []fileMutation, moves []mov
 		}
 		journal.Moves = append(journal.Moves, transactionMove)
 	}
+	targets := make([]string, 0, len(files)+len(moves))
+	for _, change := range files {
+		if change.Create {
+			targets = append(targets, change.Path)
+		}
+	}
+	for _, move := range moves {
+		targets = append(targets, move.Destination)
+	}
+	journal.CreatedDirectories, err = planTransactionDirectories(repoRoot, targets)
+	if err != nil {
+		return transaction{}, err
+	}
 	return journal, nil
+}
+
+func planTransactionDirectories(repoRoot string, targets []string) ([]transactionDirectory, error) {
+	missing := map[string]bool{}
+	for _, target := range targets {
+		_, absolute, err := safeTransactionPath(repoRoot, target)
+		if err != nil {
+			return nil, err
+		}
+		for directory := filepath.Dir(absolute); directory != repoRoot; directory = filepath.Dir(directory) {
+			info, statErr := os.Lstat(directory)
+			switch {
+			case statErr == nil:
+				if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+					return nil, fmt.Errorf("transaction parent is not a real directory: %s", directory)
+				}
+			case errors.Is(statErr, os.ErrNotExist):
+				relative, relErr := filepath.Rel(repoRoot, directory)
+				if relErr != nil {
+					return nil, fmt.Errorf("resolve transaction parent %s: %w", directory, relErr)
+				}
+				missing[filepath.ToSlash(relative)] = true
+			default:
+				return nil, fmt.Errorf("inspect transaction parent %s: %w", directory, statErr)
+			}
+		}
+	}
+	paths := make([]string, 0, len(missing))
+	for path := range missing {
+		paths = append(paths, path)
+	}
+	sort.Slice(paths, func(left, right int) bool {
+		leftDepth := transactionPathDepth(paths[left])
+		rightDepth := transactionPathDepth(paths[right])
+		return leftDepth < rightDepth || leftDepth == rightDepth && paths[left] < paths[right]
+	})
+	directories := make([]transactionDirectory, 0, len(paths))
+	for _, path := range paths {
+		token, err := newTransactionDirectoryToken()
+		if err != nil {
+			return nil, err
+		}
+		directories = append(directories, transactionDirectory{Path: path, MarkerToken: token})
+	}
+	return directories, nil
+}
+
+func newTransactionDirectoryToken() (string, error) {
+	var random [32]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", fmt.Errorf("create transaction directory ownership token: %w", err)
+	}
+	return hex.EncodeToString(random[:]), nil
+}
+
+func transactionPathDepth(path string) int {
+	return strings.Count(filepath.ToSlash(path), "/")
 }
 
 func buildTransactionFiles(repoRoot string, files []fileMutation) ([]transactionFile, map[string]string, error) {
@@ -241,6 +365,9 @@ func publishTransaction(repoRoot string, journal transaction, files []fileMutati
 	if err := validatePublishState(repoRoot, journal); err != nil {
 		return err
 	}
+	if err := prepareTransactionDirectories(repoRoot, journal.CreatedDirectories); err != nil {
+		return err
+	}
 	filesByPath := transactionFilesByPath(journal.Files)
 	for _, change := range files {
 		rel, abs, err := safeTransactionPath(repoRoot, change.Path)
@@ -268,6 +395,64 @@ func publishTransaction(repoRoot string, journal transaction, files []fileMutati
 	return nil
 }
 
+func prepareTransactionDirectories(repoRoot string, directories []transactionDirectory) error {
+	for _, directory := range directories {
+		_, absolute, err := safeTransactionPath(repoRoot, directory.Path)
+		if err != nil {
+			return err
+		}
+		if err := os.Mkdir(absolute, 0o755); err != nil {
+			return fmt.Errorf("create transaction directory %s: %w", directory.Path, err)
+		}
+		info, err := os.Lstat(absolute)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return errors.Join(fmt.Errorf("validate created transaction directory %s", directory.Path), err)
+		}
+		marker, err := transactionDirectoryMarkerPath(repoRoot, directory)
+		if err != nil {
+			return err
+		}
+		if err := atomicfile.WriteNew(marker, transactionDirectoryMarkerBody(directory), 0o600); err != nil {
+			return errors.Join(
+				fmt.Errorf("publish transaction directory marker for %s: %w", directory.Path, err),
+				os.Remove(absolute),
+			)
+		}
+		if err := validateTransactionDirectoryMarker(repoRoot, directory, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func transactionDirectoryMarkerPath(repoRoot string, directory transactionDirectory) (string, error) {
+	marker := filepath.ToSlash(filepath.Join(filepath.FromSlash(directory.Path), transactionDirectoryMarker))
+	_, absolute, err := safeTransactionPath(repoRoot, marker)
+	return absolute, err
+}
+
+func transactionDirectoryMarkerBody(directory transactionDirectory) []byte {
+	return []byte(directory.MarkerToken + "\n")
+}
+
+func validateTransactionDirectoryMarker(repoRoot string, directory transactionDirectory, allowMissing bool) error {
+	marker, err := transactionDirectoryMarkerPath(repoRoot, directory)
+	if err != nil {
+		return err
+	}
+	body, err := boundedio.ReadRegularFile(marker, sha256.Size*2+1)
+	if allowMissing && errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("validate transaction directory marker for %s: %w", directory.Path, err)
+	}
+	if !bytes.Equal(body, transactionDirectoryMarkerBody(directory)) {
+		return fmt.Errorf("transaction directory ownership marker changed for %s", directory.Path)
+	}
+	return nil
+}
+
 func validatePublishInputs(repoRoot string, journal transaction, files []fileMutation, moves []moveMutation) error {
 	if len(moves) != len(journal.Moves) {
 		return fmt.Errorf("transaction input has %d moves; journal records %d", len(moves), len(journal.Moves))
@@ -284,6 +469,27 @@ func validatePublishInputs(repoRoot string, journal transaction, files []fileMut
 	for _, recorded := range journal.Files {
 		if !changedPaths[recorded.Path] && !moveSources[recorded.Path] {
 			return fmt.Errorf("transaction journal records unrequested file %s", recorded.Path)
+		}
+	}
+	targets := make([]string, 0, len(files)+len(moves))
+	for _, change := range files {
+		if change.Create {
+			targets = append(targets, change.Path)
+		}
+	}
+	for _, move := range moves {
+		targets = append(targets, move.Destination)
+	}
+	expectedDirectories, err := planTransactionDirectories(repoRoot, targets)
+	if err != nil {
+		return err
+	}
+	if len(expectedDirectories) != len(journal.CreatedDirectories) {
+		return fmt.Errorf("transaction directory precondition has %d missing entries; journal records %d", len(expectedDirectories), len(journal.CreatedDirectories))
+	}
+	for index := range expectedDirectories {
+		if expectedDirectories[index].Path != journal.CreatedDirectories[index].Path {
+			return fmt.Errorf("transaction directory precondition does not match journal at %s", journal.CreatedDirectories[index].Path)
 		}
 	}
 	return nil
@@ -431,9 +637,6 @@ func publishTransactionMove(
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-		return fmt.Errorf("create transaction move parent: %w", err)
-	}
 	if err := validateMovePublishPrecondition(repoRoot, recorded, sourceFile); err != nil {
 		return err
 	}
@@ -494,9 +697,6 @@ func transactionFileByPath(files []transactionFile, path string) (transactionFil
 }
 
 func writeNewTransactionFile(path string, body []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create transaction parent: %w", err)
-	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 	if err != nil {
 		return fmt.Errorf("create transaction file %s: %w", path, err)
@@ -594,8 +794,14 @@ func RecoverIfNeeded(repoRoot string) (bool, error) {
 		if err != nil {
 			return err
 		}
-		if err := rollbackTransaction(root, journal); err != nil {
-			return err
+		if journal.Phase == transactionPhaseCommitted {
+			if err := cleanupCommittedDirectoryMarkers(root, journal.CreatedDirectories); err != nil {
+				return err
+			}
+		} else {
+			if err := rollbackTransaction(root, journal); err != nil {
+				return err
+			}
 		}
 		_, journalPath, pathErr := safeTransactionPath(root, transactionRel)
 		if pathErr != nil {
@@ -615,7 +821,7 @@ func readTransaction(repoRoot string) (transaction, error) {
 	if err != nil {
 		return transaction{}, err
 	}
-	body, err := readTaskControlFile(path)
+	body, _, err := boundedio.ReadRegularFileSnapshot(path, maxTransactionBytes)
 	if err != nil {
 		return transaction{}, fmt.Errorf("read %s: %w", transactionRel, err)
 	}
@@ -635,7 +841,7 @@ func readTransaction(repoRoot string) (transaction, error) {
 		}
 		return transaction{}, fmt.Errorf("parse %s: unexpected trailing data: %w", transactionRel, err)
 	}
-	if journal.FormatVersion != transactionVersion {
+	if journal.FormatVersion != legacyTransactionVersion && journal.FormatVersion != transactionVersion {
 		return transaction{}, fmt.Errorf("unsupported TASK transaction format_version %d", journal.FormatVersion)
 	}
 	if err := validateTransactionShape(journal); err != nil {
@@ -645,6 +851,9 @@ func readTransaction(repoRoot string) (transaction, error) {
 }
 
 func rollbackTransaction(repoRoot string, journal transaction) error {
+	if journal.Phase == transactionPhaseCommitted {
+		return errors.New("committed TASK transaction cannot be rolled back; finalize recovery instead")
+	}
 	if err := validateRollbackState(repoRoot, journal); err != nil {
 		return err
 	}
@@ -672,6 +881,89 @@ func rollbackTransaction(repoRoot string, journal transaction) error {
 		}
 		if _, err := atomicfile.WriteIfChanged(abs, file.Before, mode); err != nil {
 			return fmt.Errorf("rollback %s: %w", file.Path, err)
+		}
+	}
+	return rollbackCreatedDirectories(repoRoot, journal.CreatedDirectories)
+}
+
+func cleanupCommittedDirectoryMarkers(repoRoot string, directories []transactionDirectory) error {
+	for _, directory := range directories {
+		if err := validateTransactionDirectoryMarker(repoRoot, directory, true); err != nil {
+			return err
+		}
+	}
+	for _, directory := range directories {
+		_, absolute, err := safeTransactionPath(repoRoot, directory.Path)
+		if err != nil {
+			return err
+		}
+		before, err := os.Lstat(absolute)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil || before.Mode()&os.ModeSymlink != 0 || !before.IsDir() {
+			return errors.Join(fmt.Errorf("validate committed transaction directory %s", directory.Path), err)
+		}
+		marker, err := transactionDirectoryMarkerPath(repoRoot, directory)
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(marker); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return fmt.Errorf("remove committed transaction directory marker for %s: %w", directory.Path, err)
+		}
+		after, err := os.Lstat(absolute)
+		if err != nil || !os.SameFile(before, after) || !after.IsDir() {
+			return errors.Join(fmt.Errorf("committed transaction directory changed while removing marker: %s", directory.Path), err)
+		}
+	}
+	return nil
+}
+
+func rollbackCreatedDirectories(repoRoot string, directories []transactionDirectory) error {
+	ordered := append([]transactionDirectory(nil), directories...)
+	sort.Slice(ordered, func(left, right int) bool {
+		leftDepth := transactionPathDepth(ordered[left].Path)
+		rightDepth := transactionPathDepth(ordered[right].Path)
+		return leftDepth > rightDepth || leftDepth == rightDepth && ordered[left].Path > ordered[right].Path
+	})
+	for _, directory := range ordered {
+		_, absolute, err := safeTransactionPath(repoRoot, directory.Path)
+		if err != nil {
+			return err
+		}
+		before, err := os.Lstat(absolute)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil || before.Mode()&os.ModeSymlink != 0 || !before.IsDir() {
+			return errors.Join(fmt.Errorf("validate rollback transaction directory %s", directory.Path), err)
+		}
+		if err := validateTransactionDirectoryMarker(repoRoot, directory, false); err != nil {
+			return err
+		}
+		entries, err := boundedio.ReadDirNoSymlink(absolute, maxTransactionDirectoryEntries)
+		if err != nil {
+			return fmt.Errorf("inspect rollback transaction directory %s: %w", directory.Path, err)
+		}
+		if len(entries) != 1 || entries[0].Name() != transactionDirectoryMarker {
+			return fmt.Errorf("rollback preserved non-empty transaction directory %s", directory.Path)
+		}
+		marker, err := transactionDirectoryMarkerPath(repoRoot, directory)
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(marker); err != nil {
+			return fmt.Errorf("remove rollback transaction directory marker for %s: %w", directory.Path, err)
+		}
+		after, err := os.Lstat(absolute)
+		if err != nil || !os.SameFile(before, after) || !after.IsDir() {
+			return errors.Join(fmt.Errorf("rollback transaction directory changed after marker removal: %s", directory.Path), err)
+		}
+		if err := os.Remove(absolute); err != nil {
+			restoreErr := atomicfile.WriteNew(marker, transactionDirectoryMarkerBody(directory), 0o600)
+			return errors.Join(fmt.Errorf("remove rollback transaction directory %s: %w", directory.Path, err), restoreErr)
 		}
 	}
 	return nil
@@ -726,7 +1018,24 @@ func validateRollbackState(repoRoot string, journal transaction) error {
 	if err := validateRollbackFiles(repoRoot, journal.Files, movesBySource); err != nil {
 		return err
 	}
-	return validateRollbackMoves(repoRoot, journal.Moves)
+	if err := validateRollbackMoves(repoRoot, journal.Moves); err != nil {
+		return err
+	}
+	for _, directory := range journal.CreatedDirectories {
+		_, absolute, err := safeTransactionPath(repoRoot, directory.Path)
+		if err != nil {
+			return err
+		}
+		if _, err := os.Lstat(absolute); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return fmt.Errorf("inspect rollback transaction directory %s: %w", directory.Path, err)
+		}
+		if err := validateTransactionDirectoryMarker(repoRoot, directory, false); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateRollbackFiles(repoRoot string, files []transactionFile, movesBySource map[string]transactionMove) error {
@@ -816,7 +1125,16 @@ func validateRollbackMoves(repoRoot string, moves []transactionMove) error {
 }
 
 func validateTransactionShape(journal transaction) error {
-	if journal.FormatVersion != transactionVersion {
+	switch journal.FormatVersion {
+	case legacyTransactionVersion:
+		if journal.Phase != "" || len(journal.CreatedDirectories) != 0 {
+			return fmt.Errorf("legacy TASK transaction contains v2 lifecycle fields")
+		}
+	case transactionVersion:
+		if journal.Phase != transactionPhasePrepared && journal.Phase != transactionPhaseCommitted {
+			return fmt.Errorf("recovery journal has invalid phase %q", journal.Phase)
+		}
+	default:
 		return fmt.Errorf("unsupported TASK transaction format_version %d", journal.FormatVersion)
 	}
 	if strings.TrimSpace(journal.Action) == "" {
@@ -833,6 +1151,15 @@ func validateTransactionShape(journal transaction) error {
 		if err := validateTransactionMoveShape(move, journal.Files, paths, movePaths); err != nil {
 			return err
 		}
+	}
+	for _, directory := range journal.CreatedDirectories {
+		if !canonicalTransactionPath(directory.Path) || paths[directory.Path] {
+			return fmt.Errorf("recovery journal has invalid or conflicting created directory %q", directory.Path)
+		}
+		if !validContentHash(directory.MarkerToken) {
+			return fmt.Errorf("recovery journal has invalid directory ownership token for %s", directory.Path)
+		}
+		paths[directory.Path] = true
 	}
 	return nil
 }

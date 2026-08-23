@@ -35,15 +35,15 @@ newest-first although validation currently enforces only the count.
 
 ## Sub-Tasks
 
-- [~] Unify pending-journal type, identity, and size admission
-- [ ] Extend transaction planning with created-directory rollback records
-- [ ] Implement identity-checked deepest-first rollback cleanup
-- [ ] Join lock, unlock, close, and journal-cleanup errors
-- [ ] Enforce or normalize newest-first Done ordering before window trimming
-- [ ] Define compatibility behavior for existing transaction journals
-- [ ] Add crash, replacement, parent, ordering, and cleanup regression tests
-- [ ] Update TASK transaction/recovery documentation
-- [ ] Run task lifecycle, self-host, race, and complete repository verification
+- [x] Unify pending-journal type, identity, and size admission
+- [x] Extend transaction planning with created-directory rollback records
+- [x] Implement identity-checked deepest-first rollback cleanup
+- [x] Join lock, unlock, close, and journal-cleanup errors
+- [x] Enforce or normalize newest-first Done ordering before window trimming
+- [x] Define compatibility behavior for existing transaction journals
+- [x] Add crash, replacement, parent, ordering, and cleanup regression tests
+- [x] Update TASK transaction/recovery documentation
+- [x] Run task lifecycle, self-host, race, and complete repository verification
 
 ## Notes
 
@@ -57,6 +57,20 @@ newest-first although validation currently enforces only the count.
   parser validation reports excessive count but not descending task ID order.
 - This task must preserve the repository's Main-only workflow rule and must not
   create a branch during implementation.
+- Journal format 2 records `prepared`/`committed` and every transaction-created
+  directory with a private random ownership marker. Prepared recovery rolls
+  back files/moves and then removes only marker-proven empty directories,
+  deepest first. Committed recovery finalizes marker cleanup without reverting
+  published state.
+- Format 1 journals remain accepted and recoverable. Their unrecorded created
+  directories remain untouched because the old journal cannot prove ownership.
+- Pending-journal probes and decoders now share stable non-symlink regular-file
+  snapshots with identity, metadata, permission, and 4 MiB validation.
+- Done rows are rejected unless their numeric IDs descend newest-first, making
+  the existing visible-window trim safe by construction.
+- Verification passed: focused tests, race detector, darwin execution,
+  Windows/linux amd64 test compilation, Vet, pinned Staticcheck, self-hosting,
+  reference generation, and `make test-fast` across root and harness packages.
 
 ## Deviations
 

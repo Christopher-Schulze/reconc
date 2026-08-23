@@ -233,6 +233,7 @@ func (board *Board) parseSectionsOverview() []Issue {
 	headingStates := map[string]State{"Active": StateActive, "Queue": StateQueued, "Blocked": StateBlocked, "Done": StateDone}
 	seenHeadings := map[string]bool{}
 	current := State("")
+	previousDoneID := ""
 	var issues []Issue
 	for index, line := range board.overviewLines {
 		lineNo := index + 1
@@ -259,6 +260,16 @@ func (board *Board) parseSectionsOverview() []Issue {
 			issues = append(issues, issue("task/overview/state-mismatch", board.Config.OverviewPath, lineNo, "row icon does not match its section", "use [~] in Active, [ ] in Queue, [!] in Blocked, and [x] in Done"))
 		}
 		task := &Task{ID: match[2], Name: match[2], Title: strings.TrimSpace(match[3]), State: current, Path: filepath.ToSlash(match[4]), OverviewLine: lineNo}
+		if current == StateDone {
+			if previousDoneID != "" && task.ID >= previousDoneID {
+				issues = append(issues, issue(
+					"task/overview/done-order", board.Config.OverviewPath, lineNo,
+					"Done rows are not in descending TASK ID order",
+					"sort Done rows newest-first before lifecycle mutation",
+				))
+			}
+			previousDoneID = task.ID
+		}
 		issues = append(issues, board.appendTask(task)...)
 	}
 	for _, heading := range []string{"Active", "Queue", "Blocked", "Done"} {
