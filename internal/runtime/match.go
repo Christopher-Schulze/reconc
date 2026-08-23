@@ -167,8 +167,13 @@ func MatchPath(pattern, path string) (bool, error) {
 	// normalized. Path bytes are evidence and must remain verbatim: leading
 	// and trailing spaces are legal POSIX filename characters.
 	p := strings.TrimSpace(pattern)
-	q := path
-	return doublestar.Match(p, q)
+	// doublestar.Match validates lazily and can return a plain miss before it
+	// reaches a malformed suffix. Validate the complete policy pattern first so
+	// dynamic and compiled paths reject exactly the same grammar.
+	if !doublestar.ValidatePattern(p) {
+		return false, doublestar.ErrBadPattern
+	}
+	return doublestar.MatchUnvalidated(p, path), nil
 }
 
 // MatchAny reports whether path matches any of the given patterns.

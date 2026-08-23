@@ -28,6 +28,7 @@ import (
 type Evaluator struct {
 	mu        sync.Mutex
 	plans     map[string]runtimePlanCacheEntry
+	loads     map[string]*runtimePlanLoad
 	useSerial uint64
 }
 
@@ -39,6 +40,12 @@ type runtimePlanCacheEntry struct {
 	freshnessValid bool
 	lastUsed       uint64
 	plan           *runtimePlan
+}
+
+type runtimePlanLoad struct {
+	done chan struct{}
+	plan *runtimePlan
+	err  error
 }
 
 type runtimePlan struct {
@@ -86,7 +93,7 @@ type runtimeSource struct {
 
 // NewEvaluator returns an isolated plan owner with no process-global state.
 func NewEvaluator() *Evaluator {
-	return &Evaluator{plans: make(map[string]runtimePlanCacheEntry)}
+	return &Evaluator{plans: make(map[string]runtimePlanCacheEntry), loads: make(map[string]*runtimePlanLoad)}
 }
 
 func (e *Evaluator) loadFreshRuntimePlan(root string) (*runtimePlan, error) {
@@ -102,68 +109,116 @@ func (e *Evaluator) loadFreshRuntimePlan(root string) (*runtimePlan, error) {
 
 func (e *Evaluator) loadRuntimePlan(root string) (*runtimePlan, error) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	if e.plans == nil {
 		e.plans = make(map[string]runtimePlanCacheEntry)
 	}
+	if e.loads == nil {
+		e.loads = make(map[string]*runtimePlanLoad)
+	}
+	if active := e.loads[root]; active != nil {
+		e.mu.Unlock()
+		<-active.done
+		return active.plan, active.err
+	}
+	active := &runtimePlanLoad{done: make(chan struct{})}
+	e.loads[root] = active
+	e.mu.Unlock()
 
+	active.plan, active.err = e.loadRuntimePlanOwned(root)
+	e.mu.Lock()
+	delete(e.loads, root)
+	close(active.done)
+	e.mu.Unlock()
+	return active.plan, active.err
+}
+
+func (e *Evaluator) loadRuntimePlanOwned(root string) (*runtimePlan, error) {
 	data, err := readLockfileBytes(root)
 	if err != nil {
-		delete(e.plans, root)
+		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
 	lockHash := sha256.Sum256(data)
-	if cached, ok := e.plans[root]; ok {
+	e.mu.Lock()
+	cached, cachedOK := e.plans[root]
+	e.mu.Unlock()
+	if cachedOK {
 		if cached.lockHash == lockHash && cached.freshnessValid {
 			freshness, freshnessErr := observeRuntimeSourceFreshness(root, cached.plan)
 			if freshnessErr == nil && freshness == cached.freshness {
+				e.mu.Lock()
 				e.useSerial++
 				cached.lastUsed = e.useSerial
-				e.plans[root] = cached
+				if current, ok := e.plans[root]; ok && current.plan == cached.plan && current.lockHash == cached.lockHash {
+					e.plans[root] = cached
+				}
+				e.mu.Unlock()
 				return cached.plan, nil
 			}
 		}
-		delete(e.plans, root)
+		e.invalidateRuntimePlan(root)
 	}
 	bundle, err := ingest.LoadPolicySources(root)
 	if err != nil {
-		delete(e.plans, root)
+		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
 	currentDigest, err := compiler.ComputeSourceDigest(bundle)
 	if err != nil {
-		delete(e.plans, root)
+		e.invalidateRuntimePlan(root)
 		return nil, &rerrors.LockfileError{Message: "compute current source digest", Cause: err}
 	}
 
 	lock, err := decodeLockfile(data)
 	if err != nil {
-		delete(e.plans, root)
+		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
 	lock.byteHash = lockHash
 	if err := validateLockfileFreshnessBundle(lock.payload, lock.migrated, bundle, currentDigest); err != nil {
-		delete(e.plans, root)
+		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
 	plan, err := compileRuntimePlanFromLock(lock)
 	if err != nil {
-		delete(e.plans, root)
+		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
 	plan.sourceFreshness, err = newSourceFreshnessRecipe(root, bundle.PolicyIncludePatterns())
 	if err != nil {
-		delete(e.plans, root)
+		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
-	freshness, freshnessErr := observeRuntimeSourceFreshnessFromBundle(root, plan, bundle)
+	freshness, err := observeRuntimeSourceFreshnessFromBundle(root, plan, bundle)
+	if err != nil {
+		e.invalidateRuntimePlan(root)
+		return nil, &rerrors.LockfileError{Message: "observe runtime source freshness", Cause: err}
+	}
+	publicationLock, err := readLockfileBytes(root)
+	if err != nil || sha256.Sum256(publicationLock) != lockHash {
+		e.invalidateRuntimePlan(root)
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile changed while preparing the runtime plan", Cause: err}
+	}
+	publicationFreshness, err := observeRuntimeSourceFreshness(root, plan)
+	if err != nil || publicationFreshness != freshness {
+		e.invalidateRuntimePlan(root)
+		return nil, &rerrors.LockfileError{Message: "policy sources changed while preparing the runtime plan", Cause: err}
+	}
+	e.mu.Lock()
 	e.useSerial++
 	e.evictRuntimePlanCache(root)
 	e.plans[root] = runtimePlanCacheEntry{
-		lockHash: lockHash, freshness: freshness, freshnessValid: freshnessErr == nil,
+		lockHash: lockHash, freshness: freshness, freshnessValid: true,
 		lastUsed: e.useSerial, plan: plan,
 	}
+	e.mu.Unlock()
 	return plan, nil
+}
+
+func (e *Evaluator) invalidateRuntimePlan(root string) {
+	e.mu.Lock()
+	delete(e.plans, root)
+	e.mu.Unlock()
 }
 
 func (e *Evaluator) evictRuntimePlanCache(incomingRoot string) {

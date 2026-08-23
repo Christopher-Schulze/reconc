@@ -45,9 +45,12 @@ func TestCompiledPathMatcherMatchesDoublestar(t *testing.T) {
 }
 
 func TestCompilePathMatcherRejectsInvalidPattern(t *testing.T) {
-	for _, pattern := range []string{"[", `trailing\`} {
+	for _, pattern := range []string{"[", "[!00", `trailing\`} {
 		if _, err := CompilePathMatcher(pattern); err == nil {
 			t.Errorf("CompilePathMatcher(%q) accepted malformed pattern", pattern)
+		}
+		if _, err := MatchPath(pattern, "0"); err == nil {
+			t.Errorf("MatchPath(%q) accepted malformed pattern", pattern)
 		}
 	}
 }

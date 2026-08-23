@@ -38,7 +38,7 @@ reverified on repeated worker events.
 
 ## Sub-Tasks
 
-- [ ] Diagram every current Stop capture and its exact stability purpose
+- [~] Diagram every current Stop capture and its exact stability purpose
 - [ ] Introduce immutable capture bundles for the three trust boundaries
 - [ ] Rewire cache lookup, evaluation, retry, and generation publication to reuse bundles
 - [ ] Add identity-checked verified-prefix caching for evidence segments

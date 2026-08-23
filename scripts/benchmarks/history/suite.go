@@ -37,9 +37,10 @@ var benchmarkSuite = []groupSpec{
 	{Name: "prospective-path-resolution", Package: "./internal/pathidentity", Calibration: "BenchmarkResolveProspectiveIndependent", Targets: []string{"BenchmarkResolveProspectiveBatch"}},
 	{Name: "runtime-command-matching", Package: "./internal/runtime", Calibration: "BenchmarkForbiddenCommandReparse", Targets: []string{"BenchmarkForbiddenCommandPrepared"}},
 	{Name: "runtime-command-evidence", Package: "./internal/runtime", Calibration: "BenchmarkCommandEvidenceReparse", Targets: []string{"BenchmarkCommandEvidencePrepared"}},
+	{Name: "runtime-evaluation-memos", Package: "./internal/runtime", Calibration: "BenchmarkEvidenceMatchMemoShared", Targets: []string{"BenchmarkMatchContextMemoHit"}},
 	{Name: "runtime-execution-input", Package: "./internal/runtime", Calibration: "BenchmarkLoadExecutionInputsEvents256", Targets: []string{"BenchmarkLoadExecutionInputsEvents8192"}},
 	{Name: "runtime-lockfile-decode", Package: "./internal/runtime", Calibration: "BenchmarkDecodeCurrentLockfileRepresentative", Targets: []string{"BenchmarkDecodeCurrentLockfileMaximumRules"}},
-	{Name: "runtime-source-freshness", Package: "./internal/runtime", Calibration: "BenchmarkRuntimePlanFreshnessHit", Targets: []string{"BenchmarkRuntimePlanFreshnessLargeSourceSet"}},
+	{Name: "runtime-source-freshness", Package: "./internal/runtime", Calibration: "BenchmarkRuntimePlanFreshnessHit", Targets: []string{"BenchmarkRuntimePlanFreshnessLargeSourceSet", "BenchmarkRuntimePlanConcurrentRoots"}},
 	{Name: "runtime-write-epochs", Package: "./internal/runtime", Calibration: "BenchmarkNormalizeWriteEpochsPerPath", Targets: []string{"BenchmarkNormalizeWriteEpochsBatch"}},
 }
 

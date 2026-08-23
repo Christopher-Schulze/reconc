@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
@@ -137,6 +138,31 @@ func BenchmarkRuntimePlanFreshnessHit(b *testing.B) {
 			b.Fatal("freshness hit rebuilt the runtime plan")
 		}
 	}
+}
+
+func BenchmarkRuntimePlanConcurrentRoots(b *testing.B) {
+	b.Setenv("RECONC_HOME", b.TempDir())
+	const rootCount = 4
+	repositories := make([]string, rootCount)
+	evaluator := NewEvaluator()
+	for index := range repositories {
+		repositories[index] = benchmarkFreshnessRepo(b, 2)
+		if _, err := evaluator.loadFreshRuntimePlan(repositories[index]); err != nil {
+			b.Fatal(err)
+		}
+	}
+	var sequence atomic.Uint64
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			root := repositories[sequence.Add(1)%rootCount]
+			if _, err := evaluator.loadFreshRuntimePlan(root); err != nil {
+				b.Error(err)
+				return
+			}
+		}
+	})
 }
 
 func BenchmarkRuntimePlanFreshnessColdLoad(b *testing.B) {

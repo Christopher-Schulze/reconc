@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
@@ -336,6 +337,46 @@ func TestRuntimePlanCacheInvalidatesOnSourceAndLockChanges(t *testing.T) {
 	}
 	if _, err := evaluator.loadFreshRuntimePlan(repo); err != nil {
 		t.Fatalf("restored lockfile did not rebuild: %v", err)
+	}
+}
+
+func TestRuntimePlanConcurrentSameRootPublishesOnePlan(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	evaluator := NewEvaluator()
+	const workers = 16
+	plans := make(chan *runtimePlan, workers)
+	errors := make(chan error, workers)
+	var group sync.WaitGroup
+	group.Add(workers)
+	for range workers {
+		go func() {
+			defer group.Done()
+			plan, err := evaluator.loadRuntimePlan(repo)
+			plans <- plan
+			errors <- err
+		}()
+	}
+	group.Wait()
+	close(plans)
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var first *runtimePlan
+	for plan := range plans {
+		if first == nil {
+			first = plan
+			continue
+		}
+		if plan != first {
+			t.Fatalf("same-root concurrent load published multiple plans: first=%p other=%p", first, plan)
+		}
+	}
+	if len(evaluator.loads) != 0 || len(evaluator.plans) != 1 {
+		t.Fatalf("load state leaked: active=%d cached=%d", len(evaluator.loads), len(evaluator.plans))
 	}
 }
 

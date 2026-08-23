@@ -123,7 +123,7 @@ func (m compiledTemplateMatcher) match(path string) (map[string]string, bool, er
 		if m.literalErr != nil {
 			return nil, false, m.literalErr
 		}
-		return map[string]string{}, m.literal.Match(path), nil
+		return nil, m.literal.Match(path), nil
 	}
 	path = filepath.ToSlash(path)
 	if m.maskedErr != nil {
@@ -226,8 +226,7 @@ func matchTemplateWithMatchers(matchers *runtimeTemplateMatchers, pattern, path 
 //     plans retain that compiled state; this standalone helper creates an
 //     isolated matcher for compatibility with dynamic callers.
 //
-// Captures map names to captured values; empty map on a non-template
-// pattern that matched.
+// Captures map names to captured values; nil on a non-template pattern.
 func MatchTemplate(pattern, path string) (map[string]string, bool, error) {
 	return compileTemplateMatcher(pattern).match(path)
 }

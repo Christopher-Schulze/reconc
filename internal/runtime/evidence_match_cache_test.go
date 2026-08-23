@@ -67,6 +67,35 @@ func TestMatchContextMemoClonesResultsAndErrors(t *testing.T) {
 	}
 }
 
+func TestMatchContextMemoEnforcesByteBudget(t *testing.T) {
+	memo := newMatchContextMemo()
+	oversized := []matchContext{{
+		path: strings.Repeat("p", maxMatchContextMemoBytes),
+	}}
+	key := matchContextMemoKey{writes: digestStrings([]string{"write"})}
+	if bytes := matchContextMemoEntryBytes(key, oversized, nil); bytes <= maxMatchContextMemoBytes {
+		t.Fatalf("oversized fixture charged only %d bytes", bytes)
+	}
+	// The production store path must never retain a result whose defensive
+	// storage and return clones exceed the complete memo budget.
+	writes := []string{strings.Repeat("p", maxMatchContextMemoBytes)}
+	patterns := []string{"**"}
+	if _, err := memo.collect(nil, writes, patterns); err != nil {
+		t.Fatal(err)
+	}
+	if len(memo.entries) != 0 || memo.bytes != 0 {
+		t.Fatalf("oversized entry retained: entries=%d bytes=%d", len(memo.entries), memo.bytes)
+	}
+}
+
+func TestComparableEvidenceOptionsPreservesSliceBoundaries(t *testing.T) {
+	first := comparableEvidenceOptions(evidenceMatchOptions{mustContain: []string{"ab", "c"}})
+	second := comparableEvidenceOptions(evidenceMatchOptions{mustContain: []string{"a", "bc"}})
+	if first == second {
+		t.Fatal("length-delimited evidence options conflated distinct slices")
+	}
+}
+
 func BenchmarkEvidenceMatchMemoShared(b *testing.B) {
 	snapshot := evidenceFileSnapshot{
 		path:          "evidence.txt",
@@ -82,6 +111,23 @@ func BenchmarkEvidenceMatchMemoShared(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		if got := memo.match("/repo/evidence.txt", snapshot, options); len(got.reasons) != 0 {
 			b.Fatal(got.reasons)
+		}
+	}
+}
+
+func BenchmarkMatchContextMemoHit(b *testing.B) {
+	memo := newMatchContextMemo()
+	writes := []string{"src/TASK-1.md", "src/TASK-2.md"}
+	patterns := []string{"src/{task}.md"}
+	if _, err := memo.collect(nil, writes, patterns); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		contexts, err := memo.collect(nil, writes, patterns)
+		if err != nil || len(contexts) != len(writes) {
+			b.Fatalf("memo hit = %d, %v", len(contexts), err)
 		}
 	}
 }

@@ -81,9 +81,25 @@ func TestCompiledTemplateMatcherMatchesLegacy(t *testing.T) {
 		compiled := compileTemplateMatcher(testCase[0])
 		gotCaptures, gotOK, gotErr := compiled.match(testCase[1])
 		wantCaptures, wantOK, wantErr := legacyMatchTemplateForTest(testCase[0], testCase[1])
+		if !compiled.hasVars {
+			wantCaptures = nil
+		}
 		if gotOK != wantOK || !reflect.DeepEqual(gotCaptures, wantCaptures) || errorText(gotErr) != errorText(wantErr) {
 			t.Errorf("compiled %q/%q = (%v, %v, %v), legacy = (%v, %v, %v)", testCase[0], testCase[1], gotCaptures, gotOK, gotErr, wantCaptures, wantOK, wantErr)
 		}
+	}
+}
+
+func TestCompiledLiteralTemplateMatcherAllocatesNoCaptures(t *testing.T) {
+	matcher := compileTemplateMatcher("src/**")
+	allocations := testing.AllocsPerRun(1000, func() {
+		captures, matched, err := matcher.match("src/main.go")
+		if err != nil || !matched || captures != nil {
+			t.Fatalf("literal match = (%v, %t, %v)", captures, matched, err)
+		}
+	})
+	if allocations != 0 {
+		t.Fatalf("literal template matcher allocations = %.2f, want 0", allocations)
 	}
 }
 

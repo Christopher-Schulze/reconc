@@ -65,6 +65,10 @@ func matchingForbiddenCommandsWithCache(cache *commandInvocationCache, commands,
 	if len(normalizedExpected) == 0 {
 		return nil
 	}
+	compiledExpected := make([]shellcommand.CompiledExpectation, 0, len(normalizedExpected))
+	for _, expectedCommand := range normalizedExpected {
+		compiledExpected = append(compiledExpected, cache.expectedMatcher(expectedCommand))
+	}
 	out := []string{}
 	for _, command := range commands {
 		observed := cache.observedInvocations(command)
@@ -74,11 +78,10 @@ func matchingForbiddenCommandsWithCache(cache *commandInvocationCache, commands,
 		}
 		commandMatched := false
 		for _, invocation := range observed.segments {
-			for _, expectedCommand := range normalizedExpected {
+			for _, compiled := range compiledExpected {
 				// Deny direction: fold the program name so a forbidden command
 				// cannot be smuggled past the gate by changing its case on a
 				// case-insensitive filesystem.
-				compiled := cache.expectedMatcher(expectedCommand)
 				matched, uncertain := compiled.Match(invocation, match == policy.CommandMatchPrefix, true)
 				if matched || uncertain {
 					commandMatched = true

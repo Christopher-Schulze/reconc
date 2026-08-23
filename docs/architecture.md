@@ -680,10 +680,11 @@ and byte-compares the notice before checksums and provenance are accepted.
      path; every hit revalidates file identity, mode, size, and modification
      time before reusing metadata or bounded content. Evidence checks then reuse
      a second bounded memo keyed by that stable file identity/content digest,
-     substituted file binding, and every assertion option; negative matches and
+     substituted file binding, and an exact immutable encoding of every assertion option; negative matches and
      ordered reasons are cached without changing violation order. Template
      match-context construction is likewise memoized per evaluation with cloned
-     immutable capture maps. High-cardinality path
+     immutable capture maps under both a 4 MiB retained-byte budget and a 4,096-entry cap.
+     Literal templates return no capture map. High-cardinality path
     normalization uses an evaluation-local prospective resolver that
     revalidates shared existing ancestors before reusing their filesystem
     identities; missing suffixes are never trusted from string state alone.
@@ -694,6 +695,10 @@ and byte-compares the notice before checksums and provenance are accepted.
     while arguments, results, and progress are already canonical roots. The
      production compiled-plan path therefore avoids rebuilding the same object
      and revalidating its pointer program for every predicate.
+     Runtime-plan cache misses use repository-root-scoped singleflight rather
+     than holding the cache mutex across filesystem I/O. Lock and source
+     identities are revalidated immediately before a compiled plan is
+     published; unrelated roots never serialize behind that work.
      Runtime evidence/report collections use a local membership map plus an
      ordered slice, preserving first-seen output while avoiding quadratic
      duplicate scans at bounded high cardinalities.

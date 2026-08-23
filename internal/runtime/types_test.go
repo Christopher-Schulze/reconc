@@ -105,20 +105,20 @@ func TestFinalizeObserveDoesNotChangeDecision(t *testing.T) {
 func TestSummaryStrings(t *testing.T) {
 	r := NewEmptyReport("/r", ".reconc/policy.lock.json", policy.ModeWarn, Empty())
 	r.Finalize()
-	if r.Summary != "All policy rules satisfied." {
+	if r.Summary != "Policy check passed with no violations." {
 		t.Errorf("pass summary wrong: %q", r.Summary)
 	}
 
 	r.Violations = []Violation{{RuleID: "r1", Mode: policy.ModeBlock}}
 	r.Finalize()
-	if r.Summary == "" {
-		t.Error("block summary should be non-empty")
+	if r.Summary != "Policy check found 1 violation(s), including 1 blocking violation(s)." {
+		t.Fatalf("block summary = %q", r.Summary)
 	}
 
 	r.Violations = []Violation{{RuleID: "r1", Mode: policy.ModeWarn}}
 	r.Finalize()
-	if r.Summary == "" {
-		t.Error("warn summary should be non-empty")
+	if r.Summary != "Policy check found 1 non-blocking violation(s)." {
+		t.Fatalf("warn summary = %q", r.Summary)
 	}
 }
 

@@ -4129,10 +4129,14 @@ Security posture:
   appears later in the same evaluation.
 - After a stable snapshot is available, a separate bounded logical-match memo
   keys substituted file bindings, content digest, file identity, and all
-  substring/line-count/optional flags. It preserves ordered negative reasons
+  substring/line-count/optional flags through an exact immutable
+  length-delimited key rather than per-assertion hashing. It preserves ordered negative reasons
   for top-level and composite checks. The same evaluation memoizes template
   match contexts with cloned capture maps, including deterministic errors, so
-  repeated rules do not rebuild equivalent derived evidence.
+  repeated rules do not rebuild equivalent derived evidence. That memo has a
+  4 MiB retained-byte budget in addition to its entry cap; oversized entries
+  bypass storage and FIFO eviction accounts for keys, strings, captures,
+  errors, slice slots, and the simultaneously retained defensive clone.
 - Batch path normalization and policy evidence resolution use one
   evaluation-local `pathidentity` prospective resolver. Shared existing
   ancestors are `Lstat`-revalidated before reuse; missing suffixes remain
@@ -4152,6 +4156,9 @@ Security posture:
   directory symlink moves execution outside the repository root. The declared
   timeout and SIGTERM-to-SIGKILL grace are both clamped before they become
   durations, so no policy value can wrap the conversion or outlive the cap.
+  Top-level rules may declare `kill_timeout_sec`; composite script sub-checks
+  deliberately use the same bounded five-second default because their stable
+  schema exposes only `timeout_sec`.
   These scripts are trusted repository code, not sandboxed input. The filtered
   environment reduces incidental secret exposure but retains `HOME` for common
   user-level toolchain caches and configuration, which therefore remain
@@ -4166,6 +4173,11 @@ Security posture:
   the compiled-memory admission budget retain a validated doublestar fallback.
   Migrated legacy locks additionally prove embedded-rule and MCP parity against
   reparsed current sources.
+- Runtime-plan loading coordinates only callers for the same repository root.
+  Lockfile reads, source walks, freshness hashing, decoding, and compilation for
+  different roots proceed independently. Before publishing a newly compiled
+  plan, the evaluator revalidates both the lockfile hash and complete source
+  freshness so an out-of-lock mutation cannot publish stale state.
 
 Reconc is a deterministic repository control plane, not an operating-system
 sandbox. A deliberately hostile same-user process can replace local policy,

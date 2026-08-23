@@ -260,7 +260,6 @@ func (e *Evaluator) AssertRuleByID(startPath, ruleID string, vars map[string]str
 	}
 	report.Finalize()
 	report.NextAction = nextActionForViolations(report.Violations)
-	report.Summary = summarizeReport(report.Decision, report.ViolationCount, report.BlockingViolationCount)
 	return &report, nil
 }
 
@@ -391,7 +390,6 @@ func evaluateRuntimePlanWithRootResolver(root string, plan *runtimePlan, inputs 
 
 	report.Finalize()
 	report.NextAction = nextActionForViolations(report.Violations)
-	report.Summary = summarizeReport(report.Decision, report.ViolationCount, report.BlockingViolationCount)
 	return &report, nil
 }
 

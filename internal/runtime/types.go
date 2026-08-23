@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"strconv"
 
 	"reconc.dev/reconc/internal/policy"
@@ -196,26 +197,15 @@ func (r *CheckReport) Terse() TerseReport {
 	}
 }
 
-// renderSummary produces a one-line human summary, e.g.
-// "1 blocking, 2 warnings; see violations.".
+// renderSummary is the canonical one-line policy report summary.
 func renderSummary(r CheckReport) string {
-	switch r.Decision {
-	case DecisionPass:
-		return "All policy rules satisfied."
-	case DecisionWarn:
-		return formatCount(r.ViolationCount, "non-blocking violation")
-	case DecisionBlock:
-		return formatCount(r.BlockingViolationCount, "blocking violation") + " (see violations)"
-	default:
-		return ""
+	if r.ViolationCount == 0 {
+		return "Policy check passed with no violations."
 	}
-}
-
-func formatCount(n int, noun string) string {
-	if n == 1 {
-		return "1 " + noun
+	if r.Decision == DecisionBlock {
+		return fmt.Sprintf("Policy check found %d violation(s), including %d blocking violation(s).", r.ViolationCount, r.BlockingViolationCount)
 	}
-	return itoa(n) + " " + noun + "s"
+	return fmt.Sprintf("Policy check found %d non-blocking violation(s).", r.ViolationCount)
 }
 
 func itoa(n int) string {

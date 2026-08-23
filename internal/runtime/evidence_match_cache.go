@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -12,6 +13,7 @@ const (
 	maxEvidenceMatchMemoEntries  = maxEvidenceSnapshots
 	maxEvidenceMatchMemoBytes    = 1 << 20
 	maxMatchContextMemoEntries   = 4096
+	maxMatchContextMemoBytes     = 4 << 20
 	initialEvaluationMemoEntries = 8
 )
 
@@ -36,7 +38,16 @@ type evidenceMatchKey struct {
 	modTimeNanos  int64
 	mode          os.FileMode
 	contentDigest [32]byte
-	optionsDigest [32]byte
+	options       evidenceOptionsKey
+}
+
+type evidenceOptionsKey struct {
+	file           string
+	mustContain    string
+	mustNotContain string
+	maxLineCount   int
+	mustExist      bool
+	optional       bool
 }
 
 type evidenceMatchResult struct {
@@ -63,7 +74,7 @@ func (m *evidenceMatchMemo) match(path string, snapshot evidenceFileSnapshot, op
 		identity:      snapshot.identity,
 		exists:        snapshot.exists,
 		contentDigest: snapshot.contentDigest,
-		optionsDigest: digestEvidenceOptions(options),
+		options:       comparableEvidenceOptions(options),
 	}
 	if snapshot.info != nil {
 		key.size = snapshot.info.Size()
@@ -176,11 +187,13 @@ type matchContextMemoKey struct {
 type matchContextMemoEntry struct {
 	contexts []matchContext
 	err      error
+	bytes    int
 }
 
 type matchContextMemo struct {
 	entries map[matchContextMemoKey]matchContextMemoEntry
 	order   []matchContextMemoKey
+	bytes   int
 }
 
 func newMatchContextMemo() *matchContextMemo {
@@ -196,18 +209,53 @@ func (m *matchContextMemo) collect(matchers *runtimeTemplateMatchers, writes, pa
 		return cloneMatchContexts(cached.contexts), cached.err
 	}
 	contexts, err := collectMatchContextsWithMatchers(matchers, writes, patterns)
+	entryBytes := matchContextMemoEntryBytes(key, contexts, err)
+	if entryBytes > maxMatchContextMemoBytes {
+		return contexts, err
+	}
 	if m.entries == nil {
 		m.entries = make(map[matchContextMemoKey]matchContextMemoEntry, initialEvaluationMemoEntries)
 		m.order = make([]matchContextMemoKey, 0, initialEvaluationMemoEntries)
 	}
-	m.entries[key] = matchContextMemoEntry{contexts: cloneMatchContexts(contexts), err: err}
-	m.order = append(m.order, key)
-	if len(m.order) > maxMatchContextMemoEntries {
+	for len(m.order) >= maxMatchContextMemoEntries || m.bytes+entryBytes > maxMatchContextMemoBytes {
+		if len(m.order) == 0 {
+			break
+		}
 		oldest := m.order[0]
 		m.order = m.order[1:]
-		delete(m.entries, oldest)
+		if previous, ok := m.entries[oldest]; ok {
+			m.bytes -= previous.bytes
+			delete(m.entries, oldest)
+		}
 	}
+	m.entries[key] = matchContextMemoEntry{contexts: cloneMatchContexts(contexts), err: err, bytes: entryBytes}
+	m.order = append(m.order, key)
+	m.bytes += entryBytes
 	return cloneMatchContexts(contexts), err
+}
+
+func matchContextMemoEntryBytes(key matchContextMemoKey, contexts []matchContext, err error) int {
+	// The budget charges every retained digest byte, slice slot, string byte,
+	// capture key/value pair, map entry allowance, and cached error text. The
+	// same context payload is charged twice because storage and defensive
+	// return cloning can coexist during a hit.
+	const (
+		keyBytes          = 64
+		contextSlotBytes  = 40
+		captureEntryBytes = 48
+	)
+	bytes := keyBytes
+	for _, context := range contexts {
+		contextBytes := contextSlotBytes + len(context.path) + len(context.pattern)
+		for name, value := range context.captures {
+			contextBytes += captureEntryBytes + len(name) + len(value)
+		}
+		bytes += 2 * contextBytes
+	}
+	if err != nil {
+		bytes += 16 + len(err.Error())
+	}
+	return bytes
 }
 
 func cloneMatchContexts(contexts []matchContext) []matchContext {
@@ -233,33 +281,22 @@ func cloneStringMap(values map[string]string) map[string]string {
 	return cloned
 }
 
-func digestEvidenceOptions(options evidenceMatchOptions) [32]byte {
-	hash := sha256.New()
-	var length [8]byte
-	binary.BigEndian.PutUint64(length[:], uint64(len(options.file)))
-	hash.Write(length[:])
-	hash.Write([]byte(options.file))
-	containsDigest := digestStrings(options.mustContain)
-	hash.Write(containsDigest[:])
-	binary.BigEndian.PutUint64(length[:], uint64(len(options.mustNotContain)))
-	hash.Write(length[:])
-	hash.Write([]byte(options.mustNotContain))
-	var numeric [8]byte
-	binary.BigEndian.PutUint64(numeric[:], uint64(options.maxLineCount))
-	hash.Write(numeric[:])
-	if options.mustExist {
-		hash.Write([]byte{1})
-	} else {
-		hash.Write([]byte{0})
+func comparableEvidenceOptions(options evidenceMatchOptions) evidenceOptionsKey {
+	return evidenceOptionsKey{
+		file: options.file, mustContain: lengthDelimitedStrings(options.mustContain),
+		mustNotContain: options.mustNotContain, maxLineCount: options.maxLineCount,
+		mustExist: options.mustExist, optional: options.optional,
 	}
-	if options.optional {
-		hash.Write([]byte{1})
-	} else {
-		hash.Write([]byte{0})
+}
+
+func lengthDelimitedStrings(values []string) string {
+	var encoded strings.Builder
+	for _, value := range values {
+		encoded.WriteString(strconv.Itoa(len(value)))
+		encoded.WriteByte(':')
+		encoded.WriteString(value)
 	}
-	var digest [32]byte
-	copy(digest[:], hash.Sum(nil))
-	return digest
+	return encoded.String()
 }
 
 func digestStrings(values []string) [32]byte {

@@ -8,7 +8,9 @@ allocates empty capture maps for literal templates, and performs matcher lookup
 inside the innermost forbidden-command loop. The evaluator also holds one mutex
 across lockfile reads, policy-source I/O, freshness walks, compilation, and
 cache publication, serializing otherwise independent roots and concurrent
-worker requests. Composite checks ignore their configured script kill timeout.
+worker requests. The audit also claimed composite checks ignored a configured
+script kill timeout, but the stable composite-check contract exposes no such
+field and already routes zero through the bounded default.
 
 ## Acceptance
 
@@ -29,8 +31,9 @@ worker requests. Composite checks ignore their configured script kill timeout.
 - Any load performed outside the cache mutex revalidates lockfile/source
   identity at publication. No stale plan can win a race with refresh or source
   mutation.
-- Composite `require_script` checks honor their declared `kill_timeout_sec`
-  within existing global bounds, matching top-level script behavior.
+- Composite `require_script` checks keep the documented bounded default kill
+  grace. The nonexistent sub-check field remains rejected and no lockfile or
+  schema identity is changed to manufacture a new contract.
 - Duplicate summary rendering is consolidated to one canonical owner and
   output remains byte-stable.
 - Allocation, concurrency, mutation-race, timeout, fuzz, benchmark-history,
@@ -38,16 +41,16 @@ worker requests. Composite checks ignore their configured script kill timeout.
 
 ## Sub-Tasks
 
-- [~] Measure memo entry sizes, matcher allocations, and plan-lock contention
-- [ ] Add byte accounting and bounded eviction to match-context memoization
-- [ ] Replace evidence-option hash keys only with an exact immutable comparable key
-- [ ] Remove empty literal-template capture allocations
-- [ ] Hoist expected command matchers per rule
-- [ ] Replace global plan-load locking with per-root singleflight and publication revalidation
-- [ ] Honor composite script kill timeouts and consolidate summary ownership
-- [ ] Add allocation, contention, mutation, timeout, and race tests
-- [ ] Update runtime cache/concurrency documentation and benchmark history
-- [ ] Run runtime, fuzz, race, publication, and complete repository gates
+- [x] Measure memo entry sizes, matcher allocations, and plan-lock contention
+- [x] Add byte accounting and bounded eviction to match-context memoization
+- [x] Replace evidence-option hash keys only with an exact immutable comparable key
+- [x] Remove empty literal-template capture allocations
+- [x] Hoist expected command matchers per rule
+- [x] Replace global plan-load locking with per-root singleflight and publication revalidation
+- [x] Preserve the composite script kill-timeout contract and consolidate summary ownership
+- [x] Add allocation, contention, mutation, timeout, and race tests
+- [x] Update runtime cache/concurrency documentation and benchmark history
+- [x] Run runtime, fuzz, race, publication, and complete repository gates
 
 ## Notes
 
@@ -65,6 +68,22 @@ worker requests. Composite checks ignore their configured script kill timeout.
 - A content-read error poisoning later metadata-only reads is fail-closed. Keep
   that behavior unless a separate contract task proves that partial evaluation
   remains safe.
+- Composite `require_script` checks have never declared `kill_timeout_sec` in
+  the authoring schema, policy type, field matrix, or lock schema. Passing zero
+  to `RunScript` selects the tested five-second bounded default. Adding the
+  field would alter a stable format-6 contract, so the incorrect audit premise
+  was rejected rather than implemented as undocumented format churn.
+- Fuzzing found an upstream lazy-validation edge case where
+  `doublestar.Match("[!00", "0")` returned a miss without reporting the
+  malformed character class. `MatchPath` now validates the complete pattern
+  before the unchecked match, restoring exact parity with compiled matchers.
+- Verification: parser/runtime race suites passed; the two matcher fuzz targets
+  completed 222,720 generated executions after the regression repair; benchmark
+  history v9 recorded and compared cleanly; `test-fast` passed every package
+  before its final test-log write exhausted disk, and the affected
+  `runtime/agentsession` package then passed independently after clearing only
+  Go build/test caches. Vet, Staticcheck, reference-doc checks,
+  publication-audit, and harness-pack verification passed.
 
 ## Deviations
 

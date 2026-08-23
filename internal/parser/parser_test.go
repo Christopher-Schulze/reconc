@@ -985,6 +985,11 @@ func TestParseCheckRejectsInvalidShapes(t *testing.T) {
 			wantSub: "repo-relative path",
 		},
 		{
+			name:    "script-kill-timeout-is-not-a-sub-check-field",
+			item:    map[string]interface{}{"kind": "require_script", "script": "scripts/check.sh", "kill_timeout_sec": 1},
+			wantSub: "kill_timeout_sec",
+		},
+		{
 			name:    "evidence-needs-assertion",
 			item:    map[string]interface{}{"kind": "require_evidence", "file": "docs/evidence.md"},
 			wantSub: "must specify at least one",

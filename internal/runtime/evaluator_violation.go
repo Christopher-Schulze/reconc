@@ -124,18 +124,6 @@ func joinForHumans(values []string) string {
 	return strings.Join(values, ", ")
 }
 
-// --- Summary + next-action ---
-
-func summarizeReport(decision Decision, total, blocking int) string {
-	if total == 0 {
-		return "Policy check passed with no violations."
-	}
-	if decision == DecisionBlock {
-		return fmt.Sprintf("Policy check found %d violation(s), including %d blocking violation(s).", total, blocking)
-	}
-	return fmt.Sprintf("Policy check found %d non-blocking violation(s).", total)
-}
-
 func nextActionForViolations(violations []Violation) string {
 	if len(violations) == 0 {
 		return ""
