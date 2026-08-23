@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -182,7 +183,7 @@ func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 
 	scriptPath := rule.Script
 	if scriptPath == "" {
-		return nil, &rerrors.LockfileError{Message: "rule '" + ruleIDOf(rule) + "' missing script field in lockfile"}
+		return nil, &rerrors.LockfileError{Message: "rule " + quote(ruleIDOf(rule)) + " missing script field in lockfile"}
 	}
 	args := rule.Args
 	timeoutSec := rule.TimeoutSec
@@ -223,8 +224,8 @@ func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 	}
 	v := buildViolation(rule, defaultMode, triggeredPaths.values(), nil, nil, []string{scriptPath}, nil, nil)
 	v.Explanation = fmt.Sprintf(
-		"Write activity %s triggered require_script rule '%s'. %s",
-		joinForHumans(triggeredPaths.values()), v.RuleID, strings.Join(failures, "; "),
+		"Write activity %s triggered require_script rule %s. %s",
+		joinForHumans(triggeredPaths.values()), quote(v.RuleID), strings.Join(failures, "; "),
 	)
 	v.RecommendedAction = scriptRecommendedAction(failures)
 	return v, nil
@@ -266,7 +267,7 @@ func evalRequireFreshFile(ctx *evalContext, rule *policy.Rule, defaultMode polic
 			path, err := SubstituteTemplate(rf.Path, mc.captures)
 			if err != nil {
 				return nil, &rerrors.RuleValidationError{
-					Message: "rule '" + ruleIDOf(rule) + "' required_files path: " + err.Error(),
+					Message: "rule " + quote(ruleIDOf(rule)) + " required_files path: " + err.Error(),
 				}
 			}
 			fullPath, err := ctx.resolvePolicyFile(path)
@@ -314,8 +315,8 @@ func evalRequireFreshFile(ctx *evalContext, rule *policy.Rule, defaultMode polic
 		parts = append(parts, "stale: "+joinForHumans(stale.values()))
 	}
 	v.Explanation = fmt.Sprintf(
-		"Write activity %s triggered require_fresh_file rule '%s' (%s).",
-		joinForHumans(triggeredPaths.values()), v.RuleID, strings.Join(parts, "; "),
+		"Write activity %s triggered require_fresh_file rule %s (%s).",
+		joinForHumans(triggeredPaths.values()), quote(v.RuleID), strings.Join(parts, "; "),
 	)
 	v.RecommendedAction = "Regenerate or refresh the listed files: " + joinForHumans(requiredPaths) + "."
 	return v, nil
@@ -349,7 +350,7 @@ func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy
 			file, err := SubstituteTemplate(c.File, mc.captures)
 			if err != nil {
 				return nil, &rerrors.RuleValidationError{
-					Message: "rule '" + ruleIDOf(rule) + "' evidence file: " + err.Error(),
+					Message: "rule " + quote(ruleIDOf(rule)) + " evidence file: " + err.Error(),
 				}
 			}
 			requiredFiles[file] = struct{}{}
@@ -383,8 +384,8 @@ func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy
 	required := mapKeysSorted(requiredFiles)
 	v := buildViolation(rule, defaultMode, triggeredPaths.values(), nil, nil, required, nil, nil)
 	v.Explanation = fmt.Sprintf(
-		"Write activity %s triggered require_evidence rule '%s'. Failures: %s.",
-		joinForHumans(triggeredPaths.values()), v.RuleID, strings.Join(failures, "; "),
+		"Write activity %s triggered require_evidence rule %s. Failures: %s.",
+		joinForHumans(triggeredPaths.values()), quote(v.RuleID), strings.Join(failures, "; "),
 	)
 	v.RecommendedAction = "Update the evidence files to satisfy the listed assertions."
 	return v, nil
@@ -492,7 +493,7 @@ func evidenceChecksFromRule(rule *policy.Rule) []policy.EvidenceCheck {
 // of plan storage.
 func assuranceGatesFromRule(rule *policy.Rule) ([]policy.AssuranceGate, error) {
 	if rule == nil || len(rule.Assurance) == 0 {
-		return nil, &rerrors.LockfileError{Message: "rule '" + ruleIDOf(rule) + "' missing assurance field in lockfile"}
+		return nil, &rerrors.LockfileError{Message: "rule " + quote(ruleIDOf(rule)) + " missing assurance field in lockfile"}
 	}
 	gates := append([]policy.AssuranceGate(nil), rule.Assurance...)
 	for index := range gates {
@@ -522,10 +523,10 @@ func numAsIntDefault(v interface{}, def int64) int64 {
 	return def
 }
 
-// quote wraps a string in double quotes for human-readable error
-// messages without pulling in fmt.Sprintf("%q") on hot paths.
+// quote returns one escaped diagnostic token without allowing untrusted values
+// to break the surrounding delimiter or inject control characters.
 func quote(s string) string {
-	return `"` + s + `"`
+	return strconv.Quote(s)
 }
 
 func evalDenyWrite(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {

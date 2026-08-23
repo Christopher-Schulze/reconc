@@ -113,7 +113,7 @@ func evaluateEvidenceSnapshot(path string, snapshot evidenceFileSnapshot, option
 		return evidenceMatchResult{}
 	}
 
-	reasons := make([]string, 0, len(options.mustContain)+2)
+	reasons := make([]string, 0, len(options.mustContain))
 	for _, required := range options.mustContain {
 		if !strings.Contains(snapshot.content, required) {
 			reasons = append(reasons, displayPath+": missing required substring "+quote(required))

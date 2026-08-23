@@ -234,8 +234,8 @@ func buildBatchScriptViolation(item workflowAuditBatchItem, scriptPath string, d
 	violation := buildViolation(item.rule, defaultMode, triggeredPaths, nil, nil, []string{scriptPath}, nil, nil)
 	details := batchScriptFailureDetails(scriptPath, failures)
 	violation.Explanation = fmt.Sprintf(
-		"Write activity %s triggered require_script rule '%s'. %s",
-		joinForHumans(triggeredPaths), violation.RuleID, strings.Join(details, "; "),
+		"Write activity %s triggered require_script rule %s. %s",
+		joinForHumans(triggeredPaths), quote(violation.RuleID), strings.Join(details, "; "),
 	)
 	violation.RecommendedAction = batchScriptRecommendedAction(details)
 	return violation

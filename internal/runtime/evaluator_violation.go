@@ -61,34 +61,34 @@ func explainViolation(
 	switch kind {
 	case policy.KindDenyWrite:
 		fallback := joinForHumans(stringListField(rule, "paths"))
-		return fmt.Sprintf("Write activity %s matched deny_write rule '%s'.", pathList, id),
+		return fmt.Sprintf("Write activity %s matched deny_write rule %s.", pathList, quote(id)),
 			fmt.Sprintf("Avoid writing paths matching %s.", fallback)
 	case policy.KindRequireRead:
-		return fmt.Sprintf("Write activity %s triggered require_read rule '%s', but no required read matched %s.", pathList, id, requiredPathList),
+		return fmt.Sprintf("Write activity %s triggered require_read rule %s, but no required read matched %s.", pathList, quote(id), requiredPathList),
 			fmt.Sprintf("Read at least one path matching %s before modifying %s.", requiredPathList, pathList)
 	case policy.KindRequireCommand:
-		return fmt.Sprintf("Write activity %s triggered require_command rule '%s', but no required command matched %s.", pathList, id, requiredCommandList),
+		return fmt.Sprintf("Write activity %s triggered require_command rule %s, but no required command matched %s.", pathList, quote(id), requiredCommandList),
 			fmt.Sprintf("Run one of the required commands before finishing: %s.", requiredCommandList)
 	case policy.KindRequireCommandSuccess:
-		return fmt.Sprintf("Write activity %s triggered require_command_success rule '%s', but no required successful command matched %s.", pathList, id, requiredCommandList),
+		return fmt.Sprintf("Write activity %s triggered require_command_success rule %s, but no required successful command matched %s.", pathList, quote(id), requiredCommandList),
 			fmt.Sprintf("Run one of the required commands successfully before finishing: %s.", requiredCommandList)
 	case policy.KindForbidCommand:
 		forbidden := joinForHumans(stringListField(rule, "commands"))
 		whenList := joinForHumans(stringListField(rule, "when_paths"))
 		if len(matchedPaths) > 0 {
-			return fmt.Sprintf("Forbidden command(s) %s ran while writing %s, matching forbid_command rule '%s'.", commandList, pathList, id),
+			return fmt.Sprintf("Forbidden command(s) %s ran while writing %s, matching forbid_command rule %s.", commandList, pathList, quote(id)),
 				fmt.Sprintf("Do not run %s when touching paths matching %s; revert or replace the invocation with an allowed alternative.", forbidden, whenList)
 		}
-		return fmt.Sprintf("Forbidden command(s) %s ran, matching forbid_command rule '%s'.", commandList, id),
+		return fmt.Sprintf("Forbidden command(s) %s ran, matching forbid_command rule %s.", commandList, quote(id)),
 			fmt.Sprintf("Do not run %s in this repository; revert or replace the invocation with an allowed alternative.", forbidden)
 	case policy.KindCoupleChange:
-		return fmt.Sprintf("Write activity %s triggered couple_change rule '%s', but no coupled change matched %s.", pathList, id, requiredPathList),
+		return fmt.Sprintf("Write activity %s triggered couple_change rule %s, but no coupled change matched %s.", pathList, quote(id), requiredPathList),
 			fmt.Sprintf("Update at least one path matching %s alongside %s.", requiredPathList, pathList)
 	case policy.KindRequireClaim:
-		return fmt.Sprintf("Write activity %s triggered require_claim rule '%s', but no required claim matched %s.", pathList, id, requiredClaimList),
+		return fmt.Sprintf("Write activity %s triggered require_claim rule %s, but no required claim matched %s.", pathList, quote(id), requiredClaimList),
 			fmt.Sprintf("Record one of the required claims before finishing: %s.", requiredClaimList)
 	}
-	return fmt.Sprintf("Rule '%s' triggered for paths %s and commands %s.", id, pathList, commandList),
+	return fmt.Sprintf("Rule %s triggered for paths %s and commands %s.", quote(id), pathList, commandList),
 		"Inspect the matched rule and input evidence, then rerun the policy check."
 }
 

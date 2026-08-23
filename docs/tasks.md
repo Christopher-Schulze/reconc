@@ -2,6 +2,7 @@
 
 ## Active
 
+- [~] 286 Eliminate open CodeQL findings -> tasks/286-eliminate-open-codeql-findings.md
 
 ## Queue
 
