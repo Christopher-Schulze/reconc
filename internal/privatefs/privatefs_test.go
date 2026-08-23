@@ -129,3 +129,33 @@ func TestOpenExistingLockReportsMissingTarget(t *testing.T) {
 		t.Fatalf("missing lock error = %v", err)
 	}
 }
+
+func TestSecureFileDoesNotRequireOrModifyPrivateParent(t *testing.T) {
+	parent := t.TempDir()
+	before, err := os.Stat(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.CreateTemp(parent, "transaction-*.private")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if err := SecureFile(file); err != nil {
+		t.Fatal(err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateFile(file, info); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) || before.Mode() != after.Mode() {
+		t.Fatalf("securing transaction file changed parent: before=%v after=%v", before.Mode(), after.Mode())
+	}
+}

@@ -52,6 +52,11 @@ publishing the rule-kind field matrix under a new schema identity.
 - Production file-lock acquisition is bounded, cancellation-aware, and backed
   by a lifecycle-managed same-process gate without changing the authoritative
   cross-process deadline.
+- Binary update and rollback temporaries use owner-only Unix permissions or a
+  protected current-user-only Windows DACL without changing the executable
+  directory. Windows mode tests assert only the representable readonly
+  attribute, and identity-race coverage accepts an operating-system refusal to
+  replace an opened object as a safe outcome.
 - Policy sources and TASK files are read through stable file identities, with
   path components revalidated across multi-read operations.
 - Hook workers fail closed on oversized frames, fall back safely, and restart

@@ -1183,6 +1183,14 @@ installation receipts, retention, command proofs, and unresolved policy proofs
 use this boundary; their paths, filenames, retention policy, and public JSON
 contracts are unchanged.
 
+Same-directory binary transaction files use the file-only form of this
+boundary. It secures and revalidates the already opened temporary identity
+without changing or requiring a private parent directory: Unix enforces mode,
+owner, and link count, while Windows persists and validates a protected
+current-user-only DACL. Replacement tests accept only two safe outcomes: the
+opened identity detects the replacement, or the operating system refuses the
+replacement while that identity is open.
+
 The audit layout is a private specialization of the bounded JSONL contract:
 `.reconc` is `0700`; live and archive evidence, the detached head, lock,
 append journal, and temporary backups are `0600`; and every member is checked

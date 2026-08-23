@@ -516,7 +516,11 @@ func TestPublishArtifactPreservesTargetReplacedAtEveryIdentityBoundary(t *testin
 				return os.WriteFile(path, []byte("external\n"), 0o640)
 			})
 			record, directories, err := publishArtifactWithHooks(root, artifact, artifact.path, expected, strings.Repeat("a", 64), hooks)
+			recordCloseErr := record.close()
 			closeCreatedDirectoryIdentities(directories)
+			if recordCloseErr != nil {
+				t.Fatalf("close retained publication identity: %v", recordCloseErr)
+			}
 			if err == nil || !strings.Contains(err.Error(), "externally") {
 				t.Fatalf("replacement at %s was accepted: record=%+v err=%v", test.name, record, err)
 			}

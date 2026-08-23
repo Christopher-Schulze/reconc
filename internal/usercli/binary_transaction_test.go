@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/internal/privatefs"
 )
 
 func TestFileBackedBinaryBackupRestoresExactBytesAndMode(t *testing.T) {
@@ -29,8 +31,15 @@ func TestFileBackedBinaryBackupRestoresExactBytesAndMode(t *testing.T) {
 	var backupPath string
 	err = withBinaryBackup(target, func(backup *binaryBackup) error {
 		backupPath = backup.path
-		if info, err := os.Lstat(backup.path); err != nil || info.Mode().Perm()&0o077 != 0 {
-			t.Fatalf("backup is not private: %v, %v", info, err)
+		file, err := os.Open(backup.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		info, statErr := file.Stat()
+		validateErr := privatefs.ValidateFile(file, info)
+		closeErr := file.Close()
+		if statErr != nil || validateErr != nil || closeErr != nil {
+			t.Fatalf("backup is not private: stat=%v validate=%v close=%v", statErr, validateErr, closeErr)
 		}
 		if err := os.WriteFile(target, []byte("broken"), 0o755); err != nil {
 			t.Fatal(err)

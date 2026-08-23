@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+func assertPublishedFileMode(t *testing.T, _ string, info os.FileInfo, want os.FileMode) {
+	t.Helper()
+	if info.Mode().Perm() != want.Perm() {
+		t.Fatalf("published mode = %04o, want %04o", info.Mode().Perm(), want.Perm())
+	}
+}
+
 func TestWriteIfChangedRepairsModeWithoutRewritingBytes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	if err := os.WriteFile(path, []byte("private\n"), 0o644); err != nil {

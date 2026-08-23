@@ -23,7 +23,7 @@ func TestRepositorySourceReaderRejectsTraversal(t *testing.T) {
 	}
 }
 
-func TestRepositorySourceReaderRemainsAnchoredAfterRootReplacement(t *testing.T) {
+func TestRepositorySourceReaderRemainsAnchoredOrBlocksRootReplacement(t *testing.T) {
 	parent := t.TempDir()
 	repo := filepath.Join(parent, "repo")
 	original := filepath.Join(parent, "original")
@@ -36,8 +36,16 @@ func TestRepositorySourceReaderRemainsAnchoredAfterRootReplacement(t *testing.T)
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	if err := os.Rename(repo, original); err != nil {
-		t.Fatal(err)
+	renameErr := os.Rename(repo, original)
+	if renameErr != nil {
+		body, readErr := reader.Read("policy.yml")
+		if readErr != nil || string(body) != "original\n" {
+			t.Fatalf("blocked root replacement disturbed anchored read: body=%q err=%v rename=%v", body, readErr, renameErr)
+		}
+		if _, statErr := os.Lstat(original); !os.IsNotExist(statErr) {
+			t.Fatalf("blocked root replacement created destination: %v", statErr)
+		}
+		return
 	}
 	if err := os.Mkdir(repo, 0o755); err != nil {
 		t.Fatal(err)

@@ -72,6 +72,39 @@ func ValidateFile(file *os.File, info os.FileInfo) error {
 	return validatePrivateFile(file, info)
 }
 
+// SecureFile applies the platform-native private-file contract to an already
+// opened regular file without changing or requiring a private parent directory.
+// The path and descriptor identities are checked before and after permission
+// changes so callers can safely use this for same-directory transaction files.
+func SecureFile(file *os.File) error {
+	if file == nil {
+		return fmt.Errorf("private file handle is unavailable")
+	}
+	path := file.Name()
+	before, statErr := file.Stat()
+	current, lstatErr := os.Lstat(path)
+	if statErr != nil || lstatErr != nil || before == nil || current == nil ||
+		before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() ||
+		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
+		!os.SameFile(before, current) {
+		return errors.Join(fmt.Errorf("private file changed identity before securing"), statErr, lstatErr)
+	}
+	if err := file.Chmod(PrivateFileMode); err != nil {
+		return fmt.Errorf("secure private file mode: %w", err)
+	}
+	if err := secureFileDescriptor(file); err != nil {
+		return err
+	}
+	secured, statErr := file.Stat()
+	current, lstatErr = os.Lstat(path)
+	if statErr != nil || lstatErr != nil || secured == nil || current == nil ||
+		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
+		!os.SameFile(before, secured) || !os.SameFile(secured, current) {
+		return errors.Join(fmt.Errorf("private file changed identity while securing"), statErr, lstatErr)
+	}
+	return validatePrivateFile(file, secured)
+}
+
 // ValidateFileAllowLinks applies the private owner/mode/security contract to
 // content files whose atomic rotation intentionally keeps a temporary hard
 // link while both names are live.

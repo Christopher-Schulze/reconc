@@ -11,6 +11,7 @@ import (
 
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
+	"reconc.dev/reconc/internal/privatefs"
 )
 
 const binaryCopyBufferBytes = 128 << 10
@@ -39,6 +40,9 @@ func withPrivateTemporaryBinary(directory, pattern string, operation func(string
 		return fmt.Errorf("create private temporary binary: %w", err)
 	}
 	path := file.Name()
+	if err := privatefs.SecureFile(file); err != nil {
+		return errors.Join(fmt.Errorf("secure private temporary binary: %w", err), file.Close(), os.Remove(path))
+	}
 	if err := file.Close(); err != nil {
 		return errors.Join(fmt.Errorf("close private temporary binary: %w", err), os.Remove(path))
 	}
@@ -80,7 +84,7 @@ func captureBinaryBackup(path string) (binaryBackup, error) {
 		}
 		return binaryBackup{}, errors.Join(primary, closeErr, os.Remove(backup.path))
 	}
-	if err := file.Chmod(0o600); err != nil {
+	if err := privatefs.SecureFile(file); err != nil {
 		return cleanup(fmt.Errorf("make user CLI backup private: %w", err))
 	}
 	hash := sha256.New()
@@ -161,15 +165,28 @@ func rollbackInstall(path string, backup *binaryBackup, changed bool, cause erro
 }
 
 func validatePrivateTemporary(path string, expectedSize int64) error {
-	info, err := os.Lstat(path)
+	before, err := os.Lstat(path)
 	if err != nil {
 		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() != expectedSize {
+	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() || before.Size() != expectedSize {
 		return errors.New("temporary binary changed identity, type, or size")
 	}
-	if info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("temporary binary permissions are not private: %o", info.Mode().Perm())
+	file, err := os.Open(path)
+	if err != nil {
+		return err
 	}
-	return nil
+	opened, statErr := file.Stat()
+	current, lstatErr := os.Lstat(path)
+	if statErr != nil || lstatErr != nil || opened == nil || current == nil ||
+		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
+		opened.Size() != expectedSize || !os.SameFile(before, opened) || !os.SameFile(opened, current) {
+		return errors.Join(errors.New("temporary binary changed identity, type, or size"), statErr, lstatErr, file.Close())
+	}
+	validateErr := privatefs.ValidateFile(file, opened)
+	current, lstatErr = os.Lstat(path)
+	if lstatErr != nil || current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() || !os.SameFile(opened, current) {
+		validateErr = errors.Join(validateErr, errors.New("temporary binary changed identity after validation"), lstatErr)
+	}
+	return errors.Join(validateErr, file.Close())
 }

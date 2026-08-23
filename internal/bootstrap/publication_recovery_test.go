@@ -206,11 +206,13 @@ func TestPublishArtifactReturnsRollbackCapableRecordAfterParentReplacement(t *te
 }
 
 type swappingJSONTarget struct {
-	path string
+	path           string
+	replacementErr error
 }
 
 func (target *swappingJSONTarget) UnmarshalJSON(body []byte) error {
 	if err := os.Rename(target.path, target.path+".opened"); err != nil {
+		target.replacementErr = err
 		return err
 	}
 	return os.WriteFile(target.path, body, 0o600)
@@ -226,8 +228,17 @@ func TestDecodeStrictJSONSnapshotRejectsReplacementDuringDecode(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := &swappingJSONTarget{path: path}
-	if err := decodeStrictJSONSnapshot(path, "test payload", 1024, target); err == nil ||
-		!strings.Contains(err.Error(), "changed") {
+	err = decodeStrictJSONSnapshot(path, "test payload", 1024, target)
+	if err == nil {
+		t.Fatal("replacement during decode was accepted")
+	}
+	if target.replacementErr == nil && !strings.Contains(err.Error(), "changed") {
 		t.Fatalf("replacement during decode error = %v", err)
+	}
+	if target.replacementErr != nil {
+		current, statErr := os.Stat(path)
+		if statErr != nil || current.Size() != int64(len(body)) {
+			t.Fatalf("blocked replacement changed source: info=%v err=%v", current, statErr)
+		}
 	}
 }

@@ -10,6 +10,14 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+func assertPublishedFileMode(t *testing.T, path string, _ os.FileInfo, want os.FileMode) {
+	t.Helper()
+	wantReadOnly := want.Perm()&0o200 == 0
+	if got := windowsFileReadOnly(t, path); got != wantReadOnly {
+		t.Fatalf("published readonly attribute = %t, want %t", got, wantReadOnly)
+	}
+}
+
 func TestWriteIfChangedIgnoresUnrepresentablePOSIXModeDrift(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	if err := os.WriteFile(path, []byte("private\n"), 0o666); err != nil {

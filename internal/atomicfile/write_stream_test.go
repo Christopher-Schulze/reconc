@@ -21,9 +21,11 @@ func TestWriteStreamPublishesBoundedBytesAtomically(t *testing.T) {
 	if err != nil || string(body) != "new payload" {
 		t.Fatalf("published body = %q, %v", body, err)
 	}
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o755 {
-		t.Fatalf("published mode = %v, %v", info, err)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
 	}
+	assertPublishedFileMode(t, path, info, 0o755)
 }
 
 func TestWriteStreamLeavesCurrentFileOnReadFailureOrOverflow(t *testing.T) {

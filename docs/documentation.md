@@ -556,6 +556,9 @@ revalidates path identity before returning. Legacy
 private directories may be repaired only at their intended boundary. Receipt,
 retention, command-proof, policy-proof, and action-state paths retain their
 existing locations, names, retention behavior, and JSON contracts.
+Binary update and rollback temporaries reuse the file-only form of this
+boundary in the executable directory: the temporary identity becomes private
+without changing the directory's public traversal contract.
 The portable legacy pruner canonicalizes the existing repository filesystem
 identity before deriving both the runtime-compatible project key and the
 repo-local JSONL path, so symlink and on-disk case aliases cannot split cleanup
@@ -1133,7 +1136,11 @@ below; the clean-repository self-host golden path currently runs on Ubuntu and
 macOS.
 Windows cannot represent POSIX permission bits: Reconc validates protected
 current-user-only DACLs for private state and uses the readonly attribute as
-the representable atomic-file mode boundary. The Windows candidate job runs a
+the representable atomic-file mode boundary. Private binary backup and update
+temporaries use the protected DACL contract without re-permissioning their
+public executable directory. An opened Windows identity may prevent rename or
+replacement entirely; this is a successful identity-boundary outcome rather
+than missing POSIX mode behavior. The Windows candidate job runs a
 focused four-minute native filesystem, hook, and runtime preflight immediately
 after Go module download, then always builds and smokes the Windows binary and
 exercises the native installer. It skips the slow all-package suite and
