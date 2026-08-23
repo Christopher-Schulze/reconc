@@ -24,9 +24,9 @@ signal.
 
 - [x] Replace the brittle scheduler bound without weakening behavior coverage
 - [x] Run focused repeated and race verification
-- [~] Commit and push the correction
-- [ ] Require fresh green CI and CodeQL on the exact final commit
-- [ ] Archive the verified TASK before release publication
+- [x] Commit and push the correction
+- [x] Require fresh green CI and CodeQL on the exact final commit
+- [x] Archive the verified TASK before release publication
 
 ## Notes
 
@@ -40,6 +40,9 @@ signal.
   preceding product candidate.
 - Local focused verification passed 20 consecutive executions plus the race
   detector with every behavioral assertion intact.
+- Candidate `5a524cd4d81df9e82956ce42ba193d4bb46e4e2a` passed CI run
+  `32631185099`, including the complete native Windows suite, and CodeQL run
+  `32631185096`.
 - No release tag or GitHub release exists.
 
 ## Deviations
