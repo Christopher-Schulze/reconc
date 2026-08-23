@@ -2246,6 +2246,15 @@ and invocation arguments are re-analyzed as executable shell input; dynamic
 alias definitions, excessive alias recursion, inspection failures, and unknown
 Git subcommands fail closed instead of bypassing the destructive-command guard.
 
+Literal `eval` uses the shell's two parsing passes, not source-level quote
+reconstruction. The outer parse first produces argument bytes; `eval` then
+concatenates those arguments with one space and reparses the result. Thus outer
+quotes around `"a b"` do not themselves survive into the nested command, while
+quote or backslash characters passed as literal data do. This distinction is
+security-sensitive and covered by reference, matching, runtime-boundary, and
+fuzz tests. Reconc never executes a shell during this analysis. Dynamic eval
+arguments stay unresolved and make prevention fail closed.
+
 A stale compiled lockfile blocks gated work, because policy cannot be enforced
 from a lockfile that no longer describes its sources. The block does not seal
 the session: the PreToolUse route admits a lockfile-repair invocation
@@ -4153,6 +4162,10 @@ Security posture:
   backslash escapes cannot hide a forbidden program, and an undecodable
   construct fails closed instead of comparing unresolved text. Deny matching
   folds the program name's case; evidence matching does not.
+- Literal `eval` arguments are joined with one space after the outer quote-
+  removal pass and parsed again, matching POSIX shell behavior. Quotes are
+  never invented to preserve an outer argument boundary. Dynamic eval input,
+  invalid nested syntax, and exhausted recursion fail closed.
 - The runtime builds one ordered command-evidence index per evaluation, storing
   normalized command/result semantics together with raw syntax, outcome, and
   freshness epoch. Normalized expected command invocations are prepared once

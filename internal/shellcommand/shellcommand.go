@@ -330,6 +330,9 @@ func invocationsAt(command string, maxDepth, depth int) ([]Invocation, Incomplet
 }
 
 type commandWord struct {
+	// value is the exact static argument after the outer shell's quote removal
+	// and supported escape processing. In particular, quote characters only
+	// remain here when they were literal data passed to eval.
 	value   string
 	dynamic bool
 }
@@ -461,15 +464,25 @@ func nestedCommandString(words []commandWord) (string, bool) {
 	case isShell(words[0].value):
 		return shellCommandArgument(words[1:])
 	case baseName(words[0].value) == "eval":
-		for _, word := range words[1:] {
-			if word.dynamic {
-				return "", false
-			}
-		}
-		return wordsSource(words[1:]), true
+		return evalCommandArgument(words[1:])
 	default:
 		return "", true
 	}
+}
+
+// evalCommandArgument implements the POSIX eval boundary: the outer shell has
+// already removed syntactic quotes and resolved static escapes, then eval joins
+// those resulting arguments with one space before parsing them again. Restoring
+// the outer quote boundaries would change what the shell executes. Literal
+// quote or backslash bytes that survive in commandWord.value remain available
+// to the nested parse. Any expansion we cannot resolve stays fail-closed.
+func evalCommandArgument(words []commandWord) (string, bool) {
+	for _, word := range words {
+		if word.dynamic {
+			return "", false
+		}
+	}
+	return wordsSource(words), true
 }
 
 // StripLineContinuations applies shell backslash-newline folding everywhere

@@ -1117,6 +1117,15 @@ on the case-insensitive filesystems this product supports; evidence matching
 stays case-sensitive so a claim is only satisfied by the command the author
 named.
 
+Static `eval` follows the POSIX two-pass boundary exactly. After the outer
+parse removes syntactic quotes and resolves supported escapes, `eval` joins its
+resulting arguments with one space and reparses that command. Outer quote
+boundaries are therefore intentionally not restored; only literal quote or
+backslash bytes passed as argument data can group or escape the nested parse.
+Dynamic expansion, unsupported quoting, parse failure, and exhausted recursion
+remain incomplete and fail closed. Reconc performs both parses in-process and
+never invokes a shell for analysis.
+
 Command / tool-use strings in the payload are **data**, never
 executed by reconc. The evaluator's rule-matching compares them as
 strings; no `exec.Command` call path in the runtime handlers takes
