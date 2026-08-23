@@ -2,7 +2,6 @@
 
 ## Active
 
-- [~] 284 Repair Windows release-gate portability -> tasks/284-repair-windows-release-gate-portability.md
 
 ## Queue
 
@@ -11,6 +10,7 @@
 
 ## Done
 
+- [x] 284 Repair Windows release-gate portability -> tasks/done/284-repair-windows-release-gate-portability.md
 - [x] 283 Preserve nested shell evaluation semantics -> tasks/done/283-preserve-nested-shell-evaluation-semantics.md
 - [x] 282 Harden shared filesystem primitives -> tasks/done/282-harden-shared-filesystem-primitives.md
 - [x] 281 Harden analysis and retention report boundaries -> tasks/done/281-harden-analysis-and-retention-report-boundaries.md
@@ -20,4 +20,3 @@
 - [x] 277 Bound runtime memoization and plan concurrency -> tasks/done/277-bound-runtime-memoization-and-plan-concurrency.md
 - [x] 276 Linearize execution input and lockfile decoding -> tasks/done/276-linearize-execution-input-and-lockfile-decoding.md
 - [x] 275 Scale policy conflict detection and asset loading -> tasks/done/275-scale-policy-conflict-detection-and-asset-loading.md
-- [x] 274 Parse MCP frames once and reuse bounded buffers -> tasks/done/274-parse-mcp-frames-once-and-reuse-bounded-buffers.md

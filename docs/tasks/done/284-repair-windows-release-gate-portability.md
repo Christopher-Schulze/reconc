@@ -31,7 +31,7 @@ Windows safely blocked replacement of opened identities.
 - [x] Correct replacement fault-injection ownership and platform expectations
 - [x] Add focused cross-platform regression coverage
 - [x] Update filesystem and release-verification documentation
-- [~] Run local gates, push the fix, and require fresh green CI and CodeQL
+- [x] Run local gates, push the fix, and require fresh green CI and CodeQL
 
 ## Notes
 
@@ -60,6 +60,9 @@ Windows safely blocked replacement of opened identities.
   cross-compilation, Vet, Staticcheck, the complete root and harness race gate,
   publication audit, release trust, and self-hosting. Remote CI and CodeQL are
   mandatory post-commit release conditions and remain outside source mutation.
+- Final product candidate `54f872305bbfefa39126adb56c463edc7bc08cad`
+  passed CI run `32630023055`, including the complete native Windows suite, and
+  CodeQL run `32630023046`.
 
 ## Deviations
 
