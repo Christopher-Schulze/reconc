@@ -1,12 +1,12 @@
 # reconc v0.9.7
 
-Reconc v0.9.7 is the source candidate for the next immutable release. It
-keeps the format-6 policy-lock representation and migration chain stable while
-publishing the rule-kind field matrix under a new schema identity.
+Reconc v0.9.7 keeps the format-6 policy-lock representation and migration
+chain stable while publishing the rule-kind field matrix under a new schema
+identity.
 
 ## Schema and compatibility
 
-- The immutable release will publish Format 6 as
+- The release publishes Format 6 as
   `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.7/schemas/v6/policy-lock.schema.json`.
 - The schema rejects rule fields that are unsupported by the declared rule kind
   before runtime evaluation.
@@ -96,6 +96,10 @@ publishing the rule-kind field matrix under a new schema identity.
   repeated prefix copies.
 - Context-size accounting is bounded and overflow-safe. Harness-pack payload
   limits are enforced before values are retained.
+- Release and installer tests bind both Reconc state and the fallback user home
+  to temporary roots, preventing verification from changing a real installation
+  receipt. Same-version update coverage applies and verifies replacement bytes,
+  not only discovery.
 
 ## Evidence, review, and privacy hardening
 
@@ -109,20 +113,22 @@ publishing the rule-kind field matrix under a new schema identity.
   including review-relevant generated-only changes.
 - Generated harness and publication artifacts remain derived from their
   canonical sources.
+- Runtime diagnostics canonically quote untrusted policy identities, and
+  evidence-result capacity arithmetic avoids overflowing additions. Fresh
+  CodeQL reports no open findings for these paths.
 
 ## Verification
 
-The candidate is validated by strict-decoder differential and fuzz coverage,
+The release is validated by strict-decoder differential and fuzz coverage,
 runtime and worker contract tests, race tests, static analysis, schema and
 publication audits, harness-pack verification, self-hosting, release trust,
 the pinned external LangChain interoperability proof, vulnerability scans, and
-the complete five-target release build. These checks establish the local source
-candidate only. Remote schema and release-asset HTTP checks must be run by the
-protected, tag-bound release workflow after `reconc-v0.9.7` is published.
+the complete five-target release build. Remote schema and release-asset HTTP
+checks run in the protected, tag-bound release workflow.
 
 ## Upgrade
 
-After the immutable release is published, use the existing installation owner:
+Use the existing installation owner:
 
 ```bash
 reconc update

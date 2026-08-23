@@ -12,7 +12,7 @@ refuses completion until the repository, current evidence, and TASK state
 agree.
 
 [![CI](https://github.com/Christopher-Schulze/reconc/actions/workflows/reconc-ci.yml/badge.svg)](https://github.com/Christopher-Schulze/reconc/actions/workflows/reconc-ci.yml)
-[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Offline](https://img.shields.io/badge/runtime-offline_by_default-111827)](#what-reconc-controls)
 
@@ -275,15 +275,15 @@ state exactly what remains outside the boundary.
 
 ## Install and Bootstrap
 
-Install the checksummed, provenance-attested v0.9.6 release once.
+Install the checksummed, provenance-attested v0.9.7 release once.
 
 ### Native release installation
 
 macOS or Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/install.sh \
-  | sh -s -- --version 0.9.6
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.7/install.sh \
+  | sh -s -- --version 0.9.7
 export PATH="$HOME/.local/bin:$PATH"
 reconc --version
 ```
@@ -292,14 +292,14 @@ Windows x64:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/install.ps1 -OutFile $installer
-& $installer -Version 0.9.6
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.7/install.ps1 -OutFile $installer
+& $installer -Version 0.9.7
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
 reconc --version
 ```
 
-The immutable `reconc-v0.9.6` tag contains both installer scripts, so these
+The protected `reconc-v0.9.7` tag contains both installer scripts, so these
 commands do not fetch executable installation logic from mutable `main`. The
 installers:
 
@@ -1207,12 +1207,12 @@ through the private route in
 ## Status
 
 The source line is `v0.9.x`, and the current source version is `v0.9.7`.
-The latest published release is the immutable `reconc-v0.9.6` tag. Version text
-alone is not release identity; use the exact tag commit and build provenance.
-The `reconc-v0.9.7` schema identity is an unreleased candidate until its
-protected tag and matching release workflow are published. Any later source
-commit remains unreleased until an explicitly requested version and matching
-tag are built and published.
+The latest published release is `reconc-v0.9.7`. Version text alone is not
+release identity; use the exact tag commit, artifact checksum, and build
+provenance. An explicitly authorized same-version replacement remains an
+update when its verified artifact digest changes. Any later source commit
+remains unreleased until the protected tag and matching release workflow
+publish it.
 Release artifacts are produced only by
 an explicit manual workflow dispatch that uses an existing
 `reconc-vX.Y.Z` tag as both workflow ref and input; branch-ref dispatches are

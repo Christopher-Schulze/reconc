@@ -63,9 +63,15 @@ test oracle. Production schema validation uses
 - Work directly on `main`. Never create, publish, or switch to another branch
   unless Christopher explicitly requests that exact branch. Push repository
   commits only to `origin/main` unless he explicitly directs otherwise.
-- Change the product version only when Christopher explicitly requests that
-  exact version bump. Never infer, select, or perform a version bump
-  autonomously.
+- Never change the product version without Christopher's explicit approval for
+  the exact target version. Always ask for approval before every version bump;
+  never infer, select, recommend as a substitute, or perform one autonomously.
+- If Christopher explicitly says to keep the current version and replace or
+  republish that version's release, follow that instruction exactly. Never
+  substitute a different version number or refuse solely because another
+  versioning policy would normally be preferable. If a technical protection
+  blocks the requested replacement, report that blocker and ask Christopher
+  how to proceed; do not choose another version.
 - Never bootstrap Reconc, compile policy, install generated hooks, or run
   repository-targeted Reconc commands against this product repository. Use the
   isolated temporary repositories created by `make self-host`.
@@ -73,10 +79,10 @@ test oracle. Production schema validation uses
 ## Current Release State
 
 The current source line is `v0.9.x`; the source version is `v0.9.7`.
-The latest published release is the immutable `reconc-v0.9.6` tag. The
-`reconc-v0.9.7` source and format-6 schema identity remain an unreleased
-candidate until the protected tag and release workflow publish them; version
-text alone is not release identity. Core tests, race tests, vet, static
-analysis, and release artifact generation must pass before publication. Coverage
-is measured across each complete Go module, not inferred from package-local
-percentages.
+The latest published release is `reconc-v0.9.7`. `main` currently contains
+post-release CodeQL fixes that are not part of the existing `reconc-v0.9.7`
+tag or its published artifacts. Replacing that release must keep version
+`v0.9.7`, follow the protected tag and release workflow, and pass core tests,
+race tests, vet, static analysis, CodeQL, and release artifact verification.
+Version text alone is not release identity. Coverage is measured across each
+complete Go module, not inferred from package-local percentages.

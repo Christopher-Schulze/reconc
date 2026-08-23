@@ -434,9 +434,9 @@ The v0.9 platform contract is one matrix:
 Direct installers own only the verified binary and receipt. No path silently
 edits a shell profile or global environment.
 
-The immutable v0.9.6 tag contains both `install.sh` and `install.ps1`. Public
+The protected v0.9.7 tag contains both `install.sh` and `install.ps1`. Public
 bootstrap commands fetch the appropriate script from that tag, never from
-mutable `main`, and install the matching checksummed v0.9.6 binary.
+mutable `main`, and install the matching checksummed v0.9.7 binary.
 
 Both native installers require GitHub CLI (`gh`) and verify the downloaded
 binary against its GitHub build-provenance attestation before execution or
@@ -536,6 +536,9 @@ binary identity, build target, source digest, provenance state, and canonical
 UTC installation time. Native installers and explicit source `install-cli`
 calls publish it only after checksum, executable, version, and PATH identity
 pass. `install-cli` cannot claim an unsupported ownership type.
+Release and installer verification harnesses always bind `RECONC_HOME` and
+`HOME` to isolated temporary roots; running repository tests cannot publish or
+repair the operator's real installation receipt.
 The lock inode is persistent once created: update, install, uninstall, and an
 existing-state global diagnosis all coordinate through that same identity.
 State purge validates the complete recognized inventory but deliberately
@@ -1055,8 +1058,8 @@ is live.
 
 ### How do I install and test it?
 
-Use the immutable v0.9.6 POSIX installer for macOS or Linux and the immutable
-v0.9.6 PowerShell installer for Windows x64. Put the installed binary on
+Use the protected v0.9.7 POSIX installer for macOS or Linux and the protected
+v0.9.7 PowerShell installer for Windows x64. Put the installed binary on
 `PATH`, verify it with `reconc doctor --global`, and initialize the target
 repository with `reconc init .`. Contributors building current source can use
 `go build -o .build/bin/reconc ./cmd/reconc` followed by
@@ -2466,7 +2469,7 @@ and repository checks.
 
 ## Go-Only Action Plane
 
-RECONC-0008 remains Draft. The `v0.9.7` source candidate implements strict
+RECONC-0008 remains Draft. The `v0.9.7` implementation provides strict
 `actions` authoring, canonical format-6 compilation, deterministic lowering of
 legacy `mcp` declarations, immutable typed matcher programs, a derived MCP
 compatibility view, `reconc why action`, and the transport-neutral deterministic
@@ -4250,10 +4253,10 @@ lockfile shape, payload if relevant, and reproduction steps.
 
 ## v0.9.6 To v0.9.7 Migration
 
-Source-owned installations build source version `0.9.7`. The latest published
-binary remains `reconc-v0.9.6` until the protected `reconc-v0.9.7` tag is
-created and the manual release workflow completes; no installation command
-should use the new tag before that publication exists.
+Source-owned installations build source version `0.9.7`, and the latest
+published binary is `reconc-v0.9.7`. Existing direct installations use
+`reconc update`; a verified replacement under the same version still updates
+when its artifact digest differs from the installed receipt.
 
 Format 6 keeps its representation and migration chain unchanged, but its
 rule-kind field matrix is now part of the immutable
@@ -4276,11 +4279,10 @@ proof authoring distinguishes the omitted 24-hour default from explicit
 future-skew validation. Package-script and dependency-pin gates share the same
 single-leading-UTF-8-BOM package JSON contract.
 
-The local publication contract authorizes the new current tag while it is an
-unreleased candidate and verifies the new local v6 bytes, digest, `$id`, and
-registry mapping. The online HTTP publication verifier belongs to the
-tag-bound release workflow and must run only after the exact protected tag is
-published.
+The local publication contract verifies the current v6 bytes, digest, `$id`,
+and registry mapping. The online HTTP publication verifier belongs to the
+tag-bound release workflow and runs against the exact protected tag and
+published assets.
 
 ## License
 
@@ -4316,9 +4318,9 @@ current-state documentation.
 ## Release State
 
 The current source line is `v0.9.x`; the source version is `v0.9.7`. The latest
-published release remains the immutable `reconc-v0.9.6` tag. The
-`reconc-v0.9.7` format-6 schema identity is an unreleased candidate until its
-protected tag exists and the release workflow has published matching assets.
+published release is `reconc-v0.9.7`. Its format-6 schema identity, tag commit,
+artifact checksums, and build provenance jointly define the release identity;
+version text alone does not.
 Release artifacts are produced only through an explicit manual Release
 workflow dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never
 publish a release.

@@ -310,6 +310,7 @@ func TestSameVersionDifferentArtifactIsUpdateAvailable(t *testing.T) {
 
 	releaseDirectory := t.TempDir()
 	manifest := writeLocalRelease(t, releaseDirectory, replacementBinary, "1.0.0")
+	enableSuccessfulOfflineAttestation(t, releaseDirectory, manifest.Assets[0].Name)
 	report, err := CheckUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDirectory})
 	if err != nil {
 		t.Fatal(err)
@@ -323,6 +324,24 @@ func TestSameVersionDifferentArtifactIsUpdateAvailable(t *testing.T) {
 	}
 	if receipt.ArtifactSHA256 == manifest.Assets[0].SHA256 {
 		t.Fatal("test fixture did not produce distinct artifact identities")
+	}
+	applied, err := ApplyUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDirectory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.Status != LifecycleUpdated || !applied.Changed {
+		t.Fatalf("same-version replacement apply = %+v", applied)
+	}
+	output, err := exec.Command(target, "--version").CombinedOutput()
+	if err != nil || strings.TrimSpace(string(output)) != "reconc 1.0.0" {
+		t.Fatalf("same-version replacement binary = %q err=%v", output, err)
+	}
+	receipt, _, err = LoadReceipt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Version != "1.0.0" || receipt.ArtifactSHA256 != manifest.Assets[0].SHA256 {
+		t.Fatalf("same-version replacement receipt = %+v", receipt)
 	}
 }
 

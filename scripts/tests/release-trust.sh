@@ -5,6 +5,8 @@ set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/reconc-release-trust.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT INT HUP TERM
+receipt_home="$tmp/reconc-home"
+export RECONC_HOME="$receipt_home"
 
 fail() {
   printf 'release-trust: %s\n' "$1" >&2
@@ -599,7 +601,8 @@ fi
 fixture="$tmp/installer-fixture"
 fake_bin="$tmp/fake-bin"
 install_dir="$tmp/install"
-mkdir -p "$fixture" "$fake_bin" "$install_dir"
+installer_user_home="$tmp/installer-user-home"
+mkdir -p "$fixture" "$fake_bin" "$install_dir" "$installer_user_home"
 
 case "$(uname -s)" in
   Darwin) os=darwin ;;
@@ -640,7 +643,9 @@ SCRIPT
 chmod +x "$fake_bin/curl"
 
 run_installer() {
-  PATH="$fake_bin:$PATH" \
+  HOME="$installer_user_home" \
+    RECONC_HOME="$receipt_home" \
+    PATH="$fake_bin:$PATH" \
     RECONC_TEST_FIXTURE="$fixture" \
     RECONC_TEST_EXPECTED_SOURCE_REF="refs/tags/reconc-v$project_version" \
     RECONC_RELEASE_BASE="https://release.invalid" \
@@ -697,9 +702,9 @@ fi
 printf '%s\n' "$installer_output" | grep -Fq 'ownership receipt may be incomplete' \
   || fail "PATH-inactive partial install lacked exact recovery status"
 
-receipt_home="$tmp/reconc-home"
 if ! receipt_install_output=$(
-  PATH="$fake_bin:$install_dir:$PATH" \
+  HOME="$installer_user_home" \
+    PATH="$fake_bin:$install_dir:$PATH" \
     RECONC_HOME="$receipt_home" \
     RECONC_TEST_FIXTURE="$fixture" \
     RECONC_TEST_EXPECTED_SOURCE_REF="refs/tags/reconc-v$project_version" \
@@ -827,5 +832,8 @@ if failure_output=$(RECONC_TEST_INSTALL_DIR="$failed_install_dir" run_installer 
 fi
 printf '%s\n' "$failure_output" | grep -Fq 'ownership receipt may be incomplete' \
   || fail "upgrade partial publication lacked exact recovery status"
+
+[ ! -e "$installer_user_home/.reconc/install/receipt.json" ] \
+  || fail "installer test escaped its explicit RECONC_HOME isolation"
 
 printf 'release-trust: ok (real release target: %ss)\n' "$release_build_seconds"

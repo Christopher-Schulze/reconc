@@ -244,6 +244,7 @@ func TestBootstrapApplyInstallsTheRunningBuildAndRequiresItOnPATHBeforeWriting(t
 
 func TestInstallCLICommandPublishesAReadyBareCommand(t *testing.T) {
 	directory := t.TempDir()
+	t.Setenv("RECONC_HOME", t.TempDir())
 	t.Setenv("RECONC_INSTALL_DIR", directory)
 	t.Setenv("PATH", directory)
 	var stdout, stderr bytes.Buffer

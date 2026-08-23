@@ -4,7 +4,7 @@ Status: Draft
 
 Contract family: `reconc.action/v1`
 
-Implementation state: partially implemented in the `v0.9.7` source candidate.
+Implementation state: partially implemented in `v0.9.7`.
 TASK 154 implements strict action authoring, canonical action
 compilation and v4 migration, immutable matcher programs, the legacy MCP
 compatibility view, and `reconc why action`. TASK 155 implements the pure
@@ -1333,7 +1333,7 @@ configuration and approval-authority files must be outside the canonical
 repository and outside any path writable by the agent for independent-authority
 claims; otherwise startup refuses that claim.
 
-`reconc why action` is implemented in the `v0.9.7` source candidate and
+`reconc why action` is implemented in `v0.9.7` and
 explains only the compiled contract; it does not claim enforcement. `reconc
 action log tail|stats|verify|export` is also implemented: every read verifies
 the retained chain first, absent state is an empty non-mutating result, and

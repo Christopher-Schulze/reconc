@@ -2,6 +2,7 @@
 
 ## Active
 
+- [~] 287 Repair update isolation and replace v0.9.7 -> tasks/287-repair-update-isolation-and-replace-v0-9-7.md
 
 ## Queue
 

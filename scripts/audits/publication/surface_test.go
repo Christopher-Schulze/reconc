@@ -258,7 +258,7 @@ func TestBootstrapUsesDeclaredLatestPublishedReleaseTag(t *testing.T) {
 	if len(versionMatch) != 2 {
 		t.Fatal("cmd/reconc/main.go does not expose one stable source version")
 	}
-	publishedPattern := regexp.MustCompile("latest published release is the immutable `?(reconc-v[0-9]+\\.[0-9]+\\.[0-9]+)`? tag")
+	publishedPattern := regexp.MustCompile("latest published release is `(reconc-v[0-9]+\\.[0-9]+\\.[0-9]+)`")
 	publishedMatch := publishedPattern.FindStringSubmatch(readme)
 	if len(publishedMatch) != 2 {
 		t.Fatal("README.md does not declare one latest published release tag")

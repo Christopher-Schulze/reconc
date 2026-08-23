@@ -39,6 +39,10 @@ func TestMain(testingMain *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if err := os.Setenv("RECONC_HOME", filepath.Join(directory, "state")); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	if err := os.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
