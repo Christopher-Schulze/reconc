@@ -31,6 +31,8 @@ const (
 	freshnessCopyBufferBytes = 32 << 10
 )
 
+var withFreshnessFileSnapshot = boundedio.WithRegularFileSnapshot
+
 type sourceFreshnessInclude struct {
 	pattern string
 	base    string
@@ -287,23 +289,21 @@ func observeFreshnessFile(path string, totalBytes *int64, copyBuffer []byte) (fr
 		return freshnessFile{}, errors.New("runtime freshness copy buffer is empty")
 	}
 	observation := freshnessFile{Path: path}
-	info, err := os.Lstat(path)
+	_, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return observation, nil
 	}
 	if err != nil {
 		return observation, err
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return observation, fmt.Errorf("runtime freshness source must be a non-symlink regular file: %s", path)
-	}
-	if info.Size() > maxFreshnessFileBytes || *totalBytes > maxFreshnessTotalBytes-info.Size() {
-		return observation, fmt.Errorf("runtime freshness files exceed bounded byte budget")
-	}
-	*totalBytes += info.Size()
 	hash := sha256.New()
 	var readBytes int64
-	err = boundedio.WithRegularFileSnapshot(path, maxFreshnessFileBytes, func(file *os.File, opened os.FileInfo) error {
+	var openedInfo os.FileInfo
+	err = withFreshnessFileSnapshot(path, maxFreshnessFileBytes, func(file *os.File, opened os.FileInfo) error {
+		if *totalBytes > maxFreshnessTotalBytes-opened.Size() {
+			return fmt.Errorf("runtime freshness files exceed bounded byte budget")
+		}
+		openedInfo = opened
 		var copyErr error
 		readBytes, copyErr = io.CopyBuffer(hash, io.LimitReader(file, maxFreshnessFileBytes+1), copyBuffer)
 		if copyErr != nil {
@@ -317,11 +317,12 @@ func observeFreshnessFile(path string, totalBytes *int64, copyBuffer []byte) (fr
 	if err != nil {
 		return observation, err
 	}
+	*totalBytes += openedInfo.Size()
 	observation.Exists = true
-	observation.Mode = uint32(info.Mode())
-	observation.Size = info.Size()
-	observation.ModTime = info.ModTime().UnixNano()
-	observation.Identity = freshnessIdentity(info)
+	observation.Mode = uint32(openedInfo.Mode())
+	observation.Size = openedInfo.Size()
+	observation.ModTime = openedInfo.ModTime().UnixNano()
+	observation.Identity = freshnessIdentity(openedInfo)
 	var digest [sha256.Size]byte
 	sum := hash.Sum(digest[:0])
 	var encoded [sha256.Size * 2]byte

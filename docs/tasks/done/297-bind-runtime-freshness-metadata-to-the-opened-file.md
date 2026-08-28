@@ -13,14 +13,21 @@ Runtime freshness records size, mode, modification time, and budget usage from a
 
 ## Sub-Tasks
 
-- [ ] Refactor freshness observation around the opened metadata
-- [ ] Reorder aggregate budget admission safely
-- [ ] Add replacement and budget-boundary regressions
-- [ ] Run runtime freshness and plan-cache gates
+- [x] Refactor freshness observation around the opened metadata
+- [x] Reorder aggregate budget admission safely
+- [x] Add replacement and budget-boundary regressions
+- [x] Run runtime freshness and plan-cache gates
 
 ## Notes
 
 - Evidence: `internal/runtime/source_freshness.go:285-330`.
+- The bounded snapshot callback is the sole metadata authority. Aggregate-byte
+  admission occurs against its opened size, but the shared counter advances
+  only after the helper validates the same descriptor and path post-read.
+- Verification: replacement at every open/read boundary, exact and rejected
+  aggregate budgets, restored-metadata mutation detection, the complete runtime
+  package and focused race tests, Windows amd64 test compilation and vet,
+  `make test`, `make vet`, `make lint`, and `make self-host` all passed.
 
 ## Deviations
 

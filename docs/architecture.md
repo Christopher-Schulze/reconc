@@ -704,7 +704,11 @@ and byte-compares the notice before checksums and provenance are accepted.
      Runtime-plan cache misses use repository-root-scoped singleflight rather
      than holding the cache mutex across filesystem I/O. Lock and source
      identities are revalidated immediately before a compiled plan is
-     published; unrelated roots never serialize behind that work.
+     published; unrelated roots never serialize behind that work. Cache-hit
+     source freshness derives content, metadata, identity, and aggregate-byte
+     accounting from one opened stable file snapshot. Replacement before that
+     open may yield one coherent new observation; replacement after it fails
+     closed, and rejected observations never consume the aggregate budget.
      Runtime evidence/report collections use a local membership map plus an
      ordered slice, preserving first-seen output while avoiding quadratic
      duplicate scans at bounded high cardinalities.
