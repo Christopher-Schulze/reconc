@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 295 Durably create and rotate JSONL state -> tasks/295-durably-create-and-rotate-jsonl-state.md
 - [ ] 296 Sync repository-run state mutations before unlock -> tasks/296-sync-repository-run-state-mutations-before-unlock.md
 - [ ] 297 Bind runtime freshness metadata to the opened file -> tasks/297-bind-runtime-freshness-metadata-to-the-opened-file.md
 - [ ] 298 Propagate caller cancellation into policy scripts -> tasks/298-propagate-caller-cancellation-into-policy-scripts.md
@@ -58,6 +57,7 @@
 
 ## Done
 
+- [x] 295 Durably create and rotate JSONL state -> tasks/done/295-durably-create-and-rotate-jsonl-state.md
 - [x] 294 Durably publish bootstrap plans and artifacts -> tasks/done/294-durably-publish-bootstrap-plans-and-artifacts.md
 - [x] 292 Narrow MCP pre-dispatch serialization and retry policy -> tasks/done/292-narrow-mcp-pre-dispatch-serialization-and-retry-policy.md
 - [x] 291 Continue MCP shutdown finalization after individual errors -> tasks/done/291-continue-mcp-shutdown-finalization-after-individual-errors.md
@@ -67,4 +67,3 @@
 - [x] 287 Repair update isolation and replace v0.9.7 -> tasks/done/287-repair-update-isolation-and-replace-v0-9-7.md
 - [x] 286 Eliminate open CodeQL findings -> tasks/done/286-eliminate-open-codeql-findings.md
 - [x] 285 Stabilize the Windows MCP lifecycle release gate -> tasks/done/285-stabilize-windows-mcp-lifecycle-release-gate.md
-- [x] 284 Repair Windows release-gate portability -> tasks/done/284-repair-windows-release-gate-portability.md

@@ -1507,8 +1507,11 @@ coupling to any specific tool beyond recognizing that prefix.
   progress at 128 events and 1 MiB per call, and retained child stderr at
   256 KiB. Overflow fails closed without forwarding raw content.
 - Audit and run-decision JSONL writes rotate before append through fixed archive
-  rings; lifecycle retention bounds sessions, reports, locks, staged command
-  proofs, the product-wide
+  rings. Live-file creation, each archive mutation, and journal/backup cleanup
+  validate one bound parent and establish either a Unix directory durability
+  barrier or the rooted Windows ordering boundary before advancing. Interrupted
+  rotation is recoverable from every committed ring mutation. Lifecycle
+  retention bounds sessions, reports, locks, staged command proofs, the product-wide
   project-root set, generated binaries, and owned temp residue outside the Stop
   path.
 - Native assurance source gates scan matching changed files only. Layout and

@@ -35,7 +35,7 @@ func EnforceWithLayout(path string, policy Policy, layout Layout) (EnforceResult
 					return err
 				}
 				if err == nil {
-					if err := os.Remove(candidate.path); err != nil {
+					if err := removeJSONLPath(candidate.path); err != nil {
 						return err
 					}
 					result.BytesFreed += info.Size()

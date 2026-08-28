@@ -286,7 +286,7 @@ func appendRecord(path string, record []byte) error {
 	return appendRecordWithLayout(path, record, defaultLayout(path), int64(len(record))+1)
 }
 
-func appendRecordWithLayout(path string, record []byte, layout Layout, maximum int64) error {
+func appendRecordWithLayout(path string, record []byte, layout Layout, maximum int64) (resultErr error) {
 	var before os.FileInfo
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
@@ -299,12 +299,17 @@ func appendRecordWithLayout(path string, record []byte, layout Layout, maximum i
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, layout.FileMode)
+	parent, err := openJSONLParent(path)
+	if err != nil {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, parent.close()) }()
+	file, err := parent.root.OpenFile(parent.name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, layout.FileMode)
 	if err != nil {
 		return err
 	}
 	opened, statErr := file.Stat()
-	current, lstatErr := os.Lstat(path)
+	current, lstatErr := parent.root.Lstat(parent.name)
 	if statErr != nil || lstatErr != nil || !opened.Mode().IsRegular() ||
 		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
 		!os.SameFile(opened, current) || before != nil && !os.SameFile(before, opened) {
@@ -325,14 +330,12 @@ func appendRecordWithLayout(path string, record []byte, layout Layout, maximum i
 	writeErr := writeFull(file, record)
 	syncErr := file.Sync()
 	closeErr := file.Close()
-	if writeErr != nil {
-		return writeErr
+	var parentSyncErr error
+	if before == nil {
+		parentSyncErr = parent.syncMutation()
 	}
-	if syncErr != nil {
-		return syncErr
-	}
-	if closeErr != nil {
-		return closeErr
+	if err := errors.Join(writeErr, syncErr, closeErr, parentSyncErr); err != nil {
+		return err
 	}
 	return validateLayoutSecurityFile(layout, path, maximum)
 }

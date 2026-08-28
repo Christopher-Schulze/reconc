@@ -30,27 +30,45 @@ func prepareRotationInputsWithLayout(path string, maxArchives int, maxBytes int6
 }
 
 func rotate(path string, maxArchives int) error {
-	if maxArchives == 0 {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	return rotateWithHooks(path, maxArchives, rotationHooks{})
+}
+
+type rotationHooks struct {
+	afterMutation func(int) error
+}
+
+func rotateWithHooks(path string, maxArchives int, hooks rotationHooks) (resultErr error) {
+	parent, err := openJSONLParent(path)
+	if err != nil {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, parent.close()) }()
+	mutation := 0
+	commit := func(changed bool, err error) error {
+		if err != nil || !changed {
 			return err
+		}
+		mutation++
+		if hooks.afterMutation != nil {
+			return hooks.afterMutation(mutation)
 		}
 		return nil
 	}
-	oldest := fmt.Sprintf("%s.%d", path, maxArchives)
-	if err := os.Remove(oldest); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if maxArchives == 0 {
+		return commit(parent.remove(parent.name))
+	}
+	oldest := fmt.Sprintf("%s.%d", parent.name, maxArchives)
+	if err := commit(parent.remove(oldest)); err != nil {
 		return err
 	}
 	for index := maxArchives - 1; index >= 1; index-- {
-		source := fmt.Sprintf("%s.%d", path, index)
-		destination := fmt.Sprintf("%s.%d", path, index+1)
-		if err := os.Rename(source, destination); err != nil && !errors.Is(err, os.ErrNotExist) {
+		source := fmt.Sprintf("%s.%d", parent.name, index)
+		destination := fmt.Sprintf("%s.%d", parent.name, index+1)
+		if err := commit(parent.rename(source, destination)); err != nil {
 			return err
 		}
 	}
-	if err := os.Rename(path, path+".1"); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
+	return commit(parent.rename(parent.name, parent.name+".1"))
 }
 
 func archivePath(path string, index int) string {
@@ -161,13 +179,13 @@ func createAppendBackupWithLayout(path string, layout Layout, index int, maxByte
 		if err := validateLayoutSecurityFile(layout, backupPath, maxBytes); err != nil {
 			return appendJournalBackup{}, err
 		}
-		if err := os.Remove(backupPath); err != nil {
+		if err := removeJSONLPath(backupPath); err != nil {
 			return appendJournalBackup{}, fmt.Errorf("remove stale JSONL append backup: %w", err)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return appendJournalBackup{}, err
 	}
-	if err := os.Link(source, backupPath); err != nil {
+	if err := linkJSONLPath(source, backupPath); err != nil {
 		data, readErr := readBoundedBackup(source, maxBytes)
 		if readErr != nil {
 			return appendJournalBackup{}, readErr
@@ -429,7 +447,7 @@ func rollbackAppendJournalWithLayout(path string, layout Layout, journal appendJ
 		for _, backup := range journal.Backups {
 			destination := archivePath(path, backup.Index)
 			if !backup.Existed {
-				if err := os.Remove(destination); err != nil && !errors.Is(err, os.ErrNotExist) {
+				if err := removeJSONLPath(destination); err != nil {
 					return err
 				}
 				continue
@@ -473,7 +491,7 @@ func rollbackAppendJournalWithLayout(path string, layout Layout, journal appendJ
 		if err := truncateRegularFileWithLayout(path, journal.LiveSize, journal.MaxBytes, layout); err != nil {
 			return fmt.Errorf("truncate interrupted JSONL append: %w", err)
 		}
-	} else if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	} else if err := removeJSONLPath(path); err != nil {
 		return err
 	}
 	journal.State = appendStateResolved
@@ -526,7 +544,7 @@ func finishAppendJournalWithLayout(path string, layout Layout, journal appendJou
 	if err := cleanupAppendBackupsWithLayout(layout, journal.Backups); err != nil {
 		return err
 	}
-	if err := os.Remove(layout.JournalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := removeJSONLPath(layout.JournalPath); err != nil {
 		return err
 	}
 	return nil
@@ -535,7 +553,7 @@ func finishAppendJournalWithLayout(path string, layout Layout, journal appendJou
 func cleanupAppendBackupsWithLayout(layout Layout, backups []appendJournalBackup) error {
 	var cleanupErr error
 	for _, backup := range backups {
-		if err := os.Remove(appendBackupPathWithLayout(layout, backup.Index)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := removeJSONLPath(appendBackupPathWithLayout(layout, backup.Index)); err != nil {
 			cleanupErr = errors.Join(cleanupErr, err)
 		}
 	}
@@ -545,14 +563,14 @@ func cleanupAppendBackupsWithLayout(layout Layout, backups []appendJournalBackup
 func abortPreparingAppendWithLayout(layout Layout, maxArchives int) error {
 	var cleanupErr error
 	for index := 0; index <= maxArchives; index++ {
-		if err := os.Remove(appendBackupPathWithLayout(layout, index)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := removeJSONLPath(appendBackupPathWithLayout(layout, index)); err != nil {
 			cleanupErr = errors.Join(cleanupErr, err)
 		}
 	}
 	if cleanupErr != nil {
 		return cleanupErr
 	}
-	if err := os.Remove(layout.JournalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := removeJSONLPath(layout.JournalPath); err != nil {
 		return err
 	}
 	return nil

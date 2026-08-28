@@ -2148,7 +2148,13 @@ archives, detached head, and active transaction remain protected together.
 Unknown directories are never treated as product-owned. Audit and run-decision
 JSONL each use a 2 MiB live file plus two
 archives, with per-directory in-process serialization followed by file-locked
-append and pre-append rotation. Audit entries
+append and pre-append rotation. A newly created live file is synchronized before
+its directory entry is committed. Every archive removal or rename and every
+transaction-artifact cleanup is then committed through the same identity-bound
+parent before the next state transition. Unix persists those directory entries
+with a directory sync; Windows preserves the rooted identity boundary without
+claiming a directory flush that its read-only handle API cannot provide. Audit
+entries
 additionally carry one contiguous sequence and SHA-256 previous/current digest
 chain, with the latest identity stored in `.reconc/audit.head.json`. Every
 audit reader verifies all retained archives, the live file, and the detached

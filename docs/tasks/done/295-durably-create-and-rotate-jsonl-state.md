@@ -13,14 +13,22 @@ JSONL syncs record bytes but not parent-directory entries after live-file creati
 
 ## Sub-Tasks
 
-- [ ] Specify the JSONL rotation durability state machine
-- [ ] Add portable parent-sync boundaries
-- [ ] Add create and every-rename crash regressions
-- [ ] Run all JSONL consumers and recovery gates
+- [x] Specify the JSONL rotation durability state machine
+- [x] Add portable parent-sync boundaries
+- [x] Add create and every-rename crash regressions
+- [x] Run all JSONL consumers and recovery gates
 
 ## Notes
 
 - Evidence: `internal/jsonl/journal.go:32-53` and `internal/jsonl/append.go:268-316`.
+- Ordered commit points are: sync a newly created live-file entry after its
+  payload; sync every archive removal or rooted rename before the next ring
+  mutation; and sync backup/journal cleanup before declaring rotation resolved.
+  Recovery may therefore replay from any journal state without depending on a
+  later directory mutation to persist an earlier one.
+- Verification: focused crash-point tests, complete JSONL/action-ledger/audit/
+  retention tests and race suites, Windows amd64 test compilation and vet,
+  `make test`, `make vet`, `make lint`, and `make self-host` all passed.
 
 ## Deviations
 
