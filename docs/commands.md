@@ -1189,7 +1189,8 @@ Remove only generator-exact dedicated artifacts or canonical Reconc-owned JSON
 entries while preserving unrelated hooks and configuration. Modified or
 ambiguous Reconc-looking entries fail closed. Codex removes only its managed
 activation block and restores a force-replaced explicit `hooks = false` line
-byte-for-byte. The shared repo-local wrapper is deliberately preserved because
+or inline-table expression byte-for-byte. The shared repo-local wrapper is
+deliberately preserved because
 another platform may still depend on it. `kimi-code` accepts no repo argument
 and removes only the exact current Reconc marker block from the global TOML;
 modified managed content is never deleted.
@@ -1222,10 +1223,10 @@ under `observations` in JSON and as deterministic `observation` lines in text;
 OMP `user_python` reports only count, latest timestamp, repository-relative
 working directory, code byte size, and context-exclusion flag. `configured`
 proves only that the host can discover a
-complete static artifact. Codex accepts
-`hooks = true` under `[features]` or the equivalent root dotted key
-`features.hooks = true`, rejects root-level `hooks=true` and duplicate or
-misplaced declarations, and has no
+complete static artifact. Codex uses complete TOML semantics and accepts the
+boolean `features.hooks` path through table, quoted-key, dotted-key, or
+inline-table syntax. It rejects root-level `hooks=true`, duplicate or malformed
+declarations, and non-boolean values, and has no
 separate failed-tool route; failed Bash outcomes are inferred from
 `PostToolUse`. OpenCode and Kilo Code preserve complete post-tool output,
 deduplicate terminal tool errors from `message.part.updated`, and route user

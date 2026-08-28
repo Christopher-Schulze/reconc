@@ -26,15 +26,14 @@ type codexActivationPlan struct {
 }
 
 // RenderCodexActivation returns config.toml content with one marker-owned
-// features.hooks=true entry. An explicit user-owned false requires force. If
-// force replaces it, the exact original line is embedded so uninstall can
-// restore it byte-for-byte.
+// features.hooks=true entry. An explicit user-owned false requires force. Any
+// replacement embeds the exact original expression so uninstall can restore
+// it byte-for-byte.
 func RenderCodexActivation(existing string, force bool) (string, error) {
 	cleaned, managed, err := RemoveCodexActivation(existing)
 	if err != nil {
 		return "", err
 	}
-	lines := strings.SplitAfter(cleaned, "\n")
 	activation, err := parseTOMLSectionBoolean(cleaned, "features", "hooks")
 	if err != nil {
 		return "", err
@@ -46,24 +45,16 @@ func RenderCodexActivation(existing string, force bool) (string, error) {
 		if !force && !managed {
 			return "", fmt.Errorf("features.hooks is explicitly false; rerun with --force to enable Codex hooks")
 		}
-		restore := base64.StdEncoding.EncodeToString([]byte(lines[activation.lineIndex]))
-		enabledLine := "hooks = true"
-		if activation.dotted {
-			enabledLine = "features.hooks = true"
-		}
-		lines[activation.lineIndex] = codexActivationBlock(codexActivationRestorePrefix + restore + "\n" + enabledLine)
-		return strings.Join(lines, ""), nil
+		return replaceCodexActivationValue(cleaned, activation)
 	}
-
-	block := codexActivationBlock("hooks = true")
-	if activation.sectionStart != -1 {
-		if !strings.HasSuffix(lines[activation.sectionStart], "\n") {
-			lines[activation.sectionStart] += "\n"
-		}
-		lines = append(lines, "")
-		copy(lines[activation.sectionStart+2:], lines[activation.sectionStart+1:])
-		lines[activation.sectionStart+1] = block
-		return strings.Join(lines, ""), nil
+	if activation.inlineTable.valid() {
+		return extendInlineCodexFeatures(cleaned, activation)
+	}
+	if activation.sectionInsert >= 0 {
+		return insertCodexActivation(cleaned, activation.sectionInsert, codexActivationBlock("hooks = true")), nil
+	}
+	if activation.sectionExists {
+		return insertCodexActivation(cleaned, activation.rootInsert, codexActivationBlock("features.hooks = true")), nil
 	}
 	separator := ""
 	if cleaned != "" && !strings.HasSuffix(cleaned, "\n") {
@@ -72,156 +63,84 @@ func RenderCodexActivation(existing string, force bool) (string, error) {
 	if strings.TrimSpace(cleaned) != "" {
 		separator += "\n"
 	}
-	return cleaned + separator + "[features]\n" + block, nil
+	return cleaned + separator + "[features]\n" + codexActivationBlock("hooks = true"), nil
 }
 
 // RemoveCodexActivation removes only Reconc's marker-owned activation block.
-// If installation replaced an explicit false, the exact original line is
-// restored after strict validation.
+// If installation replaced an explicit false or extended an inline table, the
+// exact original expression is restored after strict validation.
 func RemoveCodexActivation(content string) (string, bool, error) {
-	if strings.Count(content, CodexActivationBlockStart) > 1 || strings.Count(content, CodexActivationBlockEnd) > 1 {
-		return "", false, fmt.Errorf("duplicate reconc Codex activation block markers")
+	block, found, err := findCodexActivationBlock([]byte(content))
+	if err != nil {
+		return "", false, err
 	}
-	start := strings.Index(content, CodexActivationBlockStart)
-	end := strings.Index(content, CodexActivationBlockEnd)
-	if start == -1 && end == -1 {
+	if !found {
 		return content, false, nil
 	}
-	if start == -1 || end == -1 || end < start {
-		return "", false, fmt.Errorf("incomplete reconc Codex activation block")
-	}
-	bodyStart := start + len(CodexActivationBlockStart)
-	body := content[bodyStart:end]
 	replacement := ""
-	for _, raw := range strings.Split(body, "\n") {
-		line := strings.TrimSpace(raw)
-		if !strings.HasPrefix(line, codexActivationRestorePrefix) {
-			continue
-		}
+	for _, encoded := range block.restores {
 		if replacement != "" {
 			return "", false, fmt.Errorf("duplicate Codex activation restore records")
 		}
-		decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(line, codexActivationRestorePrefix))
-		if err != nil || !validDisabledHooksLine(decoded) {
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil || bytes.ContainsRune(decoded, '\x00') || !validCodexActivationRestore(decoded) {
 			return "", false, fmt.Errorf("invalid Codex activation restore record")
 		}
 		replacement = string(decoded)
 	}
-	end += len(CodexActivationBlockEnd)
-	if end < len(content) && content[end] == '\n' {
-		end++
-	}
-	return content[:start] + replacement + content[end:], true, nil
+	return content[:block.span.start] + replacement + content[block.span.end:], true, nil
 }
 
 func codexActivationBlock(body string) string {
 	return CodexActivationBlockStart + "\n" + strings.TrimSuffix(body, "\n") + "\n" + CodexActivationBlockEnd + "\n"
 }
 
-func validDisabledHooksLine(line []byte) bool {
-	if len(line) == 0 || bytes.ContainsRune(line, '\x00') {
-		return false
+func replaceCodexActivationValue(content string, activation tomlSectionBooleanValue) (string, error) {
+	data := []byte(content)
+	if string(data[activation.value.start:activation.value.end]) != "false" {
+		return "", fmt.Errorf("features.hooks source is not the parsed false boolean")
 	}
-	trimmed := strings.TrimSpace(stripTOMLComment(string(line)))
-	parts := strings.SplitN(trimmed, "=", 2)
-	if len(parts) != 2 || strings.TrimSpace(parts[1]) != "false" {
-		return false
-	}
-	key := strings.TrimSpace(parts[0])
-	return key == "hooks" || key == "features.hooks"
+	original := data[activation.expression.start:activation.expression.end]
+	relativeStart := activation.value.start - activation.expression.start
+	relativeEnd := activation.value.end - activation.expression.start
+	enabled := append([]byte(nil), original[:relativeStart]...)
+	enabled = append(enabled, "true"...)
+	enabled = append(enabled, original[relativeEnd:]...)
+	return replaceCodexActivationExpression(content, activation.expression, original, enabled), nil
 }
 
-type tomlSectionBooleanValue struct {
-	enabled      bool
-	present      bool
-	dotted       bool
-	lineIndex    int
-	sectionStart int
+func extendInlineCodexFeatures(content string, activation tomlSectionBooleanValue) (string, error) {
+	data := []byte(content)
+	if activation.inlineTable.end <= activation.inlineTable.start || data[activation.inlineTable.end-1] != '}' {
+		return "", fmt.Errorf("cannot locate the end of the inline features table")
+	}
+	original := data[activation.expression.start:activation.expression.end]
+	insert := activation.inlineTable.end - 1 - activation.expression.start
+	inner := bytes.TrimSpace(data[activation.inlineTable.start+1 : activation.inlineTable.end-1])
+	addition := []byte("hooks = true")
+	if activation.inlineEntries && len(inner) != 0 && inner[len(inner)-1] == ',' {
+		addition = []byte(" hooks = true")
+	} else if activation.inlineEntries {
+		addition = []byte(", hooks = true")
+	}
+	enabled := append([]byte(nil), original[:insert]...)
+	enabled = append(enabled, addition...)
+	enabled = append(enabled, original[insert:]...)
+	return replaceCodexActivationExpression(content, activation.expression, original, enabled), nil
 }
 
-func parseTOMLSectionBoolean(content, section, key string) (tomlSectionBooleanValue, error) {
-	result := tomlSectionBooleanValue{lineIndex: -1, sectionStart: -1}
-	currentSection := ""
-	sectionSeen := false
-	for lineNumber, raw := range strings.SplitAfter(content, "\n") {
-		line := strings.TrimSpace(stripTOMLComment(raw))
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			if strings.HasPrefix(line, "[[") || strings.HasSuffix(line, "]]") {
-				currentSection = ""
-				continue
-			}
-			currentSection = strings.TrimSpace(line[1 : len(line)-1])
-			if currentSection == section {
-				if sectionSeen || result.dotted {
-					return tomlSectionBooleanValue{}, fmt.Errorf("duplicate [%s] table", section)
-				}
-				sectionSeen = true
-				result.sectionStart = lineNumber
-			}
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		name := strings.TrimSpace(parts[0])
-		dotted := currentSection == "" && name == section+"."+key
-		inSection := currentSection == section && name == key
-		if currentSection == "" && name == key {
-			return tomlSectionBooleanValue{}, fmt.Errorf("line %d places %s at the TOML root; expected [%s]", lineNumber+1, key, section)
-		}
-		if !dotted && !inSection {
-			continue
-		}
-		if result.present || dotted && sectionSeen {
-			return tomlSectionBooleanValue{}, fmt.Errorf("duplicate %s.%s", section, key)
-		}
-		result.present = true
-		result.dotted = dotted
-		result.lineIndex = lineNumber
-		switch strings.TrimSpace(parts[1]) {
-		case "true":
-			result.enabled = true
-		case "false":
-			result.enabled = false
-		default:
-			return tomlSectionBooleanValue{}, fmt.Errorf("%s.%s must be a boolean", section, key)
-		}
-	}
-	return result, nil
+func replaceCodexActivationExpression(content string, expression tomlSourceRange, original, enabled []byte) string {
+	restore := base64.StdEncoding.EncodeToString(original)
+	block := codexActivationBlock(codexActivationRestorePrefix + restore + "\n" + string(enabled))
+	return content[:expression.start] + block + content[expression.end:]
 }
 
-func stripTOMLComment(line string) string {
-	var quote byte
-	escaped := false
-	for index := 0; index < len(line); index++ {
-		value := line[index]
-		if quote == '"' && escaped {
-			escaped = false
-			continue
-		}
-		if quote == '"' && value == '\\' {
-			escaped = true
-			continue
-		}
-		if quote != 0 {
-			if value == quote {
-				quote = 0
-			}
-			continue
-		}
-		if value == '"' || value == '\'' {
-			quote = value
-			continue
-		}
-		if value == '#' {
-			return line[:index]
-		}
+func insertCodexActivation(content string, offset int, block string) string {
+	separator := ""
+	if offset > 0 && content[offset-1] != '\n' {
+		separator = "\n"
 	}
-	return line
+	return content[:offset] + separator + block + content[offset:]
 }
 
 func planCodexActivation(root string, force bool) (*codexActivationPlan, error) {

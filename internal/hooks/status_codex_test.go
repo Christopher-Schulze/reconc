@@ -38,6 +38,22 @@ func TestCodexActivationStatusAcceptsQuotedHashesAndDottedKey(t *testing.T) {
 	}
 }
 
+func TestCodexActivationStatusIgnoresMultilinePseudoConfiguration(t *testing.T) {
+	repo := t.TempDir()
+	writeExecutableWrapper(t, repo)
+	if _, err := Install(KindCodex, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(repo, ".codex", "config.toml")
+	content := "description = \"\"\"\n[features]\nhooks = false\n# >>> reconc bootstrap hooks\n\"\"\"\n[\"features\"]\n\"hooks\" = true\n"
+	if err := os.WriteFile(config, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if status := statusForKind(t, repo, KindCodex); status.State != StateConfigured {
+		t.Fatalf("multiline activation status = %+v", status)
+	}
+}
+
 func TestCodexActivationRejectsMissingRouteBudget(t *testing.T) {
 	repo := t.TempDir()
 	writeExecutableWrapper(t, repo)

@@ -3496,15 +3496,19 @@ Cursor and Antigravity use portable non-login `sh -c` launchers with a direct
 wrapper fast path before their Git fallback.
 Codex bootstrap and direct hook installation manage `hooks = true` under the
 `[features]` table or the equivalent root dotted key
-`features.hooks = true`. The shared bounded reader respects quoted `#`
-characters and rejects duplicate, root-level, or misplaced declarations.
+`features.hooks = true`. The shared bounded reader uses the complete TOML
+decoder for multiline basic and literal strings, comments, quoted and dotted
+keys, explicit and implicit tables, inline tables, and duplicate-key rules.
+Only the semantic boolean path controls activation; section-like or marker-like
+text inside strings is inert. Root-level or non-boolean lookalikes fail closed.
 Direct installation rejects an explicit user-owned
 `hooks = false` before any artifact write unless `--force` is supplied.
 Transactional bootstrap reports the change as managed drift and requires the
 explicit marker-only acceptance path. Forced or accepted activation records
-the exact original line inside the managed block; hook uninstall and bootstrap
-removal restore that line byte-for-byte. A root-level `hooks=true` lookalike is
-invalid. Codex accepts `SessionEnd` among the eleven matcher groups its hook
+the exact original expression inside the managed block; hook uninstall and
+bootstrap removal restore that expression byte-for-byte without reformatting
+unrelated TOML. A root-level `hooks=true` lookalike is invalid. Codex accepts
+`SessionEnd` among the eleven matcher groups its hook
 configuration defines, so Reconc routes it like every other host that publishes
 the event. Reconc generates only supported routes and gives each route its
 exact 5, 10, or 30 second host timeout. Codex also has no
