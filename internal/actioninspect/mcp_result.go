@@ -41,7 +41,11 @@ func DecodeMCPToolResult(raw []byte, protocolVersion string) (*MCPToolResult, er
 	}
 	result.Content = make([]ContentBlock, itemCount)
 	for index := 0; index < itemCount; index++ {
-		item, _ := content.ArrayItem(index)
+		item, err := requiredArrayItem(content, index)
+		if err != nil {
+			result.Release()
+			return nil, err
+		}
 		block, err := decodeContentBlock(item, index)
 		if err != nil {
 			result.Release()
@@ -49,23 +53,43 @@ func DecodeMCPToolResult(raw []byte, protocolVersion string) (*MCPToolResult, er
 		}
 		result.Content[index] = block
 	}
-	result.AnnotationFields = collectAnnotationFields(content)
-	result.MetadataPointers = collectMetadataPointers(root, content)
+	result.AnnotationFields, err = collectAnnotationFields(content)
+	if err != nil {
+		result.Release()
+		return nil, err
+	}
+	result.MetadataPointers, err = collectMetadataPointers(root, content)
+	if err != nil {
+		result.Release()
+		return nil, err
+	}
 	return result, nil
 }
 
-func collectAnnotationFields(content action.Value) []string {
+func collectAnnotationFields(content action.Value) ([]string, error) {
 	seen := make(map[string]struct{})
-	length, _ := content.ArrayLen()
+	length, ok := content.ArrayLen()
+	if !ok {
+		return nil, malformed("content array is unavailable while collecting annotations")
+	}
 	for index := 0; index < length; index++ {
-		item, _ := content.ArrayItem(index)
+		item, err := requiredArrayItem(content, index)
+		if err != nil {
+			return nil, err
+		}
 		annotations, ok := item.Lookup("annotations")
 		if !ok {
 			continue
 		}
-		memberCount, _ := annotations.ObjectLen()
+		memberCount, ok := annotations.ObjectLen()
+		if !ok {
+			return nil, malformed("annotations object is unavailable while collecting fields")
+		}
 		for memberIndex := 0; memberIndex < memberCount; memberIndex++ {
-			member, _ := annotations.ObjectMember(memberIndex)
+			member, err := requiredObjectMember(annotations, memberIndex)
+			if err != nil {
+				return nil, err
+			}
 			seen[member.Name] = struct{}{}
 		}
 	}
@@ -74,17 +98,23 @@ func collectAnnotationFields(content action.Value) []string {
 		fields = append(fields, field)
 	}
 	sort.Strings(fields)
-	return fields
+	return fields, nil
 }
 
-func collectMetadataPointers(root action.Value, content action.Value) []string {
-	length, _ := content.ArrayLen()
+func collectMetadataPointers(root action.Value, content action.Value) ([]string, error) {
+	length, ok := content.ArrayLen()
+	if !ok {
+		return nil, malformed("content array is unavailable while collecting metadata")
+	}
 	pointers := make([]string, 0, length+1)
 	if _, ok := root.Lookup("_meta"); ok {
 		pointers = append(pointers, "/_meta")
 	}
 	for index := 0; index < length; index++ {
-		item, _ := content.ArrayItem(index)
+		item, err := requiredArrayItem(content, index)
+		if err != nil {
+			return nil, err
+		}
 		base := "/content/" + strconv.Itoa(index)
 		if _, ok := item.Lookup("_meta"); ok {
 			pointers = append(pointers, base+"/_meta")
@@ -98,7 +128,7 @@ func collectMetadataPointers(root action.Value, content action.Value) []string {
 		}
 	}
 	sort.Strings(pointers)
-	return pointers
+	return pointers, nil
 }
 
 func decodeResultHeader(result *MCPToolResult, root action.Value, protocolVersion string) error {
@@ -314,7 +344,10 @@ func validateIcons(value action.Value) error {
 		return malformed("resource link icons must be a bounded array")
 	}
 	for index := 0; index < length; index++ {
-		icon, _ := value.ArrayItem(index)
+		icon, err := requiredArrayItem(value, index)
+		if err != nil {
+			return err
+		}
 		if err := exactObject(icon, "src", "mimeType", "sizes", "theme"); err != nil {
 			return err
 		}
@@ -345,7 +378,10 @@ func validateIconFields(icon action.Value) error {
 			return malformed("resource icon sizes are invalid")
 		}
 		for index := 0; index < length; index++ {
-			item, _ := sizes.ArrayItem(index)
+			item, err := requiredArrayItem(sizes, index)
+			if err != nil {
+				return err
+			}
 			if value, isString := item.Text(); !isString || !validIconSize(value) {
 				return malformed("resource icon size is invalid")
 			}
@@ -414,7 +450,10 @@ func validateAudience(value action.Value) error {
 	}
 	seen := make(map[string]struct{}, length)
 	for index := 0; index < length; index++ {
-		item, _ := value.ArrayItem(index)
+		item, err := requiredArrayItem(value, index)
+		if err != nil {
+			return err
+		}
 		role, isString := item.Text()
 		if !isString || role != "user" && role != "assistant" {
 			return malformed("annotation audience role is invalid")
@@ -437,12 +476,31 @@ func exactObject(value action.Value, allowed ...string) error {
 		known[name] = struct{}{}
 	}
 	for index := 0; index < length; index++ {
-		member, _ := value.ObjectMember(index)
+		member, err := requiredObjectMember(value, index)
+		if err != nil {
+			return err
+		}
 		if _, ok := known[member.Name]; !ok {
 			return malformed("content object contains an unknown field")
 		}
 	}
 	return nil
+}
+
+func requiredArrayItem(value action.Value, index int) (action.Value, error) {
+	item, ok := value.ArrayItem(index)
+	if !ok {
+		return action.Value{}, malformed("bounded content array became inaccessible")
+	}
+	return item, nil
+}
+
+func requiredObjectMember(value action.Value, index int) (action.Member, error) {
+	member, ok := value.ObjectMember(index)
+	if !ok {
+		return action.Member{}, malformed("bounded content object became inaccessible")
+	}
+	return member, nil
 }
 
 func requiredString(value action.Value, field string) (string, error) {

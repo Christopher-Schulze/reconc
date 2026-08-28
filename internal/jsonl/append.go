@@ -22,15 +22,15 @@ func AppendWithLayout(path string, record []byte, policy Policy, layout Layout) 
 	if err := validateLayout(path, layout); err != nil {
 		return err
 	}
-	normalized := append(bytes.TrimRight(record, "\r\n"), '\n')
-	if int64(len(normalized)) > policy.MaxBytes {
-		return fmt.Errorf("jsonl record is %d bytes; maximum is %d", len(normalized), policy.MaxBytes)
+	normalized, err := normalizeRecord(record, policy.MaxBytes)
+	if err != nil {
+		return err
 	}
 	return withLayoutLock(path, layout, func() error {
 		if err := recoverAppendLockedWithLayout(path, layout, nil); err != nil {
 			return err
 		}
-		return appendLockedWithLayout(path, normalized, policy, layout, nil)
+		return appendNormalizedLockedWithLayout(path, normalized, policy, layout, nil)
 	})
 }
 
@@ -188,11 +188,32 @@ func WithExistingLayoutLockContext(
 }
 
 func appendLockedWithLayout(path string, record []byte, policy Policy, layout Layout, commit func() error) error {
-	record = bytes.TrimRight(record, "\r\n")
-	record = append(record, '\n')
-	if int64(len(record)) > policy.MaxBytes {
-		return fmt.Errorf("jsonl record is %d bytes; maximum is %d", len(record), policy.MaxBytes)
+	normalized, err := normalizeRecord(record, policy.MaxBytes)
+	if err != nil {
+		return err
 	}
+	return appendNormalizedLockedWithLayout(path, normalized, policy, layout, commit)
+}
+
+func normalizeRecord(record []byte, maximum int64) ([]byte, error) {
+	trimmed := bytes.TrimRight(record, "\r\n")
+	normalizedBytes := len(trimmed) + 1
+	if int64(normalizedBytes) > maximum {
+		return nil, fmt.Errorf("jsonl record is %d bytes; maximum is %d", normalizedBytes, maximum)
+	}
+	normalized := make([]byte, normalizedBytes)
+	copy(normalized, trimmed)
+	normalized[len(normalized)-1] = '\n'
+	return normalized, nil
+}
+
+func appendNormalizedLockedWithLayout(
+	path string,
+	record []byte,
+	policy Policy,
+	layout Layout,
+	commit func() error,
+) error {
 	info, err := os.Lstat(path)
 	if err == nil {
 		if securityErr := validateLayoutSecurityFile(layout, path, policy.MaxBytes); securityErr != nil {

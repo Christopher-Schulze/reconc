@@ -90,41 +90,41 @@ func (e *Engine) Inspect(
 	}
 	root, source, err := inspectionRoot(request, result)
 	if err != nil {
-		return e.incompleteEvidence(accumulator, action.ReasonInspectionIncomplete), nil
+		return e.incompleteEvidence(accumulator, action.ReasonInspectionIncomplete)
 	}
 	deadline := shortestInspectionDuration(policies)
 	scanContext, cancel := context.WithTimeout(ctx, deadline)
 	defer cancel()
 	if err := scanContext.Err(); err != nil {
-		return e.incompleteEvidence(accumulator, inspectionContextReason(ctx, scanContext, err)), nil
+		return e.incompleteEvidence(accumulator, inspectionContextReason(ctx, scanContext, err))
 	}
 	if err := e.inspectSchema(&accumulator, policies, request, result, outputSchema); err != nil {
 		reason := inspectionContextReason(ctx, scanContext, err)
 		if reason == action.ReasonInspectionIncomplete {
 			reason = action.ReasonSchemaInvalid
 		}
-		return e.incompleteEvidence(accumulator, reason), nil
+		return e.incompleteEvidence(accumulator, reason)
 	}
 	if err := scanContext.Err(); err != nil {
-		return e.incompleteEvidence(accumulator, inspectionContextReason(ctx, scanContext, err)), nil
+		return e.incompleteEvidence(accumulator, inspectionContextReason(ctx, scanContext, err))
 	}
 	if err := e.inspectContent(&accumulator, policies, request, result); err != nil {
 		reason := inspectionContextReason(ctx, scanContext, err)
 		if reason == action.ReasonInspectionIncomplete {
 			reason = action.ReasonUnsupportedContent
 		}
-		return e.incompleteEvidence(accumulator, reason), nil
+		return e.incompleteEvidence(accumulator, reason)
 	}
 	for _, policy := range policies {
 		if err := e.inspectPolicy(scanContext, &accumulator, policy, source, root, result); err != nil {
 			reason := inspectionContextReason(ctx, scanContext, err)
-			return e.incompleteEvidence(accumulator, reason), nil
+			return e.incompleteEvidence(accumulator, reason)
 		}
 		if accumulator.schemaRequired {
-			return e.incompleteEvidence(accumulator, action.ReasonSchemaInvalid), nil
+			return e.incompleteEvidence(accumulator, action.ReasonSchemaInvalid)
 		}
 	}
-	return e.completeEvidence(accumulator), nil
+	return e.completeEvidence(accumulator)
 }
 
 func inspectionRoot(
@@ -619,27 +619,31 @@ func inspectionDisposition(
 func (e *Engine) incompleteEvidence(
 	accumulator inspectionAccumulator,
 	reason action.ReasonCode,
-) *action.InspectionEvidence {
+) (*action.InspectionEvidence, error) {
 	accumulator.evidence.Status = action.InspectionIncomplete
 	accumulator.evidence.Decision = action.DecisionBlock
 	accumulator.evidence.Reason = reason
 	accumulator.evidence.RuleIDs = []string{}
 	accumulator.evidence.Categories = []action.DetectorCategory{}
-	e.finalizeEvidence(&accumulator.evidence)
-	return &accumulator.evidence
+	if err := e.finalizeEvidence(&accumulator.evidence); err != nil {
+		return nil, err
+	}
+	return &accumulator.evidence, nil
 }
 
-func (e *Engine) completeEvidence(accumulator inspectionAccumulator) *action.InspectionEvidence {
+func (e *Engine) completeEvidence(accumulator inspectionAccumulator) (*action.InspectionEvidence, error) {
 	if len(accumulator.evidence.RuleIDs) > 0 {
 		accumulator.evidence.Status = action.InspectionMatched
 		accumulator.evidence.Decision = accumulator.decision
 		accumulator.evidence.Reason = accumulator.reason
 	}
-	e.finalizeEvidence(&accumulator.evidence)
-	return &accumulator.evidence
+	if err := e.finalizeEvidence(&accumulator.evidence); err != nil {
+		return nil, err
+	}
+	return &accumulator.evidence, nil
 }
 
-func (e *Engine) finalizeEvidence(evidence *action.InspectionEvidence) {
+func (e *Engine) finalizeEvidence(evidence *action.InspectionEvidence) error {
 	sort.Strings(evidence.RuleIDs)
 	sort.Slice(evidence.Categories, func(i, j int) bool { return evidence.Categories[i] < evidence.Categories[j] })
 	sort.Strings(evidence.PackIdentities)
@@ -656,8 +660,12 @@ func (e *Engine) finalizeEvidence(evidence *action.InspectionEvidence) {
 		return evidence.UnsupportedContent[i].Identity < evidence.UnsupportedContent[j].Identity
 	})
 	evidence.Identity = ""
-	body, _ := json.Marshal(evidence)
+	body, err := json.Marshal(evidence)
+	if err != nil {
+		return fmt.Errorf("marshal inspection evidence: %w", err)
+	}
 	evidence.Identity = e.key.Identity(actionstate.DomainInspection, []byte("evidence"), body)
+	return nil
 }
 
 func resultBinaryPointers(result *MCPToolResult) map[string]struct{} {

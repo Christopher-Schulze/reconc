@@ -198,20 +198,21 @@ func (g *Gateway) prepareCall(
 		}
 		break
 	}
-	ledger, err := newCallLedger(g, snapshot, request, tool.ID)
 	if err != nil {
+		return nil, blockedGatewayResultValue(callID, gatewayReason(err, action.ReasonStateUnavailable))
+	}
+	ledger, ledgerErr := newCallLedger(g, snapshot, request, tool.ID)
+	if ledgerErr != nil {
+		if reserve.Reservation != nil {
+			g.releaseReservation(ctx, reserve.Reservation, reserve.Snapshot.StateVersion)
+		}
 		return nil, blockedGatewayResultValue(callID, action.ReasonLedgerUnavailable)
 	}
 	if err := ledger.requestAccepted(ctx); err != nil {
+		if reserve.Reservation != nil {
+			g.releaseReservation(ctx, reserve.Reservation, reserve.Snapshot.StateVersion)
+		}
 		return nil, blockedGatewayResultValue(callID, action.ReasonLedgerUnavailable)
-	}
-	if err != nil {
-		g.diagnostic("budget reservation failed: " + string(gatewayReason(err, action.ReasonStateUnavailable)))
-		_ = ledger.terminalFailure(
-			ctx, action.PhasePreCall, gatewayReason(err, action.ReasonStateUnavailable),
-			action.LifecycleActive, true, true,
-		)
-		return nil, blockedGatewayResultValue(callID, gatewayReason(err, action.ReasonStateUnavailable))
 	}
 	request.StateVersion = reserve.Snapshot.StateVersion
 	budget := reserve.Snapshot

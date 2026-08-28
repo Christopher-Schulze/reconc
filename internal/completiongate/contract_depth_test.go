@@ -19,7 +19,9 @@ func TestVerifyReportRejectsEveryEnvelopeFailure(t *testing.T) {
 		Schema: schema.Resolve(schema.CompletionReport), FormatVersion: FormatVersion,
 		RepoRoot: "/repo", Checks: []Check{}, Candidate: CandidateBinding{DirtyPaths: []string{}},
 	}
-	finalize(report)
+	if err := finalize(report); err != nil {
+		t.Fatalf("finalize valid report: %v", err)
+	}
 	if err := VerifyReport(report); err != nil {
 		t.Fatalf("valid report rejected: %v", err)
 	}
@@ -130,7 +132,9 @@ func TestFinalizeSelectsFirstFailureAction(t *testing.T) {
 		RepoRoot: "/repo", Candidate: CandidateBinding{DirtyPaths: []string{}},
 		Checks: []Check{{ID: "warning", Status: StatusWarn}},
 	}
-	finalize(report)
+	if err := finalize(report); err != nil {
+		t.Fatalf("finalize passing report: %v", err)
+	}
 	if !report.OK || report.Decision != "pass" || report.NextAction != "" || report.Digest == "" {
 		t.Fatalf("passing finalize = %+v", report)
 	}
@@ -139,8 +143,16 @@ func TestFinalizeSelectsFirstFailureAction(t *testing.T) {
 		Check{ID: "first", Status: StatusFail, nextAction: "first action"},
 		Check{ID: "second", Status: StatusFail, nextAction: "second action"},
 	)
-	finalize(report)
+	if err := finalize(report); err != nil {
+		t.Fatalf("finalize blocking report: %v", err)
+	}
 	if report.OK || report.Decision != "block" || report.NextAction != "first action" {
 		t.Fatalf("blocking finalize = %+v", report)
+	}
+}
+
+func TestHashJSONRejectsUnmarshalablePayload(t *testing.T) {
+	if _, err := hashJSON(make(chan struct{})); err == nil || !strings.Contains(err.Error(), "marshal report payload") {
+		t.Fatalf("unmarshalable payload error = %v", err)
 	}
 }

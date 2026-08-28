@@ -182,7 +182,11 @@ func Evaluate(repo string, options Options) (*Report, error) {
 			return nil, fmt.Errorf("evaluate current completion policy: %w", err)
 		}
 		report.PolicyReport = policyReport
-		report.Candidate.PolicyReportHash = hashJSON(policyReport)
+		policyHash, err := hashJSON(policyReport)
+		if err != nil {
+			return nil, err
+		}
+		report.Candidate.PolicyReportHash = policyHash
 		violations := blockingViolations(policyReport)
 		if len(violations) == 0 {
 			add("policy/current", StatusPass, "current candidate policy evaluation is non-blocking", "")
@@ -232,7 +236,9 @@ func Evaluate(repo string, options Options) (*Report, error) {
 	}
 	add("state/binding", StatusPass, "HEAD, index, worktree, policy, session, and report identity remained stable", "")
 
-	finalize(report)
+	if err := finalize(report); err != nil {
+		return nil, err
+	}
 	if options.PersistDecision && policyReport != nil {
 		shouldStore := policyReport.Decision == runtime.DecisionBlock || (!unresolvedDecision && report.OK)
 		if shouldStore {
@@ -257,7 +263,10 @@ func VerifyReport(report *Report) error {
 	if !schema.AcceptsFormat(schema.CompletionReport, report.Schema, report.FormatVersion) {
 		return errors.New("unsupported completion report schema or format version")
 	}
-	expected := reportDigest(report)
+	expected, err := reportDigest(report)
+	if err != nil {
+		return err
+	}
 	if expected == "" || !equalDigest(report.Digest, expected) {
 		return errors.New("completion report digest mismatch")
 	}
@@ -357,7 +366,7 @@ func exactPolicyAction(violation runtime.Violation) string {
 	return action
 }
 
-func finalize(report *Report) {
+func finalize(report *Report) error {
 	report.OK = true
 	report.NextAction = ""
 	for _, check := range report.Checks {
@@ -374,10 +383,15 @@ func finalize(report *Report) {
 	} else {
 		report.Decision = "block"
 	}
-	report.Digest = reportDigest(report)
+	digest, err := reportDigest(report)
+	if err != nil {
+		return err
+	}
+	report.Digest = digest
+	return nil
 }
 
-func reportDigest(report *Report) string {
+func reportDigest(report *Report) (string, error) {
 	payload := reportPayload{
 		Schema: report.Schema, FormatVersion: report.FormatVersion, OK: report.OK,
 		Decision: report.Decision, RepoRoot: filepath.Clean(report.RepoRoot), TaskID: report.TaskID,
@@ -387,13 +401,13 @@ func reportDigest(report *Report) string {
 	return hashJSON(payload)
 }
 
-func hashJSON(value interface{}) string {
+func hashJSON(value interface{}) (string, error) {
 	body, err := json.Marshal(value)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("marshal report payload: %w", err)
 	}
 	sum := sha256.Sum256(body)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func equalDigest(left, right string) bool {
