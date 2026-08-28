@@ -52,6 +52,7 @@ type globExpansion struct {
 	zeroOverrides map[int]bool
 	starOverrides map[int]globStarShape
 	segmentResets map[int]bool
+	key           string
 }
 
 type globStarShape struct {
@@ -105,8 +106,9 @@ func expandGlobAlternatives(pattern string) ([]globExpansion, error) {
 	initial := globExpansion{
 		pattern: pattern, zeroOverrides: map[int]bool{}, starOverrides: map[int]globStarShape{}, segmentResets: map[int]bool{},
 	}
+	refreshGlobExpansionKey(&initial)
 	queue := []globExpansion{initial}
-	seen := map[string]bool{globExpansionKey(initial): true}
+	seen := map[string]bool{initial.key: true}
 	logicalBytes := globBranchCost(initial)
 	finished := make([]globExpansion, 0, 1)
 	for index := 0; index < len(queue); index++ {
@@ -121,7 +123,7 @@ func expandGlobAlternatives(pattern string) ([]globExpansion, error) {
 		alternatives := splitGlobAlternatives(candidate.pattern[open+1 : close])
 		for _, alternative := range alternatives {
 			expanded := replaceGlobAlternative(candidate, open, close, alternative)
-			key := globExpansionKey(expanded)
+			key := expanded.key
 			if seen[key] {
 				continue
 			}
@@ -133,7 +135,7 @@ func expandGlobAlternatives(pattern string) ([]globExpansion, error) {
 			queue = append(queue, expanded)
 		}
 	}
-	sort.Slice(finished, func(i, j int) bool { return globExpansionKey(finished[i]) < globExpansionKey(finished[j]) })
+	sort.Slice(finished, func(i, j int) bool { return finished[i].key < finished[j].key })
 	return finished, nil
 }
 
@@ -144,6 +146,7 @@ func captureGlobPrefixState(candidate *globExpansion, through int) {
 		}
 		candidate.zeroOverrides[position] = doublestar.MatchUnvalidated(candidate.pattern[position:], "")
 	}
+	refreshGlobExpansionKey(candidate)
 }
 
 func replaceGlobAlternative(candidate globExpansion, open int, close int, alternative string) globExpansion {
@@ -179,6 +182,7 @@ func replaceGlobAlternative(candidate globExpansion, open int, close int, altern
 		}
 	}
 	out.segmentResets[open] = true
+	refreshGlobExpansionKey(&out)
 	return out
 }
 
@@ -228,7 +232,11 @@ func globTokenBoundaries(candidate *globExpansion, through int) []int {
 	return append(boundaries, through)
 }
 
-func globExpansionKey(candidate globExpansion) string {
+func refreshGlobExpansionKey(candidate *globExpansion) {
+	candidate.key = buildGlobExpansionKey(*candidate)
+}
+
+func buildGlobExpansionKey(candidate globExpansion) string {
 	positions := make([]int, 0, len(candidate.zeroOverrides))
 	for position := range candidate.zeroOverrides {
 		positions = append(positions, position)

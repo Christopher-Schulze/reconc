@@ -78,6 +78,35 @@ func TestCompiledGlobRejectsExpansionAbovePlanAdmission(t *testing.T) {
 	}
 }
 
+func TestGlobExpansionIdentityIsExactAndStable(t *testing.T) {
+	t.Parallel()
+	pattern := "a/**/{b,c}/{d,e}"
+	first, err := expandGlobAlternatives(pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := expandGlobAlternatives(pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != len(second) {
+		t.Fatalf("expansion count = %d and %d", len(first), len(second))
+	}
+	seen := make(map[string]struct{}, len(first))
+	for index := range first {
+		if first[index].key == "" || first[index].key != buildGlobExpansionKey(first[index]) {
+			t.Fatalf("expansion %d key is not the exact cached identity", index)
+		}
+		if first[index].key != second[index].key {
+			t.Fatalf("expansion %d key changed across equivalent runs", index)
+		}
+		if _, duplicate := seen[first[index].key]; duplicate {
+			t.Fatalf("duplicate expansion identity at index %d", index)
+		}
+		seen[first[index].key] = struct{}{}
+	}
+}
+
 func FuzzCompiledGlobParity(f *testing.F) {
 	for _, seed := range [][2]string{
 		{"a/**/b", "a/x/y/b"}, {"{a,b}/*.go", "a/main.go"}, {"[a-z]?", "a1"},
