@@ -82,12 +82,21 @@ func TestPostSuccessDecisionPreservesTheAuthorizedDecisionBinding(t *testing.T) 
 
 func preparedGatewayCall(t *testing.T) (*rawGatewayHarness, *gatewayCall) {
 	t.Helper()
+	plan, evaluator := testGatewayPlan(t, action.DecisionAllow)
+	return preparedGatewayCallWithPlan(t, plan, evaluator)
+}
+
+func preparedGatewayCallWithPlan(
+	t *testing.T,
+	plan *action.CompiledPlan,
+	evaluator *action.Evaluator,
+) (*rawGatewayHarness, *gatewayCall) {
+	t.Helper()
 	markers := t.TempDir()
 	t.Setenv(fakeProcessEnvironment, "1")
 	t.Setenv(fakeMarkerEnvironment, filepath.Join(markers, "invoked"))
 	t.Setenv(fakeModeEnvironment, "normal")
 	t.Setenv(fakeCancellationMarkerEnvironment, filepath.Join(markers, "cancelled"))
-	plan, evaluator := testGatewayPlan(t, action.DecisionAllow)
 	harness := newRawGatewayHarness(t, plan, evaluator)
 	contract, generation, exists := harness.gateway.tool("echo")
 	if !exists {

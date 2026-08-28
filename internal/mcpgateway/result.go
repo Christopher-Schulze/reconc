@@ -64,9 +64,18 @@ func (g *Gateway) failUnknownDownstream(
 			return blockedGatewayResult(call.callID, action.ReasonLedgerUnavailable)
 		}
 	} else {
-		version, markErr := g.markIndeterminate(ctx, call)
+		version, transitionErr := g.markIndeterminateAfterFailure(ctx, call, cause)
 		if err := call.ledger.downstream(ctx, failure, actionledger.DownstreamUnknown); err != nil {
+			if transitionErr != nil {
+				g.diagnostic("record downstream failure after unresolved reservation: " + errors.Join(transitionErr, err).Error())
+			}
 			return blockedGatewayResult(call.callID, action.ReasonLedgerUnavailable)
+		}
+		if transitionErr != nil {
+			return blockedGatewayResult(
+				call.callID,
+				gatewayReason(transitionErr, action.ReasonReservationIndeterminate),
+			)
 		}
 		if err := call.ledger.budget(
 			ctx,
@@ -79,9 +88,6 @@ func (g *Gateway) failUnknownDownstream(
 			false,
 		); err != nil {
 			return blockedGatewayResult(call.callID, action.ReasonLedgerUnavailable)
-		}
-		if markErr != nil {
-			return blockedGatewayResult(call.callID, action.ReasonReservationIndeterminate)
 		}
 	}
 	if summary := g.process.StderrSummary(ctx); summary != "" {
@@ -160,9 +166,22 @@ func (g *Gateway) failMalformedDownstream(
 ) (*mcp.CallToolResult, error) {
 	actualBytes := uint64(len(raw))
 	stateVersion, settleErr := g.settleCallState(ctx, call, true, actualBytes)
+	var transitionErr error
+	if settleErr != nil && call.reservation != nil && stateVersion == "" {
+		stateVersion, transitionErr = g.markIndeterminateAfterFailure(ctx, call, settleErr)
+	}
 	failure := postFailureDecision(call, action.ReasonProtocolError)
 	if err := call.ledger.downstream(ctx, failure, actionledger.DownstreamFailed); err != nil {
+		if transitionErr != nil {
+			g.diagnostic("record malformed downstream failure after unresolved reservation: " + errors.Join(transitionErr, err).Error())
+		}
 		return blockedGatewayResult(call.callID, action.ReasonLedgerUnavailable)
+	}
+	if transitionErr != nil {
+		return blockedGatewayResult(
+			call.callID,
+			gatewayReason(transitionErr, action.ReasonReservationIndeterminate),
+		)
 	}
 	if call.reservation != nil {
 		kind := actionledger.BudgetSettled
@@ -201,14 +220,24 @@ func (g *Gateway) settleCallState(
 		outcome,
 		actualBytes,
 	)
-	if err == nil || version != "" {
+	if err == nil {
+		if version == "" {
+			return "", errors.New("reservation settlement returned no state version")
+		}
+		return version, nil
+	}
+	if version != "" {
 		return version, err
 	}
 	current, currentErr := g.state.CurrentStateVersion(ctx)
 	if currentErr != nil {
-		return call.stateVersion, errors.Join(err, currentErr)
+		return "", errors.Join(err, currentErr)
 	}
-	return g.state.Settle(ctx, call.reservation.Identity, current, outcome, actualBytes)
+	version, retryErr := g.state.Settle(ctx, call.reservation.Identity, current, outcome, actualBytes)
+	if retryErr == nil && version == "" {
+		return "", errors.Join(err, errors.New("retried reservation settlement returned no state version"))
+	}
+	return version, retryErr
 }
 
 func (g *Gateway) settleAndRecord(
@@ -221,9 +250,12 @@ func (g *Gateway) settleAndRecord(
 	if err != nil {
 		if call.reservation != nil && version == "" {
 			settleErr := err
-			var markErr error
-			version, markErr = g.markIndeterminate(ctx, call)
-			err = errors.Join(settleErr, markErr)
+			var transitionErr error
+			version, transitionErr = g.markIndeterminateAfterFailure(ctx, call, settleErr)
+			if transitionErr != nil {
+				return gatewayReason(transitionErr, action.ReasonReservationIndeterminate), transitionErr
+			}
+			err = settleErr
 		}
 		call.stateVersion = version
 		if call.reservation != nil {
@@ -264,20 +296,82 @@ func (g *Gateway) settleAndRecord(
 }
 
 func (g *Gateway) markIndeterminate(ctx context.Context, call *gatewayCall) (string, error) {
+	if g == nil || g.state == nil || call == nil || call.reservation == nil {
+		return "", errors.New("indeterminate reservation transition is unavailable")
+	}
 	version, err := g.state.MarkIndeterminate(
 		ctx,
 		call.reservation.Identity,
 		call.stateVersion,
 	)
-	if err == nil || version != "" {
+	if version != "" {
 		return version, err
+	}
+	if err == nil {
+		return "", errors.New("indeterminate reservation transition returned no state version")
 	}
 	current, currentErr := g.state.CurrentStateVersion(ctx)
 	if currentErr != nil {
-		return call.stateVersion, errors.Join(err, currentErr)
+		return "", errors.Join(err, currentErr)
 	}
 	version, retryErr := g.state.MarkIndeterminate(ctx, call.reservation.Identity, current)
-	return version, errors.Join(err, retryErr)
+	if version != "" {
+		return version, retryErr
+	}
+	if retryErr != nil {
+		return "", errors.Join(err, retryErr)
+	}
+	return "", errors.Join(err, errors.New("retried indeterminate reservation transition returned no state version"))
+}
+
+func (g *Gateway) markIndeterminateAfterFailure(
+	ctx context.Context,
+	call *gatewayCall,
+	cause error,
+) (string, error) {
+	if cause == nil {
+		cause = errors.New("gateway lifecycle failed before terminal reservation state")
+	}
+	expectedVersion := ""
+	reservation := "unavailable"
+	if call != nil {
+		expectedVersion = call.stateVersion
+		if call.reservation != nil {
+			reservation = call.reservation.Identity
+		}
+	}
+	version, err := g.markIndeterminate(ctx, call)
+	if version != "" {
+		call.stateVersion = version
+		if err != nil {
+			joined := errors.Join(
+				cause,
+				fmt.Errorf(
+					"reservation %q committed indeterminate state version %q but transition finalization failed: %w",
+					reservation,
+					version,
+					err,
+				),
+			)
+			g.diagnostic("indeterminate reservation transition completed with an error: " + joined.Error())
+			return version, joined
+		}
+		return version, nil
+	}
+	if err != nil {
+		transitionErr := &actionstate.StateError{
+			Code: action.ReasonReservationIndeterminate,
+			Message: fmt.Sprintf(
+				"reservation %q remains unresolved from state version %q",
+				reservation,
+				expectedVersion,
+			),
+			Cause: errors.Join(cause, err),
+		}
+		g.diagnostic("indeterminate reservation transition failed: " + transitionErr.Error())
+		return "", transitionErr
+	}
+	return "", errors.New("indeterminate reservation transition returned no state version")
 }
 
 func (g *Gateway) inspectAndDeliver(

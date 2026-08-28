@@ -395,13 +395,17 @@ func (g *Gateway) commitDispatch(ctx context.Context, call *gatewayCall) error {
 			ctx, dispatchDecision, actionledger.BudgetDispatched, call.budget,
 			version, 0, call.approvalReserved, call.approvalCommitted,
 		); err != nil {
-			_, _ = g.state.MarkIndeterminate(ctx, reservation, version)
+			if _, transitionErr := g.markIndeterminateAfterFailure(ctx, call, err); transitionErr != nil {
+				return transitionErr
+			}
 			return err
 		}
 	}
 	if err := call.ledger.dispatch(ctx, dispatchDecision, reservation); err != nil {
 		if call.reservation != nil {
-			_, _ = g.state.MarkIndeterminate(ctx, reservation, call.stateVersion)
+			if _, transitionErr := g.markIndeterminateAfterFailure(ctx, call, err); transitionErr != nil {
+				return transitionErr
+			}
 		}
 		return err
 	}

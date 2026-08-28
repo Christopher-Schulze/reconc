@@ -210,19 +210,13 @@ func (g *Gateway) requestPostApproval(
 		); err != nil {
 			finalized := g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusUnavailable)
 			call.stateVersion = finalized.StateVersion
-			if call.reservation != nil && call.stateVersion != "" {
-				_, _ = g.markIndeterminate(ctx, call)
-			}
-			return blockedGatewayResult(call.callID, action.ReasonLedgerUnavailable)
+			return g.blockApprovalLedgerFailure(ctx, call, err)
 		}
 	}
 	if err := call.ledger.approval(ctx, call.decision, issued.Evidence); err != nil {
 		finalized := g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusUnavailable)
 		call.stateVersion = finalized.StateVersion
-		if call.reservation != nil && call.stateVersion != "" {
-			_, _ = g.markIndeterminate(ctx, call)
-		}
-		return blockedGatewayResult(call.callID, action.ReasonLedgerUnavailable)
+		return g.blockApprovalLedgerFailure(ctx, call, err)
 	}
 	baseParams, err := actionapproval.CanonicalMCPApprovalBaseParams(call.wire.params)
 	if err != nil {
@@ -472,10 +466,7 @@ func (g *Gateway) consumePostApproval(
 	if err := call.ledger.approval(ctx, call.decision, consumed.Evidence); err != nil {
 		call.postApprovalCommitted = true
 		call.stateVersion = consumed.StateVersion
-		if call.reservation != nil {
-			_, _ = g.markIndeterminate(ctx, call)
-		}
-		return blockedGatewayResult(pending.callID, action.ReasonLedgerUnavailable)
+		return g.blockApprovalLedgerFailure(ctx, call, err)
 	}
 	call.postApprovalCommitted = true
 	call.stateVersion = consumed.StateVersion
@@ -645,6 +636,27 @@ func approvalFailureFinalizeStatus(err error) actionapproval.Status {
 		return actionapproval.StatusUnavailable
 	}
 	return status
+}
+
+func (g *Gateway) blockApprovalLedgerFailure(
+	ctx context.Context,
+	call *gatewayCall,
+	cause error,
+) (*mcp.CallToolResult, error) {
+	if call == nil {
+		err := errors.Join(cause, errors.New("approval ledger failure call is unavailable"))
+		g.diagnostic("approval ledger failure could not be terminalized: " + err.Error())
+		return nil, err
+	}
+	if call.reservation != nil {
+		if _, transitionErr := g.markIndeterminateAfterFailure(ctx, call, cause); transitionErr != nil {
+			return blockedGatewayResult(
+				call.callID,
+				gatewayReason(transitionErr, action.ReasonReservationIndeterminate),
+			)
+		}
+	}
+	return blockedGatewayResult(call.callID, action.ReasonLedgerUnavailable)
 }
 
 func pendingRegistry(g *Gateway) actionstate.LoadedApprovalRegistry {
