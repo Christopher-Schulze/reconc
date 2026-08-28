@@ -31,8 +31,7 @@ func boundedPolicyGlob(root, pattern string) ([]string, error) {
 	if len(pattern) == 0 || len(pattern) > maxPolicyGlobPatternBytes {
 		return nil, fmt.Errorf("policy include pattern must be 1-%d bytes", maxPolicyGlobPatternBytes)
 	}
-	normalized := filepath.ToSlash(pattern)
-	segments := strings.Split(normalized, "/")
+	segments := strings.Split(pattern, "/")
 	if len(segments) == 0 {
 		return nil, fmt.Errorf("policy include pattern %q is empty", pattern)
 	}
@@ -108,7 +107,7 @@ func (s *boundedGlobState) visit(candidate string, segments []string, index int)
 }
 
 func hasPolicyGlobMeta(segment string) bool {
-	return strings.ContainsAny(segment, "*?[")
+	return strings.ContainsAny(segment, `*?[\`)
 }
 
 func validatePolicyGlobPatterns(patterns []string) error {
@@ -127,7 +126,7 @@ func validatePolicyGlobPatterns(patterns []string) error {
 }
 
 func boundedPolicyGlobPatternSegments(pattern string) ([]string, error) {
-	segments := strings.Split(filepath.ToSlash(pattern), "/")
+	segments := strings.Split(pattern, "/")
 	for _, segment := range segments {
 		if segment == "" || segment == "." || segment == ".." {
 			return nil, fmt.Errorf("policy include pattern %q contains an unsupported path segment", pattern)

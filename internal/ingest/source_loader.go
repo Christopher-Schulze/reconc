@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/customruntime"
 	rerrors "reconc.dev/reconc/internal/errors"
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/presets"
 	"reconc.dev/reconc/internal/yamlbound"
@@ -427,7 +427,7 @@ func loadIncludePatternsDocument(doc map[string]interface{}, context string) ([]
 			}
 		}
 		normalized := strings.TrimSpace(str)
-		if path.IsAbs(normalized) || filepath.IsAbs(normalized) || strings.Contains(normalized, "..") {
+		if pathidentity.Rooted(normalized) || pathidentity.EscapesLexically(normalized) {
 			return nil, &rerrors.PolicySourceError{
 				Message: "include patterns must stay within the repo root",
 			}

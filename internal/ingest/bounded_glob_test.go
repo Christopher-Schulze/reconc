@@ -27,6 +27,24 @@ func TestBoundedPolicyGlobReturnsDeterministicRegularMatches(t *testing.T) {
 	}
 }
 
+func TestBoundedPolicyGlobMatchesEscapedSyntax(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "policies"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "policies", "file[1].yml"), []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := boundedPolicyGlob(root, `policies/file\[1\].yml`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || filepath.Base(got[0]) != "file[1].yml" {
+		t.Fatalf("escaped match = %#v", got)
+	}
+}
+
 func TestBoundedPolicyGlobRejectsDirectoryAndMatchCaps(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "policies"), 0o755); err != nil {
@@ -53,5 +71,11 @@ func TestValidatePolicyGlobPatternsBoundsGrammar(t *testing.T) {
 	}
 	if err := validatePolicyGlobPatterns([]string{"policies/**/rules.yml"}); err != nil {
 		t.Fatalf("double-star remains a valid literal-segment glob: %v", err)
+	}
+	if err := validatePolicyGlobPatterns([]string{`policies/file\[1\].yml`}); err != nil {
+		t.Fatalf("escaped glob syntax must be host-independent: %v", err)
+	}
+	if err := validatePolicyGlobPatterns([]string{`policies/trailing\`}); err == nil {
+		t.Fatal("malformed trailing glob escape must fail")
 	}
 }

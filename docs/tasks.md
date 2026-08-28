@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 306 Allow safe double dots in include patterns -> tasks/306-allow-safe-double-dots-in-include-patterns.md
 - [ ] 307 Make malformed-config backup identities collision-resistant -> tasks/307-make-malformed-config-backup-identities-collision-resistant.md
 - [ ] 308 Parse Codex activation with complete TOML semantics -> tasks/308-parse-codex-activation-with-complete-toml-semantics.md
 - [ ] 309 Make hook install authorization atomic with publication -> tasks/309-make-hook-install-authorization-atomic-with-publication.md
@@ -48,6 +47,7 @@
 
 ## Done
 
+- [x] 306 Allow safe double dots in include patterns -> tasks/done/306-allow-safe-double-dots-in-include-patterns.md
 - [x] 305 Reject extension-only policy targets -> tasks/done/305-reject-extension-only-policy-targets.md
 - [x] 304 Fix assurance guard comment classification -> tasks/done/304-fix-assurance-guard-comment-classification.md
 - [x] 303 Enforce the expanded YAML alias budget -> tasks/done/303-enforce-the-expanded-yaml-alias-budget.md
@@ -57,4 +57,3 @@
 - [x] 298 Propagate caller cancellation into policy scripts -> tasks/done/298-propagate-caller-cancellation-into-policy-scripts.md
 - [x] 297 Bind runtime freshness metadata to the opened file -> tasks/done/297-bind-runtime-freshness-metadata-to-the-opened-file.md
 - [x] 296 Sync repository-run state mutations before unlock -> tasks/done/296-sync-repository-run-state-mutations-before-unlock.md
-- [x] 295 Durably create and rotate JSONL state -> tasks/done/295-durably-create-and-rotate-jsonl-state.md

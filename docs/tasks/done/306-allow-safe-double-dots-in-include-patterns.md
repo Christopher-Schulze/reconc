@@ -13,14 +13,21 @@ Include validation rejects any pattern containing the substring `..`, including 
 
 ## Sub-Tasks
 
-- [ ] Define include traversal semantics independent of host path quirks
-- [ ] Replace substring rejection with component-aware validation
-- [ ] Add safe-dot and escape tables
-- [ ] Run ingest and policy-source gates
+- [x] Define include traversal semantics independent of host path quirks
+- [x] Replace substring rejection with component-aware validation
+- [x] Add safe-dot and escape tables
+- [x] Run ingest and policy-source gates
 
 ## Notes
 
 - Evidence: `internal/ingest/source_loader.go:421-435`.
+- Contract: `/` is the portable glob separator; backslash keeps `path.Match`
+  escape semantics. Boundary admission still treats either separator as a
+  possible lexical traversal spelling, so rooted forms and exact `..`
+  components fail before expansion.
+- Verification: focused ingest/parser/compiler tests, Windows amd64 test-binary
+  compilation, the complete uncached race and release-trust gate, vet,
+  Staticcheck v0.8.1, and isolated self-hosting passed.
 
 ## Deviations
 

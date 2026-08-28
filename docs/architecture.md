@@ -642,7 +642,11 @@ and byte-compares the notice before checksums and provenance are accepted.
      source reads. The compiler passes this context through its lock-protected
      load, so default fragments are not discovered twice. Policy globs use
      bounded segment enumeration with explicit pattern, directory, match, and
-     source-count caps; `**` has no recursive special meaning.
+     source-count caps. Patterns use `/` as their portable segment separator;
+     rooted forms and exact `..` segments in either separator style fail
+     closed, while repeated dots inside a filename remain valid. Backslash
+     retains `path.Match` escape semantics on every host, and `**` has no
+     recursive special meaning.
      Inline fenced-policy extraction scans each bounded context source once,
      tracks line numbers incrementally, and stops at its per-source block cap
      before retaining another block body.

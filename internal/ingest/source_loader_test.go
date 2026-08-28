@@ -275,6 +275,56 @@ func TestLoadPolicySourcesIncludePatterns(t *testing.T) {
 	}
 }
 
+func TestLoadPolicySourcesIncludeAllowsDoubleDotsWithinSegment(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# agents\n")
+	writeFile(t, repo, ".reconc.yml", "include:\n  - 'extras/foo..bar.yml'\n")
+	writeFile(t, repo, "extras/foo..bar.yml", "rules: []\n")
+
+	bundle, err := LoadPolicySources(repo)
+	if err != nil {
+		t.Fatalf("safe double-dot include failed: %v", err)
+	}
+	for _, source := range bundle.Sources {
+		if source.Kind == policy.SourcePolicyFile && source.Path == "extras/foo..bar.yml" {
+			return
+		}
+	}
+	t.Fatalf("safe double-dot fragment missing from sources: %v", sourceKinds(bundle))
+}
+
+func TestLoadIncludePatternsUsesComponentAwarePortableBoundary(t *testing.T) {
+	valid := []string{
+		"policies/foo..bar.yml",
+		"policies/...hidden.yml",
+		`policies/file\[1\].yml`,
+		"policies/[.][.]safe.yml",
+	}
+	for _, pattern := range valid {
+		document := map[string]interface{}{"include": []interface{}{pattern}}
+		got, err := loadIncludePatternsDocument(document, ".reconc.yml")
+		if err != nil || len(got) != 1 || got[0] != pattern {
+			t.Fatalf("safe include pattern %q = %v, %v", pattern, got, err)
+		}
+	}
+
+	invalid := []string{
+		"../outside/*.yml",
+		"policies/../outside.yml",
+		`policies\..\outside.yml`,
+		`C:\outside\*.yml`,
+		`\\server\share\*.yml`,
+		"/etc/*.yml",
+	}
+	for _, pattern := range invalid {
+		document := map[string]interface{}{"include": []interface{}{pattern}}
+		if _, err := loadIncludePatternsDocument(document, ".reconc.yml"); err == nil || !strings.Contains(err.Error(), "stay within the repo root") {
+			t.Fatalf("unsafe include pattern %q error = %v", pattern, err)
+		}
+	}
+}
+
 func TestLoadPolicySourcesIncludeRejectsAbsolutePath(t *testing.T) {
 	withRECONCHome(t)
 	repo := t.TempDir()

@@ -1913,8 +1913,11 @@ compatibility.
 Glob expansion is segment-based and bounded before source bodies are retained:
 patterns are capped at 256 and 1 KiB each, directory enumeration and matches
 are capped, only regular files are candidates, and `**` is not recursive
-special syntax. Duplicate paths are removed by normalized repository-relative
-identity before reading.
+special syntax. `/` is the portable segment separator and backslash retains
+`path.Match` escape semantics on every host. Rooted forms and exact `..`
+segments in either separator style are rejected; repeated dots within one
+filename segment are valid. Duplicate paths are removed by normalized
+repository-relative identity before reading.
 The compiler configuration is decoded once into the authoritative bounded YAML
 mapping; `include` and `extends` extraction then share that document while
 retaining their existing strict field/type errors. User templates and deep
