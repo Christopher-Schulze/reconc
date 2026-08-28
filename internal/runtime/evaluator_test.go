@@ -458,6 +458,45 @@ func TestCheckForbidCommandWithScope(t *testing.T) {
 	}
 }
 
+func TestForbidCommandChecksPathBeforeCommandAnalysis(t *testing.T) {
+	rule := policy.Rule{
+		ID: "scoped-forbid", Kind: policy.KindForbidCommand,
+		WhenPaths: []string{"src/**"}, Commands: []string{"pip install"},
+	}
+	matchers, err := compileRuntimePathMatchers([]policy.Rule{rule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := newCommandInvocationCache([]policy.Rule{rule}, "")
+	ctx := &evalContext{matchers: matchers, commandCache: cache}
+	inputs := ExecutionInputs{
+		WritePaths: []string{"docs/readme.md"},
+		Commands:   []string{"pip install 'unterminated"},
+	}
+	violation, err := evalForbidCommand(ctx, &rule, policy.ModeBlock, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if violation != nil {
+		t.Fatalf("non-matching path produced a violation: %+v", violation)
+	}
+	if len(cache.observed) != 0 {
+		t.Fatalf("command parser ran for a non-matching path: %d cached parses", len(cache.observed))
+	}
+
+	inputs.WritePaths = []string{"src/main.go"}
+	violation, err = evalForbidCommand(ctx, &rule, policy.ModeBlock, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if violation == nil {
+		t.Fatal("matching path with an uncertain command must fail closed")
+	}
+	if len(cache.observed) != 1 {
+		t.Fatalf("matching path parser count = %d, want 1", len(cache.observed))
+	}
+}
+
 func TestCheckRequireClaim(t *testing.T) {
 	withRECONCHome(t)
 	repo := makeRepo(t, "# project\n", "",

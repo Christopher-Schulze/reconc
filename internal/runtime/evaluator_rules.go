@@ -599,11 +599,6 @@ func evalRequireClaim(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mo
 }
 
 func evalForbidCommand(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
-	required := stringListField(rule, "commands")
-	forbidden := matchingForbiddenCommandsWithCache(ctx.commandCache, commandsForShellAnalysis(ctx, inputs.Commands), required, ctxRepoRoot(ctx), ruleCommandMatchMode(rule))
-	if len(forbidden) == 0 {
-		return nil, nil
-	}
 	whenPatterns := stringListField(rule, "when_paths")
 	triggered := []string{}
 	if len(whenPatterns) > 0 {
@@ -615,6 +610,11 @@ func evalForbidCommand(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 		if len(triggered) == 0 {
 			return nil, nil
 		}
+	}
+	required := stringListField(rule, "commands")
+	forbidden := matchingForbiddenCommandsWithCache(ctx.commandCache, commandsForShellAnalysis(ctx, inputs.Commands), required, ctxRepoRoot(ctx), ruleCommandMatchMode(rule))
+	if len(forbidden) == 0 {
+		return nil, nil
 	}
 	return buildViolation(rule, defaultMode, triggered, forbidden, nil, nil, nil, nil), nil
 }

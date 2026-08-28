@@ -411,6 +411,36 @@ func BenchmarkCheckPreCommandSubset(b *testing.B) {
 	}
 }
 
+func BenchmarkCheckPreCommandIrrelevantForbidCommands(b *testing.B) {
+	repo := b.TempDir()
+	writeFileBench(b, repo, "AGENTS.md", "# t\n")
+	rules := "rules:\n"
+	for index := 0; index < 128; index++ {
+		rules += "  - id: forbid-" + itoaBench(index) + "\n    kind: forbid_command\n    when_paths: ['irrelevant/" + itoaBench(index) + "/**']\n    commands: ['pip install']\n    mode: block\n    message: forbidden\n"
+	}
+	writeFileBench(b, repo, "policies/rules.yml", rules)
+	if _, err := compiler.CompileRepoPolicy(repo, "bench"); err != nil {
+		b.Fatal(err)
+	}
+	commands := make([]string, 128)
+	for index := range commands {
+		commands[index] = "pip install 'unterminated-" + itoaBench(index)
+	}
+	inputs := ExecutionInputs{WritePaths: []string{"src/main.go"}, Commands: commands}
+	evaluator := NewEvaluator()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		report, err := evaluator.CheckRepoPolicyForPreCommand(repo, inputs)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if report.Decision != DecisionPass {
+			b.Fatalf("irrelevant forbid rules produced %s", report.Decision)
+		}
+	}
+}
+
 func BenchmarkLegacyMigrationPlan(b *testing.B) {
 	policyText := "rules:\n  - id: r\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: x\n"
 	repo := b.TempDir()
