@@ -1712,7 +1712,9 @@ concrete targets selected by dynamic evidence and freshness templates, their
 trusted filesystem identities, native-assurance authority observations, and
 the current temporal freshness verdict. Policy evaluation consumes that
 captured input rather than rebuilding it. Candidate state and every dynamic
-identity are captured before and after evaluation; any change aborts the gate.
+identity are captured before and after evaluation; a changed candidate gets one
+fresh retry, while persistent drift aborts after two coherent attempts with an
+exact retry-limit diagnostic.
 A blocking explicit `check` or `ci` decision for the
 same candidate remains unresolved until a later explicit non-blocking decision
 clears its tamper-evident receipt. Time and retention never clear it. With no

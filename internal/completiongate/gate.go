@@ -21,6 +21,18 @@ import (
 
 const FormatVersion = "1"
 
+const completionEvaluationAttempts = 2
+
+const completionRetryExhaustedFormat = "repository, policy, or active-session state changed during completion evaluation after %d attempts; retry limit exhausted"
+
+// RetryableStateDriftError identifies a completion attempt whose before and
+// after snapshots no longer describe one coherent candidate.
+type RetryableStateDriftError struct{}
+
+func (e *RetryableStateDriftError) Error() string {
+	return "repository, policy, or active-session state changed during completion evaluation; retry"
+}
+
 type Status string
 
 const (
@@ -91,10 +103,34 @@ type reportPayload struct {
 	PolicyReport  *runtime.CheckReport `json:"policy_report,omitempty"`
 }
 
-// Evaluate runs the complete non-destructive gate. PersistDecision writes only
-// the tamper-evident latest policy receipt under RECONC_HOME; governed
-// worktree content is never changed.
+// Evaluate runs the complete non-destructive gate. A single retry is reserved
+// for typed candidate drift; every attempt captures fresh state and builds a
+// fresh report. PersistDecision writes only the tamper-evident latest policy
+// receipt under RECONC_HOME; governed worktree content is never changed.
 func Evaluate(repo string, options Options) (*Report, error) {
+	return evaluateWithRetries(func() (*Report, error) {
+		return evaluateOnce(repo, options)
+	})
+}
+
+func evaluateWithRetries(attempt func() (*Report, error)) (*Report, error) {
+	for number := 1; number <= completionEvaluationAttempts; number++ {
+		report, err := attempt()
+		if err == nil {
+			return report, nil
+		}
+		var drift *RetryableStateDriftError
+		if !errors.As(err, &drift) {
+			return nil, err
+		}
+		if number == completionEvaluationAttempts {
+			return nil, fmt.Errorf(completionRetryExhaustedFormat, completionEvaluationAttempts)
+		}
+	}
+	return nil, fmt.Errorf(completionRetryExhaustedFormat, completionEvaluationAttempts)
+}
+
+func evaluateOnce(repo string, options Options) (*Report, error) {
 	stateBefore, err := agentsession.CaptureCompletionState(repo)
 	if err != nil {
 		return nil, err
@@ -219,7 +255,7 @@ func Evaluate(repo string, options Options) (*Report, error) {
 		return nil, err
 	}
 	if stateAfter.Fingerprint != stateBefore.Fingerprint {
-		return nil, errors.New("repository, policy, or active-session state changed during completion evaluation; retry")
+		return nil, &RetryableStateDriftError{}
 	}
 	if proofErr == nil {
 		confirmed, confirmedFound, confirmErr := policyproof.LoadLatest(stateBefore.RepoRoot)

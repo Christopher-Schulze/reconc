@@ -763,7 +763,9 @@ candidate remains blocking until a later explicit non-blocking `check` or `ci`
 decision clears it. Text mode prints every failed check and exactly one next
 action; JSON emits the full completion report. Exit 0 = done, 2 = blocked,
 1 = runtime/input error. `--require-clean-git` adds a clean-tree check.
-Elapsed time never proves completion.
+Elapsed time never proves completion. If the before/after candidate snapshots
+drift, the gate takes one fresh retry; persistent drift returns an exact
+retry-limit diagnostic after two coherent attempts.
 
 ### `reconc proof [repo] [--format json|markdown] [--output PATH]`
 Exports the current completion state as a deterministic, portable proof bundle.

@@ -1,6 +1,7 @@
 package completiongate
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -10,6 +11,45 @@ import (
 	"reconc.dev/reconc/internal/runtime/agentsession"
 	"reconc.dev/reconc/internal/schema"
 )
+
+func TestCompletionRetriesTransientStateDrift(t *testing.T) {
+	attempts := 0
+	want := &Report{Decision: "pass"}
+	got, err := evaluateWithRetries(func() (*Report, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, &RetryableStateDriftError{}
+		}
+		return want, nil
+	})
+	if err != nil || got != want || attempts != 2 {
+		t.Fatalf("transient drift retry = report:%p err:%v attempts:%d, want report:%p and two attempts", got, err, attempts, want)
+	}
+}
+
+func TestCompletionExhaustsPersistentStateDrift(t *testing.T) {
+	attempts := 0
+	_, err := evaluateWithRetries(func() (*Report, error) {
+		attempts++
+		return nil, &RetryableStateDriftError{}
+	})
+	want := "repository, policy, or active-session state changed during completion evaluation after 2 attempts; retry limit exhausted"
+	if err == nil || err.Error() != want || attempts != completionEvaluationAttempts {
+		t.Fatalf("persistent drift = err:%v attempts:%d, want %q after %d attempts", err, attempts, want, completionEvaluationAttempts)
+	}
+}
+
+func TestCompletionDoesNotRetryNonRetryableFailure(t *testing.T) {
+	attempts := 0
+	want := errors.New("policy is malformed")
+	_, err := evaluateWithRetries(func() (*Report, error) {
+		attempts++
+		return nil, want
+	})
+	if !errors.Is(err, want) || attempts != 1 {
+		t.Fatalf("non-retryable failure = err:%v attempts:%d, want one attempt and original error", err, attempts)
+	}
+}
 
 func TestVerifyReportRejectsEveryEnvelopeFailure(t *testing.T) {
 	if err := VerifyReport(nil); err == nil || !strings.Contains(err.Error(), "nil") {
