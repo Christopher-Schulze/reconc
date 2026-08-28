@@ -147,14 +147,10 @@ func (s *Store) prepareApprovalEvaluation(
 	clock ClockSnapshot,
 	binding ApprovalBinding,
 ) (action.EvaluationInput, action.EvaluationResult, string, error) {
+	binding.Evaluation.Request.StateVersion = state.Digest
 	reserve := binding.reserveRequest()
 	if err := s.validateReserveRequest(reserve); err != nil {
 		return action.EvaluationInput{}, action.EvaluationResult{}, "", err
-	}
-	if reserve.Request.StateVersion != state.Digest {
-		return action.EvaluationInput{}, action.EvaluationResult{}, "", stateError(
-			action.ReasonStateUnavailable, "action state changed before approval issuance", nil,
-		)
 	}
 	if err := validateEvaluationBinding(binding); err != nil {
 		return action.EvaluationInput{}, action.EvaluationResult{}, "", err

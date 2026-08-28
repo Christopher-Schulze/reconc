@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/actionstate"
 )
 
 func BenchmarkToolDiscovery(b *testing.B) {
@@ -129,6 +130,92 @@ func BenchmarkGatewayCallEndToEnd(b *testing.B) {
 					<-semaphore
 					if callErr != nil || result == nil || result.IsError {
 						b.Errorf("gateway call = %#v, %v", result, callErr)
+						return
+					}
+				}
+			})
+		})
+	}
+}
+
+func BenchmarkGatewayPreDispatchEvidenceContention(b *testing.B) {
+	directory := b.TempDir()
+	b.Setenv(fakeProcessEnvironment, "1")
+	b.Setenv(fakeMarkerEnvironment, filepath.Join(directory, "invoked"))
+	b.Setenv(fakeModeEnvironment, "normal")
+	b.Setenv(fakeCancellationMarkerEnvironment, filepath.Join(directory, "cancelled"))
+	plan, err := action.CompilePlan(action.Plan{
+		Tools: []action.Tool{{
+			ID: "echo-tool", Transport: action.TransportMCPStdio,
+			ServerLabel: "fake", Tool: "echo", Effect: action.Effect{Kind: action.EffectExternal},
+			Origin: action.OriginActions, SourceIdentity: "benchmark-policy",
+		}},
+		Rules: []action.Rule{{
+			ID: "block-echo", Selector: action.Selector{ToolIDs: []string{"echo-tool"}},
+			Decision: action.DecisionBlock, OnIndeterminate: action.DecisionBlock,
+			Cache: action.CacheExact, SourceIdentity: "benchmark-policy",
+		}},
+		Budgets: []action.Budget{}, Approvals: []action.ApprovalDisclosure{},
+		Detectors: []action.DetectorPolicy{}, Defaults: action.FrozenDefaults(),
+		Ledger: &action.LedgerPolicy{
+			Mode: action.LedgerOff, ToolIdentity: action.LedgerDeclarationID,
+			SelectedFields: []action.LedgerField{},
+		},
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+	evaluator, err := action.NewEvaluator(plan)
+	if err != nil {
+		b.Fatal(err)
+	}
+	harness := newGatewayLifecycleHarness(b, plan, evaluator, "", "", nil, 5*time.Second)
+	harness.gateway.config.EvidenceProvider = evidenceProviderFunc(func(
+		ctx context.Context,
+		_ PolicySnapshot,
+		_ action.Request,
+		_ action.Tool,
+	) (EvidenceSnapshot, error) {
+		timer := time.NewTimer(10 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			return cleanEvidenceSnapshot(), nil
+		case <-ctx.Done():
+			return EvidenceSnapshot{}, ctx.Err()
+		}
+	})
+	contract, generation, exists := harness.gateway.tool("echo")
+	if !exists {
+		b.Fatal("gateway echo contract is unavailable")
+	}
+	request := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
+		Name: "echo", Arguments: json.RawMessage(`{"value":"benchmark"}`),
+	}}
+	wire := upstreamWireCall{
+		id: json.RawMessage(`1`),
+		params: json.RawMessage(
+			`{"name":"echo","arguments":{"value":"benchmark"}}`,
+		),
+	}
+	for _, concurrency := range []int{1, MaxConcurrentCalls} {
+		b.Run(fmt.Sprintf("concurrency-%d", concurrency), func(b *testing.B) {
+			semaphore := make(chan struct{}, concurrency)
+			b.RunParallel(func(worker *testing.PB) {
+				for worker.Next() {
+					semaphore <- struct{}{}
+					callID, callIDErr := actionstate.NewRandomCallID()
+					if callIDErr != nil {
+						<-semaphore
+						b.Error(callIDErr)
+						return
+					}
+					result, callErr := harness.gateway.startCall(
+						context.Background(), request, wire, contract, generation, callID,
+					)
+					<-semaphore
+					if callErr != nil || result == nil || !result.IsError {
+						b.Errorf("blocked gateway call = %#v, %v", result, callErr)
 						return
 					}
 				}

@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 292 Narrow MCP pre-dispatch serialization and retry policy -> tasks/292-narrow-mcp-pre-dispatch-serialization-and-retry-policy.md
 - [ ] 293 Make Windows atomic replacement genuinely write-through -> tasks/293-make-windows-atomic-replacement-genuinely-write-through.md
 - [ ] 294 Durably publish bootstrap plans and artifacts -> tasks/294-durably-publish-bootstrap-plans-and-artifacts.md
 - [ ] 295 Durably create and rotate JSONL state -> tasks/295-durably-create-and-rotate-jsonl-state.md
@@ -59,6 +58,7 @@
 
 ## Done
 
+- [x] 292 Narrow MCP pre-dispatch serialization and retry policy -> tasks/done/292-narrow-mcp-pre-dispatch-serialization-and-retry-policy.md
 - [x] 291 Continue MCP shutdown finalization after individual errors -> tasks/done/291-continue-mcp-shutdown-finalization-after-individual-errors.md
 - [x] 290 Finalize pending approvals after call-drain timeout -> tasks/done/290-finalize-pending-approvals-after-call-drain-timeout.md
 - [x] 289 Preserve MCP indeterminate-transition failures -> tasks/done/289-preserve-mcp-indeterminate-transition-failures.md
@@ -68,7 +68,3 @@
 - [x] 285 Stabilize the Windows MCP lifecycle release gate -> tasks/done/285-stabilize-windows-mcp-lifecycle-release-gate.md
 - [x] 284 Repair Windows release-gate portability -> tasks/done/284-repair-windows-release-gate-portability.md
 - [x] 283 Preserve nested shell evaluation semantics -> tasks/done/283-preserve-nested-shell-evaluation-semantics.md
-- [x] 282 Harden shared filesystem primitives -> tasks/done/282-harden-shared-filesystem-primitives.md
-- [x] 281 Harden analysis and retention report boundaries -> tasks/done/281-harden-analysis-and-retention-report-boundaries.md
-- [x] 280 Harden TASK lifecycle transactions -> tasks/done/280-harden-lifecycle-transactions.md
-- [x] 279 Stream user CLI installation and preserve diagnostics -> tasks/done/279-stream-user-cli-installation-and-preserve-diagnostics.md

@@ -26,15 +26,18 @@ const (
 	MaxIconURIBytes         = 64 << 10
 	MaxIconPayloadBytes     = 48 << 10
 	MaxConcurrentCalls      = 4
-	MaxPendingApprovals     = actionstate.MaxPendingApprovals
-	MaxUpstreamRequests     = 64
-	MaxStderrBytes          = 256 << 10
-	MaxProgressTokenBytes   = 4096
-	MaxProgressEvents       = 128
-	MaxProgressQueueEvents  = 16
-	MaxProgressEventBytes   = 64 << 10
-	MaxProgressBytes        = 1 << 20
-	MaxDiagnosticBytes      = 4096
+	// MaxReservationConflictRetries bounds optimistic action-state retries
+	// independently of the number of calls admitted by the gateway.
+	MaxReservationConflictRetries = 8
+	MaxPendingApprovals           = actionstate.MaxPendingApprovals
+	MaxUpstreamRequests           = 64
+	MaxStderrBytes                = 256 << 10
+	MaxProgressTokenBytes         = 4096
+	MaxProgressEvents             = 128
+	MaxProgressQueueEvents        = 16
+	MaxProgressEventBytes         = 64 << 10
+	MaxProgressBytes              = 1 << 20
+	MaxDiagnosticBytes            = 4096
 
 	StartupTimeout       = 15 * time.Second
 	ToolPageTimeout      = 5 * time.Second

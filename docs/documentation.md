@@ -2595,7 +2595,10 @@ downstream stdio MCP server. It invokes the transport-neutral evaluator and
 inspection core before downstream dispatch and before upstream result or
 progress delivery. Up to four calls prepare immutable policy and inspection
 state concurrently; action-state and ledger stores independently serialize
-their durable transitions and retry bounded optimistic reservation conflicts.
+their durable transitions. A reservation conflict refreshes only the request's
+state version and retries at most eight times; policy loading, request
+normalization, repository evidence, action inspection, and ledger work are not
+repeated and are never held behind the approval-transition mutex.
 Progress uses a 16-event per-call work queue inside the existing 128-event and
 1 MiB budgets. Notifications remain source-ordered, a slow upstream sink cannot
 block the transport reader, and final result processing waits for admitted
