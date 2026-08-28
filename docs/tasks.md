@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 290 Finalize pending approvals after call-drain timeout -> tasks/290-finalize-pending-approvals-after-call-drain-timeout.md
 - [ ] 291 Continue MCP shutdown finalization after individual errors -> tasks/291-continue-mcp-shutdown-finalization-after-individual-errors.md
 - [ ] 292 Narrow MCP pre-dispatch serialization and retry policy -> tasks/292-narrow-mcp-pre-dispatch-serialization-and-retry-policy.md
 - [ ] 293 Make Windows atomic replacement genuinely write-through -> tasks/293-make-windows-atomic-replacement-genuinely-write-through.md
@@ -61,6 +60,7 @@
 
 ## Done
 
+- [x] 290 Finalize pending approvals after call-drain timeout -> tasks/done/290-finalize-pending-approvals-after-call-drain-timeout.md
 - [x] 289 Preserve MCP indeterminate-transition failures -> tasks/done/289-preserve-mcp-indeterminate-transition-failures.md
 - [x] 288 Finish and prove the SWE audit repairs -> tasks/done/288-finish-and-prove-swe-audit-repairs.md
 - [x] 287 Repair update isolation and replace v0.9.7 -> tasks/done/287-repair-update-isolation-and-replace-v0-9-7.md

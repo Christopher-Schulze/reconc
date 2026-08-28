@@ -53,7 +53,7 @@ func (g *Gateway) resumeApproval(
 		reason := gatewayReason(err, action.ReasonApprovalInvalid)
 		return g.failPendingApproval(ctx, pending, approvalFailureFinalizeStatus(err), reason)
 	}
-	callCtx, cancel := context.WithTimeout(ctx, g.config.CallTimeout)
+	callCtx, cancel := g.callContext(ctx)
 	defer cancel()
 	g.transitionMu.Lock()
 	if pending.phase == action.PhasePostResult {

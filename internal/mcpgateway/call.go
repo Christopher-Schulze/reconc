@@ -103,7 +103,7 @@ func (g *Gateway) startCall(
 	if err != nil {
 		return blockedGatewayResult(callID, action.ReasonInvalidRequest)
 	}
-	callCtx, cancel := context.WithTimeout(ctx, g.config.CallTimeout)
+	callCtx, cancel := g.callContext(ctx)
 	defer cancel()
 	g.transitionMu.Lock()
 	call, response := g.prepareCall(

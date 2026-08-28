@@ -336,6 +336,11 @@ resources, and owns process-tree shutdown. Stdout is MCP protocol only. Only
 tools configured to launch through this gateway are enforced; native framework
 tools and direct downstream configurations remain unenforced.
 
+In-flight calls stop when either their MCP request context or the gateway
+shutdown context is cancelled. Shutdown gives pending approvals a bounded
+terminalization attempt before draining calls and reports failures from both
+stages.
+
 LangChain uses its official external MCP adapter, not Reconc-authored adapter
 code. After `reconc action key init --reconc-home
 /private/operator/reconc-home`, the exact operator-pinned stdio shape is:

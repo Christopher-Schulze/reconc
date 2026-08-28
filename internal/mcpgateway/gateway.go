@@ -565,6 +565,29 @@ func terminalContext(ctx context.Context) (context.Context, context.CancelFunc) 
 	return context.WithTimeout(base, CancellationGrace)
 }
 
+func (g *Gateway) callContext(requestCtx context.Context) (context.Context, context.CancelFunc) {
+	if requestCtx == nil {
+		requestCtx = context.Background()
+	}
+	timeout := DefaultCallTimeout
+	if g != nil && g.config.CallTimeout > 0 {
+		timeout = g.config.CallTimeout
+	}
+	callCtx, cancel := context.WithTimeout(requestCtx, timeout)
+	if g == nil || g.ctx == nil {
+		return callCtx, cancel
+	}
+	if g.ctx.Err() != nil {
+		cancel()
+		return callCtx, cancel
+	}
+	stopGatewayCancellation := context.AfterFunc(g.ctx, cancel)
+	return callCtx, func() {
+		stopGatewayCancellation()
+		cancel()
+	}
+}
+
 func (g *Gateway) Close() error {
 	if g == nil {
 		return nil
@@ -591,11 +614,7 @@ func (g *Gateway) Close() error {
 		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
 		defer cancel()
-		if err := g.waitForCalls(shutdownCtx); err != nil {
-			g.closeErr = errors.Join(g.closeErr, err)
-		} else if err := g.shutdownPending(shutdownCtx); err != nil {
-			g.closeErr = errors.Join(g.closeErr, err)
-		}
+		g.closeErr = errors.Join(g.closeErr, g.finalizePendingAndDrainCalls(shutdownCtx))
 		if g.refreshWorkerDone != nil {
 			select {
 			case <-g.refreshWorkerDone:
@@ -641,6 +660,12 @@ func (g *Gateway) waitForCalls(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (g *Gateway) finalizePendingAndDrainCalls(ctx context.Context) error {
+	pendingErr := g.shutdownPending(ctx)
+	drainErr := g.waitForCalls(ctx)
+	return errors.Join(pendingErr, drainErr)
 }
 
 func (g *Gateway) shutdownPending(ctx context.Context) error {
