@@ -54,9 +54,11 @@ Every non-Git installer target is resolved through the operating system's
 filesystem identity and must remain inside the selected repository. Unix
 symlinks and Windows reparse points, including junctions, are followed;
 Windows 8.3 aliases are normalized. Scaffold sync preflights all target paths
-before its first write. Forced malformed-config backups are
-content-addressed, create-only, `0600`, file-synced, and parent-directory-synced
-before the managed artifact is published.
+before its first write. Forced malformed-config backups use complete SHA-256
+content identities and create-only publication, are `0600`, file-synced, and
+parent-directory-synced before the managed artifact is published. Legacy
+32-bit-prefix names are reused only for byte-identical content and are never
+overwritten on collision.
 
 Kimi Code is the only user-global hook target and is never selected by
 repository init, bootstrap, `--hook all`, or scaffold sync. Its explicit

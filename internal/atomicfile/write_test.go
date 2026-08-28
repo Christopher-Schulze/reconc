@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -92,6 +93,34 @@ func TestWriteNewPublishesCompleteBytesAndRefusesExistingTarget(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".export.json.*.tmp"))
 	if err != nil || len(matches) != 0 {
 		t.Fatalf("new-file temporary residue = %v, %v", matches, err)
+	}
+}
+
+func TestSecureExistingIfMatchesNeverReplacesContent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "backup")
+	if err := os.WriteFile(path, []byte("preserved\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	matched, err := SecureExistingIfMatches(path, []byte("different\n"), 0o600)
+	if err != nil || matched {
+		t.Fatalf("different content matched: matched=%v err=%v", matched, err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || string(body) != "preserved\n" {
+		t.Fatalf("different content changed: body=%q err=%v", body, err)
+	}
+	matched, err = SecureExistingIfMatches(path, body, 0o600)
+	if err != nil || !matched {
+		t.Fatalf("identical content did not match: matched=%v err=%v", matched, err)
+	}
+	if runtime.GOOS != "windows" {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			t.Fatal(statErr)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("secured mode = %o, want 600", info.Mode().Perm())
+		}
 	}
 }
 

@@ -13,14 +13,20 @@ Malformed hook-config backups use only the first 32 bits of SHA-256 in their fil
 
 ## Sub-Tasks
 
-- [ ] Define backward-compatible backup lookup and naming
-- [ ] Publish full-digest create-only backups
-- [ ] Add synthetic-prefix collision and concurrency tests
-- [ ] Run hook install and recovery gates
+- [x] Define backward-compatible backup lookup and naming
+- [x] Publish full-digest create-only backups
+- [x] Add synthetic-prefix collision and concurrency tests
+- [x] Run hook install and recovery gates
 
 ## Notes
 
 - Evidence: `internal/hooks/hooks.go:627-648`.
+- Contract: a byte-identical legacy eight-hex-digit backup remains canonical;
+  an absent or colliding legacy path selects the complete 64-hex-digit SHA-256
+  name. Both paths are verified without replacing existing content.
+- Verification: atomicfile and hooks tests, the concurrent race suite, Windows
+  amd64 test-binary compilation, the complete release-trust gate, vet,
+  Staticcheck v0.8.1, and isolated self-hosting passed.
 
 ## Deviations
 

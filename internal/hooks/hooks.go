@@ -9,7 +9,6 @@
 package hooks
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -625,50 +624,36 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 }
 
 // backupMalformedConfig preserves the original bytes of a malformed
-// config that --force is about to replace. The backup is hash-addressed
-// and create-only, so identical content maps to one stable file and an
-// existing backup with the same digest counts as already written.
+// config that --force is about to replace. New backups use the complete
+// SHA-256 identity and create-only publication. A matching legacy short-name
+// backup is reused, while a colliding legacy file is preserved and bypassed.
 func backupMalformedConfig(target string, existing []byte) (string, error) {
 	sum := sha256.Sum256(existing)
-	backup := target + ".reconc-backup-" + hex.EncodeToString(sum[:4])
-	file, err := os.OpenFile(backup, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		if os.IsExist(err) {
-			backupData, readErr := readManagedArtifact(backup)
-			if readErr != nil {
-				return "", &rerrors.PolicySourceError{Message: "verify existing malformed-config backup " + backup, Cause: readErr}
-			}
-			if !bytes.Equal(backupData, existing) {
-				return "", &rerrors.PolicySourceError{Message: "existing malformed-config backup does not match the source: " + backup}
-			}
-			if chmodErr := os.Chmod(backup, 0o600); chmodErr != nil {
-				return "", &rerrors.PolicySourceError{Message: "secure existing malformed-config backup " + backup, Cause: chmodErr}
-			}
-			return backup, nil
+	legacy, backup := malformedConfigBackupPaths(target, sum)
+	if matched, err := atomicfile.SecureExistingIfMatches(legacy, existing, 0o600); err == nil && matched {
+		return legacy, nil
+	}
+	writeErr := atomicfile.WriteNew(backup, existing, 0o600)
+	if writeErr == nil {
+		return backup, nil
+	}
+	matched, verifyErr := atomicfile.SecureExistingIfMatches(backup, existing, 0o600)
+	if verifyErr != nil {
+		return "", &rerrors.PolicySourceError{Message: "verify existing malformed-config backup " + backup, Cause: verifyErr}
+	}
+	if !matched {
+		if _, statErr := os.Lstat(backup); os.IsNotExist(statErr) {
+			return "", &rerrors.PolicySourceError{Message: "back up malformed config to " + backup, Cause: writeErr}
 		}
-		return "", &rerrors.PolicySourceError{Message: "back up malformed config to " + backup, Cause: err}
-	}
-	if written, err := file.Write(existing); err != nil || written != len(existing) {
-		_ = file.Close()
-		_ = os.Remove(backup)
-		if err == nil {
-			err = fmt.Errorf("short write: wrote %d of %d bytes", written, len(existing))
-		}
-		return "", &rerrors.PolicySourceError{Message: "back up malformed config to " + backup, Cause: err}
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		_ = os.Remove(backup)
-		return "", &rerrors.PolicySourceError{Message: "sync malformed-config backup " + backup, Cause: err}
-	}
-	if err := file.Close(); err != nil {
-		_ = os.Remove(backup)
-		return "", &rerrors.PolicySourceError{Message: "back up malformed config to " + backup, Cause: err}
-	}
-	if err := syncManagedArtifactParent(backup); err != nil {
-		return "", &rerrors.PolicySourceError{Message: "sync malformed-config backup directory for " + backup, Cause: err}
+		return "", &rerrors.PolicySourceError{Message: "existing malformed-config backup does not match the source: " + backup, Cause: writeErr}
 	}
 	return backup, nil
+}
+
+func malformedConfigBackupPaths(target string, sum [sha256.Size]byte) (string, string) {
+	digest := hex.EncodeToString(sum[:])
+	prefix := target + ".reconc-backup-"
+	return prefix + digest[:8], prefix + digest
 }
 
 func installOpenCode(repoRoot string, force bool) (*InstallReport, error) {

@@ -3405,12 +3405,14 @@ the selected repository. This follows Unix symlinks and Windows reparse points,
 including directory junctions, while normalizing Windows 8.3 aliases. Scaffold
 sync validates every prospective artifact target before its first write, so one
 escaping parent cannot produce a partial or external rollout. Forced
-malformed-config backups are content-addressed,
-create-only, private (`0600`), file-synced, and parent-directory-synced before
-the managed artifact is published. Merge-based installers retain the bounded
-source snapshot used to build the result and revalidate its exact bytes,
-filesystem identity, mode, size, and modification time immediately before
-atomic publication. A concurrent edit or same-byte replacement is rejected.
+malformed-config backups use the complete SHA-256 content identity and
+create-only publication; they are private (`0600`), file-synced, and
+parent-directory-synced before the managed artifact is published. Legacy
+32-bit-prefix names are reused only for byte-identical content; collisions stay
+untouched and select a new full-digest backup. Merge-based installers retain
+the bounded source snapshot used to build the result and revalidate its exact
+bytes, filesystem identity, mode, size, and modification time immediately
+before atomic publication. A concurrent edit or same-byte replacement is rejected.
 Hook-install JSON always exposes an explicit `success` boolean; partial failure
 also retains the partial report and emits its error without claiming success.
 

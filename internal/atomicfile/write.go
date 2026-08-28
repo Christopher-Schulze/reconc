@@ -23,6 +23,40 @@ func WritePrivateIfChanged(path string, data []byte, mode os.FileMode) (bool, er
 	return writeIfChanged(path, data, mode, PrivateParentMode)
 }
 
+// SecureExistingIfMatches verifies an existing regular file against data and
+// reconciles its mode without replacing its content. A missing or different
+// target returns false; unsafe identities and I/O failures return an error.
+func SecureExistingIfMatches(path string, data []byte, mode os.FileMode) (matched bool, err error) {
+	parent, name, err := bindParent(path, PublicParentMode)
+	if err != nil {
+		return false, err
+	}
+	defer func() { err = errors.Join(err, parent.close()) }()
+	directory := parent.directory()
+	currentFile, currentInfo, err := openCurrent(directory, name, path)
+	if err != nil || currentFile == nil {
+		return false, err
+	}
+	identical, err := compareCurrent(directory, name, path, currentFile, currentInfo, data)
+	if err != nil {
+		return false, err
+	}
+	if !identical {
+		return false, errors.Join(parent.validate(), currentFile.Close())
+	}
+	if err := parent.validate(); err != nil {
+		return false, errors.Join(err, currentFile.Close())
+	}
+	_, modeErr := reconcileMode(directory, name, currentFile, currentInfo.Mode(), mode)
+	validationErr := validateCurrent(directory, name, currentInfo)
+	parentErr := parent.validate()
+	closeErr := currentFile.Close()
+	if err := errors.Join(modeErr, validationErr, parentErr, closeErr); err != nil {
+		return false, fmt.Errorf("secure matching current %s: %w", path, err)
+	}
+	return true, nil
+}
+
 func writeIfChanged(path string, data []byte, mode, parentMode os.FileMode) (changed bool, err error) {
 	parent, name, err := bindParent(path, parentMode)
 	if err != nil {
