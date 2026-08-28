@@ -21,6 +21,8 @@ const (
 
 var repositoryRunCRC = crc32.MakeTable(crc32.Castagnoli)
 
+var syncRepositoryRunFile = (*os.File).Sync
+
 type repositoryRunSnapshot struct {
 	State    repositoryRunState
 	Sequence uint64
@@ -125,7 +127,7 @@ func decodeRepositoryRunPayload(header, payload []byte) (repositoryRunState, boo
 	return state, true
 }
 
-func writeRepositoryRunSnapshotFile(file *os.File, state repositoryRunState, previous repositoryRunSnapshot) error {
+func commitRepositoryRunSnapshotFile(file *os.File, state repositoryRunState, previous repositoryRunSnapshot) error {
 	if previous.Sequence == math.MaxUint64 {
 		return fmt.Errorf("repository run state sequence exhausted")
 	}
@@ -170,6 +172,9 @@ func writeRepositoryRunSnapshotFile(file *os.File, state repositoryRunState, pre
 	}
 	if written != len(record) {
 		return fmt.Errorf("write repository run state: wrote %d of %d bytes", written, len(record))
+	}
+	if err := syncRepositoryRunFile(file); err != nil {
+		return fmt.Errorf("sync repository run state: %w", err)
 	}
 	return nil
 }

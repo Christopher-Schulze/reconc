@@ -1328,7 +1328,9 @@ run from being silently disabled:
   repository-root identity as 32 raw bytes each, and the disable reason as a
   bounded enum, so the hot read does not decode
   variable strings. Readers select the newest valid slot; a torn write leaves
-  the previous slot intact and never decodes as disabled.
+  the previous slot intact and never decodes as disabled. A material update
+  synchronizes the complete inactive slot before unlock, while a no-op performs
+  neither write nor sync; write, sync, unlock, and close errors are joined.
 - **Locked read-modify-write.** `mutateRepositoryRunStateResolved` /
   `withRepositoryRunFileResolved` serialize load->mutate->save by locking
   `.reconc/run/state.bin` itself, mirroring `MutateSessionState`,

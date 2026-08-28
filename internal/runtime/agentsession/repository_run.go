@@ -338,7 +338,7 @@ func saveRepositoryRunState(repoRoot string, state repositoryRunState) error {
 			return wrapRepositoryRunRecovery(root, identityErr)
 		}
 		state.RootIdentity = repositoryRunRootIdentity(root)
-		return writeRepositoryRunSnapshotFile(file, state, snapshot)
+		return commitRepositoryRunSnapshotFile(file, state, snapshot)
 	})
 }
 
@@ -391,7 +391,7 @@ func mutateRepositoryRunStateLockedFile(root string, file *os.File, fn func(repo
 	if before == after {
 		return before, after, nil
 	}
-	if err := writeRepositoryRunSnapshotFile(file, after, snapshot); err != nil {
+	if err := commitRepositoryRunSnapshotFile(file, after, snapshot); err != nil {
 		return before, after, err
 	}
 	return before, after, nil

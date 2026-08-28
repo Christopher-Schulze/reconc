@@ -64,13 +64,7 @@ func ResetRepositoryRun(repoRoot string) (RepositoryRunStatus, error) {
 			DisabledReason: repositoryRunDisabledCommandOff,
 			RootIdentity:   repositoryRunRootIdentity(root),
 		}
-		if err := writeRepositoryRunSnapshotFile(file, state, repositoryRunSnapshot{Slot: -1}); err != nil {
-			return err
-		}
-		if err := file.Sync(); err != nil {
-			return fmt.Errorf("sync repository run state: %w", err)
-		}
-		return nil
+		return commitRepositoryRunSnapshotFile(file, state, repositoryRunSnapshot{Slot: -1})
 	})
 	if err != nil {
 		return RepositoryRunStatus{}, err

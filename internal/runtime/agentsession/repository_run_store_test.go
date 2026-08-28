@@ -1,12 +1,83 @@
 package agentsession
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestRepositoryRunMutationSyncsMaterialStateAndSkipsNoOp(t *testing.T) {
+	repo := t.TempDir()
+	if err := saveRepositoryRunState(repo, repositoryRunState{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	original := syncRepositoryRunFile
+	syncs := 0
+	syncRepositoryRunFile = func(file *os.File) error {
+		syncs++
+		return original(file)
+	}
+	t.Cleanup(func() { syncRepositoryRunFile = original })
+
+	_, after, err := mutateRepositoryRunState(repo, func(state repositoryRunState) repositoryRunState {
+		state.NoProgressNudges = 1
+		return state
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if syncs != 1 {
+		t.Fatalf("material repository-run mutation syncs = %d, want 1", syncs)
+	}
+	persisted, err := loadRepositoryRunState(repo)
+	if err != nil || persisted != after {
+		t.Fatalf("acknowledged repository-run state = %+v, %v; want %+v", persisted, err, after)
+	}
+	if _, _, err := mutateRepositoryRunState(repo, func(state repositoryRunState) repositoryRunState {
+		return state
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if syncs != 1 {
+		t.Fatalf("no-op repository-run mutation added a sync: %d", syncs)
+	}
+}
+
+func TestRepositoryRunMutationJoinsSyncUnlockAndCloseErrors(t *testing.T) {
+	repo := t.TempDir()
+	if err := saveRepositoryRunState(repo, repositoryRunState{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	original := syncRepositoryRunFile
+	syncFailure := errors.New("injected repository-run sync failure")
+	syncRepositoryRunFile = func(file *os.File) error {
+		if err := file.Close(); err != nil {
+			return errors.Join(syncFailure, err)
+		}
+		return syncFailure
+	}
+	t.Cleanup(func() { syncRepositoryRunFile = original })
+
+	_, _, err := mutateRepositoryRunState(repo, func(state repositoryRunState) repositoryRunState {
+		state.NoProgressNudges = 1
+		return state
+	})
+	if !errors.Is(err, syncFailure) {
+		t.Fatalf("repository-run sync failure = %v", err)
+	}
+	for _, operation := range []string{
+		"sync repository run state",
+		"unlock repository run state",
+		"close repository run state",
+	} {
+		if !strings.Contains(err.Error(), operation) {
+			t.Fatalf("joined repository-run failure lacks %q: %v", operation, err)
+		}
+	}
+}
 
 func TestRepositoryRunStoreFallsBackFromTornNewestSlot(t *testing.T) {
 	repo := t.TempDir()

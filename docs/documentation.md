@@ -3640,8 +3640,12 @@ The durable switch uses `.reconc/run/state.bin` only. Its two alternating
 over both header and payload. The payload includes a SHA-256 identity of the
 canonical repository root. Copied state and older unbound formats fail closed
 with one exact `run reset` remediation. Decoding allocates no state strings,
-and a torn newest slot falls back to the previous valid slot. There is no legacy mode discriminator,
-marker cleanup, or `.reconc/runloop/` compatibility read.
+and a torn newest slot falls back to the previous valid slot. Every material
+slot write reaches stable storage before the state-file lock is released;
+unchanged mutations skip both write and sync. Write, sync, unlock, and close
+failures remain joined so an acknowledged transition never masks a durability
+failure. There is no legacy mode discriminator, marker cleanup, or
+`.reconc/runloop/` compatibility read.
 
 `awaiting_continuation` is not a hard stop reason by itself. Reads and unrelated
 hook events do not clear it. Each session owns its no-progress counter and
