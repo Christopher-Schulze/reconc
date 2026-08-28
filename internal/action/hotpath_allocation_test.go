@@ -1,6 +1,7 @@
 package action
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"testing"
@@ -17,7 +18,10 @@ func TestTraceCollectorBoundsStorageWhileCollecting(t *testing.T) {
 	if len(collector.entries) > MaxTraceEntries || cap(collector.entries) > MaxTraceEntries {
 		t.Fatalf("collector retained %d entries with capacity %d", len(collector.entries), cap(collector.entries))
 	}
-	trace, complete, omitted := collector.finish()
+	trace, complete, omitted, err := collector.finish()
+	if err != nil {
+		t.Fatal(err)
+	}
 	wantOmitted := MaxRules - (MaxTraceEntries - 1)
 	if complete || len(trace) != MaxTraceEntries || omitted != wantOmitted {
 		t.Fatalf("bounded trace = len %d, complete %t, omitted %d; want len %d, complete false, omitted %d", len(trace), complete, omitted, MaxTraceEntries, wantOmitted)
@@ -35,9 +39,59 @@ func TestTraceCollectorStopsAfterByteOverflow(t *testing.T) {
 		Condition: ConditionFalse, Completeness: true,
 	})
 	collector.add(TraceEntry{RuleID: "later", Selector: SelectorUnmatched, Condition: ConditionFalse, Completeness: true})
-	trace, complete, omitted := collector.finish()
+	trace, complete, omitted, err := collector.finish()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if complete || omitted != 2 || len(trace) != 1 || trace[0].RuleID != "trace-overflow" || trace[0].Omitted != 2 {
 		t.Fatalf("byte-bounded trace = %#v, complete %t, omitted %d", trace, complete, omitted)
+	}
+}
+
+func TestTraceCollectorLogicalBytesMatchCompactJSONArray(t *testing.T) {
+	collector := newTraceCollector(MaxTraceEntries)
+	assertTraceLogicalBytes(t, &collector)
+	for index := 0; index < MaxTraceEntries; index++ {
+		collector.add(TraceEntry{
+			RuleID: strconv.Itoa(index), Selector: SelectorUnmatched,
+			Condition: ConditionFalse, Completeness: true,
+		})
+		if index == 0 || index == MaxTraceEntries-1 {
+			assertTraceLogicalBytes(t, &collector)
+		}
+	}
+}
+
+func TestTraceCollectorHonorsExactOneByteBoundary(t *testing.T) {
+	entry := TraceEntry{Selector: SelectorUnmatched, Condition: ConditionFalse, Completeness: true}
+	body, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry.RuleID = strings.Repeat("x", MaxTraceBytes-2-len(body))
+
+	exact := newTraceCollector(1)
+	exact.add(entry)
+	if exact.omitted != 0 || len(exact.entries) != 1 || exact.logicalBytes != MaxTraceBytes {
+		t.Fatalf("exact boundary = entries %d, omitted %d, bytes %d", len(exact.entries), exact.omitted, exact.logicalBytes)
+	}
+
+	over := newTraceCollector(1)
+	entry.RuleID += "x"
+	over.add(entry)
+	if over.omitted != 1 || len(over.entries) != 0 || over.logicalBytes != 2 {
+		t.Fatalf("one-byte overflow = entries %d, omitted %d, bytes %d", len(over.entries), over.omitted, over.logicalBytes)
+	}
+}
+
+func assertTraceLogicalBytes(t *testing.T, collector *traceCollector) {
+	t.Helper()
+	body, err := json.Marshal(collector.entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if collector.logicalBytes != len(body) {
+		t.Fatalf("logical bytes = %d, compact JSON = %d for %d entries", collector.logicalBytes, len(body), len(collector.entries))
 	}
 }
 

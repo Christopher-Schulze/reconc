@@ -391,7 +391,11 @@ func (a *evaluationAccumulator) result() EvaluationResult {
 		PhaseOutcome:   phaseOutcome(a.input.Request.Phase, decision),
 		Inspection:     cloneInspectionEvidence(a.input.Inspection),
 	}
-	result.Trace, result.TraceComplete, result.TraceOmitted = a.trace.finish()
+	trace, traceComplete, traceOmitted, err := a.trace.finish()
+	if err != nil {
+		return failEvaluation(a.evaluator, a.input, ReasonInternalInvariant, "trace encoding failed")
+	}
+	result.Trace, result.TraceComplete, result.TraceOmitted = trace, traceComplete, traceOmitted
 	result.Cache = finalizeCacheResult(
 		a.cacheBase, a.cacheNever, decision, a.input.Approval, result.Completeness, false,
 	)
@@ -753,8 +757,10 @@ func markEvaluationIncomplete(completeness *Completeness, reason ReasonCode) {
 
 type traceCollector struct {
 	entries      []TraceEntry
+	entryBytes   [MaxTraceEntries]uint32
 	logicalBytes int
 	omitted      int
+	encodingErr  error
 }
 
 func newTraceCollector(expected int) traceCollector {
@@ -765,46 +771,75 @@ func newTraceCollector(expected int) traceCollector {
 }
 
 func (c *traceCollector) add(entry TraceEntry) {
+	if c.encodingErr != nil {
+		return
+	}
 	if c.omitted > 0 || len(c.entries) == MaxTraceEntries {
 		c.omitted++
 		return
 	}
 	body, err := json.Marshal(entry)
-	if err != nil || c.logicalBytes+len(body)+1 > MaxTraceBytes {
+	if err != nil {
+		c.encodingErr = fmt.Errorf("encode action trace entry: %w", err)
+		return
+	}
+	separatorBytes := 0
+	if len(c.entries) > 0 {
+		separatorBytes = 1
+	}
+	if len(body)+separatorBytes > MaxTraceBytes-c.logicalBytes {
 		c.omitted++
 		return
 	}
+	c.entryBytes[len(c.entries)] = uint32(len(body))
 	c.entries = append(c.entries, entry)
-	c.logicalBytes += len(body) + 1
+	c.logicalBytes += len(body) + separatorBytes
 }
 
-func (c traceCollector) finish() ([]TraceEntry, bool, int) {
+func (c *traceCollector) finish() ([]TraceEntry, bool, int, error) {
+	if c.encodingErr != nil {
+		return nil, false, 0, c.encodingErr
+	}
 	if c.entries == nil {
-		return []TraceEntry{}, true, 0
+		return []TraceEntry{}, true, 0, nil
 	}
 	if c.omitted == 0 {
-		return c.entries, true, 0
+		return c.entries, true, 0, nil
 	}
-	return appendTraceOverflow(c.entries, c.omitted, c.logicalBytes)
+	return appendTraceOverflow(c.entries, c.entryBytes[:len(c.entries)], c.omitted, c.logicalBytes)
 }
 
-func appendTraceOverflow(kept []TraceEntry, omitted, logicalBytes int) ([]TraceEntry, bool, int) {
+func appendTraceOverflow(kept []TraceEntry, entryBytes []uint32, omitted, logicalBytes int) ([]TraceEntry, bool, int, error) {
 	marker := TraceEntry{
 		RuleID: "trace-overflow", Selector: SelectorUnmatched,
 		Condition: ConditionIndeterminate, Reason: ReasonLimitExceeded,
 		Completeness: false, Omitted: omitted,
 	}
-	body, _ := json.Marshal(marker)
-	for len(kept) > 0 && (len(kept) >= MaxTraceEntries || logicalBytes+len(body)+1 > MaxTraceBytes) {
-		last, _ := json.Marshal(kept[len(kept)-1])
-		logicalBytes -= len(last) + 1
-		kept = kept[:len(kept)-1]
+	body, err := json.Marshal(marker)
+	if err != nil {
+		return nil, false, 0, fmt.Errorf("encode action trace overflow marker: %w", err)
+	}
+	for len(kept) > 0 && (len(kept) >= MaxTraceEntries || len(body)+traceSeparatorBytes(len(kept)) > MaxTraceBytes-logicalBytes) {
+		last := len(kept) - 1
+		logicalBytes -= int(entryBytes[last]) + traceSeparatorBytes(last)
+		kept = kept[:last]
+		entryBytes = entryBytes[:last]
 		omitted++
 		marker.Omitted = omitted
-		body, _ = json.Marshal(marker)
+		body, err = json.Marshal(marker)
+		if err != nil {
+			return nil, false, 0, fmt.Errorf("encode action trace overflow marker: %w", err)
+		}
 	}
 	kept = append(kept, marker)
-	return kept, false, omitted
+	return kept, false, omitted, nil
+}
+
+func traceSeparatorBytes(existingEntries int) int {
+	if existingEntries > 0 {
+		return 1
+	}
+	return 0
 }
 
 func phaseOutcome(phase Phase, decision Decision) PhaseOutcome {
