@@ -335,56 +335,5 @@ func validateDirectoryIdentity(path string, before, after os.FileInfo) error {
 }
 
 func openPrivateFile(path string, create, singleLink bool) (*os.File, error) {
-	parent := filepath.Dir(filepath.Clean(path))
-	if err := RepairDirectory(parent); err != nil {
-		return nil, fmt.Errorf("secure private lock directory: %w", err)
-	}
-	if err := ValidateDirectory(parent); err != nil {
-		return nil, fmt.Errorf("validate private lock directory: %w", err)
-	}
-	before, lstatErr := os.Lstat(path)
-	if lstatErr != nil && !errors.Is(lstatErr, os.ErrNotExist) {
-		return nil, fmt.Errorf("inspect private lock: %w", lstatErr)
-	}
-	if !create && errors.Is(lstatErr, os.ErrNotExist) {
-		return nil, os.ErrNotExist
-	}
-	file, err := openPrivateFileDescriptor(path, create)
-	if err != nil {
-		return nil, fmt.Errorf("open private lock: %w", err)
-	}
-	opened, statErr := file.Stat()
-	current, currentErr := os.Lstat(path)
-	if statErr != nil || currentErr != nil || !opened.Mode().IsRegular() ||
-		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
-		!os.SameFile(opened, current) || before != nil && !os.SameFile(before, current) && !create {
-		return nil, errors.Join(fmt.Errorf("private lock changed identity while opening"), statErr, currentErr, file.Close())
-	}
-	if singleLink {
-		if err := validatePrivateLinkCount(file, opened); err != nil {
-			return nil, errors.Join(err, file.Close())
-		}
-	}
-	if err := file.Chmod(PrivateFileMode); err != nil {
-		return nil, errors.Join(fmt.Errorf("secure private lock mode: %w", err), file.Close())
-	}
-	if err := secureFileDescriptor(file); err != nil {
-		return nil, errors.Join(err, file.Close())
-	}
-	secured, err := file.Stat()
-	if err != nil {
-		return nil, errors.Join(fmt.Errorf("inspect secured private lock: %w", err), file.Close())
-	}
-	validate := validatePrivateFile
-	if !singleLink {
-		validate = validatePrivateFileAllowLinks
-	}
-	if err := validate(file, secured); err != nil {
-		return nil, errors.Join(fmt.Errorf("validate private lock: %w", err), file.Close())
-	}
-	current, err = os.Lstat(path)
-	if err != nil || !os.SameFile(secured, current) {
-		return nil, errors.Join(fmt.Errorf("private lock changed identity after securing"), err, file.Close())
-	}
-	return file, nil
+	return openPrivateFileWithHooks(path, create, singleLink, privateFileOpenHooks{})
 }

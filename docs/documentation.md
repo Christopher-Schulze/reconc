@@ -555,7 +555,12 @@ unexpected hard-link objects. Unix applies and validates private modes through
 opened descriptors. Windows first binds a no-follow descriptor, applies the
 protected current-user-only DACL through the supported named filesystem
 security operation, then validates that DACL through the opened handle and
-revalidates path identity before returning. Legacy
+revalidates path identity before returning. Create-capable lock opens are rooted
+at the validated parent and split absence from existence: exclusive creation
+cannot follow a dangling link, and an existing-path race is reopened only after
+regular-file, identity, security, and single-link checks. Parent replacement
+cannot redirect creation, and a rejected newly created identity is removed
+through the still-open parent. Legacy
 private directories may be repaired only at their intended boundary. Receipt,
 retention, command-proof, policy-proof, and action-state paths retain their
 existing locations, names, retention behavior, and JSON contracts.
@@ -2149,8 +2154,13 @@ Unknown directories are never treated as product-owned. Audit and run-decision
 JSONL each use a 2 MiB live file plus two
 archives, with per-directory in-process serialization followed by file-locked
 append and pre-append rotation. A newly created live file is synchronized before
-its directory entry is committed. Every archive removal or rename and every
-transaction-artifact cleanup is then committed through the same identity-bound
+its directory entry is committed. Live-file absence uses rooted exclusive
+creation; an `ErrExist` race reopens a stable non-symlink regular file and
+requires a single directory link before any record write. Rejected dangling
+links, hard-link swaps, leaf replacements, and parent replacements neither
+modify an alias target nor leave an unintended created file. Every archive
+removal or rename and every transaction-artifact cleanup is then committed
+through the same identity-bound
 parent before the next state transition. Unix persists those directory entries
 with a directory sync; Windows preserves the rooted identity boundary without
 claiming a directory flush that its read-only handle API cannot provide. Audit

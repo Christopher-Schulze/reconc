@@ -287,24 +287,20 @@ func appendRecord(path string, record []byte) error {
 }
 
 func appendRecordWithLayout(path string, record []byte, layout Layout, maximum int64) (resultErr error) {
-	var before os.FileInfo
-	if info, err := os.Lstat(path); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return fmt.Errorf("jsonl live path must be a non-symlink regular file: %s", path)
-		}
-		if err := validateLayoutSecurityFile(layout, path, maximum); err != nil {
-			return err
-		}
-		before = info
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
+	return appendRecordWithLayoutHooks(path, record, layout, maximum, appendOpenHooks{})
+}
+
+type appendOpenHooks struct {
+	afterInspect func(missing bool) error
+}
+
+func appendRecordWithLayoutHooks(path string, record []byte, layout Layout, maximum int64, hooks appendOpenHooks) (resultErr error) {
 	parent, err := openJSONLParent(path)
 	if err != nil {
 		return err
 	}
 	defer func() { resultErr = errors.Join(resultErr, parent.close()) }()
-	file, err := parent.root.OpenFile(parent.name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, layout.FileMode)
+	file, before, created, strictLink, err := openAppendRecordFile(parent, path, layout, maximum, hooks)
 	if err != nil {
 		return err
 	}
@@ -318,11 +314,22 @@ func appendRecordWithLayout(path string, record []byte, layout Layout, maximum i
 		}
 		return errors.Join(statErr, lstatErr, file.Close())
 	}
-	if layout.Security != nil && before == nil {
+	if err := parent.validate(); err != nil {
+		if created {
+			err = errors.Join(err, removeCreatedAppendFile(parent, file, opened))
+		}
+		return errors.Join(err, file.Close())
+	}
+	if strictLink {
+		if err := validateAppendSingleLink(file, opened); err != nil {
+			return errors.Join(err, file.Close())
+		}
+	}
+	if layout.Security != nil && created {
 		if err := secureLayoutSecurityFile(layout, path, maximum); err != nil {
 			return errors.Join(err, file.Close())
 		}
-	} else if layout.Security == nil && (before == nil || !layoutIsDefault(path, layout)) {
+	} else if layout.Security == nil && (created || !layoutIsDefault(path, layout)) {
 		if err := file.Chmod(layout.FileMode); err != nil {
 			return errors.Join(err, file.Close())
 		}
@@ -331,13 +338,74 @@ func appendRecordWithLayout(path string, record []byte, layout Layout, maximum i
 	syncErr := file.Sync()
 	closeErr := file.Close()
 	var parentSyncErr error
-	if before == nil {
+	if created {
 		parentSyncErr = parent.syncMutation()
 	}
 	if err := errors.Join(writeErr, syncErr, closeErr, parentSyncErr); err != nil {
 		return err
 	}
 	return validateLayoutSecurityFile(layout, path, maximum)
+}
+
+func removeCreatedAppendFile(parent *jsonlParent, file *os.File, opened os.FileInfo) error {
+	current, lstatErr := parent.root.Lstat(parent.name)
+	if lstatErr != nil || opened == nil || current == nil || !opened.Mode().IsRegular() ||
+		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() || !os.SameFile(opened, current) {
+		return errors.Join(fmt.Errorf("refuse to remove changed JSONL creation"), lstatErr)
+	}
+	if err := parent.root.Remove(parent.name); err != nil {
+		return fmt.Errorf("remove rejected JSONL creation: %w", err)
+	}
+	return jsonlDirectorySync(parent.root)
+}
+
+func openAppendRecordFile(parent *jsonlParent, path string, layout Layout, maximum int64, hooks appendOpenHooks) (*os.File, os.FileInfo, bool, bool, error) {
+	before, missing, err := inspectAppendRecordFile(parent, path, layout, maximum)
+	if err != nil {
+		return nil, nil, false, false, err
+	}
+	if hooks.afterInspect != nil {
+		if err := hooks.afterInspect(missing); err != nil {
+			return nil, nil, false, false, err
+		}
+	}
+	if !missing {
+		file, err := parent.root.OpenFile(parent.name, os.O_APPEND|os.O_WRONLY, 0)
+		return file, before, false, false, err
+	}
+	file, err := parent.root.OpenFile(parent.name, os.O_CREATE|os.O_EXCL|os.O_APPEND|os.O_WRONLY, layout.FileMode)
+	if err == nil {
+		return file, nil, true, true, nil
+	}
+	if !errors.Is(err, os.ErrExist) {
+		return nil, nil, false, false, err
+	}
+	before, missing, err = inspectAppendRecordFile(parent, path, layout, maximum)
+	if err != nil || missing {
+		return nil, nil, false, false, errors.Join(fmt.Errorf("jsonl live path changed identity during creation"), err)
+	}
+	file, err = parent.root.OpenFile(parent.name, os.O_APPEND|os.O_WRONLY, 0)
+	return file, before, false, true, err
+}
+
+func inspectAppendRecordFile(parent *jsonlParent, path string, layout Layout, maximum int64) (os.FileInfo, bool, error) {
+	info, err := parent.root.Lstat(parent.name)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, true, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, false, fmt.Errorf("jsonl live path must be a non-symlink regular file: %s", path)
+	}
+	if !layoutIsDefault(path, layout) && runtime.GOOS != "windows" && info.Mode().Perm() != layout.FileMode.Perm() {
+		return nil, false, fmt.Errorf("jsonl live path has mode %o; want %o", info.Mode().Perm(), layout.FileMode.Perm())
+	}
+	if err := validateLayoutSecurityFile(layout, path, maximum); err != nil {
+		return nil, false, err
+	}
+	return info, false, nil
 }
 
 // Enforce compacts oversized historical files and removes archives outside

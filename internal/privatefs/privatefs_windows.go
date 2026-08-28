@@ -94,19 +94,6 @@ func openDirectoryDescriptor(path string) (*os.File, error) {
 	)
 }
 
-func openPrivateFileDescriptor(path string, create bool) (*os.File, error) {
-	disposition := uint32(windows.OPEN_EXISTING)
-	if create {
-		disposition = windows.OPEN_ALWAYS
-	}
-	return openWindowsPrivateDescriptor(
-		path,
-		windows.GENERIC_READ|windows.GENERIC_WRITE|windows.WRITE_DAC|windows.WRITE_OWNER,
-		disposition,
-		windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OPEN_REPARSE_POINT,
-	)
-}
-
 func openExistingPrivateFileDescriptorReadOnly(path string) (*os.File, error) {
 	return openWindowsPrivateDescriptor(
 		path,

@@ -1206,7 +1206,12 @@ owner, mode, identity, and ACL/security-descriptor validation; the explicit
 repair path changes only that final boundary through its opened descriptor.
 Lock creation opens the exact regular inode with create-only semantics, applies
 private mode/security through the descriptor, validates single-link ownership,
-and revalidates the directory entry before returning it. Action state,
+and revalidates the directory entry before returning it. The absent and
+existing paths are separate rooted operations: absence uses exclusive creation,
+while an `ErrExist` race is reopened only after non-symlink, regular-file,
+identity, and link-count validation. Rejected leaf or parent replacement is
+never followed, and a newly created file is removed through the still-bound
+parent if parent validation fails. Action state,
 installation receipts, retention, command proofs, and unresolved policy proofs
 use this boundary; their paths, filenames, retention policy, and public JSON
 contracts are unchanged.
@@ -1231,6 +1236,13 @@ validated ring under the same audit lock before reporting any cleanup. Same-
 process append bursts pass through a per-audit-directory mutex before the
 bounded cross-process lock, avoiding lock-polling storms while preserving the
 file lock as the inter-process authority.
+
+JSONL live-file publication uses the same explicit state split under its rooted
+parent. A missing live name is opened with exclusive creation; a regular file
+that wins the race is reopened without create permission and must retain the
+same identity and one directory link before append. Dangling symlinks,
+hard-link aliases, leaf replacement, and parent replacement therefore fail
+before record bytes are written or an out-of-tree target can be created.
 
 The action ledger retains full-chain verification as the startup, recovery,
 external-writer, and explicit-read authority. After one successful verification,
