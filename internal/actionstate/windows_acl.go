@@ -5,47 +5,24 @@ package actionstate
 import (
 	"fmt"
 	"os"
-	"runtime"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"reconc.dev/reconc/internal/privatefs"
 )
 
 const windowsFileAllAccess = uint32(windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | 0x1ff)
 
 func securePrivateWindowsPath(path string, directory bool) error {
-	sid, err := currentWindowsUserSID()
+	if directory {
+		return privatefs.RepairDirectory(path)
+	}
+	file, err := privatefs.OpenExistingLock(path)
 	if err != nil {
 		return err
 	}
-	var pinner runtime.Pinner
-	pinner.Pin(sid)
-	defer pinner.Unpin()
-	inheritance := uint32(windows.NO_INHERITANCE)
-	if directory {
-		inheritance = windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT
-	}
-	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{{
-		AccessPermissions: windows.GENERIC_ALL,
-		AccessMode:        windows.SET_ACCESS,
-		Inheritance:       inheritance,
-		Trustee: windows.TRUSTEE{
-			TrusteeForm: windows.TRUSTEE_IS_SID, TrusteeType: windows.TRUSTEE_IS_USER,
-			TrusteeValue: windows.TrusteeValueFromSID(sid),
-		},
-	}}, nil)
-	if err != nil {
-		return fmt.Errorf("build private Windows ACL: %w", err)
-	}
-	if err := windows.SetNamedSecurityInfo(
-		path, windows.SE_FILE_OBJECT,
-		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
-		nil, nil, acl, nil,
-	); err != nil {
-		return fmt.Errorf("set private Windows ACL: %w", err)
-	}
-	runtime.KeepAlive(sid)
-	return nil
+	return file.Close()
 }
 
 func validatePrivateWindowsHandle(file *os.File, directory bool) error {

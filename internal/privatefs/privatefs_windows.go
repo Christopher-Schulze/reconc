@@ -12,6 +12,13 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+var reopenFileProcedure = windows.NewLazySystemDLL("kernel32.dll").NewProc("ReOpenFile")
+
+type windowsSecurityHooks struct {
+	reopen      func(windows.Handle, uint32, uint32, uint32) (windows.Handle, error)
+	afterReopen func() error
+}
+
 func validatePrivateFile(file *os.File, info os.FileInfo) error {
 	if err := validatePrivateFileAllowLinks(file, info); err != nil {
 		return err
@@ -48,9 +55,35 @@ func validateDirectorySecurity(file *os.File, info os.FileInfo) error {
 }
 
 func secureWindowsHandle(file *os.File, directory bool) error {
+	return secureWindowsHandleWithHooks(file, directory, windowsSecurityHooks{
+		reopen: reopenWindowsSecurityHandle,
+	})
+}
+
+func secureWindowsHandleWithHooks(file *os.File, directory bool, hooks windowsSecurityHooks) error {
+	if file == nil {
+		return fmt.Errorf("private Windows file handle is unavailable")
+	}
+	if hooks.reopen == nil {
+		return fmt.Errorf("private Windows security handle opener is unavailable")
+	}
+	securityHandle, err := hooks.reopen(
+		windows.Handle(file.Fd()),
+		windows.WRITE_DAC|windows.WRITE_OWNER,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS,
+	)
+	if err != nil {
+		return fmt.Errorf("reopen private Windows security handle: %w", err)
+	}
+	if hooks.afterReopen != nil {
+		if err := hooks.afterReopen(); err != nil {
+			return errors.Join(err, windows.CloseHandle(securityHandle))
+		}
+	}
 	sid, err := currentWindowsUserSID()
 	if err != nil {
-		return err
+		return errors.Join(err, windows.CloseHandle(securityHandle))
 	}
 	var pinner runtime.Pinner
 	pinner.Pin(sid)
@@ -61,25 +94,42 @@ func secureWindowsHandle(file *os.File, directory bool) error {
 	}
 	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{{AccessPermissions: windows.GENERIC_ALL, AccessMode: windows.SET_ACCESS, Inheritance: inheritance, Trustee: windows.TRUSTEE{TrusteeForm: windows.TRUSTEE_IS_SID, TrusteeType: windows.TRUSTEE_IS_USER, TrusteeValue: windows.TrusteeValueFromSID(sid)}}}, nil)
 	if err != nil {
-		return fmt.Errorf("build private Windows ACL: %w", err)
+		return errors.Join(fmt.Errorf("build private Windows ACL: %w", err), windows.CloseHandle(securityHandle))
 	}
-	// PROTECTED_DACL_SECURITY_INFORMATION is one of the security-information
-	// flags that SetNamedSecurityInfo persists for filesystem objects. Assigning
-	// the owner explicitly also covers elevated Windows tokens whose default
-	// object owner is the Administrators group rather than the token user. The
-	// caller opened file without following reparse points and compares its
-	// identity with the path before and after this operation.
+	// Assigning the owner explicitly also covers elevated Windows tokens whose
+	// default object owner is the Administrators group rather than the token
+	// user. SetSecurityInfo binds the mutation to the reopened object handle;
+	// WRITE_DAC and WRITE_OWNER are the only additional rights requested.
 	securityInformation := windows.SECURITY_INFORMATION(windows.OWNER_SECURITY_INFORMATION |
 		windows.DACL_SECURITY_INFORMATION |
 		windows.PROTECTED_DACL_SECURITY_INFORMATION)
-	if err := windows.SetNamedSecurityInfo(
-		file.Name(), windows.SE_FILE_OBJECT, securityInformation,
+	setErr := windows.SetSecurityInfo(
+		securityHandle, windows.SE_FILE_OBJECT, securityInformation,
 		sid, nil, acl, nil,
-	); err != nil {
-		return fmt.Errorf("set private Windows ACL: %w", err)
-	}
+	)
 	runtime.KeepAlive(sid)
-	return nil
+	closeErr := windows.CloseHandle(securityHandle)
+	if setErr != nil {
+		setErr = fmt.Errorf("set private Windows ACL through handle: %w", setErr)
+	}
+	return errors.Join(setErr, closeErr)
+}
+
+func reopenWindowsSecurityHandle(
+	handle windows.Handle,
+	desiredAccess, shareMode, flags uint32,
+) (windows.Handle, error) {
+	if err := reopenFileProcedure.Find(); err != nil {
+		return windows.InvalidHandle, fmt.Errorf("resolve ReOpenFile: %w", err)
+	}
+	result, _, callErr := reopenFileProcedure.Call(
+		uintptr(handle), uintptr(desiredAccess), uintptr(shareMode), uintptr(flags),
+	)
+	reopened := windows.Handle(result)
+	if reopened == windows.InvalidHandle {
+		return windows.InvalidHandle, callErr
+	}
+	return reopened, nil
 }
 
 func secureDirectoryDescriptor(file *os.File) error { return secureWindowsHandle(file, true) }
@@ -88,7 +138,7 @@ func secureFileDescriptor(file *os.File) error      { return secureWindowsHandle
 func openDirectoryDescriptor(path string) (*os.File, error) {
 	return openWindowsPrivateDescriptor(
 		path,
-		windows.GENERIC_READ|windows.WRITE_DAC|windows.WRITE_OWNER,
+		windows.GENERIC_READ,
 		windows.OPEN_EXISTING,
 		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT,
 	)

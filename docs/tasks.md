@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 300 Apply Windows private ACLs through opened handles -> tasks/300-apply-windows-private-acls-through-opened-handles.md
 - [ ] 301 Sanitize every proof and agent-session Git environment -> tasks/301-sanitize-every-proof-and-agent-session-git-environment.md
 - [ ] 302 Route all untrusted YAML through bounded admission -> tasks/302-route-all-untrusted-yaml-through-bounded-admission.md
 - [ ] 303 Enforce the expanded YAML alias budget -> tasks/303-enforce-the-expanded-yaml-alias-budget.md
@@ -50,6 +49,7 @@
 ## Blocked
 
 - [!] 293 Make Windows atomic replacement genuinely write-through -> tasks/293-make-windows-atomic-replacement-genuinely-write-through.md
+- [!] 300 Apply Windows private ACLs through opened handles -> tasks/300-apply-windows-private-acls-through-opened-handles.md
 
 ## Done
 
