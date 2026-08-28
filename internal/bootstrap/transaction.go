@@ -472,6 +472,7 @@ type publicationHooks struct {
 	beforeChmod            func(string) error
 	beforeHash             func(string) error
 	beforeCleanup          func(string) error
+	link                   func(*os.Root, string, string) error
 }
 
 func publishArtifact(root string, artifact desiredArtifact, relative, expectedSHA, planDigest string) (createdRecord, []createdDirectory, error) {
@@ -515,7 +516,9 @@ func publishArtifactWithHooks(root string, artifact desiredArtifact, relative, e
 			stageOpen = false
 		}
 		removeErr := parent.Remove(stageName)
-		if !errors.Is(removeErr, os.ErrNotExist) {
+		if removeErr == nil {
+			cleanupErr = errors.Join(cleanupErr, syncMutatedBootstrapParent(parent, parentInfo, stagePath))
+		} else if !errors.Is(removeErr, os.ErrNotExist) {
 			cleanupErr = errors.Join(cleanupErr, removeErr)
 		}
 		return cleanupErr
@@ -523,6 +526,9 @@ func publishArtifactWithHooks(root string, artifact desiredArtifact, relative, e
 	writeErr := writeArtifactBody(file, artifact)
 	if writeErr == nil {
 		writeErr = file.Sync()
+	}
+	if writeErr == nil {
+		writeErr = syncMutatedBootstrapParent(parent, parentInfo, stagePath)
 	}
 	if writeErr != nil {
 		return createdRecord{}, createdDirs, combineWriteFailure("stage bootstrap artifact "+relative, writeErr, nil, cleanupStage())
@@ -542,9 +548,15 @@ func publishArtifactWithHooks(root string, artifact desiredArtifact, relative, e
 		return createdRecord{}, createdDirs, combineWriteFailure("inspect staged bootstrap artifact "+relative, err, nil, cleanupStage())
 	}
 	var published *os.File
-	if err := parent.Link(stageName, name); err != nil {
-		if os.IsExist(err) {
-			return createdRecord{}, createdDirs, combineWriteFailure("publish bootstrap artifact "+relative, err, nil, cleanupStage())
+	var linkErr error
+	if hooks.link != nil {
+		linkErr = hooks.link(parent, stageName, name)
+	} else {
+		linkErr = parent.Link(stageName, name)
+	}
+	if linkErr != nil {
+		if os.IsExist(linkErr) {
+			return createdRecord{}, createdDirs, combineWriteFailure("publish bootstrap artifact "+relative, linkErr, nil, cleanupStage())
 		}
 		// Filesystems without hardlink support (FAT/exFAT, some network
 		// mounts) fail here. Fall back to an O_EXCL copy that keeps the
@@ -553,7 +565,7 @@ func publishArtifactWithHooks(root string, artifact desiredArtifact, relative, e
 		var copyErr error
 		published, copyErr = copyStagedExclusiveRoot(parent, file, name, os.FileMode(artifact.mode))
 		if copyErr != nil {
-			return createdRecord{}, createdDirs, combineWriteFailure("publish bootstrap artifact "+relative, fmt.Errorf("hardlink: %v; exclusive copy: %w", err, copyErr), nil, cleanupStage())
+			return createdRecord{}, createdDirs, combineWriteFailure("publish bootstrap artifact "+relative, fmt.Errorf("hardlink: %v; exclusive copy: %w", linkErr, copyErr), nil, cleanupStage())
 		}
 	} else {
 		published = file
@@ -578,6 +590,19 @@ func publishArtifactWithHooks(root string, artifact desiredArtifact, relative, e
 		parent: parent, parentInfo: parentInfo, name: name,
 	}
 	closeParent = false
+	if err := syncMutatedBootstrapParent(parent, parentInfo, target); err != nil {
+		removeStageErr := cleanupStage()
+		removeTargetErr := removeCreatedRecord(&record)
+		if removeTargetErr == nil {
+			record = createdRecord{}
+		}
+		return record, createdDirs, combineWriteFailure(
+			"commit published bootstrap artifact "+relative,
+			err,
+			removeTargetErr,
+			removeStageErr,
+		)
+	}
 	var parentValidationErr error
 	if hooks.beforeParentValidation != nil {
 		parentValidationErr = hooks.beforeParentValidation(target)
@@ -599,6 +624,9 @@ func publishArtifactWithHooks(root string, artifact desiredArtifact, relative, e
 	}
 	if modeErr == nil {
 		modeErr = published.Chmod(os.FileMode(artifact.mode))
+	}
+	if modeErr == nil {
+		modeErr = published.Sync()
 	}
 	if modeErr != nil {
 		removeStageErr := cleanupStage()
@@ -727,7 +755,7 @@ func recoverBootstrapStage(
 			}
 			return nil, staleBootstrapStageError(stagePath, inspectErr)
 		}
-		if err := parent.Remove(stageName); err != nil {
+		if err := removeBoundBootstrapEntry(parent, parentInfo, stageName, stagePath); err != nil {
 			return nil, staleBootstrapStageError(stagePath, fmt.Errorf("remove exact residue: %w", err))
 		}
 		return nil, nil
@@ -755,6 +783,9 @@ func recoverBootstrapStage(
 	if err := target.Chmod(mode); err != nil {
 		return closeBoth(fmt.Errorf("restore published target mode: %w", err))
 	}
+	if err := target.Sync(); err != nil {
+		return closeBoth(fmt.Errorf("sync restored published target mode: %w", err))
+	}
 	targetSHA, stableTargetInfo, err := hashOpenedCreatedFile(target, targetPath)
 	if err != nil || targetSHA != expectedSHA {
 		if err == nil {
@@ -772,7 +803,7 @@ func recoverBootstrapStage(
 		}
 		return nil, errors.Join(staleBootstrapStageError(stagePath, err), target.Close())
 	}
-	if err := parent.Remove(stageName); err != nil {
+	if err := removeBoundBootstrapEntry(parent, parentInfo, stageName, stagePath); err != nil {
 		return nil, errors.Join(staleBootstrapStageError(stagePath, fmt.Errorf("remove exact residue: %w", err)), target.Close())
 	}
 	record := &createdRecord{
@@ -801,7 +832,13 @@ func copyStagedExclusiveRoot(parent *os.Root, source *os.File, target string, mo
 		return nil, err
 	}
 	cleanup := func(primary error) (*os.File, error) {
-		return nil, errors.Join(primary, out.Close(), parent.Remove(target))
+		closeErr := out.Close()
+		removeErr := parent.Remove(target)
+		var syncErr error
+		if removeErr == nil {
+			syncErr = bootstrapDirectorySync(parent)
+		}
+		return nil, errors.Join(primary, closeErr, removeErr, syncErr)
 	}
 	if _, err := io.Copy(out, source); err != nil {
 		return cleanup(err)
@@ -871,15 +908,31 @@ func createSafeParents(root, parent string) ([]createdDirectory, error) {
 		current = filepath.Join(current, part)
 		info, err := os.Lstat(current)
 		if os.IsNotExist(err) {
-			if err := os.Mkdir(current, 0o755); err != nil {
-				return created, fmt.Errorf("create bootstrap parent %s: %w", current, err)
+			parent, parentInfo, name, openErr := openCreatedParent(current)
+			if openErr != nil {
+				return created, fmt.Errorf("open bootstrap parent for %s: %w", current, openErr)
+			}
+			if err := parent.Mkdir(name, 0o755); err != nil {
+				return created, errors.Join(
+					fmt.Errorf("create bootstrap parent %s: %w", current, err),
+					parent.Close(),
+				)
 			}
 			directory, err := captureCreatedDirectory(current)
 			if err != nil {
-				removeErr := os.Remove(current)
-				return created, combineWriteFailure("inspect created bootstrap parent "+current, err, nil, removeErr)
+				removeErr := removeBoundBootstrapEntry(parent, parentInfo, name, current)
+				return created, combineWriteFailure(
+					"inspect created bootstrap parent "+current,
+					err,
+					parent.Close(),
+					removeErr,
+				)
 			}
 			created = append(created, directory)
+			commitErr := errors.Join(syncMutatedBootstrapParent(parent, parentInfo, current), parent.Close())
+			if commitErr != nil {
+				return created, fmt.Errorf("commit created bootstrap parent %s: %w", current, commitErr)
+			}
 			continue
 		}
 		if err != nil {
@@ -895,11 +948,11 @@ func createSafeParents(root, parent string) ([]createdDirectory, error) {
 func rollbackCreated(root string, created []createdRecord, dirs []createdDirectory) ([]string, error) {
 	defer closeCreatedDirectoryIdentities(dirs)
 	rolledBack := []string{}
-	errors := []string{}
+	problems := []string{}
 	for index := len(created) - 1; index >= 0; index-- {
 		record := &created[index]
 		if err := removeCreatedRecord(record); err != nil {
-			errors = append(errors, "remove rollback target "+record.path+": "+err.Error())
+			problems = append(problems, "remove rollback target "+record.path+": "+err.Error())
 			continue
 		}
 		relative, relErr := filepath.Rel(root, record.path)
@@ -914,20 +967,20 @@ func rollbackCreated(root string, created []createdRecord, dirs []createdDirecto
 			continue
 		}
 		if err != nil {
-			errors = append(errors, "inspect rollback directory "+directory.path+": "+err.Error())
+			problems = append(problems, "inspect rollback directory "+directory.path+": "+err.Error())
 			continue
 		}
 		if !sameDirectoryIdentity(directory.identity, info) {
-			errors = append(errors, "refuse rollback of externally replaced directory "+directory.path)
+			problems = append(problems, "refuse rollback of externally replaced directory "+directory.path)
 			continue
 		}
 		entries, err := boundedio.ReadDirNoSymlink(directory.path, maxBootstrapDirectoryEntries)
 		if err != nil {
-			errors = append(errors, "read rollback directory "+directory.path+": "+err.Error())
+			problems = append(problems, "read rollback directory "+directory.path+": "+err.Error())
 			continue
 		}
 		if len(entries) > 0 {
-			errors = append(errors, "refuse rollback of non-empty transaction directory "+directory.path)
+			problems = append(problems, "refuse rollback of non-empty transaction directory "+directory.path)
 			continue
 		}
 		current, err := os.Lstat(directory.path)
@@ -935,16 +988,32 @@ func rollbackCreated(root string, created []createdRecord, dirs []createdDirecto
 			if err == nil {
 				err = fmt.Errorf("directory identity changed")
 			}
-			errors = append(errors, "refuse rollback of externally replaced directory "+directory.path+": "+err.Error())
+			problems = append(problems, "refuse rollback of externally replaced directory "+directory.path+": "+err.Error())
 			continue
 		}
-		if err := os.Remove(directory.path); err != nil && !os.IsNotExist(err) {
-			errors = append(errors, "remove rollback directory "+directory.path+": "+err.Error())
+		parent, parentInfo, name, err := openCreatedParent(directory.path)
+		if err != nil {
+			problems = append(problems, "open rollback directory parent "+directory.path+": "+err.Error())
+			continue
+		}
+		boundInfo, inspectErr := parent.Lstat(name)
+		if inspectErr != nil || !sameDirectoryIdentity(directory.identity, boundInfo) {
+			if inspectErr == nil {
+				inspectErr = errors.New("directory identity changed")
+			}
+			problems = append(problems, "refuse rollback of externally replaced directory "+directory.path+": "+inspectErr.Error())
+			_ = parent.Close()
+			continue
+		}
+		removeErr := removeBoundBootstrapEntry(parent, parentInfo, name, directory.path)
+		closeErr := parent.Close()
+		if err := errors.Join(removeErr, closeErr); err != nil {
+			problems = append(problems, "remove rollback directory "+directory.path+": "+err.Error())
 		}
 	}
 	sort.Strings(rolledBack)
-	if len(errors) > 0 {
-		return rolledBack, fmt.Errorf("rollback incomplete: %s", strings.Join(errors, "; "))
+	if len(problems) > 0 {
+		return rolledBack, fmt.Errorf("rollback incomplete: %s", strings.Join(problems, "; "))
 	}
 	return rolledBack, nil
 }
@@ -992,7 +1061,8 @@ func removeCreatedRecord(record *createdRecord) error {
 	if err := record.parent.Remove(record.name); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	return record.close()
+	syncErr := syncMutatedBootstrapParent(record.parent, record.parentInfo, record.path)
+	return errors.Join(syncErr, record.close())
 }
 
 func captureCreatedRecord(path string) (createdRecord, error) {

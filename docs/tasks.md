@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 294 Durably publish bootstrap plans and artifacts -> tasks/294-durably-publish-bootstrap-plans-and-artifacts.md
 - [ ] 295 Durably create and rotate JSONL state -> tasks/295-durably-create-and-rotate-jsonl-state.md
 - [ ] 296 Sync repository-run state mutations before unlock -> tasks/296-sync-repository-run-state-mutations-before-unlock.md
 - [ ] 297 Bind runtime freshness metadata to the opened file -> tasks/297-bind-runtime-freshness-metadata-to-the-opened-file.md
@@ -59,6 +58,7 @@
 
 ## Done
 
+- [x] 294 Durably publish bootstrap plans and artifacts -> tasks/done/294-durably-publish-bootstrap-plans-and-artifacts.md
 - [x] 292 Narrow MCP pre-dispatch serialization and retry policy -> tasks/done/292-narrow-mcp-pre-dispatch-serialization-and-retry-policy.md
 - [x] 291 Continue MCP shutdown finalization after individual errors -> tasks/done/291-continue-mcp-shutdown-finalization-after-individual-errors.md
 - [x] 290 Finalize pending approvals after call-drain timeout -> tasks/done/290-finalize-pending-approvals-after-call-drain-timeout.md
@@ -68,4 +68,3 @@
 - [x] 286 Eliminate open CodeQL findings -> tasks/done/286-eliminate-open-codeql-findings.md
 - [x] 285 Stabilize the Windows MCP lifecycle release gate -> tasks/done/285-stabilize-windows-mcp-lifecycle-release-gate.md
 - [x] 284 Repair Windows release-gate portability -> tasks/done/284-repair-windows-release-gate-portability.md
-- [x] 283 Preserve nested shell evaluation semantics -> tasks/done/283-preserve-nested-shell-evaluation-semantics.md

@@ -75,7 +75,10 @@ func bindParentDepth(path string, createMode os.FileMode, aliasDepth int) (*boun
 			)
 		}
 		parent := bound.directory()
-		if err := parent.Mkdir(component, createMode.Perm()); err != nil && !errors.Is(err, os.ErrExist) {
+		created := false
+		if err := parent.Mkdir(component, createMode.Perm()); err == nil {
+			created = true
+		} else if !errors.Is(err, os.ErrExist) {
 			return nil, "", errors.Join(
 				fmt.Errorf("create publication parent component %s: %w", component, err), bound.close(),
 			)
@@ -101,6 +104,20 @@ func bindParentDepth(path string, createMode os.FileMode, aliasDepth int) (*boun
 				fmt.Errorf("publication parent component %s changed identity while opening", component),
 				statErr, lstatErr, child.Close(), bound.close(),
 			)
+		}
+		if created {
+			if err := syncParentDir(parent); err != nil {
+				closeErr := child.Close()
+				removeErr := parent.Remove(component)
+				var cleanupSyncErr error
+				if removeErr == nil {
+					cleanupSyncErr = syncParentDir(parent)
+				}
+				return nil, "", errors.Join(
+					fmt.Errorf("sync publication parent after creating %s: %w", component, err),
+					closeErr, removeErr, cleanupSyncErr, bound.close(),
+				)
+			}
 		}
 		bound.components = append(bound.components, component)
 		bound.identities = append(bound.identities, opened)

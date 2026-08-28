@@ -7,13 +7,19 @@ import (
 	"os"
 )
 
+type directorySyncCloser interface {
+	Sync() error
+	Close() error
+}
+
 func syncParentDir(directory *os.Root) error {
 	dir, err := directory.Open(".")
 	if err != nil {
 		return err
 	}
-	if err := dir.Sync(); err != nil {
-		return errors.Join(err, dir.Close())
-	}
-	return dir.Close()
+	return syncAndCloseDirectory(dir)
+}
+
+func syncAndCloseDirectory(directory directorySyncCloser) error {
+	return errors.Join(directory.Sync(), directory.Close())
 }

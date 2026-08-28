@@ -1163,7 +1163,9 @@ Existing targets are opened as non-symlink regular files. Byte comparison and
 mode reconciliation use that opened file, then revalidate its path identity,
 so a substituted symlink target is never chmodded. Public writes create
 missing parents with `0755`; state-bearing callers use the explicit private
-API and create them with `0700`. The macOS `/var`-style filesystem-root alias
+API and create them with `0700`. On Unix, each newly created component is
+committed by syncing its already bound parent before traversal continues. The
+macOS `/var`-style filesystem-root alias
 is canonicalized before binding, while nested publication symlinks remain
 rejected. Unix uses rooted rename plus directory fsync; Windows uses rooted
 replacement and flushes the temporary file before publication. Windows then
@@ -1172,6 +1174,13 @@ reopens that temporary relative to the bound `os.Root` with
 relative to the same open directory handle. This preserves parent identity
 without reconstructing an absolute path; the legacy rooted rename information
 class remains the fail-closed compatibility fallback.
+
+Bootstrap create-only publication adds an ordered entry protocol around this
+boundary. It syncs the staged payload and parent, publishes by hard link or
+exclusive copy, syncs the target parent, removes the reserved stage, and syncs
+that removal. Rollback applies the same parent barrier to owned target and
+directory removal. Windows retains payload `File.Sync`, rooted identity checks,
+and create-only semantics but does not claim unsupported directory fsync.
 
 ### Private state filesystem boundary
 

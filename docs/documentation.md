@@ -597,7 +597,13 @@ forcing the governed scaffold over a repository's existing control plane.
 Plans are deterministic JSON with a format version, product version, canonical
 repository root, normalized selections, sorted actions, hashes, modes,
 conflicts, compilation state, blocking issues, and a plan digest. Plan output
-is create-only. An existing byte-identical plan is unchanged. Explicit
+is create-only. A new plan is payload-synced, published through the shared
+no-clobber atomic-file boundary, and commits both target creation and temporary
+removal to the exact parent directory on supported Unix filesystems. Every
+newly created parent component commits its entry before publication descends
+into it. Windows retains payload sync and create-only publication without
+claiming an unsupported directory flush through a read-only `os.Root`. An
+existing byte-identical plan is unchanged. Explicit
 `--replace-output` replaces only a strictly valid Reconc plan for the same
 canonical repository and refuses arbitrary or cross-repository files.
 Repository detection accepts either a real `.git` directory or a bounded,
@@ -613,7 +619,13 @@ A mutating compatibility or transactional bootstrap first atomically installs
 the exact running build as the stable user CLI, proves that bare `reconc`
 resolves to it, and otherwise fails before any repository write. A stale plan
 fails before publication. New files are staged beside the target,
-synced, checksum-verified, and published without replacement. Publication
+synced, checksum-verified, and published without replacement. On supported
+Unix filesystems, publication syncs the bound parent after stage creation,
+target hard-link or exclusive-copy creation, stage removal, rollback removal,
+and each nested parent-directory creation. These barriers follow the
+corresponding payload or directory-entry mutation. Windows syncs every payload
+and preserves the rooted create-only boundary without reporting a directory
+fsync that Win32 does not support through the read-only root handle. Publication
 retains an open descriptor for the exact created inode through mode setting,
 checksum verification, and transaction ownership capture. Rollback reuses
 that descriptor and an opened parent identity, revalidates both before rooted

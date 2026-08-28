@@ -42,14 +42,20 @@ func writeNew(path string, data []byte, mode, parentMode os.FileMode) (err error
 	if err := directory.Link(temporary, name); err != nil {
 		return errors.Join(fmt.Errorf("publish new %s: %w", path, err), directory.Remove(temporary))
 	}
-	if err := directory.Remove(temporary); err != nil {
-		return fmt.Errorf("remove publication temporary for %s: %w", path, err)
+	if err := syncParentDir(directory); err != nil {
+		return fmt.Errorf("sync parent after publishing %s: %w", path, err)
 	}
 	if err := parent.validate(); err != nil {
 		return fmt.Errorf("validate parent after publishing %s: %w", path, err)
 	}
+	if err := directory.Remove(temporary); err != nil {
+		return fmt.Errorf("remove publication temporary for %s: %w", path, err)
+	}
 	if err := syncParentDir(directory); err != nil {
 		return fmt.Errorf("sync parent for %s: %w", path, err)
+	}
+	if err := parent.validate(); err != nil {
+		return fmt.Errorf("validate parent after publishing %s: %w", path, err)
 	}
 	if err := parent.validate(); err != nil {
 		return fmt.Errorf("validate parent after syncing %s: %w", path, err)

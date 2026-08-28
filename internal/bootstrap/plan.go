@@ -107,26 +107,8 @@ func WritePlan(path string, plan *Plan) (string, error) {
 	} else if !os.IsNotExist(err) {
 		return "", fmt.Errorf("read bootstrap plan output: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		return "", fmt.Errorf("create bootstrap plan parent: %w", err)
-	}
-	file, err := os.OpenFile(abs, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-	if err != nil {
+	if err := atomicfile.WriteNew(abs, data, 0o644); err != nil {
 		return "", fmt.Errorf("create bootstrap plan output: %w", err)
-	}
-	if _, err := file.Write(data); err != nil {
-		closeErr := file.Close()
-		removeErr := os.Remove(abs)
-		return "", combineWriteFailure("write bootstrap plan output", err, closeErr, removeErr)
-	}
-	if err := file.Sync(); err != nil {
-		closeErr := file.Close()
-		removeErr := os.Remove(abs)
-		return "", combineWriteFailure("sync bootstrap plan output", err, closeErr, removeErr)
-	}
-	if err := file.Close(); err != nil {
-		removeErr := os.Remove(abs)
-		return "", combineWriteFailure("close bootstrap plan output", err, nil, removeErr)
 	}
 	return "created", nil
 }
