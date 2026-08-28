@@ -1019,7 +1019,9 @@ leaves target and lock bytes and identities unchanged.
 
 The target defaults to `policies/reconc-author.yml` and must be one direct
 repository-owned `policies/*.yml` or `policies/*.yaml` file; absolute,
-traversing, nested, linked, or reparse-resolved targets fail closed. Apply
+traversing, nested, linked, or reparse-resolved targets fail closed. Its stem
+must contain a non-dot character, so `.yml`, `.yaml`, and dot-only stems are
+invalid while named hidden files such as `.private.yml` remain valid. Apply
 re-prepares the exact candidate under the canonical repository transaction
 lock, rejects source or candidate drift, atomically writes only that target,
 runs the production compiler, requires the exact previewed lock bytes and a

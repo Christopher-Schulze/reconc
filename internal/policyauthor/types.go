@@ -196,6 +196,10 @@ func validateTargetPath(target string) error {
 	if extension != ".yml" && extension != ".yaml" {
 		return fmt.Errorf("policy target must end in .yml or .yaml")
 	}
+	stem := strings.TrimSuffix(parts[1], filepath.Ext(parts[1]))
+	if strings.Trim(stem, ".") == "" {
+		return fmt.Errorf("policy target %q must include a non-dot filename stem before .yml or .yaml", target)
+	}
 	return nil
 }
 

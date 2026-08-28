@@ -71,6 +71,19 @@ func TestPolicyAuthorTerminalDetectionRejectsCharacterDevices(t *testing.T) {
 	}
 }
 
+func TestPolicyAuthorRejectsExtensionOnlyTargetWithExactDiagnostic(t *testing.T) {
+	repo := makeCheckRepo(t, "rules: []\n")
+	candidate := writePolicyAuthorCandidate(t)
+	for _, target := range []string{"policies/.yml", "policies/.yaml"} {
+		var output bytes.Buffer
+		err := runPolicyAuthor([]string{repo, "--candidate", candidate, "--target", target}, "test", unreadablePolicyAuthorInput{}, false, &output)
+		if err == nil || !strings.Contains(err.Error(), target) || !strings.Contains(err.Error(), "non-dot filename stem") {
+			t.Fatalf("target %q diagnostic = %v", target, err)
+		}
+		assertPolicyAuthorTargetAbsent(t, repo)
+	}
+}
+
 func TestPolicyAuthorDeclineAndEOFCancelPreserveTargetAndLockIdentity(t *testing.T) {
 	for _, test := range []struct {
 		name  string

@@ -13,14 +13,16 @@ Policy-author target validation accepts `policies/.yml` and `policies/.yaml` bec
 
 ## Sub-Tasks
 
-- [ ] Define the target basename contract
-- [ ] Tighten validation without altering safe existing names
-- [ ] Add extension-only and boundary tests
-- [ ] Run policy-author and CLI gates
+- [x] Define the target basename contract
+- [x] Tighten validation without altering safe existing names
+- [x] Add extension-only and boundary tests
+- [x] Run policy-author and CLI gates
 
 ## Notes
 
 - Evidence: `internal/policyauthor/types.go:186-199`.
+- Contract: after removing the case-insensitive `.yml` or `.yaml` suffix, the direct-child filename stem must contain at least one non-dot character. Named hidden targets such as `policies/.private.yml` remain valid; extension-only and dot-only stems do not.
+- Verification: Policy Author and CLI regressions, `make test`, `make vet`, pinned Staticcheck v0.8.1, and `make self-host` pass.
 
 ## Deviations
 

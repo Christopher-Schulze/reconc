@@ -840,8 +840,10 @@ paths are excluded from its versioned JSON report.
 Preview is always read-only. Non-terminal and JSON invocations never prompt;
 text terminals default to no, and automation must supply `--apply` to mutate.
 The selected target is restricted to one direct repository-owned
-`policies/*.yml` or `policies/*.yaml` path. Apply revalidates the preview under
-the canonical repository transaction lock, publishes the target atomically,
+`policies/*.yml` or `policies/*.yaml` path whose filename stem contains a
+non-dot character. Named hidden targets are valid; extension-only and dot-only
+stems fail before compilation. Apply revalidates the preview under the
+canonical repository transaction lock, publishes the target atomically,
 requires the production compiler to emit the exact predicted lockfile, runs a
 fresh runtime validation, and rolls back its own target and lock publication on
 failure. Detected pack suggestions remain review-only and never edit

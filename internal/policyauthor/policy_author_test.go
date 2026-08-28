@@ -219,9 +219,9 @@ func TestApplyRollbackRemovesItsNewPolicyDirectory(t *testing.T) {
 
 func TestPrepareRejectsUnsafeTargets(t *testing.T) {
 	repo := authorRepo(t)
-	for _, target := range []string{"../policy.yml", "/tmp/policy.yml", "nested/policies/x.yml", "policies/x.json", "policies/a/b.yml"} {
+	for _, target := range []string{"../policy.yml", "/tmp/policy.yml", "nested/policies/x.yml", "policies/x.json", "policies/a/b.yml", "policies/.yml", "policies/.yaml", "policies/..yml", "policies/...yaml"} {
 		request := Request{Repo: repo, Version: "test", Target: target, CandidateKind: "file", CandidateName: "candidate", Body: []byte(validCandidate)}
-		if _, err := Prepare(request); err == nil {
+		if _, err := Prepare(request); err == nil || !strings.Contains(err.Error(), "policy target") {
 			t.Fatalf("unsafe target %q accepted", target)
 		}
 	}
@@ -234,6 +234,21 @@ func TestPrepareRejectsUnsafeTargets(t *testing.T) {
 		if _, err := Prepare(request); err == nil || !strings.Contains(err.Error(), "escapes") {
 			t.Fatalf("symlink target error = %v", err)
 		}
+	}
+}
+
+func TestPrepareAcceptsNamedDirectChildTargets(t *testing.T) {
+	for _, target := range []string{"policies/rules.yml", "policies/RULES.YAML", "policies/.private.yml", "policies/..private.yaml", "policies/rules.with.dots.yml"} {
+		t.Run(target, func(t *testing.T) {
+			request := Request{Repo: authorRepo(t), Version: "test", Target: target, CandidateKind: "file", CandidateName: "candidate", Body: []byte(validCandidate)}
+			preview, err := Prepare(request)
+			if err != nil {
+				t.Fatalf("safe direct-child target %q was rejected: %v", target, err)
+			}
+			if preview.Target != target {
+				t.Fatalf("preview target = %q, want %q", preview.Target, target)
+			}
+		})
 	}
 }
 
