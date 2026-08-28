@@ -164,6 +164,81 @@ func TestParseDecimalBoundaries(t *testing.T) {
 	}
 }
 
+func TestParseDecimalScannerNormalization(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input   string
+		want    string
+		wantInt bool
+	}{
+		{input: "12.3400", want: "1234e-2", wantInt: false},
+		{input: "0.00120", want: "12e-4", wantInt: false},
+		{input: "1200.00", want: "12e2", wantInt: true},
+		{input: "1.2300e2", want: "123", wantInt: true},
+		{input: "-0e2147483647", want: "0", wantInt: true},
+	}
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			t.Parallel()
+			decimal, err := ParseDecimal(test.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := decimal.String(); got != test.want {
+				t.Fatalf("ParseDecimal(%q) = %s, want %s", test.input, got, test.want)
+			}
+			if got := decimal.IsInteger(); got != test.wantInt {
+				t.Fatalf("ParseDecimal(%q).IsInteger() = %t, want %t", test.input, got, test.wantInt)
+			}
+		})
+	}
+}
+
+func TestParseDecimalRejectsInvalidSyntaxAndBounds(t *testing.T) {
+	t.Parallel()
+	for _, input := range []string{
+		"", "-", ".", "-.", "00", "01", "1.", "1.e2", ".1", "+1", "1e", "1e+", "1e-", "1e1.0", "1x", " 1", "1 ",
+		"1e2147483648", "1e-2147483649", strings.Repeat("1", MaxNumberDigits+1),
+	} {
+		input := input
+		t.Run(input, func(t *testing.T) {
+			t.Parallel()
+			if _, err := ParseDecimal(input); err == nil {
+				t.Fatalf("ParseDecimal(%q) unexpectedly succeeded", input)
+			}
+		})
+	}
+}
+
+func TestDecimalAppendStringUsesExistingBuffer(t *testing.T) {
+	t.Parallel()
+	decimal, err := ParseDecimal("-12.3400")
+	if err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, 0, 32)
+	buffer = append(buffer, "prefix:"...)
+	got := decimal.appendString(buffer)
+	if string(got) != "prefix:-1234e-2" {
+		t.Fatalf("appendString = %q", got)
+	}
+	if &got[0] != &buffer[0] {
+		t.Fatal("appendString did not retain the destination buffer")
+	}
+}
+
+func TestCommonDecimalBoundsAreCanonicalCopies(t *testing.T) {
+	t.Parallel()
+	zero := ZeroDecimal()
+	one := OneDecimal()
+	if zero.String() != "0" || one.String() != "1" || zero.Compare(one) >= 0 {
+		t.Fatalf("common bounds are not canonical: zero=%s one=%s", zero.String(), one.String())
+	}
+	if !zero.Equal(ZeroDecimal()) || !one.Equal(OneDecimal()) {
+		t.Fatal("common decimal bounds are not stable value copies")
+	}
+}
+
 func TestDecimalCompareExactMagnitude(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

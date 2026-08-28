@@ -68,57 +68,176 @@ type Decimal struct {
 	exponent    int
 }
 
-var jsonNumberPattern = regexpMustCompile(`^(-?)(0|[1-9][0-9]*)(?:\.([0-9]+))?(?:[eE]([+-]?[0-9]+))?$`)
+var (
+	zeroDecimal = Decimal{coefficient: "0"}
+	oneDecimal  = Decimal{coefficient: "1"}
+)
 
 func ParseDecimal(lexeme string) (Decimal, error) {
 	if len(lexeme) == 0 || len(lexeme) > MaxNumberLexemeBytes {
 		return Decimal{}, fmt.Errorf("number lexeme must contain 1 to %d bytes", MaxNumberLexemeBytes)
 	}
-	parts := jsonNumberPattern.FindStringSubmatch(lexeme)
-	if parts == nil {
+	index := 0
+	negative := false
+	if lexeme[index] == '-' {
+		negative = true
+		index++
+	}
+	integerStart := index
+	if index >= len(lexeme) {
 		return Decimal{}, fmt.Errorf("number %q is not valid JSON decimal syntax", lexeme)
 	}
-	exponent := int64(0)
-	if parts[4] != "" {
-		parsed, err := strconv.ParseInt(parts[4], 10, 32)
-		if err != nil {
-			return Decimal{}, fmt.Errorf("number exponent is outside the supported range")
+	if lexeme[index] == '0' {
+		index++
+		if index < len(lexeme) && lexeme[index] >= '0' && lexeme[index] <= '9' {
+			return Decimal{}, fmt.Errorf("number %q is not valid JSON decimal syntax", lexeme)
 		}
-		exponent = parsed
+	} else if lexeme[index] >= '1' && lexeme[index] <= '9' {
+		index++
+		for index < len(lexeme) && lexeme[index] >= '0' && lexeme[index] <= '9' {
+			index++
+		}
+	} else {
+		return Decimal{}, fmt.Errorf("number %q is not valid JSON decimal syntax", lexeme)
 	}
-	coefficient := strings.TrimLeft(parts[2]+parts[3], "0")
-	if coefficient == "" {
-		return Decimal{coefficient: "0"}, nil
+	integerEnd := index
+	fractionStart, fractionEnd := index, index
+	if index < len(lexeme) && lexeme[index] == '.' {
+		index++
+		fractionStart = index
+		for index < len(lexeme) && lexeme[index] >= '0' && lexeme[index] <= '9' {
+			index++
+		}
+		if fractionStart == index {
+			return Decimal{}, fmt.Errorf("number %q is not valid JSON decimal syntax", lexeme)
+		}
+		fractionEnd = index
 	}
-	exponent -= int64(len(parts[3]))
-	for strings.HasSuffix(coefficient, "0") {
-		coefficient = strings.TrimSuffix(coefficient, "0")
-		exponent++
+	exponent := int64(0)
+	if index < len(lexeme) && (lexeme[index] == 'e' || lexeme[index] == 'E') {
+		index++
+		exponentNegative := false
+		if index < len(lexeme) && (lexeme[index] == '+' || lexeme[index] == '-') {
+			exponentNegative = lexeme[index] == '-'
+			index++
+		}
+		exponentStart := index
+		for index < len(lexeme) && lexeme[index] >= '0' && lexeme[index] <= '9' {
+			index++
+		}
+		if exponentStart == index {
+			return Decimal{}, fmt.Errorf("number %q is not valid JSON decimal syntax", lexeme)
+		}
+		limit := int64(1<<31 - 1)
+		if exponentNegative {
+			limit = 1 << 31
+		}
+		for exponentIndex := exponentStart; exponentIndex < index; exponentIndex++ {
+			digit := int64(lexeme[exponentIndex] - '0')
+			if exponent > (limit-digit)/10 {
+				return Decimal{}, fmt.Errorf("number exponent is outside the supported range")
+			}
+			exponent = exponent*10 + digit
+		}
+		if exponentNegative {
+			exponent = -exponent
+		}
 	}
-	if len(coefficient) > MaxNumberDigits {
-		return Decimal{}, fmt.Errorf("number has %d significant digits; maximum is %d", len(coefficient), MaxNumberDigits)
+	if index != len(lexeme) {
+		return Decimal{}, fmt.Errorf("number %q is not valid JSON decimal syntax", lexeme)
+	}
+	firstNonZero, lastNonZero := -1, -1
+	for digitIndex := integerStart; digitIndex < integerEnd; digitIndex++ {
+		if lexeme[digitIndex] != '0' {
+			firstNonZero = digitIndex
+			break
+		}
+	}
+	if firstNonZero < 0 {
+		for digitIndex := fractionStart; digitIndex < fractionEnd; digitIndex++ {
+			if lexeme[digitIndex] != '0' {
+				firstNonZero = digitIndex
+				break
+			}
+		}
+	}
+	if firstNonZero < 0 {
+		return zeroDecimal, nil
+	}
+	for digitIndex := fractionEnd - 1; digitIndex >= fractionStart; digitIndex-- {
+		if lexeme[digitIndex] != '0' {
+			lastNonZero = digitIndex
+			break
+		}
+	}
+	if lastNonZero < 0 {
+		for digitIndex := integerEnd - 1; digitIndex >= integerStart; digitIndex-- {
+			if lexeme[digitIndex] != '0' {
+				lastNonZero = digitIndex
+				break
+			}
+		}
+	}
+	trailingZeros := fractionEnd - lastNonZero - 1
+	if lastNonZero < fractionStart {
+		trailingZeros = integerEnd - lastNonZero - 1
+		trailingZeros += fractionEnd - fractionStart
+	}
+	exponent -= int64(fractionEnd - fractionStart)
+	exponent += int64(trailingZeros)
+	significantDigits := decimalDigitSpanLength(firstNonZero, lastNonZero, integerEnd, fractionStart)
+	if significantDigits > MaxNumberDigits {
+		return Decimal{}, fmt.Errorf("number has %d significant digits; maximum is %d", significantDigits, MaxNumberDigits)
 	}
 	if exponent < -MaxNumberExponent || exponent > MaxNumberExponent {
 		return Decimal{}, fmt.Errorf("normalized number exponent %d exceeds %d", exponent, MaxNumberExponent)
 	}
-	return Decimal{
-		negative: parts[1] == "-", coefficient: coefficient, exponent: int(exponent),
-	}, nil
+	coefficient := lexeme[firstNonZero : lastNonZero+1]
+	if firstNonZero < integerEnd && lastNonZero >= fractionStart {
+		var builder strings.Builder
+		builder.Grow(significantDigits)
+		builder.WriteString(lexeme[firstNonZero:integerEnd])
+		builder.WriteString(lexeme[fractionStart : lastNonZero+1])
+		coefficient = builder.String()
+	}
+	return Decimal{negative: negative, coefficient: coefficient, exponent: int(exponent)}, nil
 }
 
 func (d Decimal) String() string {
-	coefficient := d.coefficient
-	if coefficient == "" || coefficient == "0" {
-		return "0"
+	return string(d.appendString(make([]byte, 0, d.canonicalJSONSize())))
+}
+
+func (d Decimal) appendString(out []byte) []byte {
+	if d.coefficient == "" || d.coefficient == "0" {
+		return append(out, '0')
 	}
-	prefix := ""
 	if d.negative {
-		prefix = "-"
+		out = append(out, '-')
 	}
-	if d.exponent == 0 {
-		return prefix + coefficient
+	out = append(out, d.coefficient...)
+	if d.exponent != 0 {
+		out = append(out, 'e')
+		out = strconv.AppendInt(out, int64(d.exponent), 10)
 	}
-	return prefix + coefficient + "e" + strconv.Itoa(d.exponent)
+	return out
+}
+
+func decimalDigitSpanLength(first, last, integerEnd, fractionStart int) int {
+	if last < integerEnd || first >= fractionStart {
+		return last - first + 1
+	}
+	return integerEnd - first + last - fractionStart + 1
+}
+
+// ZeroDecimal returns the canonical zero bound as an immutable value copy.
+func ZeroDecimal() Decimal { return zeroDecimal }
+
+// OneDecimal returns the canonical one bound as an immutable value copy.
+func OneDecimal() Decimal { return oneDecimal }
+
+// IsInteger reports whether the canonical decimal has no fractional part.
+func (d Decimal) IsInteger() bool {
+	return d.coefficient == "" || d.coefficient == "0" || d.exponent >= 0
 }
 
 func (d Decimal) Equal(other Decimal) bool {
@@ -541,7 +660,7 @@ func (v Value) appendJSON(out []byte, depth int) ([]byte, error) {
 		}
 		return append(out, "false"...), nil
 	case ValueNumber:
-		return append(out, v.number.String()...), nil
+		return v.number.appendString(out), nil
 	case ValueString:
 		return appendJSONString(out, v.string)
 	case ValueArray:

@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 317 Reduce decimal parse and render allocation -> tasks/317-reduce-decimal-parse-and-render-allocation.md
 - [ ] 318 Avoid repeated glob-expansion key construction -> tasks/318-avoid-repeated-glob-expansion-key-construction.md
 - [ ] 319 Implement the completion-state retry contract -> tasks/319-implement-the-completion-state-retry-contract.md
 - [ ] 320 Close the completion-proof publication mutation window -> tasks/320-close-the-completion-proof-publication-mutation-window.md
@@ -37,6 +36,7 @@
 
 ## Done
 
+- [x] 317 Reduce decimal parse and render allocation -> tasks/done/317-reduce-decimal-parse-and-render-allocation.md
 - [x] 316 Eliminate logical-condition child allocations -> tasks/done/316-eliminate-logical-condition-child-allocations.md
 - [x] 315 Check forbid-command path triggers before command analysis -> tasks/done/315-check-forbid-command-path-triggers-before-command-analysis.md
 - [x] 314 Remove the discarded action-ledger checkpoint decode -> tasks/done/314-remove-the-discarded-action-ledger-checkpoint-decode.md
@@ -46,4 +46,3 @@
 - [x] 310 Derive proof-bundle executable identity from shell syntax -> tasks/done/310-derive-proof-bundle-executable-identity-from-shell-syntax.md
 - [x] 309 Make hook install authorization atomic with publication -> tasks/done/309-make-hook-install-authorization-atomic-with-publication.md
 - [x] 308 Parse Codex activation with complete TOML semantics -> tasks/done/308-parse-codex-activation-with-complete-toml-semantics.md
-- [x] 307 Make malformed-config backup identities collision-resistant -> tasks/done/307-make-malformed-config-backup-identities-collision-resistant.md

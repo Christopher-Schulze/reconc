@@ -548,9 +548,7 @@ func decimalBetweenZeroAndOne(value action.Value) bool {
 	if !ok {
 		return false
 	}
-	zero, _ := action.ParseDecimal("0")
-	one, _ := action.ParseDecimal("1")
-	return decimal.Compare(zero) >= 0 && decimal.Compare(one) <= 0
+	return decimal.Compare(action.ZeroDecimal()) >= 0 && decimal.Compare(action.OneDecimal()) <= 0
 }
 
 func validURI(value string) bool {
@@ -600,8 +598,7 @@ func nonnegativeInteger(value action.Value) bool {
 	if !ok {
 		return false
 	}
-	zero, _ := action.ParseDecimal("0")
-	return decimal.Compare(zero) >= 0 && !strings.Contains(decimal.String(), "e-")
+	return decimal.Compare(action.ZeroDecimal()) >= 0 && decimal.IsInteger()
 }
 
 func malformed(message string) error {

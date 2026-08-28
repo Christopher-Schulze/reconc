@@ -319,7 +319,7 @@ func normalizeProgress(raw json.RawMessage) (normalizedProgress, error) {
 	var output normalizedProgress
 	var progressSeen bool
 	var tokenSeen bool
-	zero, _ := action.ParseDecimal("0")
+	zero := action.ZeroDecimal()
 	for _, member := range members {
 		switch member.Name {
 		case "_meta":
