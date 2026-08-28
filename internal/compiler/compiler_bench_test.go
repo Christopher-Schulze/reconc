@@ -81,3 +81,91 @@ func BenchmarkNormalizeJSONValueTwice(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkCompilerSerializationStages(b *testing.B) {
+	payload := benchmarkCompilerPayload()
+	normalizedValue, canonical, err := normalizeJSONValueWithBytes(payload)
+	if err != nil {
+		b.Fatal(err)
+	}
+	normalized := normalizedValue.(map[string]interface{})
+	digest, err := ComputeLockDigest(normalized)
+	if err != nil {
+		b.Fatal(err)
+	}
+	withDigest := make(map[string]interface{}, len(normalized)+1)
+	for key, value := range normalized {
+		withDigest[key] = value
+	}
+	withDigest["lock_digest"] = digest
+
+	b.Run("normalize_payload", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			if _, _, err := normalizeJSONValueWithBytes(payload); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("digest_canonical_payload", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			if digestCanonicalJSON(canonical) == "" {
+				b.Fatal("empty digest")
+			}
+		}
+	})
+	b.Run("encode_lockfile", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			if _, err := encodeLockfile(withDigest); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("normalize_expected_actions", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			if _, err := normalizeJSONValue(payload["actions"]); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("compile_serialization_pipeline", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			value, canonical, err := normalizeLockPayloadWithBytes(payload)
+			if err != nil {
+				b.Fatal(err)
+			}
+			value["lock_digest"] = digestCanonicalJSON(canonical)
+			if _, err := encodeLockfile(value); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+func benchmarkCompilerPayload() map[string]interface{} {
+	rules := make([]interface{}, 256)
+	tools := make([]interface{}, 256)
+	for index := range rules {
+		id := "entry-" + strconv.Itoa(index)
+		rules[index] = map[string]interface{}{
+			"id": id, "kind": "deny_write", "message": "blocked",
+			"paths": []string{"src/**", "generated/**"},
+		}
+		tools[index] = map[string]interface{}{
+			"id": id, "transport": "host_mcp", "platform": "codex",
+			"tool": "tool_" + strconv.Itoa(index), "effect": map[string]interface{}{"kind": "external"},
+		}
+	}
+	return map[string]interface{}{
+		"format_version": LockfileFormatVersion,
+		"rules":          rules,
+		"actions": map[string]interface{}{
+			"format_version": "1", "defaults": map[string]interface{}{}, "tools": tools,
+			"rules": []interface{}{}, "budgets": []interface{}{},
+		},
+	}
+}

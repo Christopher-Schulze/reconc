@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -223,15 +224,14 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 	compiledDiscovery.Warnings = append(compiledDiscovery.Warnings, braceVariableWarnings(parsed.Rules)...)
 
 	payload := buildLockPayload(bundle, parsed, actionPlan, provenance, compilerVersion, compiledDiscovery, customRuntimes)
-	payload, err = normalizeLockPayload(payload)
+	payload, canonicalPayload, err := normalizeLockPayloadWithBytes(payload)
 	if err != nil {
 		return nil, nil, &rerrors.LockfileError{Message: "normalize lockfile payload", Cause: err}
 	}
-	lockDigest, err := ComputeLockDigest(payload)
-	if err != nil {
-		return nil, nil, &rerrors.LockfileError{Message: "compute lockfile digest", Cause: err}
+	if _, present := payload["lock_digest"]; present {
+		return nil, nil, &rerrors.LockfileError{Message: "normalized lockfile payload contains a premature lock digest"}
 	}
-	payload["lock_digest"] = lockDigest
+	payload["lock_digest"] = digestCanonicalJSON(canonicalPayload)
 
 	body, err := encodeLockfile(payload)
 	if err != nil {
@@ -347,25 +347,44 @@ func normalizeLockPayload(payload map[string]interface{}) (map[string]interface{
 	return object, nil
 }
 
-func normalizeJSONValue(value interface{}) (interface{}, error) {
-	normalized, _, err := normalizeJSONValueWithBytes(value)
-	return normalized, err
-}
-
-func normalizeJSONValueWithBytes(value interface{}) (interface{}, []byte, error) {
-	data, err := json.Marshal(value)
+func normalizeLockPayloadWithBytes(payload map[string]interface{}) (map[string]interface{}, []byte, error) {
+	normalized, canonical, err := normalizeJSONValueWithBytes(payload)
 	if err != nil {
 		return nil, nil, err
 	}
+	object, ok := normalized.(map[string]interface{})
+	if !ok {
+		return nil, nil, fmt.Errorf("normalized lockfile is not an object")
+	}
+	return object, canonical, nil
+}
+
+func normalizeJSONValue(value interface{}) (interface{}, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	return decodeNormalizedJSON(data)
+}
+
+func decodeNormalizedJSON(data []byte) (interface{}, error) {
 	var normalized interface{}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	if err := decoder.Decode(&normalized); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	var trailing interface{}
 	if err := decoder.Decode(&trailing); err != io.EOF {
-		return nil, nil, fmt.Errorf("normalized value contains trailing JSON")
+		return nil, fmt.Errorf("normalized value contains trailing JSON")
+	}
+	return normalized, nil
+}
+
+func normalizeJSONValueWithBytes(value interface{}) (interface{}, []byte, error) {
+	normalized, err := normalizeJSONValue(value)
+	if err != nil {
+		return nil, nil, err
 	}
 	canonical, err := marshalCanonical(normalized)
 	if err != nil {
@@ -389,8 +408,12 @@ func ComputeLockDigest(payload map[string]interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return digestCanonicalJSON(data), nil
+}
+
+func digestCanonicalJSON(data []byte) string {
 	digest := sha256.Sum256(data)
-	return hex.EncodeToString(digest[:]), nil
+	return hex.EncodeToString(digest[:])
 }
 
 // ValidateEmbeddedRules binds the compiled rule payload back to the parsed
@@ -420,15 +443,11 @@ func ValidateEmbeddedRules(payload map[string]interface{}, parsed *parser.Parsed
 	if !present {
 		return &rerrors.LockfileError{Message: "compiled lockfile action plan does not match the current policy sources"}
 	}
-	_, expectedActionsData, err := normalizeJSONValueWithBytes(expectedActions.Plan())
+	expectedActionsValue, err := normalizeJSONValue(expectedActions.Plan())
 	if err != nil {
 		return &rerrors.LockfileError{Message: "normalize action plan parsed from current policy sources", Cause: err}
 	}
-	actualActionsData, err := marshalCanonical(actualActions)
-	if err != nil {
-		return &rerrors.LockfileError{Message: "encode embedded lockfile action plan", Cause: err}
-	}
-	if !bytes.Equal(actualActionsData, expectedActionsData) {
+	if !reflect.DeepEqual(actualActions, expectedActionsValue) {
 		return &rerrors.LockfileError{Message: "compiled lockfile action plan does not match the current policy sources"}
 	}
 	return nil

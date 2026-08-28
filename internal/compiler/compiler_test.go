@@ -694,6 +694,57 @@ func TestNormalizeJSONValueWithBytesPreservesNumbersAndCanonicalBytes(t *testing
 	}
 }
 
+type normalizationMarshaler struct {
+	body  string
+	calls *int
+}
+
+func (m normalizationMarshaler) MarshalJSON() ([]byte, error) {
+	(*m.calls)++
+	return []byte(m.body), nil
+}
+
+func TestNormalizeLockPayloadCanonicalBytesFreezeCustomMarshalersOnce(t *testing.T) {
+	calls := 0
+	payload := map[string]interface{}{
+		"z": json.Number("9007199254740993"),
+		"custom": normalizationMarshaler{
+			body: `{"z":2,"a":9007199254740993}`, calls: &calls,
+		},
+	}
+	normalized, canonical, err := normalizeLockPayloadWithBytes(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("custom marshaler calls = %d, want 1", calls)
+	}
+	if got, want := string(canonical), `{"custom":{"a":9007199254740993,"z":2},"z":9007199254740993}`; got != want {
+		t.Fatalf("canonical lock payload = %s, want %s", got, want)
+	}
+	custom := normalized["custom"].(map[string]interface{})
+	if number, ok := custom["a"].(json.Number); !ok || number.String() != "9007199254740993" {
+		t.Fatalf("custom number = %#v", custom["a"])
+	}
+	wantDigest, err := ComputeLockDigest(normalized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := digestCanonicalJSON(canonical); got != wantDigest {
+		t.Fatalf("reused canonical digest = %s, reconstructed digest = %s", got, wantDigest)
+	}
+}
+
+func TestNormalizeLockPayloadRejectsCustomMarshalerTrailingData(t *testing.T) {
+	calls := 0
+	_, _, err := normalizeLockPayloadWithBytes(map[string]interface{}{
+		"invalid": normalizationMarshaler{body: `{"valid":true} trailing`, calls: &calls},
+	})
+	if err == nil || calls != 1 {
+		t.Fatalf("trailing custom JSON = calls %d, error %v", calls, err)
+	}
+}
+
 func TestMarshalCanonicalContract(t *testing.T) {
 	t.Parallel()
 	encoded, err := marshalCanonical(map[string]interface{}{"z": 2, "a": 1})

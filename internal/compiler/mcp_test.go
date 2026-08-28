@@ -101,6 +101,9 @@ func TestValidateEmbeddedRulesBindsCanonicalActionPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := ValidateEmbeddedRules(payload, parsed); err != nil {
+		t.Fatalf("canonical embedded action plan = %v", err)
+	}
 	delete(payload, "actions")
 	if err := ValidateEmbeddedRules(payload, parsed); err == nil {
 		t.Fatal("missing embedded action plan was accepted")
