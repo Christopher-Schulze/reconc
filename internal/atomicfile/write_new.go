@@ -10,57 +10,63 @@ import (
 // The temporary file is created in the destination directory so the final
 // hard-link publication is same-filesystem and cannot expose partial bytes.
 func WriteNew(path string, data []byte, mode os.FileMode) error {
-	return writeNew(path, data, mode, PublicParentMode)
+	_, err := writeNew(path, data, mode, PublicParentMode)
+	return err
 }
 
 // WritePrivateNew is WriteNew with private permissions for every parent
 // directory that must be created.
 func WritePrivateNew(path string, data []byte, mode os.FileMode) error {
-	return writeNew(path, data, mode, PrivateParentMode)
+	_, err := writeNew(path, data, mode, PrivateParentMode)
+	return err
 }
 
-func writeNew(path string, data []byte, mode, parentMode os.FileMode) (err error) {
+func writeNew(path string, data []byte, mode, parentMode os.FileMode) (published bool, err error) {
 	parent, name, err := bindParent(path, parentMode)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { err = errors.Join(err, parent.close()) }()
 	directory := parent.directory()
 	if err := validateCurrent(directory, name, nil); err != nil {
-		return fmt.Errorf("refuse existing target %s: %w", path, err)
+		return false, fmt.Errorf("refuse existing target %s: %w", path, err)
 	}
 	temporary, err := prepareNewFile(directory, name, data, mode)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := parent.validate(); err != nil {
-		return errors.Join(err, directory.Remove(temporary))
+		return false, errors.Join(err, directory.Remove(temporary))
 	}
 	if err := validateCurrent(directory, name, nil); err != nil {
-		return errors.Join(fmt.Errorf("validate new target %s: %w", path, err), directory.Remove(temporary))
+		return false, errors.Join(fmt.Errorf("validate new target %s: %w", path, err), directory.Remove(temporary))
 	}
 	if err := directory.Link(temporary, name); err != nil {
-		return errors.Join(fmt.Errorf("publish new %s: %w", path, err), directory.Remove(temporary))
+		publishErr := fmt.Errorf("publish new %s: %w", path, err)
+		if errors.Is(err, os.ErrExist) {
+			publishErr = errors.Join(ErrCurrentChanged, publishErr)
+		}
+		return false, errors.Join(publishErr, directory.Remove(temporary))
 	}
 	if err := syncParentDir(directory); err != nil {
-		return fmt.Errorf("sync parent after publishing %s: %w", path, err)
+		return true, fmt.Errorf("sync parent after publishing %s: %w", path, err)
 	}
 	if err := parent.validate(); err != nil {
-		return fmt.Errorf("validate parent after publishing %s: %w", path, err)
+		return true, fmt.Errorf("validate parent after publishing %s: %w", path, err)
 	}
 	if err := directory.Remove(temporary); err != nil {
-		return fmt.Errorf("remove publication temporary for %s: %w", path, err)
+		return true, fmt.Errorf("remove publication temporary for %s: %w", path, err)
 	}
 	if err := syncParentDir(directory); err != nil {
-		return fmt.Errorf("sync parent for %s: %w", path, err)
+		return true, fmt.Errorf("sync parent for %s: %w", path, err)
 	}
 	if err := parent.validate(); err != nil {
-		return fmt.Errorf("validate parent after publishing %s: %w", path, err)
+		return true, fmt.Errorf("validate parent after publishing %s: %w", path, err)
 	}
 	if err := parent.validate(); err != nil {
-		return fmt.Errorf("validate parent after syncing %s: %w", path, err)
+		return true, fmt.Errorf("validate parent after syncing %s: %w", path, err)
 	}
-	return nil
+	return true, nil
 }
 
 func prepareNewFile(directory *os.Root, name string, data []byte, mode os.FileMode) (string, error) {

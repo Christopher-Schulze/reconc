@@ -57,14 +57,16 @@ func ensureWrapperTarget(root string, force bool) error {
 	if err := requireManagedTargetWithin(root, target); err != nil {
 		return err
 	}
-	if existing, readErr := readManagedArtifact(target); readErr == nil {
-		if string(existing) != artifact.Content && !validWrapperTargetContent(existing) && !force {
+	snapshot, err := readManagedArtifactSnapshot(target)
+	if err != nil {
+		return &rerrors.PolicySourceError{Message: "read " + WrapperTargetPath, Cause: err}
+	}
+	if snapshot.exists {
+		if string(snapshot.body) != artifact.Content && !validWrapperTargetContent(snapshot.body) && !force {
 			return &rerrors.PolicySourceError{Message: WrapperTargetPath + " exists and is not a valid reconc-managed direct target; pass --force to overwrite"}
 		}
-	} else if !os.IsNotExist(readErr) {
-		return &rerrors.PolicySourceError{Message: "read " + WrapperTargetPath, Cause: readErr}
 	}
-	_, err = writeGeneratedArtifact(target, artifact.Content, false)
+	_, err = writeGeneratedArtifact(target, artifact.Content, false, snapshot)
 	return err
 }
 

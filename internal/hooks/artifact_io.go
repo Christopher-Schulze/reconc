@@ -1,13 +1,13 @@
 package hooks
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 
+	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
 )
 
@@ -52,26 +52,29 @@ func readManagedArtifactSnapshot(path string) (managedArtifactSnapshot, error) {
 		return managedArtifactSnapshot{}, err
 	}
 	return managedArtifactSnapshot{body: body, info: info, exists: true}, nil
-
 }
 
-func revalidateManagedArtifactSnapshot(path string, expected managedArtifactSnapshot) error {
-	current, err := readManagedArtifactSnapshot(path)
+func (snapshot managedArtifactSnapshot) expectedCurrent() atomicfile.ExpectedCurrent {
+	return atomicfile.ExpectedCurrent{
+		Data:   snapshot.body,
+		Info:   snapshot.info,
+		Exists: snapshot.exists,
+	}
+}
+
+func publishManagedArtifact(path string, content []byte, mode os.FileMode, snapshot managedArtifactSnapshot) (string, error) {
+	action := "created"
+	if snapshot.exists {
+		action = "updated"
+	}
+	changed, err := atomicfile.WriteIfCurrent(path, content, mode, snapshot.expectedCurrent())
 	if err != nil {
-		return err
+		return "", err
 	}
-	if current.exists != expected.exists {
-		return fmt.Errorf("%s changed after install preflight; retry", path)
+	if !changed {
+		return "unchanged", nil
 	}
-	if !expected.exists {
-		return nil
-	}
-	if !os.SameFile(expected.info, current.info) || expected.info.Mode() != current.info.Mode() ||
-		expected.info.Size() != current.info.Size() || !expected.info.ModTime().Equal(current.info.ModTime()) ||
-		!bytes.Equal(expected.body, current.body) {
-		return fmt.Errorf("%s changed after install preflight; retry", path)
-	}
-	return nil
+	return action, nil
 }
 
 func syncManagedArtifactParent(path string) error {

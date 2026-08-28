@@ -174,21 +174,20 @@ func applyCodexActivation(plan *codexActivationPlan) (string, error) {
 	if plan == nil {
 		return "", nil
 	}
-	if err := revalidateManagedArtifactSnapshot(plan.target, plan.snapshot); err != nil {
-		return "", &rerrors.PolicySourceError{Message: "revalidate " + codexActivationPath, Cause: err}
+	if plan.action != "unchanged" {
+		if err := os.MkdirAll(filepath.Dir(plan.target), 0o755); err != nil {
+			return "", &rerrors.PolicySourceError{Message: "create Codex activation directory", Cause: err}
+		}
+	}
+	published, err := publishManagedArtifact(plan.target, plan.after, plan.mode, plan.snapshot)
+	if err != nil {
+		return "", &rerrors.PolicySourceError{Message: "write " + codexActivationPath, Cause: err}
+	}
+	if published == "unchanged" {
+		return "unchanged", nil
 	}
 	if plan.action == "unchanged" {
-		return plan.action, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(plan.target), 0o755); err != nil {
-		return "", &rerrors.PolicySourceError{Message: "create Codex activation directory", Cause: err}
-	}
-	changed, err := writeGeneratedArtifact(plan.target, string(plan.after), false)
-	if err != nil {
-		return "", err
-	}
-	if changed == "unchanged" {
-		return "unchanged", nil
+		return "", &rerrors.PolicySourceError{Message: "verify " + codexActivationPath, Cause: fmt.Errorf("unexpected publication action %q", published)}
 	}
 	return plan.action, nil
 }

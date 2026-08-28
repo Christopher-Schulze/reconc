@@ -11,6 +11,19 @@ import (
 	"os"
 )
 
+// ErrCurrentChanged reports that a conditional publication target no longer
+// matches the exact filesystem state authorized by its caller.
+var ErrCurrentChanged = errors.New("publication target changed after preflight")
+
+// ExpectedCurrent is the exact target state authorized before publication.
+// Info must describe the same regular-file identity as Data when Exists is
+// true. The zero value authorizes create-only publication.
+type ExpectedCurrent struct {
+	Data   []byte
+	Info   os.FileInfo
+	Exists bool
+}
+
 // WriteIfChanged atomically replaces path with data only when its current
 // bytes differ. It returns true only when a filesystem write was published.
 func WriteIfChanged(path string, data []byte, mode os.FileMode) (bool, error) {
@@ -21,6 +34,114 @@ func WriteIfChanged(path string, data []byte, mode os.FileMode) (bool, error) {
 // parent directory that must be created.
 func WritePrivateIfChanged(path string, data []byte, mode os.FileMode) (bool, error) {
 	return writeIfChanged(path, data, mode, PrivateParentMode)
+}
+
+// WriteIfCurrent publishes data only while path still has the exact bytes,
+// identity, mode, size, and modification time authorized in expected. A
+// missing expectation is create-only. It returns true only when a filesystem
+// write was published.
+func WriteIfCurrent(path string, data []byte, mode os.FileMode, expected ExpectedCurrent) (bool, error) {
+	if !expected.Exists {
+		if expected.Info != nil || len(expected.Data) != 0 {
+			return false, errors.New("missing-file expectation contains existing-file state")
+		}
+		return writeNew(path, data, mode, PublicParentMode)
+	}
+	if expected.Info == nil {
+		return false, errors.New("existing-file expectation is missing identity")
+	}
+	return writeExistingIfCurrent(path, data, mode, expected)
+}
+
+func writeExistingIfCurrent(path string, data []byte, mode os.FileMode, expected ExpectedCurrent) (changed bool, err error) {
+	parent, name, err := bindParent(path, PublicParentMode)
+	if err != nil {
+		return false, err
+	}
+	defer func() { err = errors.Join(err, parent.close()) }()
+	directory := parent.directory()
+	currentFile, currentInfo, err := openExpectedCurrent(directory, name, path, expected)
+	if err != nil {
+		return false, err
+	}
+	if bytes.Equal(data, expected.Data) {
+		return reconcileExpectedMode(parent, name, path, currentFile, currentInfo, mode, expected)
+	}
+	temporary, err := prepareNewFile(directory, name, data, mode)
+	if err != nil {
+		return false, errors.Join(err, currentFile.Close())
+	}
+	if err := verifyExpectedCurrent(directory, name, path, currentFile, currentInfo, expected); err != nil {
+		return false, errors.Join(err, currentFile.Close(), directory.Remove(temporary))
+	}
+	if err := errors.Join(parent.validate(), validateCurrent(directory, name, currentInfo), currentFile.Close()); err != nil {
+		return false, errors.Join(fmt.Errorf("validate conditional target %s: %w", path, err), directory.Remove(temporary))
+	}
+	return publishConditionalReplacement(parent, name, path, temporary)
+}
+
+func openExpectedCurrent(directory *os.Root, name, path string, expected ExpectedCurrent) (*os.File, os.FileInfo, error) {
+	file, info, err := openCurrent(directory, name, path)
+	if err != nil {
+		return nil, nil, err
+	}
+	if file == nil {
+		return nil, nil, fmt.Errorf("%w: %s is now missing", ErrCurrentChanged, path)
+	}
+	if err := verifyExpectedCurrent(directory, name, path, file, info, expected); err != nil {
+		return nil, nil, errors.Join(err, file.Close())
+	}
+	return file, info, nil
+}
+
+func verifyExpectedCurrent(directory *os.Root, name, path string, file *os.File, info os.FileInfo, expected ExpectedCurrent) error {
+	if !sameRegularIdentity(expected.Info, info) || expected.Info.Mode() != info.Mode() ||
+		expected.Info.Size() != info.Size() || !expected.Info.ModTime().Equal(info.ModTime()) {
+		return fmt.Errorf("%w: %s metadata differs", ErrCurrentChanged, path)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("seek current %s: %w", path, err)
+	}
+	matched, err := matchesCurrent(directory, name, path, file, info, expected.Data)
+	if err != nil {
+		return err
+	}
+	if !matched {
+		return fmt.Errorf("%w: %s bytes differ", ErrCurrentChanged, path)
+	}
+	return nil
+}
+
+func reconcileExpectedMode(parent *boundParent, name, path string, file *os.File, info os.FileInfo, mode os.FileMode, expected ExpectedCurrent) (bool, error) {
+	directory := parent.directory()
+	if err := errors.Join(parent.validate(), verifyExpectedCurrent(directory, name, path, file, info, expected)); err != nil {
+		return false, errors.Join(err, file.Close())
+	}
+	changed, modeErr := reconcileMode(directory, name, file, info.Mode(), mode)
+	validationErr := validateCurrent(directory, name, info)
+	parentErr := parent.validate()
+	closeErr := file.Close()
+	if err := errors.Join(modeErr, validationErr, parentErr, closeErr); err != nil {
+		return false, fmt.Errorf("reconcile conditional mode for %s: %w", path, err)
+	}
+	return changed, nil
+}
+
+func publishConditionalReplacement(parent *boundParent, name, path, temporary string) (bool, error) {
+	directory := parent.directory()
+	if err := replaceTemporary(directory, temporary, name); err != nil {
+		return false, fmt.Errorf("publish %s: %w", path, err)
+	}
+	if err := parent.validate(); err != nil {
+		return true, fmt.Errorf("validate parent after publishing %s: %w", path, err)
+	}
+	if err := syncParentDir(directory); err != nil {
+		return true, fmt.Errorf("sync parent for %s: %w", path, err)
+	}
+	if err := parent.validate(); err != nil {
+		return true, fmt.Errorf("validate parent after syncing %s: %w", path, err)
+	}
+	return true, nil
 }
 
 // SecureExistingIfMatches verifies an existing regular file against data and
@@ -219,7 +340,7 @@ func validateCurrent(directory *os.Root, name string, expected os.FileInfo) erro
 		return err
 	}
 	if expected == nil || !sameRegularIdentity(expected, current) {
-		return errors.New("publication target changed identity")
+		return ErrCurrentChanged
 	}
 	return nil
 }

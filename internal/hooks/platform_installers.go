@@ -64,10 +64,7 @@ func installDevinCLI(repoRoot string, force bool) (*InstallReport, error) {
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "marshal merged Devin hooks", Cause: err}
 	}
-	if err := revalidateManagedArtifactSnapshot(target, snapshot); err != nil {
-		return nil, &rerrors.PolicySourceError{Message: "revalidate " + target, Cause: err}
-	}
-	if writeAction, err := writeGeneratedArtifact(target, string(append(out, '\n')), false); err != nil {
+	if writeAction, err := writeGeneratedArtifact(target, string(append(out, '\n')), false, snapshot); err != nil {
 		return nil, err
 	} else if writeAction == "unchanged" {
 		action = writeAction
@@ -155,9 +152,13 @@ func installManagedPlatformFile(kind, repoRoot string, force bool, managed func(
 		return nil, &rerrors.PolicySourceError{Message: "create parent dir of " + target, Cause: err}
 	}
 	action := "created"
-	if existing, err := readManagedArtifact(target); err == nil {
+	snapshot, err := readManagedArtifactSnapshot(target)
+	if err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
+	}
+	if snapshot.exists {
 		action = "updated"
-		if !managed(existing) {
+		if !managed(snapshot.body) {
 			if !force || !allowForceForeign {
 				message := artifact.TargetPath + " exists and is not reconc-managed"
 				if allowForceForeign {
@@ -168,10 +169,8 @@ func installManagedPlatformFile(kind, repoRoot string, force bool, managed func(
 				return nil, &rerrors.PolicySourceError{Message: message}
 			}
 		}
-	} else if !os.IsNotExist(err) {
-		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
 	}
-	if writeAction, err := writeGeneratedArtifact(target, artifact.Content, artifact.Executable); err != nil {
+	if writeAction, err := writeGeneratedArtifact(target, artifact.Content, artifact.Executable, snapshot); err != nil {
 		return nil, err
 	} else if writeAction == "unchanged" {
 		action = writeAction

@@ -3409,10 +3409,14 @@ malformed-config backups use the complete SHA-256 content identity and
 create-only publication; they are private (`0600`), file-synced, and
 parent-directory-synced before the managed artifact is published. Legacy
 32-bit-prefix names are reused only for byte-identical content; collisions stay
-untouched and select a new full-digest backup. Merge-based installers retain
-the bounded source snapshot used to build the result and revalidate its exact
-bytes, filesystem identity, mode, size, and modification time immediately
-before atomic publication. A concurrent edit or same-byte replacement is rejected.
+untouched and select a new full-digest backup. Every hook installer retains the
+bounded source snapshot used to authorize its result. Missing targets use
+create-only publication; managed updates, forced foreign replacements, merged
+configs, wrapper files, and activation edits conditionally publish only while
+the exact authorized bytes, filesystem identity, mode, size, and modification
+time still match. The conditional writer rechecks the opened file immediately
+before rooted atomic replacement, so a concurrent edit or same-byte identity
+replacement fails closed and stays intact.
 Hook-install JSON always exposes an explicit `success` boolean; partial failure
 also retains the partial report and emits its error without claiming success.
 

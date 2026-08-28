@@ -10,7 +10,6 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"reconc.dev/reconc/internal/atomicfile"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/pathidentity"
@@ -69,10 +68,7 @@ func installKimiCode(force bool) (*InstallReport, error) {
 			if err := verifyKimiCodeCLIIdentity(); err != nil {
 				return err
 			}
-			if err := revalidateManagedArtifactSnapshot(configPath, snapshot); err != nil {
-				return &rerrors.PolicySourceError{Message: "revalidate Kimi Code config", Cause: err}
-			}
-			if _, err := atomicfile.WriteIfChanged(configPath, updated, mode); err != nil {
+			if _, err := publishManagedArtifact(configPath, updated, mode, snapshot); err != nil {
 				return &rerrors.PolicySourceError{Message: "write Kimi Code config", Cause: err}
 			}
 		}
@@ -125,10 +121,7 @@ func uninstallKimiCode() (*UninstallReport, error) {
 		if err := validateKimiCodeTOML(updated); err != nil {
 			return &rerrors.PolicySourceError{Message: "Kimi Code config would become invalid after removal", Cause: err}
 		}
-		if err := revalidateManagedArtifactSnapshot(configPath, snapshot); err != nil {
-			return &rerrors.PolicySourceError{Message: "revalidate Kimi Code config", Cause: err}
-		}
-		if _, err := atomicfile.WriteIfChanged(configPath, updated, mode); err != nil {
+		if _, err := publishManagedArtifact(configPath, updated, mode, snapshot); err != nil {
 			return &rerrors.PolicySourceError{Message: "write Kimi Code config", Cause: err}
 		}
 		report.Action = "updated"

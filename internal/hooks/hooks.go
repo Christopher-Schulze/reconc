@@ -294,15 +294,17 @@ func ensureWrapper(root string, force bool) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return "", &rerrors.PolicySourceError{Message: "create wrapper parent directory", Cause: err}
 	}
-	if existing, err := readManagedArtifact(target); err == nil {
-		managed := wrapperManagedArtifact(existing)
-		if string(existing) != artifact.Content && !managed && !force {
-			return "", &rerrors.PolicySourceError{Message: WrapperPath + " exists and is not reconc-managed; pass --force to overwrite"}
-		}
-	} else if !os.IsNotExist(err) {
+	snapshot, err := readManagedArtifactSnapshot(target)
+	if err != nil {
 		return "", &rerrors.PolicySourceError{Message: "read " + WrapperPath, Cause: err}
 	}
-	action, err := writeGeneratedArtifact(target, artifact.Content, true)
+	if snapshot.exists {
+		managed := wrapperManagedArtifact(snapshot.body)
+		if string(snapshot.body) != artifact.Content && !managed && !force {
+			return "", &rerrors.PolicySourceError{Message: WrapperPath + " exists and is not reconc-managed; pass --force to overwrite"}
+		}
+	}
+	action, err := writeGeneratedArtifact(target, artifact.Content, true, snapshot)
 	if err != nil {
 		return "", err
 	}
@@ -353,6 +355,7 @@ func SyncRepoRootScaffold(scaffoldRoot string) (*ScaffoldSyncReport, error) {
 	type plannedScaffoldArtifact struct {
 		artifact *Artifact
 		target   string
+		snapshot managedArtifactSnapshot
 	}
 	planned := make([]plannedScaffoldArtifact, 0, len(ScaffoldKinds()))
 	for _, kind := range ScaffoldKinds() {
@@ -364,7 +367,11 @@ func SyncRepoRootScaffold(scaffoldRoot string) (*ScaffoldSyncReport, error) {
 		if err := requireManagedTargetWithin(root, target); err != nil {
 			return nil, err
 		}
-		planned = append(planned, plannedScaffoldArtifact{artifact: artifact, target: target})
+		snapshot, err := readManagedArtifactSnapshot(target)
+		if err != nil {
+			return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
+		}
+		planned = append(planned, plannedScaffoldArtifact{artifact: artifact, target: target, snapshot: snapshot})
 	}
 	report := &ScaffoldSyncReport{
 		ScaffoldRoot: root,
@@ -376,7 +383,7 @@ func SyncRepoRootScaffold(scaffoldRoot string) (*ScaffoldSyncReport, error) {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return nil, &rerrors.PolicySourceError{Message: "create parent dir of " + target, Cause: err}
 		}
-		action, err := writeGeneratedArtifact(target, artifact.Content, artifact.Executable)
+		action, err := writeGeneratedArtifact(target, artifact.Content, artifact.Executable, item.snapshot)
 		if err != nil {
 			return nil, err
 		}
@@ -423,28 +430,23 @@ func installGitPreCommit(repoRoot string, force bool) (*InstallReport, error) {
 
 	artifact := generateGitPreCommit()
 	action := "created"
-	if info, statErr := os.Lstat(target); statErr == nil {
-		if !info.Mode().IsRegular() {
-			return nil, &rerrors.PolicySourceError{Message: displayPath + " is not a regular file"}
-		}
-		if info.Size() > 1<<20 {
+	snapshot, err := readManagedArtifactSnapshot(target)
+	if err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "read " + displayPath, Cause: err}
+	}
+	if snapshot.exists {
+		if snapshot.info.Size() > 1<<20 {
 			return nil, &rerrors.PolicySourceError{Message: displayPath + " exceeds the 1 MiB managed-hook limit"}
 		}
-		existing, readErr := readManagedArtifact(target)
-		if readErr != nil {
-			return nil, &rerrors.PolicySourceError{Message: "read " + displayPath, Cause: readErr}
-		}
-		managed := managedPlatformArtifact(KindGitPreCommit, existing)
-		if !force && !managed && string(existing) != artifact.Content {
+		managed := managedPlatformArtifact(KindGitPreCommit, snapshot.body)
+		if !force && !managed && string(snapshot.body) != artifact.Content {
 			return nil, &rerrors.PolicySourceError{
 				Message: displayPath + " already contains a foreign hook; pass --force to overwrite",
 			}
 		}
 		action = "updated"
-	} else if !os.IsNotExist(statErr) {
-		return nil, &rerrors.PolicySourceError{Message: "inspect " + displayPath, Cause: statErr}
 	}
-	if writeAction, writeErr := writeGeneratedArtifact(target, artifact.Content, true); writeErr != nil {
+	if writeAction, writeErr := writeGeneratedArtifact(target, artifact.Content, true, snapshot); writeErr != nil {
 		return nil, writeErr
 	} else if writeAction == "unchanged" {
 		action = "unchanged"
@@ -462,29 +464,14 @@ func installGitPreCommit(repoRoot string, force bool) (*InstallReport, error) {
 	}, nil
 }
 
-func writeGeneratedArtifact(target, content string, executable bool) (string, error) {
+func writeGeneratedArtifact(target, content string, executable bool, snapshot managedArtifactSnapshot) (string, error) {
 	perm := os.FileMode(0o644)
 	if executable {
 		perm = 0o755
 	}
-	action := "created"
-	if info, err := os.Lstat(target); err == nil {
-		if !info.Mode().IsRegular() {
-			return "", &rerrors.PolicySourceError{Message: target + " is not a regular file"}
-		}
-		if info.Size() > maxManagedArtifactBytes {
-			return "", &rerrors.PolicySourceError{Message: fmt.Sprintf("%s exceeds the %d-byte managed-artifact limit", target, maxManagedArtifactBytes)}
-		}
-		action = "updated"
-	} else if !os.IsNotExist(err) {
-		return "", &rerrors.PolicySourceError{Message: "inspect " + target, Cause: err}
-	}
-	changed, err := atomicfile.WriteIfChanged(target, []byte(content), perm)
+	action, err := publishManagedArtifact(target, []byte(content), perm, snapshot)
 	if err != nil {
 		return "", &rerrors.PolicySourceError{Message: "write " + target, Cause: err}
-	}
-	if !changed {
-		return "unchanged", nil
 	}
 	return action, nil
 }
@@ -598,10 +585,7 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "marshal merged config", Cause: err}
 	}
-	if err := revalidateManagedArtifactSnapshot(target, snapshot); err != nil {
-		return nil, &rerrors.PolicySourceError{Message: "revalidate " + target, Cause: err}
-	}
-	if writeAction, err := writeGeneratedArtifact(target, string(append(out, '\n')), false); err != nil {
+	if writeAction, err := writeGeneratedArtifact(target, string(append(out, '\n')), false, snapshot); err != nil {
 		return nil, err
 	} else if writeAction == "unchanged" {
 		action = writeAction
@@ -677,17 +661,19 @@ func installOpenCode(repoRoot string, force bool) (*InstallReport, error) {
 		return nil, err
 	}
 	action := "created"
-	if existing, err := readManagedArtifact(target); err == nil {
+	snapshot, err := readManagedArtifactSnapshot(target)
+	if err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
+	}
+	if snapshot.exists {
 		action = "updated"
-		if !force && !managedPlatformArtifact(KindOpenCode, existing) {
+		if !force && !managedPlatformArtifact(KindOpenCode, snapshot.body) {
 			return nil, &rerrors.PolicySourceError{
 				Message: OpenCodePluginPath + " already exists and is not reconc-managed; pass --force to overwrite",
 			}
 		}
-	} else if err != nil && !os.IsNotExist(err) {
-		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
 	}
-	if writeAction, err := writeGeneratedArtifact(target, artifact.Content, false); err != nil {
+	if writeAction, err := writeGeneratedArtifact(target, artifact.Content, false, snapshot); err != nil {
 		return nil, err
 	} else if writeAction == "unchanged" {
 		action = writeAction
@@ -765,10 +751,7 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "marshal merged Antigravity hooks", Cause: err}
 	}
-	if err := revalidateManagedArtifactSnapshot(target, snapshot); err != nil {
-		return nil, &rerrors.PolicySourceError{Message: "revalidate " + target, Cause: err}
-	}
-	if writeAction, err := writeGeneratedArtifact(target, string(append(out, '\n')), false); err != nil {
+	if writeAction, err := writeGeneratedArtifact(target, string(append(out, '\n')), false, snapshot); err != nil {
 		return nil, err
 	} else if writeAction == "unchanged" {
 		action = writeAction

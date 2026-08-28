@@ -1,6 +1,8 @@
 package atomicfile
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,6 +33,136 @@ func TestWriteIfChangedSkipsIdenticalPublication(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".state.json.*.tmp"))
 	if err != nil || len(matches) != 0 {
 		t.Fatalf("atomic temp residue: %v err=%v", matches, err)
+	}
+}
+
+func TestWriteIfCurrentPublishesOnlyAuthorizedExistingState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	before := []byte("before\n")
+	if err := os.WriteFile(path, before, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := ExpectedCurrent{Data: before, Info: info, Exists: true}
+	written, err := WriteIfCurrent(path, []byte("after\n"), 0o600, expected)
+	if err != nil || !written {
+		t.Fatalf("conditional write: written=%v err=%v", written, err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || string(body) != "after\n" {
+		t.Fatalf("published bytes = %q, %v", body, err)
+	}
+}
+
+func TestWriteIfCurrentRejectsConcurrentByteEdit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	before := []byte("before\n")
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := ExpectedCurrent{Data: before, Info: info, Exists: true}
+	concurrent := []byte("edited\n")
+	if err := os.WriteFile(path, concurrent, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteIfCurrent(path, []byte("after!\n"), 0o600, expected); !errors.Is(err, ErrCurrentChanged) {
+		t.Fatalf("concurrent byte edit error = %v", err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(body, concurrent) {
+		t.Fatalf("concurrent bytes changed: body=%q err=%v", body, err)
+	}
+}
+
+func TestWriteIfCurrentRejectsConcurrentIdentityReplacement(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	before := []byte("before\n")
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := ExpectedCurrent{Data: before, Info: info, Exists: true}
+	if err := os.Rename(path, path+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteIfCurrent(path, []byte("after!\n"), 0o600, expected); !errors.Is(err, ErrCurrentChanged) {
+		t.Fatalf("concurrent replacement error = %v", err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(body, before) {
+		t.Fatalf("replacement changed: body=%q err=%v", body, err)
+	}
+}
+
+func TestWriteIfCurrentMissingExpectationIsCreateOnly(t *testing.T) {
+	t.Run("publishes missing target", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "nested", "state.json")
+		written, err := WriteIfCurrent(path, []byte("created\n"), 0o600, ExpectedCurrent{})
+		if err != nil || !written {
+			t.Fatalf("create-only write: written=%v err=%v", written, err)
+		}
+		body, err := os.ReadFile(path)
+		if err != nil || string(body) != "created\n" {
+			t.Fatalf("created bytes = %q, %v", body, err)
+		}
+	})
+
+	t.Run("rejects concurrent target", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "state.json")
+		concurrent := []byte("concurrent\n")
+		if err := os.WriteFile(path, concurrent, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := WriteIfCurrent(path, []byte("created\n"), 0o600, ExpectedCurrent{}); !errors.Is(err, ErrCurrentChanged) {
+			t.Fatalf("concurrent creation error = %v", err)
+		}
+		body, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(body, concurrent) {
+			t.Fatalf("concurrent creation changed: body=%q err=%v", body, err)
+		}
+	})
+}
+
+func TestWriteIfCurrentReconcilesAuthorizedModeWithoutReplacingBytes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose POSIX permission bits")
+	}
+	path := filepath.Join(t.TempDir(), "state.json")
+	before := []byte("same\n")
+	if err := os.WriteFile(path, before, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := ExpectedCurrent{Data: before, Info: info, Exists: true}
+	written, err := WriteIfCurrent(path, before, 0o600, expected)
+	if err != nil || !written {
+		t.Fatalf("conditional mode write: written=%v err=%v", written, err)
+	}
+	after, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(info, after) || after.Mode().Perm() != 0o600 {
+		t.Fatalf("mode result: same=%v mode=%o", os.SameFile(info, after), after.Mode().Perm())
 	}
 }
 

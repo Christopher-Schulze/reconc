@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 309 Make hook install authorization atomic with publication -> tasks/309-make-hook-install-authorization-atomic-with-publication.md
 - [ ] 310 Derive proof-bundle executable identity from shell syntax -> tasks/310-derive-proof-bundle-executable-identity-from-shell-syntax.md
 - [ ] 311 Correct action trace byte accounting -> tasks/311-correct-action-trace-byte-accounting.md
 - [ ] 312 Use canonical size for budget arguments -> tasks/312-use-canonical-size-for-budget-arguments.md
@@ -45,6 +44,7 @@
 
 ## Done
 
+- [x] 309 Make hook install authorization atomic with publication -> tasks/done/309-make-hook-install-authorization-atomic-with-publication.md
 - [x] 308 Parse Codex activation with complete TOML semantics -> tasks/done/308-parse-codex-activation-with-complete-toml-semantics.md
 - [x] 307 Make malformed-config backup identities collision-resistant -> tasks/done/307-make-malformed-config-backup-identities-collision-resistant.md
 - [x] 306 Allow safe double dots in include patterns -> tasks/done/306-allow-safe-double-dots-in-include-patterns.md
@@ -54,4 +54,3 @@
 - [x] 302 Route all untrusted YAML through bounded admission -> tasks/done/302-route-all-untrusted-yaml-through-bounded-admission.md
 - [x] 301 Sanitize every proof and agent-session Git environment -> tasks/done/301-sanitize-every-proof-and-agent-session-git-environment.md
 - [x] 299 Prevent symlink side effects in create-capable file opens -> tasks/done/299-prevent-symlink-side-effects-in-create-capable-file-opens.md
-- [x] 298 Propagate caller cancellation into policy scripts -> tasks/done/298-propagate-caller-cancellation-into-policy-scripts.md
