@@ -2422,6 +2422,13 @@ one pattern matches, so an earlier match cannot hide a malformed later pattern.
 | `go_format` | Changed Go files are byte-identical to Go standard-library canonical formatting | Matching changed Go files |
 | `source_hygiene` | Changed shipped source contains no leading implementation-debt markers or language-specific unimplemented sentinels; quote/comment state and case-folded sentinel comparison share one forward scan per line | Matching changed source files |
 
+Network and process guard scans recognize hash comments only for languages
+that own that syntax and track slash, HTML, HEEx, and PowerShell block comments
+across lines. A leading `*` is ignored only inside an actual open block comment,
+so dereference and multiplication code at the first non-whitespace character
+still triggers configured site checks. Comment-only sites and markers remain
+non-executable.
+
 Example:
 
 ```yaml

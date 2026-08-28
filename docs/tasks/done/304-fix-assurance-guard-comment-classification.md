@@ -13,14 +13,16 @@ The assurance guard treats every trimmed line beginning with `*` as comment-only
 
 ## Sub-Tasks
 
-- [ ] Define language-specific comment-only recognition
-- [ ] Replace the ambiguous bare-star rule
-- [ ] Add adversarial comment and code-line tables
-- [ ] Run assurance and full source-hygiene tests
+- [x] Define language-specific comment-only recognition
+- [x] Replace the ambiguous bare-star rule
+- [x] Add adversarial comment and code-line tables
+- [x] Run assurance and full source-hygiene tests
 
 ## Notes
 
 - Evidence: `internal/assurance/gates.go:180-236`.
+- Contract: guard scans classify line comments by language and track slash, HTML, HEEx, and PowerShell block-comment state across lines. A leading `*` is comment-only only while an actual block comment is open.
+- Verification: adversarial assurance tests, `make test`, `make vet`, pinned Staticcheck v0.8.1, and `make self-host` pass.
 
 ## Deviations
 

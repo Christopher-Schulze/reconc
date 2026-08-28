@@ -188,12 +188,13 @@ func evaluateGuardBoundary(root string, gate policy.AssuranceGate, state *evalua
 		if err != nil {
 			return nil, err
 		}
+		commentOnly := guardCommentOnlyLines(filepath.Ext(file.relative), lines)
 		for index, line := range lines {
-			if isCommentOnly(strings.TrimSpace(line)) {
+			if commentOnly[index] {
 				continue
 			}
 			for _, site := range gate.SitePatterns {
-				if !strings.Contains(line, site) || markerNear(lines, index, gate.MarkerWindowLines, gate.GuardMarkers) {
+				if !strings.Contains(line, site) || markerNear(lines, commentOnly, index, gate.MarkerWindowLines, gate.GuardMarkers) {
 					continue
 				}
 				findings = append(findings, Finding{
@@ -207,7 +208,7 @@ func evaluateGuardBoundary(root string, gate policy.AssuranceGate, state *evalua
 	return findings, nil
 }
 
-func markerNear(lines []string, index, window int, markers []string) bool {
+func markerNear(lines []string, commentOnly []bool, index, window int, markers []string) bool {
 	start := index - window
 	if start < 0 {
 		start = 0
@@ -216,13 +217,12 @@ func markerNear(lines []string, index, window int, markers []string) bool {
 	if end > len(lines) {
 		end = len(lines)
 	}
-	for _, line := range lines[start:end] {
-		trimmed := strings.TrimSpace(line)
-		if isCommentOnly(trimmed) {
+	for lineIndex := start; lineIndex < end; lineIndex++ {
+		if commentOnly[lineIndex] {
 			continue
 		}
 		for _, marker := range markers {
-			if strings.Contains(line, marker) {
+			if strings.Contains(lines[lineIndex], marker) {
 				return true
 			}
 		}
@@ -230,10 +230,68 @@ func markerNear(lines []string, index, window int, markers []string) bool {
 	return false
 }
 
-func isCommentOnly(line string) bool {
-	return strings.HasPrefix(line, "//") || strings.HasPrefix(line, "#") ||
-		strings.HasPrefix(line, "/*") || strings.HasPrefix(line, "*") ||
-		strings.HasPrefix(line, "<!--")
+func guardCommentOnlyLines(extension string, lines []string) []bool {
+	extension = strings.ToLower(extension)
+	commentOnly := make([]bool, len(lines))
+	blockEnd := ""
+	for index, line := range lines {
+		commentOnly[index] = guardCommentOnlyLine(extension, strings.TrimSpace(line), &blockEnd)
+	}
+	return commentOnly
+}
+
+func guardCommentOnlyLine(extension, line string, blockEnd *string) bool {
+	for {
+		if *blockEnd != "" {
+			end := strings.Index(line, *blockEnd)
+			if end < 0 {
+				return true
+			}
+			line = strings.TrimSpace(line[end+len(*blockEnd):])
+			*blockEnd = ""
+			if line == "" {
+				return true
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "//") || guardHashComment(extension, line) {
+			return true
+		}
+		start, end := guardBlockComment(extension, line)
+		if start == "" {
+			return false
+		}
+		line = strings.TrimSpace(line[len(start):])
+		closeAt := strings.Index(line, end)
+		if closeAt < 0 {
+			*blockEnd = end
+			return true
+		}
+		line = strings.TrimSpace(line[closeAt+len(end):])
+		if line == "" {
+			return true
+		}
+	}
+}
+
+func guardHashComment(extension, line string) bool {
+	return hashCommentLanguage(extension) && strings.HasPrefix(line, "#") &&
+		!(extension == ".php" && strings.HasPrefix(line, "#["))
+}
+
+func guardBlockComment(extension, line string) (string, string) {
+	switch {
+	case strings.HasPrefix(line, "/*"):
+		return "/*", "*/"
+	case strings.HasPrefix(line, "<!--"):
+		return "<!--", "-->"
+	case extension == ".heex" && strings.HasPrefix(line, "<%!--"):
+		return "<%!--", "--%>"
+	case powerShellExtension(extension) && strings.HasPrefix(line, "<#"):
+		return "<#", "#>"
+	default:
+		return "", ""
+	}
 }
 
 func hasAllowedPrefix(version string, prefixes []string) bool {

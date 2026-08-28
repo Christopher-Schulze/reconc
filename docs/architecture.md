@@ -1562,6 +1562,10 @@ coupling to any specific tool beyond recognizing that prefix.
 - Native assurance source gates scan matching changed files only. Layout and
   substantive-proof authority gates inspect their complete configured surface;
   unreadable or over-budget authority fails closed.
+- Network and process guard scans track language-specific line comments and
+  multiline slash, HTML, HEEx, and PowerShell comment state. Bare leading-star
+  dereferences and multiplication remain executable source, while real block
+  interiors cannot supply sites or guard markers.
 - One native-assurance evaluation owns normalized changed paths, validated glob
   decisions, canonical filesystem identities, bounded body snapshots, line
   indexes, BOM-aware JSON manifest objects, and shared Go syntax/format facts.
