@@ -681,25 +681,44 @@ func (g *Gateway) shutdownPending(ctx context.Context) error {
 			pending[index].release()
 		}
 	}()
-	sort.Slice(pending, func(i, j int) bool { return pending[i].callID < pending[j].callID })
+	sort.Slice(pending, func(i, j int) bool {
+		if pending[i].callID != pending[j].callID {
+			return pending[i].callID < pending[j].callID
+		}
+		if pending[i].phase != pending[j].phase {
+			return pending[i].phase < pending[j].phase
+		}
+		return pending[i].requestState < pending[j].requestState
+	})
+	var resultErr error
 	for _, approval := range pending {
 		result, err := g.state.FinalizeApproval(ctx, actionstate.ApprovalFinalizeRequest{
 			RequestState: approval.requestState, ExpectedStateVersion: approval.issuanceVersion,
 			Status: actionapproval.StatusCancelled,
 		})
 		if err != nil {
-			return fmt.Errorf("finalize pending approval during shutdown: %w", err)
+			resultErr = errors.Join(resultErr, pendingShutdownError(approval, err))
+			continue
 		}
 		call := callFromPending(approval)
 		if approval.phase == action.PhasePostResult {
 			if _, err := g.finalizePostApproval(ctx, call, result, action.ReasonShutdown); err != nil {
-				return err
+				resultErr = errors.Join(resultErr, pendingShutdownError(approval, err))
 			}
 			continue
 		}
 		g.recordTerminalizedApproval(ctx, call, result, action.ReasonShutdown, false)
 	}
-	return nil
+	return resultErr
+}
+
+func pendingShutdownError(approval pendingApproval, err error) error {
+	return fmt.Errorf(
+		"finalize pending approval call %q phase %q during shutdown: %w",
+		approval.callID,
+		approval.phase,
+		err,
+	)
 }
 
 func closeLifecycleError(err error) error {
