@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
@@ -63,17 +64,27 @@ func NewCompiledPolicyEvaluator(lockfile []byte) (*CompiledPolicyEvaluator, erro
 // Check evaluates inputs through the same typed plan and matcher used by the
 // repository evaluator, while keeping the candidate lockfile in memory.
 func (e *CompiledPolicyEvaluator) Check(repoRoot string, inputs ExecutionInputs) (*CheckReport, EvaluationMetrics, error) {
-	report, metrics, _, err := e.CheckWithTrace(repoRoot, inputs)
+	return e.CheckContext(context.Background(), repoRoot, inputs)
+}
+
+// CheckContext evaluates an immutable plan under the caller lifecycle.
+func (e *CompiledPolicyEvaluator) CheckContext(ctx context.Context, repoRoot string, inputs ExecutionInputs) (*CheckReport, EvaluationMetrics, error) {
+	report, metrics, _, err := e.CheckWithTraceContext(ctx, repoRoot, inputs)
 	return report, metrics, err
 }
 
 // CheckWithTrace evaluates one immutable plan and returns exact trigger
 // evidence in addition to the production report.
 func (e *CompiledPolicyEvaluator) CheckWithTrace(repoRoot string, inputs ExecutionInputs) (*CheckReport, EvaluationMetrics, EvaluationTrace, error) {
+	return e.CheckWithTraceContext(context.Background(), repoRoot, inputs)
+}
+
+// CheckWithTraceContext evaluates an immutable plan under the caller lifecycle.
+func (e *CompiledPolicyEvaluator) CheckWithTraceContext(ctx context.Context, repoRoot string, inputs ExecutionInputs) (*CheckReport, EvaluationMetrics, EvaluationTrace, error) {
 	if e == nil || e.plan == nil {
 		return nil, EvaluationMetrics{}, EvaluationTrace{}, fmt.Errorf("compiled policy evaluator is nil")
 	}
-	report, err := evaluateRuntimePlan(repoRoot, e.plan, inputs, nil, false)
+	report, err := evaluateRuntimePlanContext(ctx, repoRoot, e.plan, inputs, nil, false)
 	if err != nil {
 		return nil, EvaluationMetrics{}, EvaluationTrace{}, err
 	}

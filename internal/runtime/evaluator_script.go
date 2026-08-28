@@ -108,7 +108,10 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []*policy.Rule, defau
 			Claims:         inputs.Claims,
 			CommandResults: inputs.CommandResults,
 		}
-		outcome, err := RunScript(ctx.repoRoot, key.scriptPath, args, input, key.timeoutSec, key.killTimeoutSec)
+		outcome, err := RunScriptContext(ctx.lifecycleContext(), ctx.repoRoot, key.scriptPath, args, input, key.timeoutSec, key.killTimeoutSec)
+		if outcome.Canceled {
+			return results, err
+		}
 		evaluation := classifyScriptOutcome(outcome, err, key.timeoutSec)
 		if evaluation.disposition != scriptOutcomePass && evaluation.disposition != scriptOutcomeBlock {
 			continue

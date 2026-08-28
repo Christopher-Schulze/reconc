@@ -172,6 +172,16 @@ command routing, lifecycle operations, runtime dispatch, response adaptation,
 timing, and claim operations. These are source-ownership boundaries only; they
 do not add package layers or duplicate public APIs.
 
+Runtime evaluations with an owned lifecycle use the context-bearing evaluator
+entry points. That lifecycle is the parent of each `require_script` timeout, so
+MCP request cancellation and gateway shutdown terminate the script before the
+policy deadline when necessary. Unix termination covers the complete process
+group and preserves the configured `SIGTERM`-to-`SIGKILL` grace; Windows keeps
+the native immediate process-kill backend. The synchronous CLI, completion
+gate, and agent-hook entry points expose no independent request lifecycle;
+their compatibility entry points intentionally use a background parent while
+the compiled `timeout_sec` and `kill_timeout_sec` bounds remain mandatory.
+
 <!-- BEGIN RECONC GENERATED HOOK REFERENCE -->
 ## Canonical hook verification matrix
 

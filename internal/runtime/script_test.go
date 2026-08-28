@@ -3,6 +3,7 @@
 package runtime
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -117,6 +118,7 @@ func TestClassifyScriptOutcomeIsExhaustiveAndFailClosed(t *testing.T) {
 		{name: "pass", outcome: ScriptOutcome{Status: "pass", ExitCode: 0}, want: scriptOutcomePass},
 		{name: "block", outcome: ScriptOutcome{Status: "block", ExitCode: 2, Stdout: "blocked\n"}, want: scriptOutcomeBlock, wantDetail: "blocked"},
 		{name: "block stderr", outcome: ScriptOutcome{Status: "block", ExitCode: 2, Stderr: "stderr block\n"}, want: scriptOutcomeBlock, wantDetail: "stderr block"},
+		{name: "caller cancellation", outcome: ScriptOutcome{Status: "error", ExitCode: -1, Canceled: true}, runErr: context.Canceled, want: scriptOutcomeError, wantDetail: "canceled by caller: context canceled"},
 		{name: "timeout", outcome: ScriptOutcome{Status: "error", ExitCode: -1, Stdout: "untrusted timeout output", TimedOut: true}, timeoutSec: 1, want: scriptOutcomeError, wantDetail: "timed out after 1s", rejectDetail: "untrusted"},
 		{name: "process error", outcome: ScriptOutcome{Status: "error", ExitCode: -1}, runErr: processErr, want: scriptOutcomeError, wantDetail: "launch failed"},
 		{name: "error without go error", outcome: ScriptOutcome{Status: "error", ExitCode: -1}, want: scriptOutcomeError, wantDetail: "returned error status with exit code -1"},

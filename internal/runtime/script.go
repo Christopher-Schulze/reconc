@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -54,6 +55,7 @@ type ScriptOutcome struct {
 	Stderr   string
 	Duration time.Duration
 	TimedOut bool
+	Canceled bool
 }
 
 type scriptOutcomeDisposition uint8
@@ -92,19 +94,33 @@ type ScriptInput struct {
 //   - stderr   = captured up to MaxScriptOutputBytes
 //   - timeout  = timeoutSec (or DefaultScriptTimeoutSec when 0),
 //     hard-capped by MaxScriptTimeoutSec
-//   - SIGTERM is sent on timeout, then SIGKILL after killTimeoutSec
-//     (or DefaultScriptKillTimeoutSec when 0), hard-capped by
-//     MaxScriptKillTimeoutSec
+//   - Unix sends SIGTERM to the process group, then SIGKILL after
+//     killTimeoutSec (or DefaultScriptKillTimeoutSec when 0), hard-capped by
+//     MaxScriptKillTimeoutSec; Windows uses its native immediate process kill
 //
 // Errors:
 //   - script escapes the repository -> ("error", non-nil error)
 //   - script not found or not executable -> ("error", non-nil error)
 //   - subprocess crashed (signal etc.) -> ("error", non-nil error)
+//   - caller cancellation -> ("error", context error, Canceled=true)
 //   - timeout -> ("error", nil error, TimedOut=true)
 //   - exit 0 -> ("pass", nil error)
 //   - exit 2 -> ("block", nil error)
 //   - any other exit -> ("error", non-nil error)
 func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, timeoutSec, killTimeoutSec int) (ScriptOutcome, error) {
+	return RunScriptContext(context.Background(), repoRoot, scriptPath, args, input, timeoutSec, killTimeoutSec)
+}
+
+// RunScriptContext executes a policy script under the caller lifecycle and a
+// configured child timeout. The legacy RunScript entry point uses a bounded
+// background lifecycle for callers that do not own cancellation.
+func RunScriptContext(caller context.Context, repoRoot, scriptPath string, args []string, input ScriptInput, timeoutSec, killTimeoutSec int) (ScriptOutcome, error) {
+	if caller == nil {
+		return ScriptOutcome{Status: "error"}, errors.New("script caller context is required")
+	}
+	if err := caller.Err(); err != nil {
+		return canceledScriptOutcome(err)
+	}
 	full, err := resolveRepoScriptPath(repoRoot, scriptPath)
 	if err != nil {
 		return ScriptOutcome{Status: "error"}, err
@@ -124,7 +140,7 @@ func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, ti
 	}
 
 	timeout := normalizedScriptTimeout(timeoutSec)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(caller, timeout)
 	defer cancel()
 
 	cmd, err := scriptCommand(ctx, full, args)
@@ -136,7 +152,8 @@ func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, ti
 	cmd.Stdin = bytes.NewReader(stdinJSON)
 
 	done := make(chan struct{})
-	configureScriptProcess(ctx, cmd, done, normalizedScriptKillTimeout(killTimeoutSec))
+	killGrace := normalizedScriptKillTimeout(killTimeoutSec)
+	configureScriptProcess(cmd, killGrace)
 
 	stdoutBuf := newCappedWriter(MaxScriptOutputBytes)
 	stderrBuf := newCappedWriter(MaxScriptOutputBytes)
@@ -144,7 +161,11 @@ func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, ti
 	cmd.Stderr = stderrBuf
 
 	start := time.Now()
-	err = cmd.Run()
+	err = cmd.Start()
+	if err == nil {
+		monitorScriptProcess(ctx, cmd.Process.Pid, done, killGrace)
+		err = cmd.Wait()
+	}
 	close(done)
 	duration := time.Since(start)
 
@@ -154,6 +175,12 @@ func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, ti
 		Duration: duration,
 	}
 
+	if callerErr := caller.Err(); callerErr != nil {
+		outcome.Canceled = true
+		outcome.Status = "error"
+		outcome.ExitCode = -1
+		return outcome, fmt.Errorf("script canceled by caller: %w", callerErr)
+	}
 	if ctx.Err() == context.DeadlineExceeded {
 		outcome.Status = "error"
 		outcome.TimedOut = true
@@ -182,6 +209,10 @@ func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, ti
 	outcome.ExitCode = 0
 	outcome.Status = "pass"
 	return outcome, nil
+}
+
+func canceledScriptOutcome(err error) (ScriptOutcome, error) {
+	return ScriptOutcome{Status: "error", ExitCode: -1, Canceled: true}, fmt.Errorf("script canceled by caller: %w", err)
 }
 
 func normalizedScriptTimeout(timeoutSec int) time.Duration {
@@ -247,6 +278,13 @@ func resolveRepoScriptPath(repoRoot, scriptPath string) (string, error) {
 // declared block stays a policy failure, while timeouts, process failures, and
 // contradictory or unknown outcomes are operational failures.
 func classifyScriptOutcome(outcome ScriptOutcome, runErr error, timeoutSec int) scriptOutcomeEvaluation {
+	if outcome.Canceled {
+		detail := "canceled by caller"
+		if runErr != nil {
+			detail += ": " + runErr.Error()
+		}
+		return scriptOutcomeEvaluation{disposition: scriptOutcomeError, detail: detail}
+	}
 	if outcome.TimedOut {
 		return scriptOutcomeEvaluation{
 			disposition: scriptOutcomeError,

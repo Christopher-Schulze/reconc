@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 298 Propagate caller cancellation into policy scripts -> tasks/298-propagate-caller-cancellation-into-policy-scripts.md
 - [ ] 299 Prevent symlink side effects in create-capable file opens -> tasks/299-prevent-symlink-side-effects-in-create-capable-file-opens.md
 - [ ] 300 Apply Windows private ACLs through opened handles -> tasks/300-apply-windows-private-acls-through-opened-handles.md
 - [ ] 301 Sanitize every proof and agent-session Git environment -> tasks/301-sanitize-every-proof-and-agent-session-git-environment.md
@@ -55,6 +54,7 @@
 
 ## Done
 
+- [x] 298 Propagate caller cancellation into policy scripts -> tasks/done/298-propagate-caller-cancellation-into-policy-scripts.md
 - [x] 297 Bind runtime freshness metadata to the opened file -> tasks/done/297-bind-runtime-freshness-metadata-to-the-opened-file.md
 - [x] 296 Sync repository-run state mutations before unlock -> tasks/done/296-sync-repository-run-state-mutations-before-unlock.md
 - [x] 295 Durably create and rotate JSONL state -> tasks/done/295-durably-create-and-rotate-jsonl-state.md
@@ -64,4 +64,3 @@
 - [x] 290 Finalize pending approvals after call-drain timeout -> tasks/done/290-finalize-pending-approvals-after-call-drain-timeout.md
 - [x] 289 Preserve MCP indeterminate-transition failures -> tasks/done/289-preserve-mcp-indeterminate-transition-failures.md
 - [x] 288 Finish and prove the SWE audit repairs -> tasks/done/288-finish-and-prove-swe-audit-repairs.md
-- [x] 287 Repair update isolation and replace v0.9.7 -> tasks/done/287-repair-update-isolation-and-replace-v0-9-7.md

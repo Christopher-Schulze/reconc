@@ -298,7 +298,7 @@ func (gatewayEvidenceProvider) Observe(
 	if err := ctx.Err(); err != nil {
 		return mcpgateway.EvidenceSnapshot{}, err
 	}
-	report, err := productruntime.CheckRepoPolicy(snapshot.Repository, inputs)
+	report, err := productruntime.CheckRepoPolicyContext(ctx, snapshot.Repository, inputs)
 	if err != nil {
 		return mcpgateway.EvidenceSnapshot{}, err
 	}

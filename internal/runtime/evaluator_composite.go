@@ -210,7 +210,10 @@ func evalCheckRequireScript(ctx *evalContext, c policy.Check, captures map[strin
 		Claims:         inputs.Claims,
 		CommandResults: inputs.CommandResults,
 	}
-	outcome, err := RunScript(ctx.repoRoot, c.Script, args, input, c.TimeoutSec, 0)
+	outcome, err := RunScriptContext(ctx.lifecycleContext(), ctx.repoRoot, c.Script, args, input, c.TimeoutSec, 0)
+	if outcome.Canceled {
+		return false, "", err
+	}
 	evaluation := classifyScriptOutcome(outcome, err, c.TimeoutSec)
 	switch evaluation.disposition {
 	case scriptOutcomePass:

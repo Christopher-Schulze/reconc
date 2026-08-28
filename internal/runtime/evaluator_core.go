@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -14,6 +16,7 @@ import (
 // evalContext owns the root-bound path state and evaluation-local matcher,
 // command, and evidence caches shared across one policy evaluation.
 type evalContext struct {
+	lifecycle        context.Context
 	repoRoot         string
 	paths            *evaluationPathState
 	rawCommands      []string
@@ -26,6 +29,13 @@ type evalContext struct {
 	evidenceCache    *evidenceSnapshotCache
 	evidenceMemo     *evidenceMatchMemo
 	contextMemo      *matchContextMemo
+}
+
+func (ctx *evalContext) lifecycleContext() context.Context {
+	if ctx != nil && ctx.lifecycle != nil {
+		return ctx.lifecycle
+	}
+	return context.Background()
 }
 
 func (ctx *evalContext) resolvePolicyFile(relative string) (string, error) {
@@ -174,11 +184,27 @@ func (c *commandInvocationCache) observedInvocations(command string) observedCom
 // This is the primitive behind `reconc assert` (W27), replacing
 // repo-specific assertion subcommands with one generic path.
 func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs ExecutionInputs) (*CheckReport, error) {
-	return NewEvaluator().AssertRuleByID(startPath, ruleID, vars, inputs)
+	return AssertRuleByIDContext(context.Background(), startPath, ruleID, vars, inputs)
+}
+
+// AssertRuleByIDContext evaluates one rule under the caller lifecycle.
+func AssertRuleByIDContext(ctx context.Context, startPath, ruleID string, vars map[string]string, inputs ExecutionInputs) (*CheckReport, error) {
+	return NewEvaluator().AssertRuleByIDContext(ctx, startPath, ruleID, vars, inputs)
 }
 
 // AssertRuleByID evaluates one indexed rule through this evaluator's plan.
 func (e *Evaluator) AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs ExecutionInputs) (*CheckReport, error) {
+	return e.AssertRuleByIDContext(context.Background(), startPath, ruleID, vars, inputs)
+}
+
+// AssertRuleByIDContext evaluates one indexed rule under the caller lifecycle.
+func (e *Evaluator) AssertRuleByIDContext(lifecycle context.Context, startPath, ruleID string, vars map[string]string, inputs ExecutionInputs) (*CheckReport, error) {
+	if lifecycle == nil {
+		return nil, errors.New("runtime evaluation context is required")
+	}
+	if err := lifecycle.Err(); err != nil {
+		return nil, err
+	}
 	discovery, err := ingest.DiscoverPolicyRepo(startPath)
 	if err != nil {
 		return nil, err
@@ -235,6 +261,7 @@ func (e *Evaluator) AssertRuleByID(startPath, ruleID string, vars map[string]str
 
 	report := NewEmptyReport(root, ingest.LockfilePath, plan.defaultMode, normalized.inputs)
 	ctx := &evalContext{
+		lifecycle:        lifecycle,
 		repoRoot:         root,
 		paths:            normalized.paths,
 		rawCommands:      normalized.rawCommands,
@@ -281,24 +308,44 @@ func (e *Evaluator) AssertRuleByID(startPath, ruleID string, vars map[string]str
 // inputs carry the runtime evidence (typically merged from CLI flags
 // + events file + stdin payload before this call).
 func CheckRepoPolicy(startPath string, inputs ExecutionInputs) (*CheckReport, error) {
-	return NewEvaluator().CheckRepoPolicy(startPath, inputs)
+	return CheckRepoPolicyContext(context.Background(), startPath, inputs)
+}
+
+// CheckRepoPolicyContext evaluates policy under the caller lifecycle.
+func CheckRepoPolicyContext(ctx context.Context, startPath string, inputs ExecutionInputs) (*CheckReport, error) {
+	return NewEvaluator().CheckRepoPolicyContext(ctx, startPath, inputs)
 }
 
 // CheckRepoPolicy evaluates every rule through this evaluator's plan.
 func (e *Evaluator) CheckRepoPolicy(startPath string, inputs ExecutionInputs) (*CheckReport, error) {
-	return e.checkRepoPolicy(startPath, inputs, nil, false)
+	return e.CheckRepoPolicyContext(context.Background(), startPath, inputs)
+}
+
+// CheckRepoPolicyContext evaluates every rule under the caller lifecycle.
+func (e *Evaluator) CheckRepoPolicyContext(ctx context.Context, startPath string, inputs ExecutionInputs) (*CheckReport, error) {
+	return e.checkRepoPolicy(ctx, startPath, inputs, nil, false)
 }
 
 // CheckRepoPolicyForKinds evaluates only the requested top-level rule kinds
 // while keeping lockfile loading, freshness checks, path normalization and
 // unsupported-kind validation identical to CheckRepoPolicy.
 func CheckRepoPolicyForKinds(startPath string, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}) (*CheckReport, error) {
-	return NewEvaluator().CheckRepoPolicyForKinds(startPath, inputs, allowedKinds)
+	return CheckRepoPolicyForKindsContext(context.Background(), startPath, inputs, allowedKinds)
+}
+
+// CheckRepoPolicyForKindsContext evaluates selected kinds under the caller lifecycle.
+func CheckRepoPolicyForKindsContext(ctx context.Context, startPath string, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}) (*CheckReport, error) {
+	return NewEvaluator().CheckRepoPolicyForKindsContext(ctx, startPath, inputs, allowedKinds)
 }
 
 // CheckRepoPolicyForKinds evaluates an indexed subset of top-level kinds.
 func (e *Evaluator) CheckRepoPolicyForKinds(startPath string, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}) (*CheckReport, error) {
-	return e.checkRepoPolicy(startPath, inputs, allowedKinds, false)
+	return e.CheckRepoPolicyForKindsContext(context.Background(), startPath, inputs, allowedKinds)
+}
+
+// CheckRepoPolicyForKindsContext evaluates indexed kinds under the caller lifecycle.
+func (e *Evaluator) CheckRepoPolicyForKindsContext(ctx context.Context, startPath string, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}) (*CheckReport, error) {
+	return e.checkRepoPolicy(ctx, startPath, inputs, allowedKinds, false)
 }
 
 // CheckRepoPolicyForPreCommand evaluates prevention rules before a shell
@@ -306,15 +353,31 @@ func (e *Evaluator) CheckRepoPolicyForKinds(startPath string, inputs ExecutionIn
 // forbid_command sub-check are included so composing a prevention rule never
 // silently demotes it to Stop-time detection.
 func CheckRepoPolicyForPreCommand(startPath string, inputs ExecutionInputs) (*CheckReport, error) {
-	return NewEvaluator().CheckRepoPolicyForPreCommand(startPath, inputs)
+	return CheckRepoPolicyForPreCommandContext(context.Background(), startPath, inputs)
+}
+
+// CheckRepoPolicyForPreCommandContext evaluates prevention rules under the caller lifecycle.
+func CheckRepoPolicyForPreCommandContext(ctx context.Context, startPath string, inputs ExecutionInputs) (*CheckReport, error) {
+	return NewEvaluator().CheckRepoPolicyForPreCommandContext(ctx, startPath, inputs)
 }
 
 // CheckRepoPolicyForPreCommand evaluates the precomputed prevention subset.
 func (e *Evaluator) CheckRepoPolicyForPreCommand(startPath string, inputs ExecutionInputs) (*CheckReport, error) {
-	return e.checkRepoPolicy(startPath, inputs, nil, true)
+	return e.CheckRepoPolicyForPreCommandContext(context.Background(), startPath, inputs)
 }
 
-func (e *Evaluator) checkRepoPolicy(startPath string, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool) (*CheckReport, error) {
+// CheckRepoPolicyForPreCommandContext evaluates the prevention subset under the caller lifecycle.
+func (e *Evaluator) CheckRepoPolicyForPreCommandContext(ctx context.Context, startPath string, inputs ExecutionInputs) (*CheckReport, error) {
+	return e.checkRepoPolicy(ctx, startPath, inputs, nil, true)
+}
+
+func (e *Evaluator) checkRepoPolicy(ctx context.Context, startPath string, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool) (*CheckReport, error) {
+	if ctx == nil {
+		return nil, errors.New("runtime evaluation context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	discovery, err := ingest.DiscoverPolicyRepo(startPath)
 	if err != nil {
 		return nil, err
@@ -332,20 +395,35 @@ func (e *Evaluator) checkRepoPolicy(startPath string, inputs ExecutionInputs, al
 	if err != nil {
 		return nil, err
 	}
-	return evaluateRuntimePlan(root, plan, inputs, allowedKinds, preCommand)
+	return evaluateRuntimePlanContext(ctx, root, plan, inputs, allowedKinds, preCommand)
 }
 
 func evaluateRuntimePlan(root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool) (*CheckReport, error) {
-	return evaluateRuntimePlanWithRootResolver(root, plan, inputs, allowedKinds, preCommand, pathidentity.ResolveExisting)
+	return evaluateRuntimePlanContext(context.Background(), root, plan, inputs, allowedKinds, preCommand)
+}
+
+func evaluateRuntimePlanContext(ctx context.Context, root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool) (*CheckReport, error) {
+	return evaluateRuntimePlanWithRootResolverContext(ctx, root, plan, inputs, allowedKinds, preCommand, pathidentity.ResolveExisting)
 }
 
 func evaluateRuntimePlanWithRootResolver(root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool, resolveRoot func(string) (string, error)) (*CheckReport, error) {
+	return evaluateRuntimePlanWithRootResolverContext(context.Background(), root, plan, inputs, allowedKinds, preCommand, resolveRoot)
+}
+
+func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool, resolveRoot func(string) (string, error)) (*CheckReport, error) {
+	if lifecycle == nil {
+		return nil, errors.New("runtime evaluation context is required")
+	}
+	if err := lifecycle.Err(); err != nil {
+		return nil, err
+	}
 	normalized, err := normalizeEvaluationInputWithRootResolver(root, inputs, resolveRoot)
 	if err != nil {
 		return nil, err
 	}
 	report := NewEmptyReport(root, ingest.LockfilePath, plan.defaultMode, normalized.inputs)
 	ctx := &evalContext{
+		lifecycle:        lifecycle,
 		repoRoot:         root,
 		paths:            normalized.paths,
 		rawCommands:      normalized.rawCommands,
@@ -370,6 +448,9 @@ func evaluateRuntimePlanWithRootResolver(root string, plan *runtimePlan, inputs 
 		return nil, err
 	}
 	for i, rule := range rules {
+		if err := ctx.lifecycleContext().Err(); err != nil {
+			return nil, err
+		}
 		if batchedScripts.handled[i] {
 			if v := batchedScripts.violations[i]; v != nil {
 				report.Violations = append(report.Violations, *v)

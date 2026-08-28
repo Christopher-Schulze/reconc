@@ -3,7 +3,6 @@
 package runtime
 
 import (
-	"context"
 	"os/exec"
 	"testing"
 	"time"
@@ -11,9 +10,7 @@ import (
 
 func TestConfigureScriptProcessUsesUnixProcessGroup(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "exit 0")
-	done := make(chan struct{})
-	configureScriptProcess(context.Background(), cmd, done, 2*time.Second)
-	close(done)
+	configureScriptProcess(cmd, 2*time.Second)
 
 	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid {
 		t.Fatal("unix script process must run in its own process group")
