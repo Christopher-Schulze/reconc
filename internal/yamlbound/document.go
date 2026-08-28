@@ -20,15 +20,15 @@ const (
 )
 
 type bounds struct {
-	nodes         int
+	rawNodes      int
 	expandedNodes int
 	scalarBytes   int
 	aliases       int
 	activeAliases map[*yaml.Node]bool
 }
 
-// DecodeMapping decodes exactly one bounded YAML mapping. It expands aliases
-// only after proving the retained and expanded node budgets.
+// DecodeMapping decodes exactly one bounded YAML mapping. It admits raw syntax
+// before counting the expanded alias graph without materializing a duplicate tree.
 func DecodeMapping(body []byte, context string) (*yaml.Node, map[string]interface{}, error) {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}, map[string]interface{}{}, nil
@@ -48,7 +48,10 @@ func DecodeMapping(body []byte, context string) (*yaml.Node, map[string]interfac
 		return nil, nil, &rerrors.RuleValidationError{Message: "invalid trailing yaml in " + context, Cause: err}
 	}
 	limit := bounds{activeAliases: make(map[*yaml.Node]bool)}
-	if err := walk(&document, 0, &limit, context); err != nil {
+	if err := walkRaw(&document, 0, &limit, context); err != nil {
+		return nil, nil, err
+	}
+	if err := walkExpanded(&document, 0, &limit, context); err != nil {
 		return nil, nil, err
 	}
 	var decoded interface{}
@@ -68,35 +71,56 @@ func DecodeMapping(body []byte, context string) (*yaml.Node, map[string]interfac
 	return document.Content[0], mapping, nil
 }
 
-func walk(node *yaml.Node, depth int, limit *bounds, context string) error {
+func walkRaw(node *yaml.Node, depth int, limit *bounds, context string) error {
 	if node == nil {
 		return nil
 	}
 	if depth > MaxDepth {
 		return limitError(context, "yaml nesting depth", depth, MaxDepth, "levels")
 	}
-	limit.nodes++
-	if limit.nodes > MaxNodes {
-		return limitError(context, "yaml nodes", limit.nodes, MaxNodes, "nodes")
-	}
-	limit.expandedNodes++
-	if limit.expandedNodes > MaxExpandedNodes {
-		return limitError(context, "expanded yaml nodes", limit.expandedNodes, MaxExpandedNodes, "nodes")
+	limit.rawNodes++
+	if limit.rawNodes > MaxNodes {
+		return limitError(context, "yaml nodes", limit.rawNodes, MaxNodes, "nodes")
 	}
 	if node.Kind == yaml.AliasNode {
 		limit.aliases++
 		if limit.aliases > MaxAliases {
 			return limitError(context, "yaml aliases", limit.aliases, MaxAliases, "aliases")
 		}
+		return nil
+	}
+	for _, child := range node.Content {
+		if err := walkRaw(child, depth+1, limit, context); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func walkExpanded(node *yaml.Node, depth int, limit *bounds, context string) error {
+	if node == nil {
+		return nil
+	}
+	if depth > MaxDepth {
+		return limitError(context, "yaml nesting depth", depth, MaxDepth, "levels")
+	}
+	if node.Kind == yaml.AliasNode {
+		if node.Alias == nil {
+			return &rerrors.RuleValidationError{Message: "invalid yaml alias in " + context}
+		}
 		if limit.activeAliases[node.Alias] {
 			return &rerrors.RuleValidationError{Message: "recursive yaml alias in " + context}
 		}
 		limit.activeAliases[node.Alias] = true
-		if err := walk(node.Alias, depth+1, limit, context); err != nil {
+		if err := walkExpanded(node.Alias, depth, limit, context); err != nil {
 			return err
 		}
 		delete(limit.activeAliases, node.Alias)
 		return nil
+	}
+	limit.expandedNodes++
+	if limit.expandedNodes > MaxExpandedNodes {
+		return limitError(context, "expanded yaml nodes", limit.expandedNodes, MaxExpandedNodes, "nodes")
 	}
 	if node.Kind == yaml.ScalarNode {
 		limit.scalarBytes += len(node.Value)
@@ -105,7 +129,7 @@ func walk(node *yaml.Node, depth int, limit *bounds, context string) error {
 		}
 	}
 	for _, child := range node.Content {
-		if err := walk(child, depth+1, limit, context); err != nil {
+		if err := walkExpanded(child, depth+1, limit, context); err != nil {
 			return err
 		}
 	}

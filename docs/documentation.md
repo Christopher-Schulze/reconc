@@ -2013,9 +2013,12 @@ checks, including paths after template placeholders are masked for validation.
 Before typed rules are retained, the parser applies one bounded YAML contract:
 at most 4,096 rules, 256 checks or items in any rule list, 1,024-byte pattern
 strings, 16-KiB command strings, 64-KiB message strings, 32 nesting levels,
-131,072 YAML nodes, 262,144 alias-expanded nodes, 1,024 aliases, and 4 MiB of
-decoded scalar bytes. Duplicate mapping keys, trailing documents, recursive
-aliases, and any limit overflow fail closed with source path/block, rule, field,
+131,072 raw YAML syntax nodes, 262,144 semantic nodes after alias substitution,
+1,024 alias occurrences, and 4 MiB of expanded scalar bytes. Raw admission
+never follows alias pointers; expansion counts each shared target per occurrence
+without materializing a duplicate tree. Duplicate mapping keys, trailing
+documents, recursive aliases, and any limit overflow fail closed with source
+path/block, rule, field,
 actual value, and maximum where a rule is identifiable. Required-file,
 evidence, assurance, scope, and composite sub-check collections use the same
 item and text ceilings, so a source cannot bypass bounds by moving data into a

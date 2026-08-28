@@ -42,6 +42,77 @@ func TestDecodeMappingContract(t *testing.T) {
 	}
 }
 
+func TestDecodeMappingSeparatesRawAndExpandedNodeBudgets(t *testing.T) {
+	t.Run("raw boundary", func(t *testing.T) {
+		atLimit := "items:\n" + strings.Repeat("  - x\n", MaxNodes-4)
+		if _, _, err := DecodeMapping([]byte(atLimit), "raw-limit.yml"); err != nil {
+			t.Fatalf("raw node boundary was rejected: %v", err)
+		}
+		overLimit := atLimit + "  - x\n"
+		if _, _, err := DecodeMapping([]byte(overLimit), "raw-overflow.yml"); err == nil ||
+			!strings.Contains(err.Error(), fmt.Sprintf("yaml nodes actual=%d nodes exceeds maximum=%d nodes", MaxNodes+1, MaxNodes)) {
+			t.Fatalf("raw node overflow error = %v", err)
+		}
+	})
+
+	t.Run("expanded boundary", func(t *testing.T) {
+		atLimit := expandedAliasDocument(t, MaxExpandedNodes)
+		if _, _, err := DecodeMapping([]byte(atLimit), "expanded-limit.yml"); err != nil {
+			t.Fatalf("expanded node boundary was rejected: %v", err)
+		}
+		overLimit := expandedAliasDocument(t, MaxExpandedNodes+1)
+		if _, _, err := DecodeMapping([]byte(overLimit), "expanded-overflow.yml"); err == nil ||
+			!strings.Contains(err.Error(), fmt.Sprintf("expanded yaml nodes actual=%d nodes exceeds maximum=%d nodes", MaxExpandedNodes+1, MaxExpandedNodes)) {
+			t.Fatalf("expanded node overflow error = %v", err)
+		}
+	})
+}
+
+func TestDecodeMappingAliasGraphs(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name: "shared alias",
+			body: "base: &base [x, y]\nleft: *base\nright: *base\n",
+		},
+		{
+			name: "nested alias",
+			body: "leaf: &leaf [x]\nbranch: &branch [*leaf]\nroot: [*branch, *branch]\n",
+		},
+		{
+			name:    "recursive alias",
+			body:    "root: &root\n  child: *root\n",
+			wantErr: "recursive yaml alias",
+		},
+		{
+			name: "alias boundary",
+			body: "base: &base x\nitems:\n" + strings.Repeat("  - *base\n", MaxAliases),
+		},
+		{
+			name:    "alias overflow",
+			body:    "base: &base x\nitems:\n" + strings.Repeat("  - *base\n", MaxAliases+1),
+			wantErr: fmt.Sprintf("yaml aliases actual=%d aliases exceeds maximum=%d aliases", MaxAliases+1, MaxAliases),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, err := DecodeMapping([]byte(test.body), "aliases.yml")
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("DecodeMapping: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("DecodeMapping error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func FuzzDecodeMapping(f *testing.F) {
 	for _, seed := range []string{
 		"rules: []\n",
@@ -66,4 +137,20 @@ func deeplyNestedMapping(levels int) string {
 	}
 	fmt.Fprintf(&body, "%svalue: x\n", strings.Repeat("  ", levels))
 	return body.String()
+}
+
+func expandedAliasDocument(t *testing.T, expandedNodes int) string {
+	t.Helper()
+	// Keep gopkg.in/yaml.v3's independent 99% alias-ratio guard below its
+	// threshold while driving Reconc's exact expanded-node boundary.
+	const targetScalars = 253
+	baseNodes := 6 + targetScalars + MaxAliases*(targetScalars+1)
+	paddingScalars := expandedNodes - baseNodes - 2
+	if paddingScalars < 0 {
+		t.Fatalf("expanded node target %d is too small for boundary fixture", expandedNodes)
+	}
+	return "base: &base\n" +
+		strings.Repeat("  - x\n", targetScalars) +
+		"padding:\n" + strings.Repeat("  - p\n", paddingScalars) +
+		"items:\n" + strings.Repeat("  - *base\n", MaxAliases)
 }

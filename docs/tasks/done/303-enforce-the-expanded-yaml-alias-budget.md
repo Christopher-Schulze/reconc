@@ -13,14 +13,16 @@
 
 ## Sub-Tasks
 
-- [ ] Specify raw versus expanded node accounting
-- [ ] Implement cycle-safe independent counters
-- [ ] Add exact boundary and alias graph tests
-- [ ] Run parser, template, preset, schema, and fuzz gates
+- [x] Specify raw versus expanded node accounting
+- [x] Implement cycle-safe independent counters
+- [x] Add exact boundary and alias graph tests
+- [x] Run parser, template, preset, schema, and fuzz gates
 
 ## Notes
 
 - Evidence: `internal/yamlbound/document.go:78-104`.
+- Contract: raw admission counts each syntax node once without following alias pointers; expanded admission replaces each alias occurrence with its target graph, counts shared targets per occurrence, and never materializes a duplicate tree. Both forms enforce depth independently; decoded scalar bytes follow the expanded view.
+- Verification: exact raw/expanded boundary and alias-graph tests, all YAML consumers, `make test`, `make vet`, pinned Staticcheck v0.8.1, and `make self-host` pass.
 
 ## Deviations
 

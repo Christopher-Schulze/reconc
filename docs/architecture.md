@@ -656,9 +656,10 @@ and byte-compares the notice before checksums and provenance are accepted.
      The parser then enforces
      the canonical typed-graph limits before rule construction: 4,096 rules,
      256 checks or list items per rule, 1 KiB pattern strings, 16 KiB command
-     strings, 64 KiB message strings, 32 YAML levels, 131,072 YAML nodes,
-     262,144 alias-expanded nodes, 1,024 aliases, and 4 MiB of decoded scalar
-     bytes. Alias expansion, duplicate keys, and trailing YAML documents fail
+     strings, 64 KiB message strings, 32 YAML levels, 131,072 raw YAML syntax
+     nodes, 262,144 semantic nodes after alias substitution, 1,024 alias
+     occurrences, and 4 MiB of expanded scalar bytes. Alias expansion,
+     duplicate keys, and trailing YAML documents fail
      closed before the typed graph is retained.
      The frozen source bundle is converted to one provenance record set and
      content digest; the same records feed both source-digest computation and

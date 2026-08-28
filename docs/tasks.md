@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 303 Enforce the expanded YAML alias budget -> tasks/303-enforce-the-expanded-yaml-alias-budget.md
 - [ ] 304 Fix assurance guard comment classification -> tasks/304-fix-assurance-guard-comment-classification.md
 - [ ] 305 Reject extension-only policy targets -> tasks/305-reject-extension-only-policy-targets.md
 - [ ] 306 Allow safe double dots in include patterns -> tasks/306-allow-safe-double-dots-in-include-patterns.md
@@ -51,6 +50,7 @@
 
 ## Done
 
+- [x] 303 Enforce the expanded YAML alias budget -> tasks/done/303-enforce-the-expanded-yaml-alias-budget.md
 - [x] 302 Route all untrusted YAML through bounded admission -> tasks/done/302-route-all-untrusted-yaml-through-bounded-admission.md
 - [x] 301 Sanitize every proof and agent-session Git environment -> tasks/done/301-sanitize-every-proof-and-agent-session-git-environment.md
 - [x] 299 Prevent symlink side effects in create-capable file opens -> tasks/done/299-prevent-symlink-side-effects-in-create-capable-file-opens.md
@@ -60,4 +60,3 @@
 - [x] 295 Durably create and rotate JSONL state -> tasks/done/295-durably-create-and-rotate-jsonl-state.md
 - [x] 294 Durably publish bootstrap plans and artifacts -> tasks/done/294-durably-publish-bootstrap-plans-and-artifacts.md
 - [x] 292 Narrow MCP pre-dispatch serialization and retry policy -> tasks/done/292-narrow-mcp-pre-dispatch-serialization-and-retry-policy.md
-- [x] 291 Continue MCP shutdown finalization after individual errors -> tasks/done/291-continue-mcp-shutdown-finalization-after-individual-errors.md
