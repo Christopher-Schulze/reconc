@@ -15,6 +15,9 @@ func TestInvocationsFindsExecutablePositionsWithoutLiteralFalsePositives(t *test
 		{name: "direct", command: "git clean -fd", want: [][]string{{"git", "clean", "-fd"}}},
 		{name: "compound", command: "echo ready && git clean -nd", want: [][]string{{"echo", "ready"}, {"git", "clean", "-nd"}}},
 		{name: "quoted literal", command: `echo "git clean -fd"`, want: [][]string{{"echo", "git clean -fd"}}},
+		{name: "quoted assignment-shaped executable", command: `'PRIVATE=x'`, want: [][]string{{"PRIVATE=x"}}},
+		{name: "quoted redirect-shaped executable", command: `'<compound command>'`, want: [][]string{{"<compound command>"}}},
+		{name: "quoted control-shaped executable", command: `'!'`, want: [][]string{{"!"}}},
 		{name: "plain arguments", command: "echo git clean -fd", want: [][]string{{"echo", "git", "clean", "-fd"}}},
 		{name: "shell body", command: `bash -lc "git clean -fd"`, want: [][]string{{"bash", "-lc", "git clean -fd"}, {"git", "clean", "-fd"}}},
 		{name: "eval body", command: `eval 'git clean -fd'`, want: [][]string{{"eval", "git clean -fd"}, {"git", "clean", "-fd"}}},
@@ -92,26 +95,6 @@ func TestInvocationsFailClosedOnDynamicExecutable(t *testing.T) {
 	for _, command := range []string{`$COMMAND clean -fd`, `eval "$COMMAND"`, `sh -c "$COMMAND"`, `$(printf git) clean -fd`, `env -S "git clean -fd"`, `xargs "$COMMAND"`} {
 		if _, complete := Invocations(command, 16); complete {
 			t.Fatalf("dynamic executable analysis must be incomplete: %s", command)
-		}
-	}
-}
-
-func TestExactRedirectionDistinguishesOperatorsFromAttachedTargets(t *testing.T) {
-	tests := []struct {
-		word string
-		want bool
-	}{
-		{word: ">", want: true},
-		{word: "2>>", want: true},
-		{word: "<<-", want: true},
-		{word: "3<&", want: true},
-		{word: ">output.log", want: false},
-		{word: "2>>errors.log", want: false},
-		{word: "command", want: false},
-	}
-	for _, test := range tests {
-		if got := isExactRedirection(test.word); got != test.want {
-			t.Errorf("isExactRedirection(%q) = %t, want %t", test.word, got, test.want)
 		}
 	}
 }

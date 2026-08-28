@@ -27,13 +27,15 @@ import (
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 	"reconc.dev/reconc/internal/schema"
+	"reconc.dev/reconc/internal/shellcommand"
 )
 
 const (
-	FormatVersion = "1"
-	MaxBytes      = 1 << 20
-	maxItems      = 256
-	maxTextBytes  = 4096
+	FormatVersion        = "1"
+	MaxBytes             = 1 << 20
+	maxItems             = 256
+	maxTextBytes         = 4096
+	commandAnalysisDepth = 16
 )
 
 var (
@@ -80,10 +82,10 @@ type Check struct {
 
 type CommandProof struct {
 	Command string `json:"command"`
-	// CommandHash is a stable SHA-256 grouping key for the sanitized
-	// executable identity. It is deliberately not a commitment to the full
-	// command or any of its arguments, so it cannot be used as an offline
-	// argument-guessing oracle.
+	// CommandHash is a stable SHA-256 grouping key for the sanitized executable
+	// or domain-separated uncertainty identity. It is deliberately not a
+	// commitment to the full command or any of its arguments, so it cannot be
+	// used as an offline argument-guessing oracle.
 	CommandHash    string `json:"command_hash"`
 	ExecutionMode  string `json:"execution_mode"`
 	Outcome        string `json:"outcome"`
@@ -282,9 +284,9 @@ func commandProofs(values []commandproof.Proof, snapshot commandproof.Snapshot, 
 		if len(result) == maxItems {
 			break
 		}
-		normalized := strings.Join(strings.Fields(value.Command), " ")
+		description := describeCommand(value.Command)
 		result = append(result, CommandProof{
-			Command: summarizeCommand(normalized), CommandHash: hashString(commandIdentity(normalized)), ExecutionMode: sanitizeText("", value.ExecutionMode),
+			Command: description.summary, CommandHash: hashString(description.identity), ExecutionMode: sanitizeText("", value.ExecutionMode),
 			Outcome: value.Outcome, ExitCode: value.ExitCode, Head: value.Head, IndexTree: value.IndexTree,
 			ReceiptDigest:  value.Digest,
 			CandidateBound: value.Head == snapshot.Head && value.IndexTree == snapshot.IndexTree && value.Head == candidateCommit(candidate.GitHead),
@@ -311,39 +313,141 @@ func candidateCommit(value string) string {
 }
 
 func summarizeCommand(command string) string {
-	fields := strings.Fields(command)
-	if len(fields) == 0 {
-		return "<empty>"
-	}
-	name := commandExecutableName(fields[0])
-	if len(fields) == 1 {
-		return sanitizeText("", name)
-	}
-	return sanitizeText("", name+" [arguments redacted]")
+	return describeCommand(command).summary
 }
 
 func commandIdentity(command string) string {
-	fields := strings.Fields(command)
-	if len(fields) == 0 {
-		return "<empty>"
+	if identity, ok := uncertaintySummaryIdentity(strings.TrimSpace(command)); ok {
+		return identity
 	}
-	// An assignment in the first position can contain an arbitrary secret and
-	// is not the executable identity. Collapse that case instead of hashing any
-	// part of its value. This also covers flags accidentally supplied first.
-	if strings.ContainsRune(fields[0], '=') {
+	if command == "<empty>" {
+		return command
+	}
+	if legacyEnvironmentSummary(command) {
 		return "<environment-prefixed-command>"
 	}
-	return sanitizeText("", commandExecutableName(fields[0]))
+	return describeCommand(command).identity
 }
 
 func commandExecutableName(value string) string {
-	value = strings.Trim(value, "\\\"'")
 	value = strings.ReplaceAll(value, `\`, "/")
 	name := path.Base(value)
-	if name == "." || name == "/" || name == "" {
+	if name == "" {
 		return "<empty>"
 	}
 	return name
+}
+
+type commandDescription struct {
+	summary  string
+	identity string
+}
+
+func describeCommand(command string) commandDescription {
+	if strings.TrimSpace(command) == "" {
+		return uncertainCommand("empty")
+	}
+	invocations, reason := shellcommand.InvocationsWithReason(command, commandAnalysisDepth)
+	if reason != shellcommand.IncompleteNone {
+		return uncertainCommand(string(reason))
+	}
+	if len(invocations) == 0 {
+		return uncertainCommand("no_executable")
+	}
+	if len(invocations) != 1 {
+		return uncertainCommand("compound")
+	}
+	invocation := invocations[0]
+	if len(invocation.Words) == 0 || len(invocation.DynamicWords) == 0 || invocation.DynamicWords[0] {
+		return uncertainCommand("analysis_state")
+	}
+	rawName := commandExecutableName(invocation.Words[0])
+	if strings.TrimSpace(rawName) != rawName {
+		return uncertainCommand("ambiguous_executable")
+	}
+	name := sanitizeText("", rawName)
+	summary := quoteSummaryExecutable(name)
+	if len(invocation.Words) > 1 {
+		summary += " [arguments redacted]"
+	}
+	if len(summary) > maxTextBytes+len("...[bounded]") {
+		return uncertainCommand("ambiguous_executable")
+	}
+	if roundTrip, ok := parsedSingleExecutableIdentity(summary); !ok || roundTrip != name {
+		return uncertainCommand("ambiguous_executable")
+	}
+	return commandDescription{summary: summary, identity: name}
+}
+
+func parsedSingleExecutableIdentity(command string) (string, bool) {
+	invocations, reason := shellcommand.InvocationsWithReason(command, commandAnalysisDepth)
+	if reason != shellcommand.IncompleteNone || len(invocations) != 1 || len(invocations[0].Words) == 0 ||
+		len(invocations[0].DynamicWords) == 0 || invocations[0].DynamicWords[0] {
+		return "", false
+	}
+	name := commandExecutableName(invocations[0].Words[0])
+	if strings.TrimSpace(name) != name {
+		return "", false
+	}
+	return sanitizeText("", name), true
+}
+
+func uncertainCommand(reason string) commandDescription {
+	reason, summary := uncertaintySummary(reason)
+	return commandDescription{summary: summary, identity: "\x00proof-command-uncertain\x00" + reason}
+}
+
+func uncertaintySummary(reason string) (string, string) {
+	switch reason {
+	case "empty":
+		return reason, "<empty command>"
+	case "no_executable":
+		return reason, "<no executable>"
+	case "compound":
+		return reason, "<compound command>"
+	case "ambiguous_executable":
+		return reason, "<ambiguous executable>"
+	case string(shellcommand.IncompleteDynamicCommand):
+		return reason, "<dynamic executable>"
+	case string(shellcommand.IncompleteUnparsable):
+		return reason, "<unparsable command>"
+	case string(shellcommand.IncompleteTooLarge):
+		return reason, "<command too large>"
+	case string(shellcommand.IncompleteNestingDepth):
+		return reason, "<command nesting limit>"
+	default:
+		return "analysis_state", "<command analysis failure>"
+	}
+}
+
+func uncertaintySummaryIdentity(summary string) (string, bool) {
+	for _, reason := range []string{
+		"empty", "no_executable", "compound", "ambiguous_executable", string(shellcommand.IncompleteDynamicCommand),
+		string(shellcommand.IncompleteUnparsable), string(shellcommand.IncompleteTooLarge),
+		string(shellcommand.IncompleteNestingDepth), "analysis_state",
+	} {
+		canonicalReason, canonicalSummary := uncertaintySummary(reason)
+		if summary == canonicalSummary {
+			return "\x00proof-command-uncertain\x00" + canonicalReason, true
+		}
+	}
+	return "", false
+}
+
+func legacyEnvironmentSummary(command string) bool {
+	fields := strings.Fields(command)
+	return len(fields) > 0 && !strings.HasPrefix(fields[0], "'") && !strings.HasPrefix(fields[0], "\"") &&
+		strings.ContainsRune(fields[0], '=') &&
+		(len(fields) == 1 || strings.HasSuffix(command, " [arguments redacted]"))
+}
+
+func quoteSummaryExecutable(name string) string {
+	if name != "" && strings.IndexFunc(name, func(value rune) bool {
+		return !(unicode.IsLetter(value) || unicode.IsDigit(value) || strings.ContainsRune("_@%+:,./-", value))
+	}) < 0 {
+		return name
+	}
+	return "'" + strings.ReplaceAll(name, "'", "'\"'\"'") + "'"
 }
 
 func requiredValues(values []Violation, pick func(Violation) []string) []string {

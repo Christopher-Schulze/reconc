@@ -124,13 +124,99 @@ func TestCommandIdentityNeverCommitsArguments(t *testing.T) {
 		t.Fatalf("command identity = %q and %q, want stable executable identity", first, second)
 	}
 	assignment := commandIdentity(`PRIVATE_SECRET="raw secret" go test`)
-	if assignment != "<environment-prefixed-command>" {
+	if assignment != "go" {
 		t.Fatalf("assignment command identity = %q", assignment)
 	}
 	full := sha256.Sum256([]byte(`go test ./... --token="first secret"`))
 	if got := hashString(first); got == hex.EncodeToString(full[:]) {
 		t.Fatal("command identity unexpectedly equals raw command hash")
 	}
+}
+
+func TestCommandDescriptionUsesEffectiveShellExecutable(t *testing.T) {
+	deep := "go test"
+	for range commandAnalysisDepth + 2 {
+		deep = "echo $(" + deep + ")"
+	}
+	tests := []struct {
+		name     string
+		command  string
+		summary  string
+		identity string
+	}{
+		{name: "simple", command: "/usr/local/bin/go test ./...", summary: "go [arguments redacted]", identity: "go"},
+		{name: "assignment", command: `PRIVATE_SECRET="hidden" go test`, summary: "go [arguments redacted]", identity: "go"},
+		{name: "wrappers", command: `env TOKEN="hidden" sudo -u root timeout 5s /usr/local/bin/go test`, summary: "go [arguments redacted]", identity: "go"},
+		{name: "quoted executable", command: `'/opt/tools/test runner' --token hidden`, summary: `'test runner' [arguments redacted]`, identity: "test runner"},
+		{name: "assignment-shaped executable", command: `'PRIVATE=x'`, summary: `'PRIVATE=x'`, identity: "PRIVATE=x"},
+		{name: "reserved executable", command: `'<compound command>'`, summary: `'<compound command>'`, identity: "<compound command>"},
+		{name: "compound", command: `cd subdir && go test`, summary: "<compound command>", identity: "\x00proof-command-uncertain\x00compound"},
+		{name: "pipeline", command: `go test | tee result.log`, summary: "<compound command>", identity: "\x00proof-command-uncertain\x00compound"},
+		{name: "nested shell", command: `sh -c 'go test'`, summary: "<compound command>", identity: "\x00proof-command-uncertain\x00compound"},
+		{name: "dynamic", command: `"$RUNNER" test`, summary: "<dynamic executable>", identity: "\x00proof-command-uncertain\x00dynamic_command"},
+		{name: "unsupported wrapper", command: `env -S 'go test'`, summary: "<dynamic executable>", identity: "\x00proof-command-uncertain\x00dynamic_command"},
+		{name: "unparsable", command: `go 'unterminated`, summary: "<unparsable command>", identity: "\x00proof-command-uncertain\x00unparsable"},
+		{name: "too large", command: strings.Repeat("x", 1<<20), summary: "<command too large>", identity: "\x00proof-command-uncertain\x00too_large"},
+		{name: "nesting limit", command: deep, summary: "<command nesting limit>", identity: "\x00proof-command-uncertain\x00nesting_depth"},
+		{name: "ambiguous executable", command: `' test'`, summary: "<ambiguous executable>", identity: "\x00proof-command-uncertain\x00ambiguous_executable"},
+		{name: "assignment only", command: `PRIVATE_SECRET="hidden"`, summary: "<no executable>", identity: "\x00proof-command-uncertain\x00no_executable"},
+		{name: "empty", command: " \t\n", summary: "<empty command>", identity: "\x00proof-command-uncertain\x00empty"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			description := describeCommand(test.command)
+			if description.summary != test.summary || description.identity != test.identity {
+				t.Fatalf("describeCommand() = %#v, want summary=%q identity=%q", description, test.summary, test.identity)
+			}
+			if got := commandIdentity(description.summary); got != description.identity {
+				t.Fatalf("summary identity = %q, want %q", got, description.identity)
+			}
+			if strings.Contains(description.summary, "hidden") || strings.Contains(description.identity, "hidden") {
+				t.Fatalf("command description leaked an argument or assignment value: %#v", description)
+			}
+		})
+	}
+}
+
+func TestCommandUncertaintyIdentitiesAreDomainSeparated(t *testing.T) {
+	identities := []string{
+		describeCommand("").identity,
+		describeCommand("TOKEN=hidden").identity,
+		describeCommand("go test && npm test").identity,
+		describeCommand(`"$RUNNER" test`).identity,
+		describeCommand("go 'unterminated").identity,
+		describeCommand(`' test'`).identity,
+		describeCommand("go test").identity,
+		describeCommand(`'<compound command>'`).identity,
+	}
+	seen := make(map[string]struct{}, len(identities))
+	for _, identity := range identities {
+		if _, exists := seen[identity]; exists {
+			t.Fatalf("command identity collision: %q", identity)
+		}
+		seen[identity] = struct{}{}
+	}
+}
+
+func FuzzCommandDescriptionIsDeterministicBoundedAndVerifiable(f *testing.F) {
+	f.Add(`env TOKEN="hidden" go test ./...`)
+	f.Add(`go test && npm test`)
+	f.Add(`"$RUNNER" --token hidden`)
+	f.Add(`go 'unterminated`)
+	f.Add(`env/`)
+	f.Fuzz(func(t *testing.T, command string) {
+		first := describeCommand(command)
+		second := describeCommand(command)
+		if first != second {
+			t.Fatalf("command description is not deterministic: %#v != %#v", first, second)
+		}
+		if !utf8.ValidString(first.summary) || len(first.summary) > maxTextBytes+len("...[bounded]") {
+			t.Fatalf("command summary is invalid or oversized: %q", first.summary)
+		}
+		if got := commandIdentity(first.summary); got != first.identity {
+			t.Fatalf("summary identity = %q, want %q for %q", got, first.identity, first.summary)
+		}
+	})
 }
 
 func FuzzSanitizeTextBoundedAndValid(f *testing.F) {

@@ -13,14 +13,18 @@ Proof-bundle command summaries and grouping hashes use the first `strings.Fields
 
 ## Sub-Tasks
 
-- [ ] Define the privacy-safe executable identity contract
-- [ ] Reuse shellcommand parsing without direct-execution overclaim
-- [ ] Add wrapper, assignment, compound, and malformed tables
-- [ ] Run proofbundle, commandproof, shell, and fuzz gates
+- [x] Define the privacy-safe executable identity contract
+- [x] Reuse shellcommand parsing without direct-execution overclaim
+- [x] Add wrapper, assignment, compound, and malformed tables
+- [x] Run proofbundle, commandproof, shell, and fuzz gates
 
 ## Notes
 
 - Evidence: `internal/proofbundle/bundle.go:279-347`; public docs describe this field as an executable summary.
+- Static single-invocation hashes retain the format-1 executable-name identity; uncertainty classes use a NUL-domain prefix so they cannot collide with a real executable identity.
+- Shell AST syntax, not flattened word values, owns assignment, redirect, and control positions; quoted lookalikes remain real executable words.
+- Summaries and identities exclude arguments and assignment values, round-trip through proof verification, and classify unrepresentable executable names as ambiguous rather than truncating or guessing.
+- Focused package tests, three fuzz targets, `make test`, `make vet`, Staticcheck v0.8.1, and `make self-host` passed.
 
 ## Deviations
 

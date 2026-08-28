@@ -2,6 +2,8 @@ package proofbundle_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -136,6 +138,42 @@ func TestCommandProofIsCurrentBoundAndArgumentRedacted(t *testing.T) {
 	}
 }
 
+func TestCommandProofUsesEffectiveShellExecutableIdentity(t *testing.T) {
+	repo := proofRepo(t, "rules: []\n", map[string]string{"src/main.go": "package main\n"})
+	initGit(t, repo)
+	writeFile(t, repo, "src/main.go", "package main\n\nconst version = 1\n")
+	git(t, repo, "add", "src/main.go")
+	snapshot, err := commandproof.CaptureStagedClean(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := time.Now().UTC()
+	command := `PRIVATE_SECRET="raw secret" env TOKEN="hidden" sudo -u root /usr/local/bin/go test ./...`
+	if _, err := commandproof.StoreSuccess(snapshot, command, "shell", completed.Add(-time.Second), completed); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := proofbundle.Generate(repo, "0.8.6-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Evidence.CommandProofs) != 1 {
+		t.Fatalf("command proofs = %#v", bundle.Evidence.CommandProofs)
+	}
+	proof := bundle.Evidence.CommandProofs[0]
+	if proof.Command != "go [arguments redacted]" || proof.CommandHash != commandHash("go") {
+		t.Fatalf("shell-derived command identity = %#v", proof)
+	}
+	body, err := proofbundle.MarshalJSON(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"raw secret", "hidden", "PRIVATE_SECRET", "TOKEN="} {
+		if strings.Contains(string(body), secret) {
+			t.Fatalf("command proof leaked %q: %s", secret, body)
+		}
+	}
+}
+
 func TestStaleAndTamperedCommandProofsNeverBecomeEvidence(t *testing.T) {
 	policy := "rules:\n  - id: tests\n    kind: require_command_success\n    when_paths: [src/**]\n    commands: [go test]\n    mode: block\n    message: Tests required.\n"
 	for _, test := range []struct {
@@ -263,4 +301,9 @@ func assertPrivateTextAbsent(t *testing.T, body []byte, repo string) {
 			t.Errorf("private value %q leaked into proof", private)
 		}
 	}
+}
+
+func commandHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }

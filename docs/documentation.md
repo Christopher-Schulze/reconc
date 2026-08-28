@@ -159,13 +159,18 @@ missing-field, null-collection, and trailing-value inputs before semantic
 verification. Optional `--repo REPO` binding compares the proof with a fresh
 read-only local completion snapshot. A valid unsigned self-digest proves
 integrity only; it does not identify the author or establish trusted release
-provenance. Command-proof `command_hash` values are stable SHA-256 hashes of
-the sanitized executable identity only. They intentionally do not commit to
-the normalized command or any argument, so an observer cannot use the public
-bundle as an offline argument-guessing oracle. The visible command is an
-executable summary with arguments redacted; sanitization is bounded, portable,
-UTF-8-safe, and defense in depth rather than a guarantee of discovering every
-possible secret format.
+provenance. For a fully parsed single invocation, command-proof `command_hash`
+values are stable SHA-256 hashes of the bounded shell parser's sanitized,
+wrapper-resolved executable identity only. Environment assignments and wrapper
+options never enter the identity. Empty, executable-free, compound, dynamic,
+unparsable, oversized, over-nested, and otherwise ambiguous syntax uses distinct
+domain-separated uncertainty identities instead of naming a guessed executable.
+Hashes intentionally do not commit to the normalized command or any argument,
+so an observer cannot use the public bundle as an offline argument-guessing
+oracle. The visible command is the corresponding executable or uncertainty
+summary with arguments redacted; sanitization is bounded, portable, UTF-8-safe,
+and defense in depth rather than a guarantee of discovering every possible
+secret format.
 
 Submitted Build Week video, Devpost text, and the immutable v0.8.6 artifacts
 remain historical evidence. Current README and documentation use this
@@ -1011,9 +1016,9 @@ state, persists a policy decision, or treats absent evidence as success. It
 emits `repo_root: "."`, repository-relative slash paths, normalized timestamps
 by omission, bounded arrays/text, and no prompts, transcripts, session IDs,
 environment values, usernames, home paths, or raw command arguments. Command
-receipts expose a redacted executable summary plus a SHA-256 identity of that
-sanitized executable only. `--output` atomically writes the exact stdout
-bytes.
+receipts expose either a parser-proven, wrapper-resolved executable summary or
+a deterministic uncertainty summary plus a SHA-256 identity of that sanitized
+classification only. `--output` atomically writes the exact stdout bytes.
 The public schema is `schemas/v1/proof-bundle.schema.json`.
 
 Exit codes:

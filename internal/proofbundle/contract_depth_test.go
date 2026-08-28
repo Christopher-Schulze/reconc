@@ -150,6 +150,33 @@ func TestVerifyRejectsCommandHashThatCommitsToArguments(t *testing.T) {
 	}
 }
 
+func TestVerifyAcceptsCanonicalShellDerivedCommandIdentities(t *testing.T) {
+	tests := []struct {
+		name     string
+		command  string
+		identity string
+	}{
+		{name: "legacy executable", command: "go [arguments redacted]", identity: "go"},
+		{name: "compound uncertainty", command: "<compound command>", identity: "\x00proof-command-uncertain\x00compound"},
+		{name: "quoted reserved executable", command: `'<compound command>'`, identity: "<compound command>"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			bundle := validProofBundle()
+			bundle.Evidence.CommandProofs = []CommandProof{{
+				Command: test.command, CommandHash: hashString(test.identity),
+				ExecutionMode: "shell", Outcome: "success", Head: strings.Repeat("a", 40),
+				IndexTree: strings.Repeat("b", 40), ReceiptDigest: strings.Repeat("c", 64),
+				CandidateBound: true, Fresh: true,
+			}}
+			bundle.Digest = digest(bundle)
+			if err := Verify(bundle); err != nil {
+				t.Fatalf("Verify() = %v", err)
+			}
+		})
+	}
+}
+
 type failingProofWriter struct{}
 
 func (failingProofWriter) Write([]byte) (int, error) {

@@ -535,26 +535,6 @@ func effectiveWords(words []commandWord) ([]commandWord, bool, bool) {
 	index := 0
 	wrapped := false
 	for index < len(words) {
-		switch {
-		case words[index].dynamic:
-			return nil, wrapped, false
-		case isAssignment(words[index].value), isControlPrefix(words[index].value):
-			index++
-			wrapped = true
-		case isRedirection(words[index].value):
-			exact := isExactRedirection(words[index].value)
-			index++
-			if exact && index < len(words) {
-				index++
-			}
-			wrapped = true
-		default:
-			goto wrappers
-		}
-	}
-
-wrappers:
-	for index < len(words) {
 		if words[index].dynamic {
 			return nil, wrapped, false
 		}
@@ -659,26 +639,6 @@ wrappers:
 		}
 	}
 	return nil, wrapped, true
-}
-
-func isRedirection(word string) bool {
-	trimmed := strings.TrimLeft(word, "0123456789")
-	for _, prefix := range []string{"<<<", "<<-", "<<", ">>", "<>", ">&", "<&", ">|", ">", "<"} {
-		if strings.HasPrefix(trimmed, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func isExactRedirection(word string) bool {
-	trimmed := strings.TrimLeft(word, "0123456789")
-	switch trimmed {
-	case "<<<", "<<-", "<<", ">>", "<>", ">&", "<&", ">|", ">", "<":
-		return true
-	default:
-		return false
-	}
 }
 
 func skipEnvOptions(words []commandWord, index int) (int, bool) {
@@ -1171,15 +1131,6 @@ func isAssignment(word string) bool {
 		return false
 	}
 	return true
-}
-
-func isControlPrefix(word string) bool {
-	switch word {
-	case "!", "if", "then", "elif", "else", "while", "until", "do", "(", ")", "{", "}":
-		return true
-	default:
-		return false
-	}
 }
 
 func isShell(word string) bool {
