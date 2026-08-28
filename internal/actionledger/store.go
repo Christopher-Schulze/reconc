@@ -454,9 +454,6 @@ func (s *Store) loadAppendCheckpointLocked() (
 	if checkpoint, terminalCallIDs, ok := s.fastCheckpointLocked(); ok {
 		return checkpoint, terminalCallIDs, nil
 	}
-	if body, err := s.storage.ReadPrivateFile(checkpointFileName, maxCheckpointBytes); err == nil {
-		_, _ = s.decodeCheckpoint(body)
-	}
 	records, head, _, err := s.loadVerifiedLocked()
 	if err != nil || len(records) == 0 {
 		return ledgerCheckpointPayload{}, nil, err

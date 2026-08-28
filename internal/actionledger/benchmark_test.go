@@ -34,6 +34,28 @@ func BenchmarkLedgerAppendWithTerminalHistory(b *testing.B) {
 	}
 }
 
+func BenchmarkLedgerColdAppendCheckpointLoad(b *testing.B) {
+	fixture := newLedgerStoreFixture(b)
+	for index := 0; index < 256; index++ {
+		appendTerminalBenchmarkCall(b, fixture, index+1)
+	}
+	cold, err := OpenStore(fixture.storage)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		checkpoint, terminalCallIDs, err := cold.loadAppendCheckpointLocked()
+		if err != nil {
+			b.Fatal(err)
+		}
+		if checkpoint.TerminalCallCount != 256 || len(terminalCallIDs) != 256 {
+			b.Fatalf("cold checkpoint summary = %d terminal calls and %d indexed IDs", checkpoint.TerminalCallCount, len(terminalCallIDs))
+		}
+	}
+}
+
 func BenchmarkLedgerAppendRetentionScaling(b *testing.B) {
 	for _, test := range []struct {
 		name     string

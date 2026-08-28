@@ -42,7 +42,13 @@ func TestIncrementalCheckpointRecoversCorruptionAndExternalWriter(t *testing.T) 
 	if err := os.WriteFile(fixture.store.checkpointPath, []byte("corrupt\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	appendTerminalBenchmarkCall(t, fixture, 2)
+	cold, err := OpenStore(fixture.storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coldFixture := *fixture
+	coldFixture.store = cold
+	appendTerminalBenchmarkCall(t, &coldFixture, 2)
 	body, err := fixture.storage.ReadPrivateFile(checkpointFileName, maxCheckpointBytes)
 	if err != nil {
 		t.Fatal(err)
@@ -64,6 +70,32 @@ func TestIncrementalCheckpointRecoversCorruptionAndExternalWriter(t *testing.T) 
 	bindBenchmarkCall(fixture, &failure, 3)
 	if _, err := fixture.store.Append(context.Background(), failure); err != nil {
 		t.Fatalf("append after external writer: %v", err)
+	}
+}
+
+func TestIncrementalCheckpointRecoversMissingCheckpointOnColdAppend(t *testing.T) {
+	fixture := newLedgerStoreFixture(t)
+	appendTerminalBenchmarkCall(t, fixture, 1)
+	if err := os.Remove(fixture.store.checkpointPath); err != nil {
+		t.Fatal(err)
+	}
+	cold, err := OpenStore(fixture.storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coldFixture := *fixture
+	coldFixture.store = cold
+	appendTerminalBenchmarkCall(t, &coldFixture, 2)
+	body, err := fixture.storage.ReadPrivateFile(checkpointFileName, maxCheckpointBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := cold.decodeCheckpoint(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint.TerminalCallCount != 2 || checkpoint.TerminalCallDigest == "" {
+		t.Fatalf("rebuilt checkpoint summary = %#v", checkpoint)
 	}
 }
 
