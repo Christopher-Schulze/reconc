@@ -233,7 +233,7 @@ func TestDecisionCacheBindsEveryBudgetStateComponent(t *testing.T) {
 	}
 }
 
-func TestCanonicalArgumentBytesForBudgetsUsesCanonicalValueOnce(t *testing.T) {
+func TestCanonicalArgumentBytesForBudgetsUsesCanonicalSizeOnce(t *testing.T) {
 	t.Parallel()
 	arguments := mustTestValue(t, `{"unicode":"ä","number":1.0,"nested":{"ok":[true,false]}}`)
 	request := Request{Arguments: &arguments}
@@ -243,42 +243,93 @@ func TestCanonicalArgumentBytesForBudgetsUsesCanonicalValueOnce(t *testing.T) {
 		{Limits: BudgetLimits{ArgumentBytes: 1}},
 		{Limits: BudgetLimits{ArgumentBytes: 4096, ResultBytes: 1}},
 	}
-	bytes, err := canonicalArgumentBytesForBudgets(budgets, request)
-	if err != nil || bytes == nil {
-		t.Fatalf("canonical argument size = %v, %v", bytes, err)
+	bytes, known, err := canonicalArgumentBytesForBudgets(budgets, request)
+	if err != nil || !known {
+		t.Fatalf("canonical argument size = %d, known %t, %v", bytes, known, err)
 	}
 	body, err := arguments.MarshalJSON()
-	if err != nil || *bytes != uint64(len(body)) {
-		t.Fatalf("canonical argument bytes = %d, want %d (%s), err = %v", *bytes, len(body), body, err)
+	if err != nil || bytes != uint64(len(body)) {
+		t.Fatalf("canonical argument bytes = %d, want %d (%s), err = %v", bytes, len(body), body, err)
 	}
 	first, err := expectedBudgetUsageWithArgumentBytes(
-		budgets[1].Limits, tool, request, bytes, nil,
+		budgets[1].Limits, tool, request, bytes, known, nil,
 	)
-	if err != nil || first.ArgumentBytes != *bytes {
+	if err != nil || first.ArgumentBytes != bytes {
 		t.Fatalf("first shared usage = %#v, %v", first, err)
 	}
 	second, err := expectedBudgetUsageWithArgumentBytes(
-		budgets[2].Limits, tool, request, bytes, nil,
+		budgets[2].Limits, tool, request, bytes, known, nil,
 	)
-	if err != nil || second.ArgumentBytes != *bytes {
+	if err != nil || second.ArgumentBytes != bytes {
 		t.Fatalf("second shared usage = %#v, %v", second, err)
 	}
-	withoutArgumentLimit, err := canonicalArgumentBytesForBudgets(
+	withoutArgumentLimit, withoutArgumentLimitKnown, err := canonicalArgumentBytesForBudgets(
 		[]Budget{{Limits: BudgetLimits{CallCount: 1}}}, request,
 	)
-	if err != nil || withoutArgumentLimit != nil {
-		t.Fatalf("unneeded argument serialization = %v, %v", withoutArgumentLimit, err)
+	if err != nil || withoutArgumentLimitKnown || withoutArgumentLimit != 0 {
+		t.Fatalf("unneeded argument sizing = %d, known %t, %v", withoutArgumentLimit, withoutArgumentLimitKnown, err)
 	}
 }
 
-func TestCanonicalArgumentBytesForBudgetsPropagatesMarshalFailure(t *testing.T) {
+func TestCanonicalArgumentBytesForBudgetsPropagatesSizeFailure(t *testing.T) {
 	t.Parallel()
 	request := Request{Arguments: &Value{kind: ValueKind("corrupt")}}
-	_, err := canonicalArgumentBytesForBudgets(
+	_, _, err := canonicalArgumentBytesForBudgets(
 		[]Budget{{Limits: BudgetLimits{ArgumentBytes: 1}}}, request,
 	)
 	if err == nil {
 		t.Fatal("corrupt canonical argument value was accepted")
+	}
+}
+
+func TestBudgetArgumentSizeMatchesCanonicalEncodingAcrossValueKinds(t *testing.T) {
+	deep := strings.Repeat("[", MaxJSONDepth) + "null" + strings.Repeat("]", MaxJSONDepth)
+	for _, raw := range []string{
+		`null`, `true`, `-12345e-9`, `"controls\n<& and unicode ä"`, `[]`, `[null,true,1,"x"]`,
+		`{}`, `{"z":1.0,"a":{"nested":[false]}}`, deep,
+	} {
+		value := mustTestValue(t, raw)
+		request := Request{Arguments: &value}
+		got, err := canonicalArgumentBytes(request)
+		body, marshalErr := value.MarshalJSON()
+		if err != nil || marshalErr != nil || got != uint64(len(body)) {
+			t.Fatalf("canonical budget size for %s = %d, encoded %d, errors %v/%v", raw, got, len(body), err, marshalErr)
+		}
+	}
+}
+
+func TestBudgetArgumentSizePreservesCanonicalErrors(t *testing.T) {
+	if _, err := canonicalArgumentBytes(Request{}); err == nil || err.Error() != "budgeted pre-call arguments are absent" {
+		t.Fatalf("nil arguments error = %v", err)
+	}
+	value := Null()
+	for range MaxJSONDepth + 1 {
+		value = Value{kind: ValueArray, array: []Value{value}}
+	}
+	for _, invalid := range []Value{{kind: ValueKind("corrupt")}, value} {
+		_, wantErr := invalid.MarshalJSON()
+		_, gotErr := canonicalArgumentBytes(Request{Arguments: &invalid})
+		if wantErr == nil || gotErr == nil || gotErr.Error() != wantErr.Error() {
+			t.Fatalf("canonical error mismatch: budget=%v marshal=%v", gotErr, wantErr)
+		}
+	}
+	if _, err := addJSONSize(int(^uint(0)>>1), 1); err == nil {
+		t.Fatal("canonical size overflow was accepted")
+	}
+}
+
+func TestCanonicalArgumentBytesForBudgetsDoesNotAllocate(t *testing.T) {
+	arguments := mustTestValue(t, `{"unicode":"ä","number":1.0,"nested":{"ok":[true,false]}}`)
+	request := Request{Arguments: &arguments}
+	budgets := []Budget{{Limits: BudgetLimits{ArgumentBytes: 4096}}}
+	allocations := testing.AllocsPerRun(1_000, func() {
+		bytes, known, err := canonicalArgumentBytesForBudgets(budgets, request)
+		if err != nil || !known || bytes == 0 {
+			panic("canonical argument sizing failed")
+		}
+	})
+	if allocations != 0 {
+		t.Fatalf("canonical budget argument sizing allocated %.2f objects per run", allocations)
 	}
 }
 
@@ -293,12 +344,12 @@ func BenchmarkBudgetArgumentSizeShared(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for iteration := 0; iteration < b.N; iteration++ {
-		bytes, err := canonicalArgumentBytesForBudgets(budgets, request)
-		if err != nil || bytes == nil {
+		bytes, known, err := canonicalArgumentBytesForBudgets(budgets, request)
+		if err != nil || !known {
 			b.Fatal(err)
 		}
 		for _, budget := range budgets {
-			if _, err := expectedBudgetUsageWithArgumentBytes(budget.Limits, tool, request, bytes, nil); err != nil {
+			if _, err := expectedBudgetUsageWithArgumentBytes(budget.Limits, tool, request, bytes, known, nil); err != nil {
 				b.Fatal(err)
 			}
 		}

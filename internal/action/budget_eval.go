@@ -104,7 +104,7 @@ func (e *Evaluator) normalizeBudgetInput(input *EvaluationInput) *RequestError {
 	if !validSnapshotKey || !validStateKey || snapshotKeyID != stateKeyID {
 		return &RequestError{Code: ReasonStateCorrupt, Message: "budget snapshot key generation is invalid"}
 	}
-	argumentBytes, argumentErr := canonicalArgumentBytesForBudgets(expected, input.Request)
+	argumentBytes, argumentBytesKnown, argumentErr := canonicalArgumentBytesForBudgets(expected, input.Request)
 	for index := range candidates {
 		candidate := &candidates[index]
 		if candidate.BudgetID != expected[index].ID {
@@ -113,7 +113,7 @@ func (e *Evaluator) normalizeBudgetInput(input *EvaluationInput) *RequestError {
 		if tool == nil {
 			return &RequestError{Code: ReasonStateCorrupt, Message: "budget snapshot targets an undeclared tool"}
 		}
-		if err := validateBudgetCandidate(*candidate, expected[index], input, *tool, argumentBytes, argumentErr); err != nil {
+		if err := validateBudgetCandidate(*candidate, expected[index], input, *tool, argumentBytes, argumentBytesKnown, argumentErr); err != nil {
 			return &RequestError{Code: ReasonStateCorrupt, Message: err.Error()}
 		}
 		if candidate.Generation.KeyID != snapshotKeyID {
@@ -145,7 +145,8 @@ func validateBudgetCandidate(
 	declaration Budget,
 	input *EvaluationInput,
 	tool Tool,
-	argumentBytes *uint64,
+	argumentBytes uint64,
+	argumentBytesKnown bool,
 	argumentErr error,
 ) error {
 	if candidate.Reset != declaration.Reset || candidate.WindowSeconds != declaration.WindowSeconds ||
@@ -164,7 +165,7 @@ func validateBudgetCandidate(
 		return fmt.Errorf("budget %q governing generation is invalid", declaration.ID)
 	}
 	required, err := expectedBudgetUsageWithArgumentBytes(
-		declaration.Limits, tool, input.Request, argumentBytes, argumentErr,
+		declaration.Limits, tool, input.Request, argumentBytes, argumentBytesKnown, argumentErr,
 	)
 	if err != nil || candidate.Required != required {
 		return fmt.Errorf("budget %q reservation charge is invalid", declaration.ID)
@@ -257,14 +258,15 @@ func validateBudgetScope(scope BudgetScope, declaration Budget, input *Evaluatio
 }
 
 func expectedBudgetUsage(limits BudgetLimits, tool Tool, request Request) (BudgetUsage, error) {
-	return expectedBudgetUsageWithArgumentBytes(limits, tool, request, nil, nil)
+	return expectedBudgetUsageWithArgumentBytes(limits, tool, request, 0, false, nil)
 }
 
 func expectedBudgetUsageWithArgumentBytes(
 	limits BudgetLimits,
 	tool Tool,
 	request Request,
-	argumentBytes *uint64,
+	argumentBytes uint64,
+	argumentBytesKnown bool,
 	argumentErr error,
 ) (BudgetUsage, error) {
 	usage := BudgetUsage{}
@@ -275,17 +277,14 @@ func expectedBudgetUsageWithArgumentBytes(
 		if argumentErr != nil {
 			return BudgetUsage{}, argumentErr
 		}
-		if argumentBytes != nil {
-			usage.ArgumentBytes = *argumentBytes
+		if argumentBytesKnown {
+			usage.ArgumentBytes = argumentBytes
 		} else {
-			if request.Arguments == nil {
-				return BudgetUsage{}, fmt.Errorf("budgeted pre-call arguments are absent")
-			}
-			body, err := request.Arguments.MarshalJSON()
+			measured, err := canonicalArgumentBytes(request)
 			if err != nil {
 				return BudgetUsage{}, err
 			}
-			usage.ArgumentBytes = uint64(len(body))
+			usage.ArgumentBytes = measured
 		}
 	}
 	if limits.ResultBytes != 0 {
@@ -306,22 +305,29 @@ func expectedBudgetUsageWithArgumentBytes(
 func canonicalArgumentBytesForBudgets(
 	budgets []Budget,
 	request Request,
-) (*uint64, error) {
+) (uint64, bool, error) {
 	for _, budget := range budgets {
 		if budget.Limits.ArgumentBytes == 0 {
 			continue
 		}
-		if request.Arguments == nil {
-			return nil, fmt.Errorf("budgeted pre-call arguments are absent")
-		}
-		body, err := request.Arguments.MarshalJSON()
+		bytes, err := canonicalArgumentBytes(request)
 		if err != nil {
-			return nil, err
+			return 0, true, err
 		}
-		bytes := uint64(len(body))
-		return &bytes, nil
+		return bytes, true, nil
 	}
-	return nil, nil
+	return 0, false, nil
+}
+
+func canonicalArgumentBytes(request Request) (uint64, error) {
+	if request.Arguments == nil {
+		return 0, fmt.Errorf("budgeted pre-call arguments are absent")
+	}
+	size, err := request.Arguments.CanonicalJSONSize()
+	if err != nil {
+		return 0, err
+	}
+	return uint64(size), nil
 }
 
 func budgetCapacityAvailable(

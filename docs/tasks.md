@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 312 Use canonical size for budget arguments -> tasks/312-use-canonical-size-for-budget-arguments.md
 - [ ] 313 Eliminate redundant compiler payload serialization -> tasks/313-eliminate-redundant-compiler-payload-serialization.md
 - [ ] 314 Remove the discarded action-ledger checkpoint decode -> tasks/314-remove-the-discarded-action-ledger-checkpoint-decode.md
 - [ ] 315 Check forbid-command path triggers before command analysis -> tasks/315-check-forbid-command-path-triggers-before-command-analysis.md
@@ -42,6 +41,7 @@
 
 ## Done
 
+- [x] 312 Use canonical size for budget arguments -> tasks/done/312-use-canonical-size-for-budget-arguments.md
 - [x] 311 Correct action trace byte accounting -> tasks/done/311-correct-action-trace-byte-accounting.md
 - [x] 310 Derive proof-bundle executable identity from shell syntax -> tasks/done/310-derive-proof-bundle-executable-identity-from-shell-syntax.md
 - [x] 309 Make hook install authorization atomic with publication -> tasks/done/309-make-hook-install-authorization-atomic-with-publication.md
@@ -51,4 +51,3 @@
 - [x] 305 Reject extension-only policy targets -> tasks/done/305-reject-extension-only-policy-targets.md
 - [x] 304 Fix assurance guard comment classification -> tasks/done/304-fix-assurance-guard-comment-classification.md
 - [x] 303 Enforce the expanded YAML alias budget -> tasks/done/303-enforce-the-expanded-yaml-alias-budget.md
-- [x] 302 Route all untrusted YAML through bounded admission -> tasks/done/302-route-all-untrusted-yaml-through-bounded-admission.md
