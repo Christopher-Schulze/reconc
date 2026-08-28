@@ -1721,7 +1721,10 @@ clears its tamper-evident receipt. Time and retention never clear it. With no
 typed TASK lifecycle, the TASK check is a minimal pass; configured lifecycle
 state must be terminal and satisfy every required section, evidence field, and
 optional committed-control-plane rule. `--require-clean-git` adds a clean-tree
-check. Elapsed time is never completion evidence.
+check. When the gate persists a policy decision, it captures the candidate
+immediately before and after publication; drift makes the receipt retryable and
+keeps any stored blocking record bound to its original fingerprint. Elapsed
+time is never completion evidence.
 
 `reconc task status|validate|check-done` are read-only. `new`, `claim`, `block`,
 `resume`, `split`, `promote`, and `archive` serialize through a cross-platform

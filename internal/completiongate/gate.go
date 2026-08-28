@@ -33,6 +33,8 @@ func (e *RetryableStateDriftError) Error() string {
 	return "repository, policy, or active-session state changed during completion evaluation; retry"
 }
 
+type completionStateCapture func(string) (agentsession.CompletionStateSnapshot, error)
+
 type Status string
 
 const (
@@ -282,12 +284,39 @@ func evaluateOnce(repo string, options Options) (*Report, error) {
 			if event == "" {
 				event = "done"
 			}
-			if err := policyproof.Store(stateBefore.RepoRoot, event, stateBefore.Fingerprint, policyReport); err != nil {
+			if err := persistDecisionAtStableCandidate(
+				stateBefore.RepoRoot, event, stateBefore.Fingerprint, policyReport, agentsession.CaptureCompletionState,
+			); err != nil {
 				return nil, err
 			}
 		}
 	}
 	return report, nil
+}
+
+func persistDecisionAtStableCandidate(
+	repo, event, fingerprint string,
+	report *runtime.CheckReport,
+	capture completionStateCapture,
+) error {
+	before, err := capture(repo)
+	if err != nil {
+		return fmt.Errorf("capture completion candidate before policy proof publication: %w", err)
+	}
+	if before.Fingerprint != fingerprint {
+		return &RetryableStateDriftError{}
+	}
+	if err := policyproof.Store(repo, event, fingerprint, report); err != nil {
+		return err
+	}
+	after, err := capture(repo)
+	if err != nil {
+		return fmt.Errorf("confirm completion candidate after policy proof publication: %w", err)
+	}
+	if after.Fingerprint != fingerprint {
+		return &RetryableStateDriftError{}
+	}
+	return nil
 }
 
 // VerifyReport validates the self-digest of an already rendered completion

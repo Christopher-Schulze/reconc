@@ -2,11 +2,13 @@ package completiongate
 
 import (
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/policyproof"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 	"reconc.dev/reconc/internal/schema"
@@ -49,6 +51,81 @@ func TestCompletionDoesNotRetryNonRetryableFailure(t *testing.T) {
 	if !errors.Is(err, want) || attempts != 1 {
 		t.Fatalf("non-retryable failure = err:%v attempts:%d, want one attempt and original error", err, attempts)
 	}
+}
+
+func TestPolicyDecisionPublicationRequiresStableCandidate(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := t.TempDir()
+	fingerprint := strings.Repeat("a", 64)
+	base := agentsession.CompletionStateSnapshot{RepoRoot: repo, Fingerprint: fingerprint}
+	drifted := base
+	drifted.Fingerprint = strings.Repeat("b", 64)
+	blocking := completionRetryReport(repo, true)
+	passing := completionRetryReport(repo, false)
+
+	t.Run("mutation before publication", func(t *testing.T) {
+		err := persistDecisionAtStableCandidate(repo, "done", fingerprint, blocking, sequenceCapture(drifted))
+		var drift *RetryableStateDriftError
+		if !errors.As(err, &drift) {
+			t.Fatalf("pre-publication mutation error = %v, want typed drift", err)
+		}
+		if _, found, loadErr := policyproof.LoadLatest(repo); loadErr != nil || found {
+			t.Fatalf("pre-publication mutation left a receipt: found=%t err=%v", found, loadErr)
+		}
+	})
+
+	t.Run("mutation after publication", func(t *testing.T) {
+		err := persistDecisionAtStableCandidate(repo, "done", fingerprint, blocking, sequenceCapture(base, drifted))
+		var drift *RetryableStateDriftError
+		if !errors.As(err, &drift) {
+			t.Fatalf("post-publication mutation error = %v, want typed drift", err)
+		}
+		record, found, loadErr := policyproof.LoadLatest(repo)
+		if loadErr != nil || !found || record.CandidateFingerprint != fingerprint {
+			t.Fatalf("post-publication receipt = found:%t record:%#v err:%v, want bound old candidate", found, record, loadErr)
+		}
+	})
+
+	t.Run("stable block remains published", func(t *testing.T) {
+		if err := persistDecisionAtStableCandidate(repo, "done", fingerprint, blocking, sequenceCapture(base, base)); err != nil {
+			t.Fatalf("stable block publication: %v", err)
+		}
+		if _, found, err := policyproof.LoadLatest(repo); err != nil || !found {
+			t.Fatalf("stable block receipt: found=%t err=%v", found, err)
+		}
+	})
+
+	t.Run("stale success never becomes receipt", func(t *testing.T) {
+		if err := persistDecisionAtStableCandidate(repo, "done", fingerprint, passing, sequenceCapture(base, drifted)); err == nil {
+			t.Fatal("stale success publication unexpectedly succeeded")
+		}
+		if _, found, err := policyproof.LoadLatest(repo); err != nil || found {
+			t.Fatalf("stale success left a receipt: found=%t err=%v", found, err)
+		}
+	})
+}
+
+func sequenceCapture(states ...agentsession.CompletionStateSnapshot) completionStateCapture {
+	index := 0
+	return func(string) (agentsession.CompletionStateSnapshot, error) {
+		if index >= len(states) {
+			return states[len(states)-1], nil
+		}
+		state := states[index]
+		index++
+		return state, nil
+	}
+}
+
+func completionRetryReport(repo string, blocking bool) *runtime.CheckReport {
+	report := runtime.NewEmptyReport(repo, filepath.Join(repo, ".reconc", "policy.lock.json"), policy.ModeBlock, runtime.Empty())
+	if blocking {
+		report.Violations = append(report.Violations, runtime.Violation{
+			RuleID: "retry-block", Kind: policy.KindDenyWrite, Mode: policy.ModeBlock, Message: "blocked",
+		})
+	}
+	report.Finalize()
+	return &report
 }
 
 func TestVerifyReportRejectsEveryEnvelopeFailure(t *testing.T) {
