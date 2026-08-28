@@ -9,12 +9,12 @@ import (
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/customruntime"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/presets"
+	"reconc.dev/reconc/internal/yamlbound"
 )
 
 // GlobalPolicyFilename is the filename for the user-level global policy
@@ -598,24 +598,11 @@ func validatePolicySourceBounds(sources []policy.PolicySource) error {
 // Empty input is normalized to an empty map. Non-mapping documents
 // raise a PolicySourceError.
 func decodeYAMLMapping(raw, context string) (map[string]interface{}, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return map[string]interface{}{}, nil
-	}
-	var doc interface{}
-	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+	_, mapping, err := yamlbound.DecodeMapping([]byte(raw), context)
+	if err != nil {
 		return nil, &rerrors.PolicySourceError{
-			Message: "invalid yaml in " + context,
+			Message: "decode YAML mapping in " + context,
 			Cause:   err,
-		}
-	}
-	if doc == nil {
-		return map[string]interface{}{}, nil
-	}
-	mapping, ok := doc.(map[string]interface{})
-	if !ok {
-		return nil, &rerrors.PolicySourceError{
-			Message: "expected a YAML mapping in " + context,
 		}
 	}
 	return mapping, nil

@@ -147,7 +147,7 @@ internal/
   templates/      bundled rule-shape templates (embed.FS) + user overlays
   tui/            dependency-free terminal dashboard
   usercli/        atomic running-build install + exact bare-command PATH verification
-  yamlbound/      shared bounded YAML mapping admission before alias expansion
+  yamlbound/      shared bounded YAML mapping admission before generic materialization
 ```
 
 `cmd/reconc/main.go` parses argv, delegates to
@@ -651,7 +651,9 @@ and byte-compares the notice before checksums and provenance are accepted.
      root identities before bytes enter the source bundle.
      A compiler config is decoded into one bounded YAML mapping; include and
      preset extraction consume that same representation, so source-loading
-     fields cannot drift through independent parses. The parser then enforces
+     fields cannot drift through independent parses. User templates and deep
+     doctor reference inspection enter through the same admission boundary.
+     The parser then enforces
      the canonical typed-graph limits before rule construction: 4,096 rules,
      256 checks or list items per rule, 1 KiB pattern strings, 16 KiB command
      strings, 64 KiB message strings, 32 YAML levels, 131,072 YAML nodes,
@@ -795,9 +797,10 @@ current v6 lock schema carries the same kind conditions as an overlay; legacy
 published schemas remain immutable.
 
 The parser owns one compile-scoped template cache and validates every cached
-resolution again before returning the parsed policy. Preset manifests and
-policy sources share `yamlbound` node, alias, depth, scalar, and
-single-document admission. Compiler conflict analysis groups rules by
+resolution again before returning the parsed policy. Preset manifests, policy
+sources, user templates, and deep-doctor reference inspection share
+`yamlbound` node, alias, depth, scalar, mapping-root, and single-document
+admission. Compiler conflict analysis groups rules by
 length-delimited normalized semantic keys and caps materialized pairs with an
 explicit truncation record; it never repeats list sorting inside a pair loop.
 

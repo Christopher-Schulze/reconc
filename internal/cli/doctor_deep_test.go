@@ -16,6 +16,7 @@ import (
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/runtime/agentsession"
+	"reconc.dev/reconc/internal/yamlbound"
 )
 
 type doctorDeepJSON struct {
@@ -427,6 +428,11 @@ func TestDoctorDeepHelperCoverage(t *testing.T) {
 		}
 		if _, err := decodeDoctorYAML("{", "broken.yml"); err == nil {
 			t.Fatal("expected invalid YAML error")
+		}
+		for _, raw := range []string{"null\n", "- item\n", "rules: []\n---\nrules: []\n", "base: &base {value: x}\nrules:\n" + strings.Repeat("  - *base\n", yamlbound.MaxAliases+1)} {
+			if _, err := decodeDoctorYAML(raw, "bounded.yml"); err == nil || !strings.Contains(err.Error(), "bounded.yml") {
+				t.Fatalf("bounded doctor YAML was accepted or lost context: %v", err)
+			}
 		}
 	})
 

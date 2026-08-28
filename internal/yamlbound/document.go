@@ -1,5 +1,5 @@
 // Package yamlbound owns the bounded YAML-to-mapping admission boundary shared
-// by policy parsing and schema validation.
+// by every generic policy, template, and diagnostic YAML consumer.
 package yamlbound
 
 import (
@@ -59,7 +59,7 @@ func DecodeMapping(body []byte, context string) (*yaml.Node, map[string]interfac
 		if len(document.Content) == 0 {
 			return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}, map[string]interface{}{}, nil
 		}
-		return nil, nil, &rerrors.RuleValidationError{Message: "expected a YAML mapping in " + context + "; explicit null is not an empty policy"}
+		return nil, nil, &rerrors.RuleValidationError{Message: "expected a YAML mapping in " + context + "; explicit null is not an empty mapping"}
 	}
 	mapping, ok := decoded.(map[string]interface{})
 	if !ok || len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {

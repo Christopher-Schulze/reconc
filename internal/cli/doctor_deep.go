@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"reconc.dev/reconc/internal/audit"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/compiler"
@@ -25,6 +23,7 @@ import (
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 	"reconc.dev/reconc/internal/templates"
+	"reconc.dev/reconc/internal/yamlbound"
 )
 
 const (
@@ -745,14 +744,11 @@ func extractTemplateRefs(raw, context string) ([]string, error) {
 }
 
 func decodeDoctorYAML(raw, context string) (interface{}, error) {
-	if strings.TrimSpace(raw) == "" {
-		return map[string]interface{}{}, nil
+	_, document, err := yamlbound.DecodeMapping([]byte(raw), context)
+	if err != nil {
+		return nil, fmt.Errorf("decode YAML in %s: %w", context, err)
 	}
-	var doc interface{}
-	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
-		return nil, fmt.Errorf("invalid YAML in %s: %w", context, err)
-	}
-	return normalizeDoctorValue(doc), nil
+	return normalizeDoctorValue(document), nil
 }
 
 func normalizeDoctorValue(v interface{}) interface{} {

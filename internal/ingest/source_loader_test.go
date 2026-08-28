@@ -10,6 +10,7 @@ import (
 
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/yamlbound"
 )
 
 // withRECONCHome isolates RECONC_HOME for tests so user-level state
@@ -379,6 +380,54 @@ func TestLoadPolicySourcesInvalidConfigYAMLFails(t *testing.T) {
 	if !stderrors.As(err, &pse) {
 		t.Errorf("expected *PolicySourceError, got %T", err)
 	}
+}
+
+func TestDecodeYAMLMappingUsesBoundedAdmission(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{name: "empty", body: ""},
+		{name: "mapping", body: "extends: []\n"},
+		{name: "explicit null", body: "null\n", wantErr: "explicit null is not an empty mapping"},
+		{name: "sequence root", body: "- strict\n", wantErr: "expected a YAML mapping"},
+		{name: "duplicate document", body: "extends: []\n---\ninclude: []\n", wantErr: "must contain exactly one document"},
+		{name: "alias budget", body: "base: &base {value: x}\nitems:\n" + strings.Repeat("  - *base\n", yamlbound.MaxAliases+1), wantErr: "yaml aliases"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mapping, err := decodeYAMLMapping(test.body, ".reconc.yml")
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("decodeYAMLMapping: %v", err)
+				}
+				if mapping == nil {
+					t.Fatal("decodeYAMLMapping returned a nil mapping")
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) || !strings.Contains(err.Error(), ".reconc.yml") {
+				t.Fatalf("decodeYAMLMapping error = %v, want %q with source context", err, test.wantErr)
+			}
+			var sourceErr *rerrors.PolicySourceError
+			if !stderrors.As(err, &sourceErr) {
+				t.Fatalf("decodeYAMLMapping error type = %T, want *PolicySourceError", err)
+			}
+		})
+	}
+}
+
+func FuzzDecodeYAMLMappingBounded(f *testing.F) {
+	for _, seed := range []string{"extends: []\n", "null\n", "extends: []\n---\ninclude: []\n"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, body string) {
+		if len(body) > maxPolicySourceBytes {
+			t.Skip()
+		}
+		_, _ = decodeYAMLMapping(body, "fuzz.yml")
+	})
 }
 
 // helper to dump source kinds for assertion failures

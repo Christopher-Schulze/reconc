@@ -27,10 +27,10 @@ import (
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/presets"
 	"reconc.dev/reconc/internal/safename"
+	"reconc.dev/reconc/internal/yamlbound"
 )
 
 const (
@@ -239,8 +239,8 @@ func readRegularFile(path string) ([]byte, error) {
 }
 
 func parseTemplateBytes(data []byte, contextPath string) (map[string]interface{}, string, error) {
-	var parsed map[string]interface{}
-	if err := yaml.Unmarshal(data, &parsed); err != nil {
+	_, parsed, err := yamlbound.DecodeMapping(data, "template "+contextPath)
+	if err != nil {
 		return nil, "", fmt.Errorf("parse template %s: %w", contextPath, err)
 	}
 	description := ""

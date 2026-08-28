@@ -1913,9 +1913,11 @@ patterns are capped at 256 and 1 KiB each, directory enumeration and matches
 are capped, only regular files are candidates, and `**` is not recursive
 special syntax. Duplicate paths are removed by normalized repository-relative
 identity before reading.
-The compiler configuration is decoded once into the authoritative YAML
+The compiler configuration is decoded once into the authoritative bounded YAML
 mapping; `include` and `extends` extraction then share that document while
-retaining their existing strict field/type errors.
+retaining their existing strict field/type errors. User templates and deep
+doctor reference extraction enter through the same mapping-root, single-document,
+node, alias, depth, and scalar-byte admission before generic values exist.
 Every retained rule-bearing source is likewise syntactically decoded once into
 one bounded YAML document. Rule, scope, default-mode, and MCP validation consume
 its typed mapping while canonical action validation consumes the same retained
@@ -2019,10 +2021,10 @@ evidence, assurance, scope, and composite sub-check collections use the same
 item and text ceilings, so a source cannot bypass bounds by moving data into a
 nested variant. Empty and comment-only rule sources remain valid empty
 documents; explicit YAML `null` is rejected because it is not a policy mapping.
-User preset manifests enter this same bounded YAML admission path. Template
-resolution is cached once per compile by normalized name and exact resolved
-source content, then re-resolved before publication so replacement during the
-compile fails closed.
+User preset manifests and templates enter this same bounded YAML admission
+path. Template resolution is cached once per compile by normalized name and
+exact resolved source content, then re-resolved before publication so
+replacement during the compile fails closed.
 Runtime resolves every such path against the filesystem identity of the
 repository root and rejects symlink, reparse-point, or missing-tail resolution
 that escapes it. One evaluation owns one resolved root identity and one bounded

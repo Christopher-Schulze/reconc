@@ -85,7 +85,7 @@ func TestParserDistinguishesEmptyDocumentFromExplicitNull(t *testing.T) {
 		}
 	}
 	if _, err := decodeYAMLDocumentBounded("null\n", "null.yml"); err == nil ||
-		!strings.Contains(err.Error(), "explicit null is not an empty policy") {
+		!strings.Contains(err.Error(), "explicit null is not an empty mapping") {
 		t.Fatalf("explicit null policy error = %v", err)
 	}
 }

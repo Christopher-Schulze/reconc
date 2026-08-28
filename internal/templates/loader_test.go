@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/internal/yamlbound"
 )
 
 func TestResolveRejectsSymlinkedUserTemplateRoot(t *testing.T) {
@@ -176,6 +178,74 @@ func TestListFailsClosedOnMalformedUserTemplate(t *testing.T) {
 	if _, err := List(); err == nil {
 		t.Fatal("malformed user template was silently omitted")
 	}
+}
+
+func TestParseTemplateBytesUsesBoundedMappingAdmission(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{name: "empty", body: ""},
+		{name: "mapping", body: "description: example\nkind: deny_write\n"},
+		{name: "explicit null", body: "null\n", wantErr: "explicit null is not an empty mapping"},
+		{name: "sequence root", body: "- deny_write\n", wantErr: "expected a YAML mapping"},
+		{name: "duplicate document", body: "kind: deny_write\n---\nmode: block\n", wantErr: "must contain exactly one document"},
+		{name: "alias budget", body: "base: &base {value: x}\nrules:\n" + strings.Repeat("  - *base\n", yamlbound.MaxAliases+1), wantErr: "yaml aliases"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body, _, err := parseTemplateBytes([]byte(test.body), "custom.yml")
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("parseTemplateBytes: %v", err)
+				}
+				if body == nil {
+					t.Fatal("parseTemplateBytes returned a nil mapping")
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) || !strings.Contains(err.Error(), "custom.yml") {
+				t.Fatalf("parseTemplateBytes error = %v, want %q with template context", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestResolveRejectsOversizedUserTemplate(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RECONC_HOME", home)
+	templateDir := filepath.Join(home, "templates")
+	if err := os.MkdirAll(templateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(templateDir, "oversized.yml")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxUserTemplateBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Resolve("oversized"); err == nil || !strings.Contains(err.Error(), "exceeds 8388608 bytes") {
+		t.Fatalf("oversized user template error = %v", err)
+	}
+}
+
+func FuzzParseTemplateBytesBounded(f *testing.F) {
+	for _, seed := range []string{"kind: deny_write\n", "null\n", "kind: one\n---\nkind: two\n"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, body string) {
+		if len(body) > maxUserTemplateBytes {
+			t.Skip()
+		}
+		_, _, _ = parseTemplateBytes([]byte(body), "fuzz.yml")
+	})
 }
 
 func TestApplyUserFieldsWin(t *testing.T) {
