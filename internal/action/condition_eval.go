@@ -113,51 +113,43 @@ func evaluateLogicalConditionCore(
 	if condition.Predicate != nil || len(condition.Children) == 0 {
 		return invalidConditionEvaluation(1)
 	}
-	children := make([]conditionEvaluation, len(condition.Children))
-	nodes := 1
-	for index, child := range condition.Children {
-		children[index] = evaluateConditionTreeCore(child, request, decision, depth+1, roots, validatePointer)
-		nodes += children[index].nodes
-		if nodes > MaxConditionNodes {
-			return invalidConditionEvaluation(nodes)
-		}
-	}
-	return combineConditionChildren(condition.Kind, children, nodes)
-}
-
-func combineConditionChildren(
-	kind ConditionKind,
-	children []conditionEvaluation,
-	nodes int,
-) conditionEvaluation {
-	result := conditionEvaluation{complete: true, nodes: nodes}
-	if kind == ConditionAll {
+	result := conditionEvaluation{complete: true, nodes: 1}
+	if condition.Kind == ConditionAll {
 		result.state = ConditionTrue
 	} else {
 		result.state = ConditionFalse
 	}
-	for _, child := range children {
-		result.complete = result.complete && child.complete
-		mergeConditionMetadata(&result, child)
-		if kind == ConditionAll {
-			if child.state == ConditionFalse {
-				result.state = ConditionFalse
-			} else if child.state == ConditionIndeterminate && result.state == ConditionTrue {
-				result.state = ConditionIndeterminate
-			}
-			continue
+	for _, child := range condition.Children {
+		childResult := evaluateConditionTreeCore(child, request, decision, depth+1, roots, validatePointer)
+		result.nodes += childResult.nodes
+		if result.nodes > MaxConditionNodes {
+			return invalidConditionEvaluation(result.nodes)
 		}
-		if child.state == ConditionTrue {
-			result.state = ConditionTrue
-		} else if child.state == ConditionIndeterminate && result.state == ConditionFalse {
-			result.state = ConditionIndeterminate
-		}
+		combineConditionChild(&result, condition.Kind, childResult)
 	}
 	if result.state != ConditionIndeterminate {
 		result.reason = ""
 		result.complete = true
 	}
 	return result
+}
+
+func combineConditionChild(result *conditionEvaluation, kind ConditionKind, child conditionEvaluation) {
+	result.complete = result.complete && child.complete
+	mergeConditionMetadata(result, child)
+	if kind == ConditionAll {
+		if child.state == ConditionFalse {
+			result.state = ConditionFalse
+		} else if child.state == ConditionIndeterminate && result.state == ConditionTrue {
+			result.state = ConditionIndeterminate
+		}
+		return
+	}
+	if child.state == ConditionTrue {
+		result.state = ConditionTrue
+	} else if child.state == ConditionIndeterminate && result.state == ConditionFalse {
+		result.state = ConditionIndeterminate
+	}
 }
 
 func mergeConditionMetadata(target *conditionEvaluation, child conditionEvaluation) {

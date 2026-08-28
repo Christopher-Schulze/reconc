@@ -53,6 +53,41 @@ func BenchmarkActionContextRootPredicates(b *testing.B) {
 	}
 }
 
+func BenchmarkLogicalConditionEvaluationRepresentative(b *testing.B) {
+	benchmarkLogicalConditionEvaluation(b, ConditionAll, 4, 3)
+}
+
+func BenchmarkLogicalConditionEvaluationMaximum(b *testing.B) {
+	benchmarkLogicalConditionEvaluation(b, ConditionAll, MaxConditionNodes-1, 1)
+}
+
+func benchmarkLogicalConditionEvaluation(b *testing.B, kind ConditionKind, children, depth int) {
+	b.Helper()
+	predicate := compileTestPredicate(b, Predicate{Source: SourceArguments, Pointer: "/target", Op: OperatorExists})
+	condition := benchmarkLogicalCondition(predicate, kind, children, depth)
+	arguments := mustTestValue(b, `{"target":"present"}`)
+	request := Request{Arguments: &arguments}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		result := evaluateConditionTree(condition, request, DecisionBlock, 1)
+		if result.state != ConditionTrue {
+			b.Fatalf("condition state = %s", result.state)
+		}
+	}
+}
+
+func benchmarkLogicalCondition(predicate *CompiledPredicate, kind ConditionKind, children, depth int) *CompiledCondition {
+	if depth == 0 {
+		return &CompiledCondition{Kind: ConditionPredicate, Predicate: predicate}
+	}
+	childNodes := make([]*CompiledCondition, children)
+	for index := range childNodes {
+		childNodes[index] = benchmarkLogicalCondition(predicate, kind, children, depth-1)
+	}
+	return &CompiledCondition{Kind: kind, Children: childNodes}
+}
+
 func BenchmarkActionPointerSummaryScalar(b *testing.B) {
 	root := mustTestValue(b, `{"value":"ready"}`)
 	benchmarkActionPointerSummary(b, root, []string{"value"}, ValueString)

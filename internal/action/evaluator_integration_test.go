@@ -200,15 +200,18 @@ func TestEvaluatorThreeValuedConditionSemantics(t *testing.T) {
 		Source: SourceArguments, Pointer: "/missing", Op: OperatorEqual, Value: &value,
 	}}
 	tests := []struct {
-		name      string
-		condition Condition
-		want      ConditionState
+		name         string
+		condition    Condition
+		want         ConditionState
+		wantComplete bool
+		wantReason   ReasonCode
+		wantNodes    int
 	}{
-		{name: "all false masks indeterminate", condition: Condition{All: []Condition{falsePredicate, indeterminatePredicate}}, want: ConditionFalse},
-		{name: "all true indeterminate", condition: Condition{All: []Condition{truePredicate, indeterminatePredicate}}, want: ConditionIndeterminate},
-		{name: "any true masks indeterminate", condition: Condition{Any: []Condition{truePredicate, indeterminatePredicate}}, want: ConditionTrue},
-		{name: "any false indeterminate", condition: Condition{Any: []Condition{falsePredicate, indeterminatePredicate}}, want: ConditionIndeterminate},
-		{name: "not indeterminate", condition: Condition{Not: &indeterminatePredicate}, want: ConditionIndeterminate},
+		{name: "all false masks indeterminate", condition: Condition{All: []Condition{falsePredicate, indeterminatePredicate}}, want: ConditionFalse, wantComplete: true, wantNodes: 3},
+		{name: "all true indeterminate", condition: Condition{All: []Condition{truePredicate, indeterminatePredicate}}, want: ConditionIndeterminate, wantComplete: false, wantReason: ReasonConditionIndeterminate, wantNodes: 3},
+		{name: "any true masks indeterminate", condition: Condition{Any: []Condition{truePredicate, indeterminatePredicate}}, want: ConditionTrue, wantComplete: true, wantNodes: 3},
+		{name: "any false indeterminate", condition: Condition{Any: []Condition{falsePredicate, indeterminatePredicate}}, want: ConditionIndeterminate, wantComplete: false, wantReason: ReasonConditionIndeterminate, wantNodes: 3},
+		{name: "not indeterminate", condition: Condition{Not: &indeterminatePredicate}, want: ConditionIndeterminate, wantComplete: false, wantReason: ReasonConditionIndeterminate, wantNodes: 2},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -225,7 +228,19 @@ func TestEvaluatorThreeValuedConditionSemantics(t *testing.T) {
 			if got.state != test.want {
 				t.Fatalf("state = %s, want %s", got.state, test.want)
 			}
+			if got.complete != test.wantComplete || got.reason != test.wantReason || got.nodes != test.wantNodes {
+				t.Fatalf("metadata = complete:%t reason:%s nodes:%d, want complete:%t reason:%s nodes:%d", got.complete, got.reason, got.nodes, test.wantComplete, test.wantReason, test.wantNodes)
+			}
 		})
+	}
+}
+
+func TestConditionEvaluationRejectsInvalidChild(t *testing.T) {
+	invalid := &CompiledCondition{Kind: ConditionKind("invalid")}
+	condition := &CompiledCondition{Kind: ConditionAll, Children: []*CompiledCondition{invalid}}
+	got := evaluateConditionTree(condition, Request{}, DecisionBlock, 1)
+	if got.state != ConditionIndeterminate || got.reason != ReasonInternalInvariant || got.complete || got.nodes != 2 {
+		t.Fatalf("invalid child evaluation = %#v, want indeterminate incomplete two-node result", got)
 	}
 }
 
