@@ -111,14 +111,14 @@ func TestForbiddenShellCommandReasonExpandsConfiguredGitAliases(t *testing.T) {
 	}
 }
 
-func TestForbiddenShellCommandReasonReadsGlobalGitAlias(t *testing.T) {
+func TestForbiddenShellCommandReasonIgnoresAmbientGlobalGitAlias(t *testing.T) {
 	globalConfig := t.TempDir() + "/gitconfig"
 	t.Setenv("GIT_CONFIG_GLOBAL", globalConfig)
 	runGitGuardTestCommand(t, "config", "--global", "alias.global-wipe", "!git reset --hard")
 
 	reason := forbiddenShellCommandReasonInRepo(t.TempDir(), "git global-wipe")
-	if reason == "" {
-		t.Fatal("configured global destructive alias must be blocked")
+	if !strings.Contains(reason, "unknown git subcommand") {
+		t.Fatalf("ambient global alias entered inspection: %s", reason)
 	}
 }
 

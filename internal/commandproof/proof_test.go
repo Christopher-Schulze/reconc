@@ -114,6 +114,37 @@ func TestCaptureStagedCleanRejectsUnstagedAndUntrackedPaths(t *testing.T) {
 	})
 }
 
+func TestCaptureCurrentIgnoresAmbientForeignGitState(t *testing.T) {
+	target := newProofRepo(t)
+	stageFile(t, target, "target.txt", "target\n")
+	want, err := CaptureCurrent(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := newProofRepo(t)
+	stageFile(t, foreign, "foreign.txt", "foreign\n")
+	for key, value := range map[string]string{
+		"GIT_DIR":                          filepath.Join(foreign, ".git"),
+		"GIT_WORK_TREE":                    foreign,
+		"GIT_INDEX_FILE":                   filepath.Join(foreign, ".git", "index"),
+		"GIT_COMMON_DIR":                   filepath.Join(foreign, ".git"),
+		"GIT_OBJECT_DIRECTORY":             filepath.Join(foreign, ".git", "objects"),
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES": filepath.Join(foreign, ".git", "objects"),
+		"GIT_CONFIG_COUNT":                 "1",
+		"GIT_CONFIG_KEY_0":                 "alias.rev-parse",
+		"GIT_CONFIG_VALUE_0":               "status",
+	} {
+		t.Setenv(key, value)
+	}
+	got, err := CaptureCurrent(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("ambient Git state changed proof snapshot: got %+v want %+v", got, want)
+	}
+}
+
 func TestStoreSuccessRejectsSnapshotChangedBeforePublication(t *testing.T) {
 	repo := newProofRepo(t)
 	stageFile(t, repo, "candidate.txt", "first\n")

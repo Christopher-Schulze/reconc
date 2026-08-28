@@ -113,6 +113,7 @@ internal/
   errors/         typed exception hierarchy (PolicySourceError, LockfileError, ...)
   execfile/       cross-platform regular-file and executable validation
   extractor/      prose-to-rule heuristic scanner (regex-only, no LLM)
+  gitexec/        shared hermetic Git subprocess environment and argv boundary
   grokacp/        strict Grok ACP stdio client + cross-platform leader IPC stop steering/probing
   harnesspack/    strict versioned harness-pack manifest, archive, digest, and compatibility contract
   hooks/          typed registry + generators + install/uninstall + activation + scaffold sync
@@ -1422,6 +1423,14 @@ assurance authority identities. It captures all of that state again after
 evaluation and rejects races. A same-candidate explicit block is
 stored outside the repository until a later validated explicit pass clears it;
 retention cannot manufacture a pass.
+
+Every Git subprocess that contributes command-proof, completion, Stop,
+agent-session, memory-worktree, alias, or runtime-diff evidence is constructed
+by `internal/gitexec`. That boundary removes every ambient `GIT_*` variable,
+pins system/global config, prompts, optional locks, pager, hooks, fsmonitor,
+untracked cache, and locale to inert values, then binds repository discovery to
+the requested working directory. Repository Sync uses the same contract and is
+the only caller allowed to add its explicit ephemeral object directories.
 
 `BenchmarkRepositoryRunStopHotpath` measures the in-process executable-TASK
 continuation path without process startup. A five-iteration Apple M1 sample on

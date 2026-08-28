@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 301 Sanitize every proof and agent-session Git environment -> tasks/301-sanitize-every-proof-and-agent-session-git-environment.md
 - [ ] 302 Route all untrusted YAML through bounded admission -> tasks/302-route-all-untrusted-yaml-through-bounded-admission.md
 - [ ] 303 Enforce the expanded YAML alias budget -> tasks/303-enforce-the-expanded-yaml-alias-budget.md
 - [ ] 304 Fix assurance guard comment classification -> tasks/304-fix-assurance-guard-comment-classification.md
@@ -53,6 +52,7 @@
 
 ## Done
 
+- [x] 301 Sanitize every proof and agent-session Git environment -> tasks/done/301-sanitize-every-proof-and-agent-session-git-environment.md
 - [x] 299 Prevent symlink side effects in create-capable file opens -> tasks/done/299-prevent-symlink-side-effects-in-create-capable-file-opens.md
 - [x] 298 Propagate caller cancellation into policy scripts -> tasks/done/298-propagate-caller-cancellation-into-policy-scripts.md
 - [x] 297 Bind runtime freshness metadata to the opened file -> tasks/done/297-bind-runtime-freshness-metadata-to-the-opened-file.md
@@ -62,4 +62,3 @@
 - [x] 292 Narrow MCP pre-dispatch serialization and retry policy -> tasks/done/292-narrow-mcp-pre-dispatch-serialization-and-retry-policy.md
 - [x] 291 Continue MCP shutdown finalization after individual errors -> tasks/done/291-continue-mcp-shutdown-finalization-after-individual-errors.md
 - [x] 290 Finalize pending approvals after call-drain timeout -> tasks/done/290-finalize-pending-approvals-after-call-drain-timeout.md
-- [x] 289 Preserve MCP indeterminate-transition failures -> tasks/done/289-preserve-mcp-indeterminate-transition-failures.md

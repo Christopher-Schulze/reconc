@@ -1682,6 +1682,12 @@ symlink, or an appearing transaction fails with
 `task/read/concurrent-mutation`.
 The terminal gate reuses the single Git status snapshot already built for Stop;
 it adds no Git process to routine executable continuations.
+All Git evidence processes share one hermetic environment. Ambient repository,
+worktree, index, common-directory, object-store, config, hook, prompt, locale,
+pager, and optional-lock settings are removed or pinned before Git starts, so
+foreign process state cannot enter proof, completion, Stop, memory, alias, or
+runtime-diff evidence. Repository-local Git state remains the selected source;
+Repository Sync alone receives explicit ephemeral object-store overrides.
 Portable workflow audits reserve `docs/tasks/` and `docs/tasks/done/` for
 referenced `TASK-NNNN-Name.md` details. An unreferenced conforming detail keeps
 the atomic `promote-task-done` remediation; any other Markdown file is reported

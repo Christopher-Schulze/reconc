@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"reconc.dev/reconc/internal/gitexec"
 	"reconc.dev/reconc/internal/shellcommand"
 )
 
@@ -277,12 +278,7 @@ func fallbackGitCommands() map[string]struct{} {
 func runGitInspection(repoRoot string, args ...string) ([]byte, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitInspectionTimeout)
 	defer cancel()
-	gitArgs := make([]string, 0, len(args)+2)
-	if repoRoot != "" {
-		gitArgs = append(gitArgs, "-C", repoRoot)
-	}
-	gitArgs = append(gitArgs, args...)
-	command := exec.CommandContext(ctx, "git", gitArgs...)
+	command := gitexec.CommandContext(ctx, repoRoot, nil, args...)
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		return nil, -1, fmt.Errorf("open git stdout: %w", err)

@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -18,6 +17,7 @@ import (
 
 	"reconc.dev/reconc/internal/boundedexec"
 	"reconc.dev/reconc/internal/boundedio"
+	"reconc.dev/reconc/internal/gitexec"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/runtime"
 )
@@ -25,7 +25,7 @@ import (
 func gitCommandOutput(repoRoot string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", repoRoot}, args...)...)
+	cmd := gitexec.CommandContext(ctx, repoRoot, nil, args...)
 	out, err := boundedexec.CombinedOutput(cmd, maxStopGitOutputBytes)
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return string(out), fmt.Errorf("git %s timed out", strings.Join(args, " "))

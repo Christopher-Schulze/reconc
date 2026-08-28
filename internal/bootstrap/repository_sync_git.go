@@ -6,14 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"reconc.dev/reconc/internal/commandproof"
+	"reconc.dev/reconc/internal/gitexec"
 )
 
 const (
@@ -79,15 +78,15 @@ func captureReadOnlyGitState(root string) (commandproof.Snapshot, error) {
 	}
 	defer os.RemoveAll(ephemeralObjects)
 
-	overrides := map[string]string{
-		"GIT_OBJECT_DIRECTORY":             ephemeralObjects,
-		"GIT_ALTERNATE_OBJECT_DIRECTORIES": gitPathListEntry(objectDirectory),
+	objects := &gitexec.ObjectDirectories{
+		ObjectDirectory:            ephemeralObjects,
+		AlternateObjectDirectories: gitPathListEntry(objectDirectory),
 	}
 	head, err := syncGitHead(root)
 	if err != nil {
 		return commandproof.Snapshot{}, err
 	}
-	indexTree, err := syncGitOutput(root, overrides, "write-tree")
+	indexTree, err := syncGitOutput(root, objects, "write-tree")
 	if err != nil {
 		return commandproof.Snapshot{}, fmt.Errorf("capture repository sync index tree: %w", err)
 	}
@@ -108,18 +107,10 @@ func syncGitHead(root string) (string, error) {
 	return "", fmt.Errorf("capture repository sync HEAD: %w", err)
 }
 
-func syncGitOutput(root string, overrides map[string]string, args ...string) (string, error) {
+func syncGitOutput(root string, objects *gitexec.ObjectDirectories, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), syncGitCommandTimeout)
 	defer cancel()
-	gitArgs := append([]string{
-		"--no-optional-locks",
-		"-c", "core.fsmonitor=false",
-		"-c", "core.untrackedCache=false",
-		"-c", "core.hooksPath=",
-	}, args...)
-	cmd := exec.CommandContext(ctx, "git", gitArgs...)
-	cmd.Dir = root
-	cmd.Env = hermeticSyncGitEnvironment(overrides)
+	cmd := gitexec.CommandContext(ctx, root, objects, args...)
 	stdout := &syncBoundedOutput{limit: maxSyncGitOutputBytes}
 	stderr := &syncBoundedOutput{limit: maxSyncGitOutputBytes}
 	cmd.Stdout = stdout
@@ -135,37 +126,6 @@ func syncGitOutput(root string, overrides map[string]string, args ...string) (st
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), runErr, strings.TrimSpace(stderr.String()))
 	}
 	return strings.TrimSpace(stdout.String()), nil
-}
-
-func hermeticSyncGitEnvironment(overrides map[string]string) []string {
-	environment := make([]string, 0, len(os.Environ())+8+len(overrides))
-	for _, entry := range os.Environ() {
-		key := entry
-		if index := strings.IndexByte(entry, '='); index >= 0 {
-			key = entry[:index]
-		}
-		if strings.HasPrefix(strings.ToUpper(key), "GIT_") || strings.EqualFold(key, "LC_ALL") {
-			continue
-		}
-		environment = append(environment, entry)
-	}
-	environment = append(environment,
-		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL="+os.DevNull,
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_OPTIONAL_LOCKS=0",
-		"LC_ALL=C",
-	)
-	keys := make([]string, 0, len(overrides))
-	for key := range overrides {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		value := overrides[key]
-		environment = append(environment, key+"="+value)
-	}
-	return environment
 }
 
 func gitPathListEntry(path string) string {

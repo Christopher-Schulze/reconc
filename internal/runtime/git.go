@@ -5,11 +5,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 	"time"
 
 	rerrors "reconc.dev/reconc/internal/errors"
+	"reconc.dev/reconc/internal/gitexec"
 )
 
 const (
@@ -84,8 +84,7 @@ func CollectGitWritePaths(repoRoot string, staged bool, base, head string) ([]st
 
 	ctx, cancel := context.WithTimeout(context.Background(), gitDiffTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = repoRoot
+	cmd := gitexec.CommandContext(ctx, repoRoot, nil, args...)
 	stdout := &boundedGitOutput{limit: maxGitDiffOutputBytes}
 	stderr := &boundedGitOutput{limit: maxGitDiffOutputBytes}
 	cmd.Stdout = stdout

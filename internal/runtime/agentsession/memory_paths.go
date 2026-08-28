@@ -3,12 +3,12 @@ package agentsession
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"reconc.dev/reconc/internal/boundedexec"
+	"reconc.dev/reconc/internal/gitexec"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/retention"
 )
@@ -132,7 +132,7 @@ func expectedClaudeProjectKeys(repoRoot string) claudeProjectKeyMatcher {
 	// ~/.claude/projects entry.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, "git", "-C", repoRoot, "rev-parse", "--git-common-dir")
+	command := gitexec.CommandContext(ctx, repoRoot, nil, "rev-parse", "--git-common-dir")
 	if output, err := boundedexec.Output(command, maxGitControlFileBytes); err == nil {
 		common := filepath.Clean(strings.TrimSpace(string(output)))
 		if !filepath.IsAbs(common) {

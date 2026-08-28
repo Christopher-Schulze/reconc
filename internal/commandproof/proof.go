@@ -20,6 +20,7 @@ import (
 
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
+	"reconc.dev/reconc/internal/gitexec"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/privatefs"
 	"reconc.dev/reconc/internal/retention"
@@ -386,8 +387,7 @@ func canonicalRepoRoot(repoRoot string) (string, error) {
 func requireCleanAgainstIndex(repoRoot string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), gitCommandTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "diff", "--quiet", "--")
-	cmd.Dir = repoRoot
+	cmd := gitexec.CommandContext(ctx, repoRoot, nil, "diff", "--quiet", "--")
 	if err := cmd.Run(); err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return fmt.Errorf("inspect tracked unstaged changes: git diff timed out after %s", gitCommandTimeout)
@@ -430,8 +430,7 @@ func gitOutputContext(ctx context.Context, repoRoot string, args ...string) (str
 }
 
 func gitOutputBytesContext(ctx context.Context, repoRoot string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = repoRoot
+	cmd := gitexec.CommandContext(ctx, repoRoot, nil, args...)
 	stdout := &boundedCommandOutput{limit: maxGitOutputBytes}
 	stderr := &boundedCommandOutput{limit: maxGitOutputBytes}
 	cmd.Stdout = stdout

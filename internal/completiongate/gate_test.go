@@ -293,7 +293,7 @@ func TestEvaluateFailsClosedWhenGitStatusIsUnreadable(t *testing.T) {
 	bin := t.TempDir()
 	wrapper := filepath.Join(bin, "git")
 	quotedGit := strings.ReplaceAll(realGit, "'", "'\\''")
-	body := "#!/bin/sh\nif [ \"${3:-}\" = status ]; then\n  printf 'forced status failure\\n' >&2\n  exit 73\nfi\nexec '" + quotedGit + "' \"$@\"\n"
+	body := "#!/bin/sh\nfor arg in \"$@\"; do\n  if [ \"$arg\" = status ]; then\n    printf 'forced status failure\\n' >&2\n    exit 73\n  fi\ndone\nexec '" + quotedGit + "' \"$@\"\n"
 	if err := os.WriteFile(wrapper, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +319,7 @@ func TestEvaluateFailsClosedWhenGitHeadIsUnreadable(t *testing.T) {
 	bin := t.TempDir()
 	wrapper := filepath.Join(bin, "git")
 	quotedGit := strings.ReplaceAll(realGit, "'", "'\\''")
-	body := "#!/bin/sh\ncase \"${3:-}\" in\n  status|ls-files) exit 0 ;;\nesac\nexec '" + quotedGit + "' \"$@\"\n"
+	body := "#!/bin/sh\nfor arg in \"$@\"; do\n  case \"$arg\" in\n    status|ls-files) exit 0 ;;\n  esac\ndone\nexec '" + quotedGit + "' \"$@\"\n"
 	if err := os.WriteFile(wrapper, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
