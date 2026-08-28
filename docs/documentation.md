@@ -1924,10 +1924,14 @@ identity, the canonical source path, and the canonical repository root after
 the read, so same-path replacement, deletion/recreation, size drift, and
 parent/root swaps fail closed.
 Publication uses identity-bound atomic replacement and skips the write entirely
-when the canonical bytes are unchanged, so readers never see partial JSON and
-repeated compiles do not
-create needless filesystem churn. Refresh acquires the repository compile lock
-before loading the authoritative source bundle, rejects repository-root drift,
+when the canonical bytes are unchanged. Unix renames through the bound
+`os.Root` and syncs the parent directory. Windows opens the synced temporary
+relative to that same directory handle with `FILE_WRITE_THROUGH`, then performs
+a handle-relative `NtSetInformationFile` replacement against the bound parent;
+no validated path is reconstructed for publication. Readers never see partial
+JSON, and repeated compiles do not create needless filesystem churn. Refresh
+acquires the repository compile lock before loading the authoritative source
+bundle, rejects repository-root drift,
 and binds the repository, `.reconc` directory, and compile-lock file to opened
 filesystem identities. Concurrent refreshes therefore cannot publish an older
 pre-lock snapshot after a newer source state. This standalone product
@@ -2902,7 +2906,7 @@ summarizes the core runtime responsibilities:
 - `internal/hooks`: typed hook platform and verification-surface registry, artifact generation, non-destructive install/uninstall, scaffold sync, managed activation, and diagnostics
 - `internal/runtime/agentsession`: hook-runtime session state and event handling
 - `internal/audit`: opt-in SHA-256-linked decision log, detached head, verification, and rotation
-- `internal/atomicfile`: atomic write-on-change publication
+- `internal/atomicfile`: identity-bound atomic write-on-change publication with Unix parent fsync and rooted Windows write-through replacement
 - `internal/filelock`: Unix/Windows cross-process file locking with bounded context acquisition and Unix interrupted-syscall retry
 - `internal/grokacp`: strict Grok ACP client plus Unix-socket and Windows named-pipe leader steering/probing
 - `internal/jsonl`: bounded, locked JSONL append and archive rings

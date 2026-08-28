@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 293 Make Windows atomic replacement genuinely write-through -> tasks/293-make-windows-atomic-replacement-genuinely-write-through.md
 - [ ] 294 Durably publish bootstrap plans and artifacts -> tasks/294-durably-publish-bootstrap-plans-and-artifacts.md
 - [ ] 295 Durably create and rotate JSONL state -> tasks/295-durably-create-and-rotate-jsonl-state.md
 - [ ] 296 Sync repository-run state mutations before unlock -> tasks/296-sync-repository-run-state-mutations-before-unlock.md
@@ -55,6 +54,8 @@
 - [ ] 341 Remove duplicate JSONL lock validation -> tasks/341-remove-duplicate-jsonl-lock-validation.md
 
 ## Blocked
+
+- [!] 293 Make Windows atomic replacement genuinely write-through -> tasks/293-make-windows-atomic-replacement-genuinely-write-through.md
 
 ## Done
 

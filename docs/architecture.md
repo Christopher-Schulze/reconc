@@ -1166,7 +1166,12 @@ missing parents with `0755`; state-bearing callers use the explicit private
 API and create them with `0700`. The macOS `/var`-style filesystem-root alias
 is canonicalized before binding, while nested publication symlinks remain
 rejected. Unix uses rooted rename plus directory fsync; Windows uses rooted
-replacement and flushes the temporary file before publication.
+replacement and flushes the temporary file before publication. Windows then
+reopens that temporary relative to the bound `os.Root` with
+`FILE_WRITE_THROUGH` and renames the handle through `NtSetInformationFile`
+relative to the same open directory handle. This preserves parent identity
+without reconstructing an absolute path; the legacy rooted rename information
+class remains the fail-closed compatibility fallback.
 
 ### Private state filesystem boundary
 
