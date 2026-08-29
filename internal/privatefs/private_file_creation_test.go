@@ -181,3 +181,64 @@ func TestOpenLockParentReplacementCannotRedirectCreation(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenLockRejectsInsecureParentReplacementBeforeDescriptorBinding(t *testing.T) {
+	root := t.TempDir()
+	directory := filepath.Join(root, "private")
+	moved := filepath.Join(root, "private-moved")
+	path := filepath.Join(directory, "state.lock")
+	if err := os.Mkdir(directory, PrivateDirectoryMode); err != nil {
+		t.Fatal(err)
+	}
+	file, err := openPrivateFileWithHooks(path, true, true, privateFileOpenHooks{
+		afterInspect: func(missing bool) error {
+			if !missing {
+				return errors.New("lock unexpectedly existed before parent replacement")
+			}
+			if err := os.Rename(directory, moved); err != nil {
+				return err
+			}
+			return os.Mkdir(directory, 0o755)
+		},
+	})
+	if file != nil {
+		_ = file.Close()
+	}
+	if err == nil {
+		t.Fatal("insecure parent replacement was accepted before descriptor binding")
+	}
+	for _, candidate := range []string{filepath.Join(directory, "state.lock"), filepath.Join(moved, "state.lock")} {
+		if _, statErr := os.Lstat(candidate); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("rejected parent replacement left %s: %v", candidate, statErr)
+		}
+	}
+}
+
+func TestOpenLockRejectsParentReplacementAfterDescriptorBinding(t *testing.T) {
+	root := t.TempDir()
+	directory := filepath.Join(root, "private")
+	moved := filepath.Join(root, "private-moved")
+	path := filepath.Join(directory, "state.lock")
+	if err := os.Mkdir(directory, PrivateDirectoryMode); err != nil {
+		t.Fatal(err)
+	}
+	file, err := openPrivateFileWithHooks(path, true, true, privateFileOpenHooks{
+		afterParentOpen: func() error {
+			if err := os.Rename(directory, moved); err != nil {
+				return err
+			}
+			return os.Mkdir(directory, 0o755)
+		},
+	})
+	if file != nil {
+		_ = file.Close()
+	}
+	if err == nil {
+		t.Fatal("parent replacement after descriptor binding was accepted")
+	}
+	for _, candidate := range []string{filepath.Join(directory, "state.lock"), filepath.Join(moved, "state.lock")} {
+		if _, statErr := os.Lstat(candidate); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("rejected parent replacement left %s: %v", candidate, statErr)
+		}
+	}
+}

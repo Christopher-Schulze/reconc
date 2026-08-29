@@ -8,7 +8,8 @@ import (
 )
 
 type privateFileOpenHooks struct {
-	afterInspect func(missing bool) error
+	afterInspect    func(missing bool) error
+	afterParentOpen func() error
 }
 
 type privateFileParent struct {
@@ -23,12 +24,14 @@ func openPrivateFileWithHooks(path string, create, singleLink bool, hooks privat
 	if err := RepairDirectory(directory); err != nil {
 		return nil, fmt.Errorf("secure private lock directory: %w", err)
 	}
-	if err := ValidateDirectory(directory); err != nil {
-		return nil, fmt.Errorf("validate private lock directory: %w", err)
-	}
 	parent, err := openPrivateFileParent(path)
 	if err != nil {
 		return nil, err
+	}
+	if hooks.afterParentOpen != nil {
+		if err := hooks.afterParentOpen(); err != nil {
+			return nil, errors.Join(err, parent.close())
+		}
 	}
 	file, err := parent.openAndSecure(create, singleLink, hooks)
 	closeErr := parent.close()
@@ -57,7 +60,11 @@ func openPrivateFileParent(path string) (*privateFileParent, error) {
 		!after.IsDir() || !os.SameFile(before, opened) || !os.SameFile(opened, after) {
 		return nil, errors.Join(fmt.Errorf("private lock parent changed identity while opening"), statErr, lstatErr, root.Close())
 	}
-	return &privateFileParent{root: root, info: opened, directory: directory, name: filepath.Base(path)}, nil
+	parent := &privateFileParent{root: root, info: opened, directory: directory, name: filepath.Base(path)}
+	if err := parent.validateSecurity(); err != nil {
+		return nil, errors.Join(err, root.Close())
+	}
+	return parent, nil
 }
 
 func (parent *privateFileParent) openAndSecure(create, singleLink bool, hooks privateFileOpenHooks) (*os.File, error) {
@@ -78,6 +85,39 @@ func (parent *privateFileParent) openAndSecure(create, singleLink bool, hooks pr
 		}
 	}
 	return parent.secureOpened(file, opened, singleLink)
+}
+
+func (parent *privateFileParent) openReadOnly() (*os.File, error) {
+	before, missing, err := parent.inspectCandidate()
+	if err != nil {
+		return nil, err
+	}
+	if missing {
+		return nil, os.ErrNotExist
+	}
+	file, err := parent.root.OpenFile(parent.name, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, fmt.Errorf("open private lock read-only: %w", err)
+	}
+	opened, statErr := file.Stat()
+	current, lstatErr := parent.root.Lstat(parent.name)
+	if statErr != nil || lstatErr != nil || opened == nil || current == nil ||
+		!opened.Mode().IsRegular() || current.Mode()&os.ModeSymlink != 0 ||
+		!current.Mode().IsRegular() || !os.SameFile(before, opened) || !os.SameFile(opened, current) {
+		return nil, errors.Join(fmt.Errorf("private lock changed identity while opening read-only"), statErr, lstatErr, file.Close())
+	}
+	if err := validatePrivateFile(file, opened); err != nil {
+		return nil, errors.Join(fmt.Errorf("validate private lock: %w", err), file.Close())
+	}
+	current, err = parent.root.Lstat(parent.name)
+	if err != nil || current == nil || current.Mode()&os.ModeSymlink != 0 ||
+		!current.Mode().IsRegular() || !os.SameFile(opened, current) {
+		return nil, errors.Join(fmt.Errorf("private lock changed identity after read-only validation"), err, file.Close())
+	}
+	if err := parent.validate(); err != nil {
+		return nil, errors.Join(err, file.Close())
+	}
+	return file, nil
 }
 
 func (parent *privateFileParent) removeCreated(file *os.File) error {
@@ -191,6 +231,20 @@ func (parent *privateFileParent) validate() error {
 		return errors.Join(fmt.Errorf("private lock parent changed identity"), statErr, lstatErr)
 	}
 	return nil
+}
+
+func (parent *privateFileParent) validateSecurity() error {
+	if parent == nil || parent.root == nil {
+		return fmt.Errorf("private lock parent handle is unavailable")
+	}
+	file, err := parent.root.Open(".")
+	if err != nil {
+		return fmt.Errorf("open private lock parent descriptor: %w", err)
+	}
+	opened, statErr := file.Stat()
+	validationErr := validateDirectoryDescriptor(parent.directory, file, parent.info, opened)
+	closeErr := file.Close()
+	return errors.Join(statErr, validationErr, closeErr)
 }
 
 func (parent *privateFileParent) close() error {

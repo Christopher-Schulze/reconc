@@ -50,10 +50,6 @@ func openDirectoryDescriptor(path string) (*os.File, error) {
 	return os.Open(path)
 }
 
-func openExistingPrivateFileDescriptorReadOnly(path string) (*os.File, error) {
-	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
-}
-
 func validateCurrentUserOwner(info os.FileInfo) error {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || stat == nil || uint64(stat.Uid) != uint64(os.Geteuid()) {
