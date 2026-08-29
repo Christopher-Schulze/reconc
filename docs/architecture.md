@@ -1262,7 +1262,10 @@ parent. A missing live name is opened with exclusive creation; a regular file
 that wins the race is reopened without create permission and must retain the
 same identity and one directory link before append. Dangling symlinks,
 hard-link aliases, leaf replacement, and parent replacement therefore fail
-before record bytes are written or an out-of-tree target can be created.
+before record bytes are written or an out-of-tree target can be created. After
+the cross-process lock is acquired, its opened descriptor is identity-checked
+once at the validation boundary; layout-security validation remains a separate
+check and no redundant post-validation stat is performed.
 
 The action ledger retains full-chain verification as the startup, recovery,
 external-writer, and explicit-read authority. After one successful verification,

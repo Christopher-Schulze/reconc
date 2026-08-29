@@ -121,6 +121,36 @@ func TestCustomLayoutRejectsSymlinkTargets(t *testing.T) {
 	}
 }
 
+func TestOpenedLayoutLockIdentityRejectsReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("replacing an open lock is not reliable on Windows")
+	}
+	directory := privateTestDirectory(t)
+	path := filepath.Join(directory, "ledger.jsonl")
+	layout := privateTestLayout(path)
+	if err := os.WriteFile(layout.LockPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Lstat(layout.LockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(layout.LockPath, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := os.Rename(layout.LockPath, layout.LockPath+".moved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(layout.LockPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateOpenedLayoutLockIdentity(layout.LockPath, lock, before); err == nil {
+		t.Fatal("replaced opened lock identity was accepted")
+	}
+}
+
 func TestPreparedRollbackRejectsSymlinkReplacementWithoutChangingTarget(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation is not reliably available")

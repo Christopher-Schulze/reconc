@@ -70,9 +70,6 @@ func withLayoutLockModeContext(
 	if err := validateLayoutSecurityFile(layout, layout.LockPath, 4<<10); err != nil {
 		return closeLocked(err)
 	}
-	if err := validateOpenedLayoutLock(path, layout, lock); err != nil {
-		return closeLocked(err)
-	}
 	fnErr := fn()
 	unlockErr := unlock()
 	closeErr := lock.Close()
