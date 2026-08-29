@@ -2226,7 +2226,10 @@ append, or a version-2 publication whose commit callback provably never began,
 back to the complete pre-rotation snapshot. Once callback execution may have
 started, only the owning audit or ledger path may recover it by idempotently
 rebuilding the detached head. A successful callback is marked `resolved`
-before cleanup, so cleanup-only recovery never repeats it. Legacy version-1
+before cleanup, so cleanup-only recovery never repeats it. Rotation backups are
+created from an opened archive snapshot, verify the same file identity,
+content, metadata, and hard-link count after publication, and refuse an
+existing backup target instead of replacing it. Legacy version-1
 `published` journals remain callback-owned because their state cannot prove
 whether head publication started. Resolved recovery removes only transaction
 artifacts. A private-audit recovery journal is retried through the legacy

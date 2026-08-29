@@ -126,13 +126,21 @@ func beginAppendJournalWithLayout(
 		return appendJournal{}, err
 	}
 	if rotated {
+		for index := 0; index <= policy.MaxArchives; index++ {
+			backupPath := appendBackupPathWithLayout(layout, index)
+			if _, err := os.Lstat(backupPath); err == nil {
+				return appendJournal{}, newAppendBackupCollisionError(backupPath)
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return appendJournal{}, err
+			}
+		}
 		if err := writeAppendJournalWithLayout(path, layout, journal); err != nil {
 			return appendJournal{}, err
 		}
 		for index := 0; index <= policy.MaxArchives; index++ {
 			backup, err := createAppendBackupWithLayout(path, layout, index, policy.MaxBytes)
 			if err != nil {
-				cleanupErr := abortPreparingAppendWithLayout(layout, policy.MaxArchives)
+				cleanupErr := abortPreparingAppendWithLayoutPreserving(layout, policy.MaxArchives, appendBackupCollisionPath(err))
 				return appendJournal{}, errors.Join(err, wrapAppendCleanupError(cleanupErr))
 			}
 			journal.Backups = append(journal.Backups, backup)
@@ -150,8 +158,42 @@ func beginAppendJournalWithLayout(
 	return journal, nil
 }
 
+type appendBackupHooks struct {
+	beforePublish func() error
+}
+
+type appendBackupCollisionError struct {
+	path string
+}
+
+func newAppendBackupCollisionError(path string) error {
+	return &appendBackupCollisionError{path: path}
+}
+
+func (e *appendBackupCollisionError) Error() string {
+	return fmt.Sprintf("JSONL append backup target already exists: %s", e.path)
+}
+
+func appendBackupCollisionPath(err error) string {
+	var collision *appendBackupCollisionError
+	if errors.As(err, &collision) {
+		return collision.path
+	}
+	return ""
+}
+
 func createAppendBackupWithLayout(path string, layout Layout, index int, maxBytes int64) (appendJournalBackup, error) {
-	backup := appendJournalBackup{Index: index}
+	return createAppendBackupWithLayoutHooks(path, layout, index, maxBytes, appendBackupHooks{})
+}
+
+func createAppendBackupWithLayoutHooks(
+	path string,
+	layout Layout,
+	index int,
+	maxBytes int64,
+	hooks appendBackupHooks,
+) (backup appendJournalBackup, resultErr error) {
+	backup = appendJournalBackup{Index: index}
 	source := archivePath(path, index)
 	info, err := os.Lstat(source)
 	if errors.Is(err, os.ErrNotExist) {
@@ -162,6 +204,9 @@ func createAppendBackupWithLayout(path string, layout Layout, index int, maxByte
 	}
 	if !info.Mode().IsRegular() {
 		return appendJournalBackup{}, fmt.Errorf("jsonl archive is not a regular file: %s", source)
+	}
+	if info.Size() > maxBytes {
+		return appendJournalBackup{}, fmt.Errorf("jsonl archive %s exceeds %d bytes", source, maxBytes)
 	}
 	if err := validateLayoutSecurityFile(layout, source, maxBytes); err != nil {
 		return appendJournalBackup{}, err
@@ -176,33 +221,65 @@ func createAppendBackupWithLayout(path string, layout Layout, index int, maxByte
 	backup.Mode = uint32(info.Mode().Perm())
 	backupPath := appendBackupPathWithLayout(layout, index)
 	if _, err := os.Lstat(backupPath); err == nil {
-		if err := validateLayoutSecurityFile(layout, backupPath, maxBytes); err != nil {
-			return appendJournalBackup{}, err
-		}
-		if err := removeJSONLPath(backupPath); err != nil {
-			return appendJournalBackup{}, fmt.Errorf("remove stale JSONL append backup: %w", err)
-		}
+		return appendJournalBackup{}, newAppendBackupCollisionError(backupPath)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return appendJournalBackup{}, err
 	}
-	if err := linkJSONLPath(source, backupPath); err != nil {
-		data, readErr := readBoundedBackup(source, maxBytes)
-		if readErr != nil {
-			return appendJournalBackup{}, readErr
+	sourceFile, sourceInfo, sourceData, sourceLinks, err := openAppendBackupSource(source, info, layout, maxBytes)
+	if err != nil {
+		return appendJournalBackup{}, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, sourceFile.Close()) }()
+	sourceDigest := sha256.Sum256(sourceData)
+	wantDigest := hex.EncodeToString(sourceDigest[:])
+	if hooks.beforePublish != nil {
+		if err := hooks.beforePublish(); err != nil {
+			return appendJournalBackup{}, err
+		}
+	}
+	if err := validateAppendBackupSource(sourceFile, sourceInfo, source, sourceData, sourceLinks, 0, maxBytes); err != nil {
+		return appendJournalBackup{}, err
+	}
+	linked := false
+	if err := linkJSONLPath(source, backupPath); err == nil {
+		linked = true
+	} else {
+		if _, collisionErr := os.Lstat(backupPath); collisionErr == nil {
+			return appendJournalBackup{}, newAppendBackupCollisionError(backupPath)
+		} else if !errors.Is(collisionErr, os.ErrNotExist) {
+			return appendJournalBackup{}, errors.Join(err, collisionErr)
+		}
+		if sourceErr := validateAppendBackupSource(sourceFile, sourceInfo, source, sourceData, sourceLinks, 0, maxBytes); sourceErr != nil {
+			return appendJournalBackup{}, errors.Join(fmt.Errorf("link JSONL append backup: %w", err), sourceErr)
 		}
 		backupMode := layout.FileMode
 		if layoutIsDefault(path, layout) {
 			backupMode = info.Mode().Perm()
 		}
-		changed, writeErr := atomicfile.WriteIfChanged(backupPath, data, backupMode)
-		if writeErr != nil {
+		if writeErr := atomicfile.WriteNew(backupPath, sourceData, backupMode); writeErr != nil {
 			return appendJournalBackup{}, fmt.Errorf("write JSONL append backup: %w", writeErr)
 		}
-		if changed {
-			if secureErr := secureLayoutSecurityFile(layout, backupPath, maxBytes); secureErr != nil {
-				return appendJournalBackup{}, secureErr
-			}
+		if secureErr := secureLayoutSecurityFile(layout, backupPath, maxBytes); secureErr != nil {
+			return appendJournalBackup{}, secureErr
 		}
+	}
+	backupInfo, err := os.Lstat(backupPath)
+	if err != nil {
+		return appendJournalBackup{}, fmt.Errorf("inspect JSONL append backup: %w", err)
+	}
+	if linked && (!backupInfo.Mode().IsRegular() || !os.SameFile(sourceInfo, backupInfo)) {
+		cleanupErr := removeAppendBackupIfSame(backupPath, backupInfo)
+		return appendJournalBackup{}, errors.Join(
+			fmt.Errorf("JSONL append backup is not linked to the validated archive: %s", backupPath), cleanupErr,
+		)
+	}
+	linkDelta := uint64(0)
+	if linked {
+		linkDelta = 1
+	}
+	if err := validateAppendBackupSource(sourceFile, sourceInfo, source, sourceData, sourceLinks, linkDelta, maxBytes); err != nil {
+		cleanupErr := removeAppendBackupIfSame(backupPath, backupInfo)
+		return appendJournalBackup{}, errors.Join(err, cleanupErr)
 	}
 	expectedMode := info.Mode().Perm()
 	if !layoutIsDefault(path, layout) {
@@ -210,10 +287,129 @@ func createAppendBackupWithLayout(path string, layout Layout, index int, maxByte
 	}
 	digest, err := digestBoundedBackupWithLayout(backupPath, maxBytes, expectedMode, layout)
 	if err != nil {
-		return appendJournalBackup{}, err
+		cleanupErr := removeAppendBackupIfSame(backupPath, backupInfo)
+		return appendJournalBackup{}, errors.Join(err, cleanupErr)
+	}
+	if digest != wantDigest {
+		cleanupErr := removeAppendBackupIfSame(backupPath, backupInfo)
+		return appendJournalBackup{}, errors.Join(
+			fmt.Errorf("JSONL append backup content changed during publication: %s", backupPath), cleanupErr,
+		)
 	}
 	backup.Digest = digest
 	return backup, nil
+}
+
+func openAppendBackupSource(
+	source string,
+	before os.FileInfo,
+	layout Layout,
+	maxBytes int64,
+) (*os.File, os.FileInfo, []byte, uint64, error) {
+	file, err := os.Open(source)
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
+	closeOnError := func(cause error) (*os.File, os.FileInfo, []byte, uint64, error) {
+		return nil, nil, nil, 0, errors.Join(cause, file.Close())
+	}
+	opened, statErr := file.Stat()
+	current, lstatErr := os.Lstat(source)
+	if statErr != nil || lstatErr != nil {
+		return closeOnError(errors.Join(statErr, lstatErr))
+	}
+	if !sameAppendBackupSnapshot(before, opened) || !sameAppendBackupSnapshot(opened, current) {
+		return closeOnError(fmt.Errorf("JSONL archive changed identity while opening: %s", source))
+	}
+	beforeLinks, err := appendPathLinkCount(source, before)
+	if err != nil {
+		return closeOnError(err)
+	}
+	openedLinks, err := appendFileLinkCount(file, opened)
+	if err != nil {
+		return closeOnError(err)
+	}
+	if beforeLinks != openedLinks {
+		return closeOnError(fmt.Errorf("JSONL archive hard-link count changed while opening: %s", source))
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		return closeOnError(fmt.Errorf("read JSONL archive: %w", err))
+	}
+	if int64(len(data)) > maxBytes || int64(len(data)) != opened.Size() {
+		return closeOnError(fmt.Errorf("JSONL archive changed or exceeds %d bytes: %s", maxBytes, source))
+	}
+	if err := validateAppendBackupSource(file, opened, source, data, openedLinks, 0, maxBytes); err != nil {
+		return closeOnError(err)
+	}
+	if err := validateLayoutSecurityFile(layout, source, maxBytes); err != nil {
+		return closeOnError(err)
+	}
+	return file, opened, data, openedLinks, nil
+}
+
+func validateAppendBackupSource(
+	file *os.File,
+	expected os.FileInfo,
+	source string,
+	expectedData []byte,
+	expectedLinks uint64,
+	linkDelta uint64,
+	maxBytes int64,
+) error {
+	if expectedLinks > ^uint64(0)-linkDelta {
+		return fmt.Errorf("JSONL archive hard-link count overflow: %s", source)
+	}
+	opened, statErr := file.Stat()
+	current, lstatErr := os.Lstat(source)
+	if statErr != nil || lstatErr != nil {
+		return errors.Join(statErr, lstatErr)
+	}
+	wantLinks := expectedLinks + linkDelta
+	currentLinks, linkErr := appendFileLinkCount(file, opened)
+	pathLinks, pathLinkErr := appendPathLinkCount(source, current)
+	if linkErr != nil || pathLinkErr != nil {
+		return errors.Join(linkErr, pathLinkErr)
+	}
+	if !sameAppendBackupSnapshot(expected, opened) || !sameAppendBackupSnapshot(opened, current) ||
+		currentLinks != wantLinks || pathLinks != wantLinks {
+		return fmt.Errorf("JSONL archive identity, metadata, or hard-link count changed: %s", source)
+	}
+	if opened.Size() > maxBytes {
+		return fmt.Errorf("JSONL archive exceeds %d bytes: %s", maxBytes, source)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("rewind JSONL archive: %w", err)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		return fmt.Errorf("read JSONL archive identity: %w", err)
+	}
+	if int64(len(data)) != opened.Size() || !bytes.Equal(data, expectedData) {
+		return fmt.Errorf("JSONL archive content changed during publication: %s", source)
+	}
+	return nil
+}
+
+func sameAppendBackupSnapshot(left, right os.FileInfo) bool {
+	return left != nil && right != nil && left.Mode().IsRegular() && right.Mode().IsRegular() &&
+		left.Mode()&os.ModeSymlink == 0 && right.Mode()&os.ModeSymlink == 0 &&
+		os.SameFile(left, right) && left.Mode() == right.Mode() && left.Size() == right.Size() &&
+		left.ModTime().Equal(right.ModTime())
+}
+
+func removeAppendBackupIfSame(path string, expected os.FileInfo) error {
+	current, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if expected == nil || !os.SameFile(expected, current) {
+		return fmt.Errorf("refuse to remove changed JSONL append backup: %s", path)
+	}
+	return removeJSONLPath(path)
 }
 
 func digestBoundedBackupWithLayout(path string, maxBytes int64, mode os.FileMode, layout Layout) (string, error) {
@@ -561,9 +757,17 @@ func cleanupAppendBackupsWithLayout(layout Layout, backups []appendJournalBackup
 }
 
 func abortPreparingAppendWithLayout(layout Layout, maxArchives int) error {
+	return abortPreparingAppendWithLayoutPreserving(layout, maxArchives, "")
+}
+
+func abortPreparingAppendWithLayoutPreserving(layout Layout, maxArchives int, preservePath string) error {
 	var cleanupErr error
 	for index := 0; index <= maxArchives; index++ {
-		if err := removeJSONLPath(appendBackupPathWithLayout(layout, index)); err != nil {
+		backupPath := appendBackupPathWithLayout(layout, index)
+		if backupPath == preservePath {
+			continue
+		}
+		if err := removeJSONLPath(backupPath); err != nil {
 			cleanupErr = errors.Join(cleanupErr, err)
 		}
 	}
