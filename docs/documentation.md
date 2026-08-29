@@ -621,6 +621,11 @@ claiming an unsupported directory flush through a read-only `os.Root`. An
 existing byte-identical plan is unchanged. Explicit
 `--replace-output` replaces only a strictly valid Reconc plan for the same
 canonical repository and refuses arbitrary or cross-repository files.
+Atomic-file publication returns a typed outcome: `PublicationNotPublished`,
+`PublicationPublishedUncertain`, or `PublicationDurablyPublished`. A
+post-publication validation, temporary cleanup, parent synchronization, or
+descriptor-close failure therefore never masquerades as `changed=false`; private
+state writers carry the same outcome through their validation boundary.
 Repository detection accepts either a real `.git` directory or a bounded,
 strict `gitdir:` metadata file whose resolved target is a real directory, as
 used by linked worktrees. Missing metadata means non-Git; symlinked, malformed,

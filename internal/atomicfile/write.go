@@ -25,57 +25,57 @@ type ExpectedCurrent struct {
 }
 
 // WriteIfChanged atomically replaces path with data only when its current
-// bytes differ. It returns true only when a filesystem write was published.
-func WriteIfChanged(path string, data []byte, mode os.FileMode) (bool, error) {
+// bytes differ and reports the exact publication boundary reached.
+func WriteIfChanged(path string, data []byte, mode os.FileMode) (PublicationResult, error) {
 	return writeIfChanged(path, data, mode, PublicParentMode)
 }
 
 // WritePrivateIfChanged is WriteIfChanged with private permissions for every
 // parent directory that must be created.
-func WritePrivateIfChanged(path string, data []byte, mode os.FileMode) (bool, error) {
+func WritePrivateIfChanged(path string, data []byte, mode os.FileMode) (PublicationResult, error) {
 	return writeIfChanged(path, data, mode, PrivateParentMode)
 }
 
 // WriteIfCurrent publishes data only while path still has the exact bytes,
 // identity, mode, size, and modification time authorized in expected. A
-// missing expectation is create-only. It returns true only when a filesystem
-// write was published.
-func WriteIfCurrent(path string, data []byte, mode os.FileMode, expected ExpectedCurrent) (bool, error) {
+// missing expectation is create-only. It reports the exact publication
+// boundary reached even when a post-publication step fails.
+func WriteIfCurrent(path string, data []byte, mode os.FileMode, expected ExpectedCurrent) (PublicationResult, error) {
 	if !expected.Exists {
 		if expected.Info != nil || len(expected.Data) != 0 {
-			return false, errors.New("missing-file expectation contains existing-file state")
+			return PublicationResult{}, errors.New("missing-file expectation contains existing-file state")
 		}
 		return writeNew(path, data, mode, PublicParentMode)
 	}
 	if expected.Info == nil {
-		return false, errors.New("existing-file expectation is missing identity")
+		return PublicationResult{}, errors.New("existing-file expectation is missing identity")
 	}
 	return writeExistingIfCurrent(path, data, mode, expected)
 }
 
-func writeExistingIfCurrent(path string, data []byte, mode os.FileMode, expected ExpectedCurrent) (changed bool, err error) {
+func writeExistingIfCurrent(path string, data []byte, mode os.FileMode, expected ExpectedCurrent) (result PublicationResult, err error) {
 	parent, name, err := bindParent(path, PublicParentMode)
 	if err != nil {
-		return false, err
+		return PublicationResult{}, err
 	}
-	defer func() { err = errors.Join(err, parent.close()) }()
+	defer func() { err = errors.Join(err, result.markUncertainOnClose(parent.close())) }()
 	directory := parent.directory()
 	currentFile, currentInfo, err := openExpectedCurrent(directory, name, path, expected)
 	if err != nil {
-		return false, err
+		return PublicationResult{}, err
 	}
 	if bytes.Equal(data, expected.Data) {
 		return reconcileExpectedMode(parent, name, path, currentFile, currentInfo, mode, expected)
 	}
 	temporary, err := prepareNewFile(directory, name, data, mode)
 	if err != nil {
-		return false, errors.Join(err, currentFile.Close())
+		return PublicationResult{}, errors.Join(err, currentFile.Close())
 	}
 	if err := verifyExpectedCurrent(directory, name, path, currentFile, currentInfo, expected); err != nil {
-		return false, errors.Join(err, currentFile.Close(), directory.Remove(temporary))
+		return PublicationResult{}, errors.Join(err, currentFile.Close(), directory.Remove(temporary))
 	}
 	if err := errors.Join(parent.validate(), validateCurrent(directory, name, currentInfo), currentFile.Close()); err != nil {
-		return false, errors.Join(fmt.Errorf("validate conditional target %s: %w", path, err), directory.Remove(temporary))
+		return PublicationResult{}, errors.Join(fmt.Errorf("validate conditional target %s: %w", path, err), directory.Remove(temporary))
 	}
 	return publishConditionalReplacement(parent, name, path, temporary)
 }
@@ -112,36 +112,44 @@ func verifyExpectedCurrent(directory *os.Root, name, path string, file *os.File,
 	return nil
 }
 
-func reconcileExpectedMode(parent *boundParent, name, path string, file *os.File, info os.FileInfo, mode os.FileMode, expected ExpectedCurrent) (bool, error) {
+func reconcileExpectedMode(parent *boundParent, name, path string, file *os.File, info os.FileInfo, mode os.FileMode, expected ExpectedCurrent) (result PublicationResult, err error) {
 	directory := parent.directory()
 	if err := errors.Join(parent.validate(), verifyExpectedCurrent(directory, name, path, file, info, expected)); err != nil {
-		return false, errors.Join(err, file.Close())
+		return PublicationResult{}, errors.Join(err, file.Close())
 	}
 	changed, modeErr := reconcileMode(directory, name, file, info.Mode(), mode)
+	if changed {
+		result.markPublished()
+	}
 	validationErr := validateCurrent(directory, name, info)
 	parentErr := parent.validate()
 	closeErr := file.Close()
 	if err := errors.Join(modeErr, validationErr, parentErr, closeErr); err != nil {
-		return false, fmt.Errorf("reconcile conditional mode for %s: %w", path, err)
+		return result, fmt.Errorf("reconcile conditional mode for %s: %w", path, err)
 	}
-	return changed, nil
+	if changed {
+		result.markDurable()
+	}
+	return result, nil
 }
 
-func publishConditionalReplacement(parent *boundParent, name, path, temporary string) (bool, error) {
+func publishConditionalReplacement(parent *boundParent, name, path, temporary string) (result PublicationResult, err error) {
 	directory := parent.directory()
 	if err := replaceTemporary(directory, temporary, name); err != nil {
-		return false, fmt.Errorf("publish %s: %w", path, err)
+		return PublicationResult{}, fmt.Errorf("publish %s: %w", path, err)
 	}
+	result.markPublished()
 	if err := parent.validate(); err != nil {
-		return true, fmt.Errorf("validate parent after publishing %s: %w", path, err)
+		return result, fmt.Errorf("validate parent after publishing %s: %w", path, err)
 	}
 	if err := syncParentDir(directory); err != nil {
-		return true, fmt.Errorf("sync parent for %s: %w", path, err)
+		return result, fmt.Errorf("sync parent for %s: %w", path, err)
 	}
 	if err := parent.validate(); err != nil {
-		return true, fmt.Errorf("validate parent after syncing %s: %w", path, err)
+		return result, fmt.Errorf("validate parent after syncing %s: %w", path, err)
 	}
-	return true, nil
+	result.markDurable()
+	return result, nil
 }
 
 // SecureExistingIfMatches verifies an existing regular file against data and
@@ -178,42 +186,48 @@ func SecureExistingIfMatches(path string, data []byte, mode os.FileMode) (matche
 	return true, nil
 }
 
-func writeIfChanged(path string, data []byte, mode, parentMode os.FileMode) (changed bool, err error) {
+func writeIfChanged(path string, data []byte, mode, parentMode os.FileMode) (result PublicationResult, err error) {
 	parent, name, err := bindParent(path, parentMode)
 	if err != nil {
-		return false, err
+		return PublicationResult{}, err
 	}
-	defer func() { err = errors.Join(err, parent.close()) }()
+	defer func() { err = errors.Join(err, result.markUncertainOnClose(parent.close())) }()
 	directory := parent.directory()
 	currentFile, currentInfo, err := openCurrent(directory, name, path)
 	if err != nil {
-		return false, err
+		return PublicationResult{}, err
 	}
 	if currentFile != nil {
 		identical, compareErr := compareCurrent(directory, name, path, currentFile, currentInfo, data)
 		if compareErr != nil {
-			return false, compareErr
+			return PublicationResult{}, compareErr
 		}
 		if identical {
 			if err := parent.validate(); err != nil {
-				return false, errors.Join(err, currentFile.Close())
+				return PublicationResult{}, errors.Join(err, currentFile.Close())
 			}
 			modeChanged, modeErr := reconcileMode(directory, name, currentFile, currentInfo.Mode(), mode)
+			if modeChanged {
+				result.markPublished()
+			}
 			validationErr := validateCurrent(directory, name, currentInfo)
 			parentErr := parent.validate()
 			closeErr := currentFile.Close()
 			if err := errors.Join(modeErr, validationErr, parentErr, closeErr); err != nil {
-				return false, fmt.Errorf("reconcile mode for current %s: %w", path, err)
+				return result, fmt.Errorf("reconcile mode for current %s: %w", path, err)
 			}
-			return modeChanged, nil
+			if modeChanged {
+				result.markDurable()
+			}
+			return result, nil
 		}
 		if err := currentFile.Close(); err != nil {
-			return false, fmt.Errorf("close current %s: %w", path, err)
+			return PublicationResult{}, fmt.Errorf("close current %s: %w", path, err)
 		}
 	}
 	tmpFile, tmp, err := createTemporary(directory, name)
 	if err != nil {
-		return false, fmt.Errorf("create temp for %s: %w", path, err)
+		return PublicationResult{}, fmt.Errorf("create temp for %s: %w", path, err)
 	}
 	closed := false
 	cleanup := func() error {
@@ -229,13 +243,13 @@ func writeIfChanged(path string, data []byte, mode, parentMode os.FileMode) (cha
 		return errors.Join(closeErr, removeErr)
 	}
 	if err := tmpFile.Chmod(mode); err != nil {
-		return false, errors.Join(fmt.Errorf("chmod temp for %s: %w", path, err), cleanup())
+		return PublicationResult{}, errors.Join(fmt.Errorf("chmod temp for %s: %w", path, err), cleanup())
 	}
 	if _, err := tmpFile.Write(data); err != nil {
-		return false, errors.Join(fmt.Errorf("write temp for %s: %w", path, err), cleanup())
+		return PublicationResult{}, errors.Join(fmt.Errorf("write temp for %s: %w", path, err), cleanup())
 	}
 	if err := tmpFile.Sync(); err != nil {
-		return false, errors.Join(fmt.Errorf("sync temp for %s: %w", path, err), cleanup())
+		return PublicationResult{}, errors.Join(fmt.Errorf("sync temp for %s: %w", path, err), cleanup())
 	}
 	if err := tmpFile.Close(); err != nil {
 		closed = true
@@ -243,28 +257,30 @@ func writeIfChanged(path string, data []byte, mode, parentMode os.FileMode) (cha
 		if os.IsNotExist(removeErr) {
 			removeErr = nil
 		}
-		return false, errors.Join(fmt.Errorf("close temp for %s: %w", path, err), removeErr)
+		return PublicationResult{}, errors.Join(fmt.Errorf("close temp for %s: %w", path, err), removeErr)
 	}
 	closed = true
 	if err := parent.validate(); err != nil {
-		return false, errors.Join(err, cleanup())
+		return PublicationResult{}, errors.Join(err, cleanup())
 	}
 	if err := validateCurrent(directory, name, currentInfo); err != nil {
-		return false, errors.Join(fmt.Errorf("validate publication target %s: %w", path, err), cleanup())
+		return PublicationResult{}, errors.Join(fmt.Errorf("validate publication target %s: %w", path, err), cleanup())
 	}
 	if err := replaceTemporary(directory, tmp, name); err != nil {
-		return false, fmt.Errorf("publish %s: %w", path, err)
+		return PublicationResult{}, fmt.Errorf("publish %s: %w", path, err)
 	}
+	result.markPublished()
 	if err := parent.validate(); err != nil {
-		return true, fmt.Errorf("validate parent after publishing %s: %w", path, err)
+		return result, fmt.Errorf("validate parent after publishing %s: %w", path, err)
 	}
 	if err := syncParentDir(directory); err != nil {
-		return true, fmt.Errorf("sync parent for %s: %w", path, err)
+		return result, fmt.Errorf("sync parent for %s: %w", path, err)
 	}
 	if err := parent.validate(); err != nil {
-		return true, fmt.Errorf("validate parent after syncing %s: %w", path, err)
+		return result, fmt.Errorf("validate parent after syncing %s: %w", path, err)
 	}
-	return true, nil
+	result.markDurable()
+	return result, nil
 }
 
 func replaceTemporary(directory *os.Root, temporary, target string) error {

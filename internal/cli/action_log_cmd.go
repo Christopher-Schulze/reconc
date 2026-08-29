@@ -370,7 +370,7 @@ func joinActionLedgerCloseError(resultErr *error, reader existingActionLedger) {
 
 func writeActionLogOutput(command string, stdout io.Writer, outputPath string, body []byte) error {
 	if outputPath != "" {
-		if err := atomicfile.WritePrivateNew(outputPath, body, 0o600); err != nil {
+		if _, err := atomicfile.WritePrivateNew(outputPath, body, 0o600); err != nil {
 			return actionLogCLIError(command, "write output: "+err.Error())
 		}
 	}

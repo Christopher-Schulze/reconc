@@ -288,7 +288,7 @@ func restoreBootstrapRetentionSnapshot(snapshot bootstrapRetentionSnapshot) (res
 	if err := validateCreatedParent(parent, parentInfo, snapshot.path); err != nil {
 		return fmt.Errorf("validate rollback parent for %s: %w", snapshot.path, err)
 	}
-	if err := atomicfile.WriteNew(snapshot.path, snapshot.data, snapshot.mode); err != nil {
+	if _, err := atomicfile.WriteNew(snapshot.path, snapshot.data, snapshot.mode); err != nil {
 		return fmt.Errorf("restore %s: %w", snapshot.path, err)
 	}
 	if err := os.Chtimes(snapshot.path, snapshot.modified, snapshot.modified); err != nil {

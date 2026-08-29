@@ -12,7 +12,7 @@ type directorySyncCloser interface {
 	Close() error
 }
 
-func syncParentDir(directory *os.Root) error {
+func syncParentDirImpl(directory *os.Root) error {
 	dir, err := directory.Open(".")
 	if err != nil {
 		return err

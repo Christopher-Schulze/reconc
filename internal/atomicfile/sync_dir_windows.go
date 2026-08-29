@@ -4,7 +4,7 @@ package atomicfile
 
 import "os"
 
-func syncParentDir(*os.Root) error {
+func syncParentDirImpl(*os.Root) error {
 	// Windows exposes no supported directory fsync through os.Root.
 	// File.Sync maps to FlushFileBuffers, which requires GENERIC_WRITE while
 	// os.Root is deliberately read-only. Payload files are synced before

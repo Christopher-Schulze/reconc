@@ -140,11 +140,11 @@ func projectDocument(root string, projection documentProjection, check bool) (bo
 	if check {
 		return true, nil
 	}
-	changed, err := atomicfile.WriteIfChanged(path, next, info.Mode().Perm())
+	result, err := atomicfile.WriteIfChanged(path, next, info.Mode().Perm())
 	if err != nil {
 		return false, fmt.Errorf("publish %s: %w", projection.path, err)
 	}
-	return changed, nil
+	return result.Changed, nil
 }
 
 func replaceMarkedSection(document []byte, section markedSection) ([]byte, error) {

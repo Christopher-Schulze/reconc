@@ -617,7 +617,7 @@ func backupMalformedConfig(target string, existing []byte) (string, error) {
 	if matched, err := atomicfile.SecureExistingIfMatches(legacy, existing, 0o600); err == nil && matched {
 		return legacy, nil
 	}
-	writeErr := atomicfile.WriteNew(backup, existing, 0o600)
+	_, writeErr := atomicfile.WriteNew(backup, existing, 0o600)
 	if writeErr == nil {
 		return backup, nil
 	}

@@ -13,14 +13,18 @@ Atomic replacement and create-only writes can publish the target, then fail pare
 
 ## Sub-Tasks
 
-- [ ] Inventory atomic-file outcome contracts and callers
-- [ ] Define the smallest typed publication result
-- [ ] Propagate post-publication state through privatefs consumers
-- [ ] Add failure-at-every-boundary and retry tests
+- [x] Inventory atomic-file outcome contracts and callers
+- [x] Define the smallest typed publication result
+- [x] Propagate post-publication state through privatefs consumers
+- [x] Add failure-at-every-boundary and retry tests
 
 ## Notes
 
 - Evidence: `internal/atomicfile/write.go`, `write_new.go`, and `write_stream.go` post-publication error paths.
+- `PublicationResult` reports `PublicationNotPublished`, `PublicationPublishedUncertain`, or `PublicationDurablyPublished`, with an independent `Changed` bit for mode-only repairs.
+- All atomic write, create-only, conditional, and stream APIs return the typed result. Parent-close failures downgrade a durable result to uncertain; post-publication sync and validation failures retain the published state.
+- `privatefs.WritePrivateIfChanged` preserves the result through its opened-file security validation instead of returning `false` on an already-published artifact.
+- Regression coverage injects parent synchronization failure after replacement, create-only linking, and stream replacement, and verifies the new bytes plus the uncertain outcome. Validation: `go test ./internal/atomicfile ./internal/privatefs -count=1`, `go test ./... -run '^$'`.
 
 ## Deviations
 

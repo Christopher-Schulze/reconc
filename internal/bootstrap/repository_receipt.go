@@ -246,11 +246,11 @@ func writeRepositoryReceiptAtomic(root string, receipt *RepositoryReceipt) (bool
 	if err != nil {
 		return false, err
 	}
-	changed, err := atomicfile.WriteIfChanged(target, body, 0o644)
+	result, err := atomicfile.WriteIfChanged(target, body, 0o644)
 	if err != nil {
 		return false, fmt.Errorf("publish repository receipt: %w", err)
 	}
-	return changed, nil
+	return result.Changed, nil
 }
 
 func encodeRepositoryReceipt(receipt *RepositoryReceipt) ([]byte, error) {

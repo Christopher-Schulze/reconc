@@ -75,12 +75,12 @@ func run(args []string, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "verified: %s\n", path)
 		return nil
 	}
-	changed, err := atomicfile.WriteIfChanged(path, body, 0o644)
+	result, err := atomicfile.WriteIfChanged(path, body, 0o644)
 	if err != nil {
 		return err
 	}
 	action := "unchanged"
-	if changed {
+	if result.Changed {
 		action = "written"
 	}
 	fmt.Fprintf(stdout, "%s: %s\n", action, path)

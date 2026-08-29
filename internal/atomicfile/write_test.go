@@ -15,15 +15,15 @@ import (
 func TestWriteIfChangedSkipsIdenticalPublication(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "state.json")
 	written, err := WriteIfChanged(path, []byte("one\n"), 0o640)
-	if err != nil || !written {
+	if err != nil || !written.Changed || written.Outcome != PublicationDurablyPublished {
 		t.Fatalf("first write: written=%v err=%v", written, err)
 	}
 	written, err = WriteIfChanged(path, []byte("one\n"), 0o640)
-	if err != nil || written {
+	if err != nil || written.Changed || written.Outcome != PublicationNotPublished {
 		t.Fatalf("identical write: written=%v err=%v", written, err)
 	}
 	written, err = WriteIfChanged(path, []byte("two\n"), 0o640)
-	if err != nil || !written {
+	if err != nil || !written.Changed || written.Outcome != PublicationDurablyPublished {
 		t.Fatalf("changed write: written=%v err=%v", written, err)
 	}
 	data, err := os.ReadFile(path)
@@ -33,6 +33,42 @@ func TestWriteIfChangedSkipsIdenticalPublication(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".state.json.*.tmp"))
 	if err != nil || len(matches) != 0 {
 		t.Fatalf("atomic temp residue: %v err=%v", matches, err)
+	}
+}
+
+func TestPublicationResultRetainsPostPublicationUncertainty(t *testing.T) {
+	originalSync := syncParentDir
+	t.Cleanup(func() { syncParentDir = originalSync })
+	syncParentDir = func(*os.Root) error { return errors.New("injected parent sync failure") }
+
+	path := filepath.Join(t.TempDir(), "state.json")
+	result, err := WriteIfChanged(path, []byte("published\n"), 0o600)
+	if err == nil || result.Outcome != PublicationPublishedUncertain || !result.Changed {
+		t.Fatalf("replacement outcome = %+v err=%v", result, err)
+	}
+	if body, readErr := os.ReadFile(path); readErr != nil || string(body) != "published\n" {
+		t.Fatalf("replacement body = %q err=%v", body, readErr)
+	}
+
+	newPath := filepath.Join(t.TempDir(), "new.json")
+	result, err = WriteNew(newPath, []byte("new\n"), 0o600)
+	if err == nil || result.Outcome != PublicationPublishedUncertain || !result.Changed {
+		t.Fatalf("create-only outcome = %+v err=%v", result, err)
+	}
+	if body, readErr := os.ReadFile(newPath); readErr != nil || string(body) != "new\n" {
+		t.Fatalf("create-only body = %q err=%v", body, readErr)
+	}
+
+	streamPath := filepath.Join(t.TempDir(), "stream.bin")
+	if writeErr := os.WriteFile(streamPath, []byte("old\n"), 0o600); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	result, err = WriteStream(streamPath, strings.NewReader("stream\n"), 32, 0o600)
+	if err == nil || result.Outcome != PublicationPublishedUncertain || !result.Changed {
+		t.Fatalf("stream outcome = %+v err=%v", result, err)
+	}
+	if body, readErr := os.ReadFile(streamPath); readErr != nil || string(body) != "stream\n" {
+		t.Fatalf("stream body = %q err=%v", body, readErr)
 	}
 }
 
@@ -48,7 +84,7 @@ func TestWriteIfCurrentPublishesOnlyAuthorizedExistingState(t *testing.T) {
 	}
 	expected := ExpectedCurrent{Data: before, Info: info, Exists: true}
 	written, err := WriteIfCurrent(path, []byte("after\n"), 0o600, expected)
-	if err != nil || !written {
+	if err != nil || !written.Changed {
 		t.Fatalf("conditional write: written=%v err=%v", written, err)
 	}
 	body, err := os.ReadFile(path)
@@ -114,7 +150,7 @@ func TestWriteIfCurrentMissingExpectationIsCreateOnly(t *testing.T) {
 	t.Run("publishes missing target", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "nested", "state.json")
 		written, err := WriteIfCurrent(path, []byte("created\n"), 0o600, ExpectedCurrent{})
-		if err != nil || !written {
+		if err != nil || !written.Changed {
 			t.Fatalf("create-only write: written=%v err=%v", written, err)
 		}
 		body, err := os.ReadFile(path)
@@ -154,7 +190,7 @@ func TestWriteIfCurrentReconcilesAuthorizedModeWithoutReplacingBytes(t *testing.
 	}
 	expected := ExpectedCurrent{Data: before, Info: info, Exists: true}
 	written, err := WriteIfCurrent(path, before, 0o600, expected)
-	if err != nil || !written {
+	if err != nil || !written.Changed {
 		t.Fatalf("conditional mode write: written=%v err=%v", written, err)
 	}
 	after, err := os.Lstat(path)
@@ -201,7 +237,7 @@ func TestWriteIfChangedReplacesDifferentSizedSparseFileWithoutWholeRead(t *testi
 		t.Fatal(err)
 	}
 	written, err := WriteIfChanged(path, []byte("small\n"), 0o600)
-	if err != nil || !written {
+	if err != nil || !written.Changed {
 		t.Fatalf("replace sparse file: written=%v err=%v", written, err)
 	}
 	body, err := os.ReadFile(path)
@@ -212,10 +248,10 @@ func TestWriteIfChangedReplacesDifferentSizedSparseFileWithoutWholeRead(t *testi
 
 func TestWriteNewPublishesCompleteBytesAndRefusesExistingTarget(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "export.json")
-	if err := WriteNew(path, []byte("first\n"), 0o600); err != nil {
+	if _, err := WriteNew(path, []byte("first\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteNew(path, []byte("second\n"), 0o600); err == nil {
+	if _, err := WriteNew(path, []byte("second\n"), 0o600); err == nil {
 		t.Fatal("WriteNew replaced an existing target")
 	}
 	body, err := os.ReadFile(path)

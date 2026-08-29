@@ -176,17 +176,23 @@ func OpenExistingPrivateFile(path string) (*os.File, error) {
 
 // WritePrivateIfChanged uses the descriptor-safe atomic publisher, then
 // verifies the resulting private file through an opened descriptor.
-func WritePrivateIfChanged(path string, data []byte, mode os.FileMode) (bool, error) {
-	changed, err := atomicfile.WritePrivateIfChanged(path, data, mode)
+func WritePrivateIfChanged(path string, data []byte, mode os.FileMode) (atomicfile.PublicationResult, error) {
+	result, err := atomicfile.WritePrivateIfChanged(path, data, mode)
 	if err != nil {
-		return false, err
+		return result, err
 	}
 	file, err := openPrivateFile(path, false, true)
 	if err != nil {
-		return false, fmt.Errorf("validate private publication %s: %w", path, err)
+		if result.Outcome == atomicfile.PublicationDurablyPublished {
+			result.Outcome = atomicfile.PublicationPublishedUncertain
+		}
+		return result, fmt.Errorf("validate private publication %s: %w", path, err)
 	}
 	closeErr := file.Close()
-	return changed, closeErr
+	if closeErr != nil && result.Outcome == atomicfile.PublicationDurablyPublished {
+		result.Outcome = atomicfile.PublicationPublishedUncertain
+	}
+	return result, closeErr
 }
 
 func directoryComponents(path string) (string, []string, error) {

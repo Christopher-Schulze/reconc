@@ -30,7 +30,7 @@ func TestWriteIfChangedRepairsModeWithoutRewritingBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	written, err := WriteIfChanged(path, []byte("private\n"), 0o600)
-	if err != nil || !written {
+	if err != nil || !written.Changed || written.Outcome != PublicationDurablyPublished {
 		t.Fatalf("mode repair: written=%v err=%v", written, err)
 	}
 	after, err := os.Stat(path)

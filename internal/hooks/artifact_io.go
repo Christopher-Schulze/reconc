@@ -67,11 +67,11 @@ func publishManagedArtifact(path string, content []byte, mode os.FileMode, snaps
 	if snapshot.exists {
 		action = "updated"
 	}
-	changed, err := atomicfile.WriteIfCurrent(path, content, mode, snapshot.expectedCurrent())
+	result, err := atomicfile.WriteIfCurrent(path, content, mode, snapshot.expectedCurrent())
 	if err != nil {
 		return "", err
 	}
-	if !changed {
+	if !result.Changed {
 		return "unchanged", nil
 	}
 	return action, nil

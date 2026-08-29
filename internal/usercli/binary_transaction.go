@@ -130,7 +130,8 @@ func (backup *binaryBackup) cleanup() error {
 
 func publishBinaryFromFile(target, source string, mode os.FileMode) error {
 	return boundedio.WithRegularFileSnapshot(source, maxBinaryBytes, func(file *os.File, _ os.FileInfo) error {
-		return atomicfile.WriteStream(target, file, maxBinaryBytes, mode)
+		_, err := atomicfile.WriteStream(target, file, maxBinaryBytes, mode)
+		return err
 	})
 }
 

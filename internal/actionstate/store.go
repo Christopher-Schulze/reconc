@@ -313,11 +313,11 @@ func publishPrivateFileIfChanged(path string, body []byte) (bool, error) {
 	if err := validatePrivateDirectory(directory); err != nil {
 		return false, fmt.Errorf("validate private publication directory: %w", err)
 	}
-	changed, err := atomicfile.WritePrivateIfChanged(path, body, 0o600)
+	result, err := atomicfile.WritePrivateIfChanged(path, body, 0o600)
 	if err != nil {
 		return false, err
 	}
-	if changed {
+	if result.Changed {
 		if err := securePublishedPrivateFile(path); err != nil {
 			return false, err
 		}
@@ -325,7 +325,7 @@ func publishPrivateFileIfChanged(path string, body []byte) (bool, error) {
 	if err := validatePrivateDirectory(directory); err != nil {
 		return false, err
 	}
-	return changed, nil
+	return result.Changed, nil
 }
 
 func writeBoundedJSON(path string, value any, maximum int) error {

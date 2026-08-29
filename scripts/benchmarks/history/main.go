@@ -133,11 +133,11 @@ func runBaseline(args []string, stdout io.Writer) error {
 }
 
 func publishContract(path string, body []byte, stdout io.Writer) error {
-	changed, err := atomicfile.WriteIfChanged(filepath.Clean(path), body, 0o644)
+	result, err := atomicfile.WriteIfChanged(filepath.Clean(path), body, 0o644)
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(stdout, "benchmark contract %s: changed=%t\n", path, changed)
+	_, err = fmt.Fprintf(stdout, "benchmark contract %s: changed=%t\n", path, result.Changed)
 	return err
 }
 

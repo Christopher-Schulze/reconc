@@ -397,11 +397,11 @@ func writeReceiptUnlocked(path string, receipt *Receipt) (bool, error) {
 	if len(body) > maxInstallationReceipt {
 		return false, fmt.Errorf("installation receipt exceeds %d bytes", maxInstallationReceipt)
 	}
-	changed, err := privatefs.WritePrivateIfChanged(path, body, 0o600)
+	result, err := privatefs.WritePrivateIfChanged(path, body, 0o600)
 	if err != nil {
 		return false, fmt.Errorf("publish installation receipt: %w", err)
 	}
-	return changed, nil
+	return result.Changed, nil
 }
 
 func validateReceipt(receipt *Receipt) error {

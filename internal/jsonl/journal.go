@@ -256,7 +256,7 @@ func createAppendBackupWithLayoutHooks(
 		if layoutIsDefault(path, layout) {
 			backupMode = info.Mode().Perm()
 		}
-		if writeErr := atomicfile.WriteNew(backupPath, sourceData, backupMode); writeErr != nil {
+		if _, writeErr := atomicfile.WriteNew(backupPath, sourceData, backupMode); writeErr != nil {
 			return appendJournalBackup{}, fmt.Errorf("write JSONL append backup: %w", writeErr)
 		}
 		if secureErr := secureLayoutSecurityFile(layout, backupPath, maxBytes); secureErr != nil {
@@ -467,11 +467,11 @@ func writeAppendJournalWithLayout(path string, layout Layout, journal appendJour
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	changed, err := atomicfile.WriteIfChanged(layout.JournalPath, body, layout.JournalMode)
+	result, err := atomicfile.WriteIfChanged(layout.JournalPath, body, layout.JournalMode)
 	if err != nil {
 		return fmt.Errorf("write JSONL append journal: %w", err)
 	}
-	if changed {
+	if result.Changed {
 		if err := secureLayoutSecurityFile(layout, layout.JournalPath, maxAppendJournalBytes); err != nil {
 			return err
 		}
@@ -673,11 +673,11 @@ func rollbackAppendJournalWithLayout(path string, layout Layout, journal appendJ
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
-			changed, err := atomicfile.WriteIfChanged(destination, data, restoreMode)
+			result, err := atomicfile.WriteIfChanged(destination, data, restoreMode)
 			if err != nil {
 				return fmt.Errorf("restore JSONL append backup: %w", err)
 			}
-			if changed {
+			if result.Changed {
 				if err := secureLayoutSecurityFile(layout, destination, journal.MaxBytes); err != nil {
 					return err
 				}

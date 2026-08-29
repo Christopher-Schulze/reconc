@@ -434,11 +434,11 @@ func saveSessionStateLockedIfChanged(state SessionState) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("marshal session state: %w", err)
 	}
-	written, err := atomicfile.WritePrivateIfChanged(path, data, 0o600)
+	result, err := atomicfile.WritePrivateIfChanged(path, data, 0o600)
 	if err != nil {
 		return false, fmt.Errorf("write session state: %w", err)
 	}
-	return written, nil
+	return result.Changed, nil
 }
 
 func ensurePrivateStateDir(path string) error {
@@ -892,11 +892,11 @@ func writeActiveSessionLockedIfChanged(repoRoot, sessionID string) (bool, error)
 	if current {
 		return false, nil
 	}
-	written, err := atomicfile.WritePrivateIfChanged(path, []byte(sessionID+"\n"), 0o600)
+	result, err := atomicfile.WritePrivateIfChanged(path, []byte(sessionID+"\n"), 0o600)
 	if err != nil {
 		return false, fmt.Errorf("write active session: %w", err)
 	}
-	return written, nil
+	return result.Changed, nil
 }
 
 func activeSessionMatches(repoRoot, sessionID string) (bool, error) {

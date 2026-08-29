@@ -19,11 +19,11 @@ func trimTailWithLayout(path string, maxBytes int64, layout Layout) (int64, erro
 	if err != nil || original == kept {
 		return 0, err
 	}
-	changed, err := atomicfile.WriteIfChanged(path, data, mode)
+	result, err := atomicfile.WriteIfChanged(path, data, mode)
 	if err != nil {
 		return 0, err
 	}
-	if changed {
+	if result.Changed {
 		if err := secureLayoutSecurityFile(layout, path, maxBytes); err != nil {
 			return 0, err
 		}

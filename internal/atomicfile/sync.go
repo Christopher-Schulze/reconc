@@ -5,6 +5,8 @@ import (
 	"os"
 )
 
+var syncParentDir = syncParentDirImpl
+
 // SyncDirectory commits directory-entry changes through an already bound root.
 // Windows keeps the strongest supported os.Root boundary and returns success
 // without claiming an unsupported FlushFileBuffers call on a read-only handle.

@@ -24,7 +24,7 @@ func TestWriteIfChangedIgnoresUnrepresentablePOSIXModeDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	written, err := WriteIfChanged(path, []byte("private\n"), 0o600)
-	if err != nil || written {
+	if err != nil || written.Changed {
 		t.Fatalf("identical Windows write: written=%v err=%v", written, err)
 	}
 }
@@ -35,14 +35,14 @@ func TestWriteIfChangedReconcilesRepresentableReadOnlyDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	written, err := WriteIfChanged(path, []byte("private\n"), 0o400)
-	if err != nil || !written {
+	if err != nil || !written.Changed {
 		t.Fatalf("make read-only: written=%v err=%v", written, err)
 	}
 	if !windowsFileReadOnly(t, path) {
 		t.Fatal("file remains writable")
 	}
 	written, err = WriteIfChanged(path, []byte("private\n"), 0o600)
-	if err != nil || !written {
+	if err != nil || !written.Changed {
 		t.Fatalf("make writable: written=%v err=%v", written, err)
 	}
 	if windowsFileReadOnly(t, path) {

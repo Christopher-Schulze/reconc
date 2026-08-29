@@ -254,11 +254,11 @@ func ReplaceSyncPlan(outputPath string, plan *SyncPlan) (string, error) {
 	if current.RepoRoot != plan.RepoRoot {
 		return "", fmt.Errorf("refuse to replace sync plan for %s with a plan for %s", current.RepoRoot, plan.RepoRoot)
 	}
-	changed, err := atomicfile.WriteIfChanged(absolute, body, 0o644)
+	result, err := atomicfile.WriteIfChanged(absolute, body, 0o644)
 	if err != nil {
 		return "", fmt.Errorf("replace repository sync plan output: %w", err)
 	}
-	if !changed {
+	if !result.Changed {
 		return "unchanged", nil
 	}
 	return "replaced", nil

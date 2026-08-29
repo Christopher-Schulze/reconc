@@ -412,7 +412,7 @@ func prepareTransactionDirectories(repoRoot string, directories []transactionDir
 		if err != nil {
 			return err
 		}
-		if err := atomicfile.WriteNew(marker, transactionDirectoryMarkerBody(directory), 0o600); err != nil {
+		if _, err := atomicfile.WriteNew(marker, transactionDirectoryMarkerBody(directory), 0o600); err != nil {
 			return errors.Join(
 				fmt.Errorf("publish transaction directory marker for %s: %w", directory.Path, err),
 				os.Remove(absolute),
@@ -959,7 +959,7 @@ func rollbackCreatedDirectories(repoRoot string, directories []transactionDirect
 			return errors.Join(fmt.Errorf("rollback transaction directory changed after marker removal: %s", directory.Path), err)
 		}
 		if err := os.Remove(absolute); err != nil {
-			restoreErr := atomicfile.WriteNew(marker, transactionDirectoryMarkerBody(directory), 0o600)
+			_, restoreErr := atomicfile.WriteNew(marker, transactionDirectoryMarkerBody(directory), 0o600)
 			return errors.Join(fmt.Errorf("remove rollback transaction directory %s: %w", directory.Path, err), restoreErr)
 		}
 	}

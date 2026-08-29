@@ -14,7 +14,7 @@ func TestWriteStreamPublishesBoundedBytesAtomically(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteStream(path, strings.NewReader("new payload"), 11, 0o755); err != nil {
+	if _, err := WriteStream(path, strings.NewReader("new payload"), 11, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	body, err := os.ReadFile(path)
@@ -42,7 +42,7 @@ func TestWriteStreamLeavesCurrentFileOnReadFailureOrOverflow(t *testing.T) {
 			if err := os.WriteFile(path, []byte("old"), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			if err := WriteStream(path, test.source, test.limit, 0o755); err == nil {
+			if _, err := WriteStream(path, test.source, test.limit, 0o755); err == nil {
 				t.Fatal("stream failure unexpectedly succeeded")
 			}
 			body, err := os.ReadFile(path)

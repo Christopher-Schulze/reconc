@@ -107,7 +107,7 @@ func WritePlan(path string, plan *Plan) (string, error) {
 	} else if !os.IsNotExist(err) {
 		return "", fmt.Errorf("read bootstrap plan output: %w", err)
 	}
-	if err := atomicfile.WriteNew(abs, data, 0o644); err != nil {
+	if _, err := atomicfile.WriteNew(abs, data, 0o644); err != nil {
 		return "", fmt.Errorf("create bootstrap plan output: %w", err)
 	}
 	return "created", nil
@@ -137,11 +137,11 @@ func ReplacePlan(path string, plan *Plan) (string, error) {
 	if current.RepoRoot != plan.RepoRoot {
 		return "", fmt.Errorf("refuse to replace bootstrap plan for %s with a plan for %s", current.RepoRoot, plan.RepoRoot)
 	}
-	changed, err := atomicfile.WriteIfChanged(abs, data, 0o644)
+	result, err := atomicfile.WriteIfChanged(abs, data, 0o644)
 	if err != nil {
 		return "", fmt.Errorf("replace bootstrap plan output: %w", err)
 	}
-	if !changed {
+	if !result.Changed {
 		return "unchanged", nil
 	}
 	return "replaced", nil

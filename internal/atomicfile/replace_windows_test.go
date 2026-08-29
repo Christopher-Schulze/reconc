@@ -66,7 +66,7 @@ func TestReplaceFileUsesRootedWriteThroughHandle(t *testing.T) {
 		return originalSetInformation(handle, status, buffer, bufferLength, class)
 	}
 	written, err := WriteIfChanged(path, []byte("after\n"), 0o600)
-	if err != nil || !written {
+	if err != nil || !written.Changed {
 		t.Fatalf("write-through replacement: written=%v err=%v", written, err)
 	}
 	if !sourceRooted || filepath.IsAbs(sourceName) ||
@@ -112,7 +112,7 @@ func TestReplaceFileFallsBackToLegacyRootedRename(t *testing.T) {
 		return original(handle, status, buffer, bufferLength, class)
 	}
 	written, err := WriteIfChanged(path, []byte("after\n"), 0o600)
-	if err != nil || !written {
+	if err != nil || !written.Changed {
 		t.Fatalf("legacy rooted replacement: written=%v err=%v", written, err)
 	}
 	if len(classes) != 2 || classes[0] != fileRenameInformationEx ||
@@ -139,7 +139,7 @@ func TestReplaceFileMapsNativeFailureAndCleansTemporary(t *testing.T) {
 		return windows.STATUS_ACCESS_DENIED
 	}
 	written, err := WriteIfChanged(path, []byte("after\n"), 0o600)
-	if err == nil || written || !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+	if err == nil || written.Changed || !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
 		t.Fatalf("native replacement failure: written=%v err=%v", written, err)
 	}
 	body, readErr := os.ReadFile(path)
@@ -168,7 +168,7 @@ func TestReplaceFileRejectsReparseSourceAndCleansTemporary(t *testing.T) {
 		return nil
 	}
 	written, err := WriteIfChanged(path, []byte("payload\n"), 0o600)
-	if !errors.Is(err, errWindowsRenameSourceReparse) || written {
+	if !errors.Is(err, errWindowsRenameSourceReparse) || written.Changed {
 		t.Fatalf("reparse-source replacement: written=%v err=%v", written, err)
 	}
 	if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
