@@ -245,6 +245,29 @@ func TestTailRejectsMalformedLines(t *testing.T) {
 	if err == nil {
 		t.Fatalf("malformed audit line must fail closed, got %d entries: %v", len(entries), entries)
 	}
+	if !strings.Contains(err.Error(), path+":2 contains malformed JSON") {
+		t.Fatalf("malformed audit error = %v, want exact source and line", err)
+	}
+}
+
+func TestTailRejectsOversizedRecordWithLineContext(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(repo, AuditFileRelative)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oversized := append(bytes.Repeat([]byte{'x'}, maxRecordBytes), '\n')
+	if err := os.WriteFile(path, oversized, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := Tail(repo, TailOptions{})
+	if err == nil {
+		t.Fatalf("oversized audit record unexpectedly decoded %d entries", len(entries))
+	}
+	want := fmt.Sprintf("%s:1 exceeds the %d-byte record limit", path, maxRecordBytes)
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("oversized audit error = %v, want %q", err, want)
+	}
 }
 
 func TestStatsAggregates(t *testing.T) {
@@ -670,5 +693,29 @@ func BenchmarkAuditAppendRetainedChain(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+func BenchmarkAuditReadMaximumRing(b *testing.B) {
+	line := []byte(`{"event":"benchmark","decision":"pass"}` + "\n")
+	recordsPerFile := (DefaultMaxSizeBytes - 1) / len(line)
+	body := bytes.Repeat(line, recordsPerFile)
+	path := filepath.Join(b.TempDir(), "audit.jsonl")
+	for _, suffix := range []string{".2", ".1", ""} {
+		if err := os.WriteFile(path+suffix, body, 0o600); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.SetBytes(int64(len(body) * (MaxArchiveFiles + 1)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		entries, err := readAuditEntries(path)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(entries) != recordsPerFile*(MaxArchiveFiles+1) {
+			b.Fatalf("read %d entries, want %d", len(entries), recordsPerFile*(MaxArchiveFiles+1))
+		}
 	}
 }

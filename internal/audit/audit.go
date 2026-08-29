@@ -16,6 +16,7 @@
 package audit
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -45,11 +46,12 @@ const (
 	auditHeadMaxBytes = 16 * 1024
 	// DefaultMaxSizeBytes bounds each live/archive file. Together with the
 	// two-file ring, audit storage is capped at 6 MiB per repository.
-	DefaultMaxSizeBytes = 2 * 1024 * 1024
-	MaxArchiveFiles     = 2
-	maxRecordBytes      = 32 * 1024
-	maxEntryListItems   = 128
-	maxEntryListBytes   = 16 * 1024
+	DefaultMaxSizeBytes         = 2 * 1024 * 1024
+	MaxArchiveFiles             = 2
+	maxRecordBytes              = 32 * 1024
+	maxEntryListItems           = 128
+	maxEntryListBytes           = 16 * 1024
+	maxAuditSnapshotBytes int64 = DefaultMaxSizeBytes * (MaxArchiveFiles + 1)
 )
 
 // Entry is one audit record. Zero-value fields serialise to omitempty so
@@ -669,26 +671,73 @@ func readAuditEntries(path string) ([]Entry, error) {
 		return nil, fmt.Errorf("audit: enumerate archive ring: %w", err)
 	}
 	entries := []Entry{}
+	var snapshotBytes int64
 	for _, source := range sources {
-		data, err := boundedio.ReadRegularFile(source, DefaultMaxSizeBytes)
+		var decodeErr *auditReadError
+		err := boundedio.WithRegularFileSnapshot(source, DefaultMaxSizeBytes, func(file *os.File, info os.FileInfo) error {
+			if info.Size() > maxAuditSnapshotBytes-snapshotBytes {
+				decodeErr = &auditReadError{err: fmt.Errorf("audit: retained archive ring exceeds %d bytes", maxAuditSnapshotBytes)}
+				return nil
+			}
+			snapshotBytes += info.Size()
+			readErr := decodeAuditFile(file, source, &entries)
+			if errors.As(readErr, &decodeErr) {
+				return nil
+			}
+			return readErr
+		})
 		if err != nil {
 			return nil, fmt.Errorf("audit: read %s: %w", source, err)
 		}
-		if len(data) > 0 && data[len(data)-1] != '\n' {
-			return nil, fmt.Errorf("audit: %s contains a truncated record without a final newline", source)
-		}
-		for index, line := range bytes.Split(data, []byte{'\n'}) {
-			if len(line) == 0 {
-				continue
-			}
-			var entry Entry
-			if err := decodeStrictJSON(line, &entry); err != nil {
-				return nil, fmt.Errorf("audit: %s:%d contains malformed JSON: %w", source, index+1, err)
-			}
-			entries = append(entries, entry)
+		if decodeErr != nil {
+			return nil, decodeErr.err
 		}
 	}
 	return entries, nil
+}
+
+type auditReadError struct {
+	err error
+}
+
+func (e *auditReadError) Error() string { return e.err.Error() }
+
+func (e *auditReadError) Unwrap() error { return e.err }
+
+func decodeAuditFile(file *os.File, source string, entries *[]Entry) error {
+	reader := bufio.NewReaderSize(file, maxRecordBytes)
+	lineNumber := 0
+	for {
+		line, err := reader.ReadSlice('\n')
+		if err == bufio.ErrBufferFull {
+			return &auditReadError{err: fmt.Errorf(
+				"audit: %s:%d exceeds the %d-byte record limit", source, lineNumber+1, maxRecordBytes,
+			)}
+		}
+		if errors.Is(err, io.EOF) {
+			if len(line) == 0 {
+				return nil
+			}
+			return &auditReadError{err: fmt.Errorf(
+				"audit: %s contains a truncated record without a final newline", source,
+			)}
+		}
+		if err != nil {
+			return err
+		}
+		lineNumber++
+		line = line[:len(line)-1]
+		if len(line) == 0 {
+			continue
+		}
+		var entry Entry
+		if err := decodeStrictJSON(line, &entry); err != nil {
+			return &auditReadError{err: fmt.Errorf(
+				"audit: %s:%d contains malformed JSON: %w", source, lineNumber, err,
+			)}
+		}
+		*entries = append(*entries, entry)
+	}
 }
 
 func verifyEntryChain(entries []Entry) error {
