@@ -175,6 +175,23 @@ func TestInvocationsRejectsIncompleteLauncherShapes(t *testing.T) {
 	}
 }
 
+func TestFindLauncherRejectsDynamicExpressionArguments(t *testing.T) {
+	for _, command := range []string{
+		`find "$ROOT" -exec git clean -fd \;`,
+		`find . $(printf -- -name) '*.go' -exec git clean -fd \;`,
+		`find . -exec git "$ACTION" \;`,
+		`find . -exec git clean -fd \; "$AFTER"`,
+		`find . -exec git clean -fd \; $(printf -- -name) '*.go'`,
+	} {
+		t.Run(command, func(t *testing.T) {
+			invocations, reason := InvocationsWithReason(command, 16)
+			if reason != IncompleteDynamicCommand {
+				t.Fatalf("InvocationsWithReason(%q) reason = %q, want %q; invocations=%#v", command, reason, IncompleteDynamicCommand, invocations)
+			}
+		})
+	}
+}
+
 func TestMatchRejectsInvalidExpectedCommandsAndDynamicSuffixes(t *testing.T) {
 	static := Invocation{Words: []string{"git", "status"}, DynamicWords: []bool{false, false}}
 	for _, expected := range []string{"", `git "status`, "$COMMAND status", "git status && git diff"} {

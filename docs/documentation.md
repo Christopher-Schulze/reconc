@@ -2342,6 +2342,9 @@ newline continuations are folded before matching. Common
 while ordinary literal arguments such as `echo git clean` never become
 executable-command matches. An unqualified rule executable matches the basename
 of an absolute executable path; explicitly path-qualified rules remain exact.
+Every dynamic `find` expression argument is treated as structurally unknown and
+fails closed, including dynamic paths or predicates before, inside, or after a
+command-running action.
 During PreToolUse, a composite violation blocks only when the current command
 itself hits a direct `forbid_command`, so historical results and unrelated
 failing subchecks cannot poison later safe commands. Recursion is bounded;

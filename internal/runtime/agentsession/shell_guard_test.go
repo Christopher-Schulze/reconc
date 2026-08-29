@@ -58,6 +58,22 @@ func TestForbiddenShellCommandReasonKeepsDestructiveBlocks(t *testing.T) {
 	}
 }
 
+func TestForbiddenShellCommandReasonRejectsDynamicFindExpressions(t *testing.T) {
+	for _, command := range []string{
+		`find "$ROOT" -exec git clean -fd \;`,
+		`find . -exec git "$ACTION" \;`,
+		`find . -exec git clean -fd \; "$AFTER"`,
+	} {
+		reason := forbiddenShellCommandReason(command)
+		if reason == "" {
+			t.Fatalf("dynamic find expression %q was accepted", command)
+		}
+		if !strings.Contains(reason, "executable") || !strings.Contains(reason, "literal") {
+			t.Fatalf("dynamic find expression %q returned an unhelpful block: %s", command, reason)
+		}
+	}
+}
+
 func TestForbiddenShellCommandReasonExpandsInlineGitAliases(t *testing.T) {
 	blocked := []string{
 		`git -c alias.wipe='!git clean -fd' wipe`,

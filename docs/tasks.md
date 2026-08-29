@@ -5,7 +5,6 @@
 
 ## Queue
 
-- [ ] 350 Fail closed on dynamic find launcher arguments -> tasks/350-fail-closed-on-dynamic-find-launcher-arguments.md
 - [ ] 351 Bind JSONL layout security to opened files -> tasks/351-bind-jsonl-layout-security-to-opened-files.md
 - [ ] 352 Revalidate retention candidates before deletion -> tasks/352-revalidate-retention-candidates-before-deletion.md
 - [ ] 353 Bind action-state transaction cleanup to read identity -> tasks/353-bind-action-state-transaction-cleanup-to-read-identity.md
@@ -34,6 +33,7 @@
 
 ## Done
 
+- [x] 350 Fail closed on dynamic find launcher arguments -> tasks/done/350-fail-closed-on-dynamic-find-launcher-arguments.md
 - [x] 349 Preserve distinct tool-use event identities -> tasks/done/349-preserve-distinct-tool-use-event-identities.md
 - [x] 348 Bind private parent security to opened descriptors -> tasks/done/348-bind-private-parent-security-to-opened-descriptors.md
 - [x] 347 Remove duplicate create-only parent validation -> tasks/done/347-remove-duplicate-create-only-parent-validation.md
@@ -43,4 +43,3 @@
 - [x] 300 Apply Windows private ACLs through opened handles -> tasks/done/300-apply-windows-private-acls-through-opened-handles.md
 - [x] 293 Make Windows atomic replacement genuinely write-through -> tasks/done/293-make-windows-atomic-replacement-genuinely-write-through.md
 - [x] 343 Remove dead private symbols exposed by staticcheck -> tasks/done/343-remove-dead-private-symbols-exposed-by-staticcheck.md
-- [x] 342 Stabilize concurrent JSONL archive discovery -> tasks/done/342-stabilize-concurrent-jsonl-archive-discovery.md

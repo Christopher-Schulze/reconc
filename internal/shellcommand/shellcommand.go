@@ -976,6 +976,11 @@ func launcherCommands(words []commandWord) ([][]commandWord, bool) {
 		complete := true
 		for index := 1; index < len(words); index++ {
 			if words[index].dynamic {
+				// A dynamic find argument can become a path, predicate,
+				// expression operator, or launcher at runtime. Without
+				// evaluating shell expansion, the expression structure is not
+				// enumerable, so do not claim complete command discovery.
+				complete = false
 				continue
 			}
 			if words[index].value != "-exec" && words[index].value != "-execdir" && words[index].value != "-ok" && words[index].value != "-okdir" {
