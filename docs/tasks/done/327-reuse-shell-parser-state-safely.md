@@ -13,14 +13,21 @@ Shell command inspection constructs a new `mvdan` Bash parser for each direct an
 
 ## Sub-Tasks
 
-- [ ] Profile parser construction and repeated-command frequency
-- [ ] Verify the parser's actual reset and concurrency contract
-- [ ] Implement the smallest safe reuse boundary
-- [ ] Add aliasing, clearing, race, and allocation tests
+- [x] Profile parser construction and repeated-command frequency
+- [x] Verify the parser's actual reset and concurrency contract
+- [x] Implement the smallest safe reuse boundary
+- [x] Add aliasing, clearing, race, and allocation tests
 
 ## Notes
 
 - Evidence: `internal/shellcommand/shellcommand.go:165-237` and repeated runtime callers. No pooling is accepted without reading and testing the dependency's real API contract.
+- `mvdan.cc/sh/v3/syntax.Parser.Parse` is reusable only after a call completes,
+  never concurrently. A global pool was rejected because the dependency keeps
+  source buffers and AST allocation batches internally.
+- One analysis-local parser now serves nested invocation recursion and the
+  redirect validation reparse; concurrent top-level callers receive separate
+  states. Benchmarks cover construction, parse, AST walk, and combined caller
+  costs. Reuse preserves earlier ASTs and the full shell/fuzz contract.
 
 ## Deviations
 

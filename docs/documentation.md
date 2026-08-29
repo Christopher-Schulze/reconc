@@ -2340,6 +2340,12 @@ security-sensitive and covered by reference, matching, runtime-boundary, and
 fuzz tests. Reconc never executes a shell during this analysis. Dynamic eval
 arguments stay unresolved and make prevention fail closed.
 
+Each bounded shell analysis owns one non-concurrent `mvdan` parser and reuses it
+across nested command parsing and redirect validation. The parser is discarded
+when that analysis returns, so its AST and input buffers do not outlive the
+documented analysis/cache lifetime. Concurrent callers own separate parser
+states.
+
 A stale compiled lockfile blocks gated work, because policy cannot be enforced
 from a lockfile that no longer describes its sources. The block does not seal
 the session: the PreToolUse route admits a lockfile-repair invocation

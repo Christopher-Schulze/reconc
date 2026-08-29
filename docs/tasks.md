@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 327 Reuse shell parser state safely -> tasks/327-reuse-shell-parser-state-safely.md
+- [~] 328 Cache Git alias discovery within one evaluation -> tasks/328-cache-git-alias-discovery-within-one-evaluation.md
 
 ## Queue
 
-- [ ] 328 Cache Git alias discovery within one evaluation -> tasks/328-cache-git-alias-discovery-within-one-evaluation.md
 - [ ] 329 Linearize session-state normalization -> tasks/329-linearize-session-state-normalization.md
 - [ ] 330 Avoid duplicate full session-state equality passes -> tasks/330-avoid-duplicate-full-session-state-equality-passes.md
 - [ ] 331 Reuse one runtime evaluator across MCP gateway checks -> tasks/331-reuse-one-runtime-evaluator-across-mcp-gateway-checks.md
@@ -28,6 +27,7 @@
 
 ## Done
 
+- [x] 327 Reuse shell parser state safely -> tasks/done/327-reuse-shell-parser-state-safely.md
 - [x] 326 Surface repeated-stop state mutation failures -> tasks/done/326-surface-repeated-stop-state-mutation-failures.md
 - [x] 325 Retain bootstrap receipt-plan pairs atomically -> tasks/done/325-retain-bootstrap-receipt-plan-pairs-atomically.md
 - [x] 324 Stream audit archive verification -> tasks/done/324-stream-audit-archive-verification.md
@@ -37,4 +37,3 @@
 - [x] 320 Close the completion-proof publication mutation window -> tasks/done/320-close-the-completion-proof-publication-mutation-window.md
 - [x] 319 Implement the completion-state retry contract -> tasks/done/319-implement-the-completion-state-retry-contract.md
 - [x] 318 Avoid repeated glob-expansion key construction -> tasks/done/318-avoid-repeated-glob-expansion-key-construction.md
-- [x] 317 Reduce decimal parse and render allocation -> tasks/done/317-reduce-decimal-parse-and-render-allocation.md

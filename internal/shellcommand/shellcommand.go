@@ -55,6 +55,23 @@ type CompiledExpectation struct {
 	complete    bool
 }
 
+// parserState owns one non-concurrent mvdan parser for one bounded analysis.
+// The dependency documents that Parser.Parse may be reused after a parse has
+// finished, but not concurrently. Keeping the state local instead of pooling
+// it also prevents parser-internal source buffers and AST allocation batches
+// from outliving the command analysis that created them.
+type parserState struct {
+	parser *syntax.Parser
+}
+
+func newParserState() parserState {
+	return parserState{parser: syntax.NewParser(syntax.Variant(syntax.LangBash))}
+}
+
+func (state *parserState) parse(command, name string) (*syntax.File, error) {
+	return state.parser.Parse(strings.NewReader(command), name)
+}
+
 // CompileExpectation parses one expected command once using the supplied
 // nesting budget. A malformed, dynamic, oversized, or otherwise incomplete
 // command is retained as incomplete so Match preserves the existing
@@ -163,6 +180,11 @@ func Invocations(command string, maxDepth int) ([]Invocation, bool) {
 // first one reached in the fixed AST walk order wins, so the result is
 // deterministic for a given input.
 func InvocationsWithReason(command string, maxDepth int) ([]Invocation, IncompleteReason) {
+	state := newParserState()
+	return invocationsWithReason(&state, command, maxDepth)
+}
+
+func invocationsWithReason(state *parserState, command string, maxDepth int) ([]Invocation, IncompleteReason) {
 	if maxDepth < 0 {
 		// A negative budget is a caller programming error, not a property of
 		// the command; report it as an analysis fault rather than blaming size.
@@ -171,7 +193,7 @@ func InvocationsWithReason(command string, maxDepth int) ([]Invocation, Incomple
 	if len(command) > maxCommandBytes {
 		return nil, IncompleteTooLarge
 	}
-	return invocationsAt(command, maxDepth, 0)
+	return invocationsAt(state, command, maxDepth, 0)
 }
 
 // StripTrailingRedirects removes only syntactic redirections that form the
@@ -183,7 +205,8 @@ func StripTrailingRedirects(command string) (string, bool) {
 	if command == "" || len(command) > maxCommandBytes {
 		return command, false
 	}
-	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(command), "redirect-command")
+	state := newParserState()
+	file, err := state.parse(command, "redirect-command")
 	if err != nil {
 		return command, false
 	}
@@ -224,17 +247,17 @@ func StripTrailingRedirects(command string) (string, bool) {
 	if result == "" {
 		return command, true
 	}
-	if invocations, reason := InvocationsWithReason(result, 16); reason != IncompleteNone || len(invocations) == 0 {
+	if invocations, reason := invocationsWithReason(&state, result, 16); reason != IncompleteNone || len(invocations) == 0 {
 		return command, true
 	}
 	return result, true
 }
 
-func invocationsAt(command string, maxDepth, depth int) ([]Invocation, IncompleteReason) {
+func invocationsAt(state *parserState, command string, maxDepth, depth int) ([]Invocation, IncompleteReason) {
 	if depth > maxDepth {
 		return nil, IncompleteNestingDepth
 	}
-	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(command), "hook-command")
+	file, err := state.parse(command, "hook-command")
 	if err != nil {
 		return nil, IncompleteUnparsable
 	}
@@ -293,7 +316,7 @@ func invocationsAt(command string, maxDepth, depth int) ([]Invocation, Incomplet
 		if !nestedResolved {
 			note(IncompleteDynamicCommand)
 		} else if nestedCommand != "" {
-			nestedInvocations, nestedReason := invocationsAt(nestedCommand, maxDepth, nestingDepth+1)
+			nestedInvocations, nestedReason := invocationsAt(state, nestedCommand, maxDepth, nestingDepth+1)
 			result = append(result, nestedInvocations...)
 			note(nestedReason)
 		}
@@ -320,7 +343,7 @@ func invocationsAt(command string, maxDepth, depth int) ([]Invocation, Incomplet
 			if launchedNested == "" {
 				continue
 			}
-			nestedInvocations, nestedReason := invocationsAt(launchedNested, maxDepth, nestingDepth+1)
+			nestedInvocations, nestedReason := invocationsAt(state, launchedNested, maxDepth, nestingDepth+1)
 			result = append(result, nestedInvocations...)
 			note(nestedReason)
 		}
