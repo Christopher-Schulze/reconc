@@ -666,6 +666,10 @@ residue is preserved with manual recovery guidance. On failure, rollback
 removes only transaction-owned files whose
 file identity and checksum still match, plus transaction-created directories
 that are still empty.
+The per-repository bootstrap transaction lock is created and opened through
+the private filesystem boundary; its parent directories and single-link lock
+file must retain the current user's ownership, private mode/ACL, and opened
+identity before `TryLock` is attempted.
 Verification is read-only and checks artifacts, lockfile freshness, selected
 hooks, governed TASK state, selected binary resolution, and the exact running
 user CLI on PATH.

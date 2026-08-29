@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 356 Use private filesystem boundaries for bootstrap locks -> tasks/356-use-private-filesystem-boundaries-for-bootstrap-locks.md
 - [ ] 357 Bind bootstrap removal to validated file identities -> tasks/357-bind-bootstrap-removal-to-validated-file-identities.md
 - [ ] 358 Bind global uninstall to owned snapshots -> tasks/358-bind-global-uninstall-to-owned-snapshots.md
 - [ ] 359 Record staged command success after postconditions -> tasks/359-record-staged-command-success-after-postconditions.md
@@ -27,6 +26,7 @@
 
 ## Done
 
+- [x] 356 Use private filesystem boundaries for bootstrap locks -> tasks/done/356-use-private-filesystem-boundaries-for-bootstrap-locks.md
 - [x] 355 Root TASK lifecycle lock acquisition -> tasks/done/355-root-lifecycle-lock-acquisition.md
 - [x] 354 Prevent JSONL lock inode splitting -> tasks/done/354-prevent-jsonl-lock-inode-splitting.md
 - [x] 353 Bind action-state transaction cleanup to read identity -> tasks/done/353-bind-action-state-transaction-cleanup-to-read-identity.md

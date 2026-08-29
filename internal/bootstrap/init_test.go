@@ -1,6 +1,8 @@
 package bootstrap
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -219,11 +221,40 @@ func TestInitializeRejectsSymlinkedRepositoryLockDirectory(t *testing.T) {
 	repo := t.TempDir()
 
 	report, err := Initialize(InitRequest{RepoRoot: repo, NoHooks: true}, "test-version")
-	if err == nil || !strings.Contains(err.Error(), "not a real directory") || report.Changed {
+	if err == nil || !strings.Contains(err.Error(), "private directory") || report.Changed {
 		t.Fatalf("symlinked lock directory = %+v err=%v", report, err)
 	}
 	if entries, readErr := os.ReadDir(repo); readErr != nil || len(entries) != 0 {
 		t.Fatalf("rejected lock mutated repository: entries=%v err=%v", entries, readErr)
+	}
+}
+
+func TestRepositoryTransactionLockRejectsSymlinkedLockFile(t *testing.T) {
+	home := t.TempDir()
+	lockDirectory := filepath.Join(home, "locks", "repositories")
+	if err := os.MkdirAll(lockDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(home, "outside.lock")
+	if err := os.WriteFile(target, []byte("unchanged\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	digest := sha256.Sum256([]byte(repo))
+	lockPath := filepath.Join(lockDirectory, hex.EncodeToString(digest[:])+".lock")
+	if err := os.Symlink(target, lockPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	t.Setenv("RECONC_HOME", home)
+	if err := withRepositoryTransactionLock(repo, func() error { return nil }); err == nil {
+		t.Fatal("symlinked repository transaction lock was accepted")
+	}
+	body, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "unchanged\n" {
+		t.Fatalf("rejected symlink changed target: %q", body)
 	}
 }
 

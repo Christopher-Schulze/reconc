@@ -301,6 +301,10 @@ candidate insertion and digest ordering.
    recovery finalizes a verified complete after-image or rolls back exact
    transaction images; any external edit is preserved and refused. Directory
    identity is not guessed after a crash, so empty created parents may remain.
+   Bootstrap repository transaction locks use the same private filesystem
+   boundary: private parent directories and single-link lock files are opened,
+   owner, mode, and ACL checked, and identity-checked before the process lock
+   is acquired.
    TASK lifecycle transactions acquire `.reconc/locks/task-lifecycle.lock`
    through rooted, no-follow directory handles and retain the lock descriptor
    and parent identities as a lease through every protected mutation and
