@@ -2611,9 +2611,11 @@ reasoned exemptions where language-specific control flow cannot be expressed.
 `go_concurrency_boundary` parses only changed matching `.go` files with the Go
 standard-library parser and fails closed on invalid source. A local goroutine
 is accepted only when the same function proves matching `WaitGroup.Add` before
-launch, deferred `WaitGroup.Done` inside the function literal, and
-`WaitGroup.Wait` after launch; other ownership models require a reasoned path
-exemption. `go_format` uses
+launch and `WaitGroup.Wait` after launch, plus deferred `WaitGroup.Done` either
+inside an inline function literal or inside a uniquely resolved same-file named
+worker with the matching `*sync.WaitGroup` parameter. Unresolved, external,
+ambiguous, or non-deferred named workers fail closed; other ownership models
+require a reasoned path exemption. `go_format` uses
 the Go standard-library formatter over the same bounded file snapshot and
 fails closed on invalid Go. Both run through `go-assurance`; formatting covers
 tests while concurrency excludes tests, and both exclude `vendor/**`.

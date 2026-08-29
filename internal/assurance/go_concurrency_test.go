@@ -208,6 +208,218 @@ func work(wg *sync.WaitGroup) { defer wg.Done() }
 	}
 }
 
+func TestGoConcurrencyBoundaryAcceptsNamedWorkerAliasesAndMethods(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "type and receiver aliases",
+			body: `package worker
+
+import "sync"
+
+type group = sync.WaitGroup
+
+func Start() {
+	var wg group
+	worker := work
+	wg.Add(1)
+	go worker(&wg)
+	wg.Wait()
+}
+
+func work(wg *group) {
+	local := wg
+	defer local.Done()
+}
+`,
+		},
+		{
+			name: "local method",
+			body: `package worker
+
+import "sync"
+
+type worker struct{}
+
+func (worker) run(wg *sync.WaitGroup) { defer wg.Done() }
+
+func Start() {
+	var wg sync.WaitGroup
+	var item worker
+	wg.Add(1)
+	go item.run(&wg)
+	wg.Wait()
+}
+`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, "worker.go"), []byte(test.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gate := policy.AssuranceGate{
+				ID: "go-concurrency", Type: policy.AssuranceGoConcurrency,
+				ScanPaths: []string{"**/*.go"},
+			}
+			findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{ChangedPaths: []string{"worker.go"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(findings) != 0 {
+				t.Fatalf("complete named worker ownership must not be flagged: %+v", findings)
+			}
+		})
+	}
+}
+
+func TestGoConcurrencyBoundaryRejectsIncompleteNamedWorkers(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "missing done",
+			body: `package worker
+
+import "sync"
+
+func Start() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go work(&wg)
+	wg.Wait()
+}
+
+func work(wg *sync.WaitGroup) {}
+`,
+		},
+		{
+			name: "wrong parameter",
+			body: `package worker
+
+import (
+	"context"
+	"sync"
+)
+
+func Start() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go work(&wg, context.Background())
+	wg.Wait()
+}
+
+func work(wg *sync.WaitGroup, ctx context.Context) { defer ctx.Done() }
+`,
+		},
+		{
+			name: "non deferred done",
+			body: `package worker
+
+import "sync"
+
+func Start() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go work(&wg)
+	wg.Wait()
+}
+
+func work(wg *sync.WaitGroup) { wg.Done() }
+`,
+		},
+		{
+			name: "unresolved worker",
+			body: `package worker
+
+import "sync"
+
+func Start() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go missing(&wg)
+	wg.Wait()
+}
+`,
+		},
+		{
+			name: "external worker",
+			body: `package worker
+
+import (
+	"sync"
+		"example.com/external"
+)
+
+func Start() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go external.Work(&wg)
+	wg.Wait()
+}
+`,
+		},
+		{
+			name: "ambiguous worker",
+			body: `package worker
+
+import "sync"
+
+func Start() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go work(&wg)
+	wg.Wait()
+}
+
+func work(wg *sync.WaitGroup) { defer wg.Done() }
+func work(wg *sync.WaitGroup) { defer wg.Done() }
+`,
+		},
+		{
+			name: "alias declared after launch",
+			body: `package worker
+
+import "sync"
+
+func Start() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go worker(&wg)
+	worker := complete
+	wg.Wait()
+}
+
+func worker(wg *sync.WaitGroup) {}
+func complete(wg *sync.WaitGroup) { defer wg.Done() }
+`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, "worker.go"), []byte(test.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gate := policy.AssuranceGate{
+				ID: "go-concurrency", Type: policy.AssuranceGoConcurrency,
+				ScanPaths: []string{"**/*.go"},
+			}
+			findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{ChangedPaths: []string{"worker.go"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(findings) != 1 {
+				t.Fatalf("incomplete named worker must be flagged: %+v", findings)
+			}
+		})
+	}
+}
+
 func TestGoConcurrencyBoundaryStillFlagsWaitlessLaunch(t *testing.T) {
 	root := t.TempDir()
 	// A named call without a WaitGroup pointer argument stays a finding.

@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 369 Prove named WaitGroup worker completion -> tasks/369-prove-named-waitgroup-worker-completion.md
 - [ ] 370 Preserve prerelease precedence in harness compatibility -> tasks/370-preserve-prerelease-precedence-in-harness-compatibility.md
 - [ ] 371 Reject context paths through escaping parent symlinks -> tasks/371-reject-context-paths-through-escaping-parent-symlinks.md
 - [ ] 372 Match go:embed hidden-file semantics in provenance -> tasks/372-match-go-embed-hidden-file-semantics-in-provenance.md
@@ -14,6 +13,7 @@
 
 ## Done
 
+- [x] 369 Prove named WaitGroup worker completion -> tasks/done/369-prove-named-waitgroup-worker-completion.md
 - [x] 368 Enforce package-script runner ownership -> tasks/done/368-enforce-package-script-runner-ownership.md
 - [x] 367 Bind substantive proof measurements to evidence -> tasks/done/367-bind-substantive-proof-measurements-to-evidence.md
 - [x] 366 Parse assurance guard markers outside comments and strings -> tasks/done/366-parse-assurance-guard-markers-outside-comments-and-strings.md

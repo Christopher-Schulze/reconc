@@ -44,19 +44,85 @@ func evaluateGoConcurrencyBoundary(root string, gate policy.AssuranceGate, state
 
 func staticallyOwnedWaitGroupLaunches(tree *ast.File) map[*ast.GoStmt]bool {
 	owned := make(map[*ast.GoStmt]bool)
+	workers := indexNamedWorkers(tree)
 	ast.Inspect(tree, func(node ast.Node) bool {
 		switch function := node.(type) {
 		case *ast.FuncDecl:
-			markWaitGroupOwnedLaunches(function.Body, owned)
+			markWaitGroupOwnedLaunches(function.Body, owned, workers)
 		case *ast.FuncLit:
-			markWaitGroupOwnedLaunches(function.Body, owned)
+			markWaitGroupOwnedLaunches(function.Body, owned, workers)
 		}
 		return true
 	})
 	return owned
 }
 
-func markWaitGroupOwnedLaunches(body *ast.BlockStmt, owned map[*ast.GoStmt]bool) {
+type namedWorkerIndex struct {
+	functions        map[string][]*ast.FuncDecl
+	methods          map[string][]*ast.FuncDecl
+	importedPackages map[string]bool
+	waitGroupAliases map[string]bool
+}
+
+func indexNamedWorkers(tree *ast.File) namedWorkerIndex {
+	index := namedWorkerIndex{
+		functions:        map[string][]*ast.FuncDecl{},
+		methods:          map[string][]*ast.FuncDecl{},
+		importedPackages: map[string]bool{},
+		waitGroupAliases: map[string]bool{},
+	}
+	for _, declaration := range tree.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Name == nil {
+			continue
+		}
+		if function.Recv == nil {
+			index.functions[function.Name.Name] = append(index.functions[function.Name.Name], function)
+		} else {
+			index.methods[function.Name.Name] = append(index.methods[function.Name.Name], function)
+		}
+	}
+	for _, imported := range tree.Imports {
+		name := ""
+		if imported.Name != nil {
+			name = imported.Name.Name
+		} else {
+			path := strings.Trim(imported.Path.Value, `"`)
+			if separator := strings.LastIndexByte(path, '/'); separator >= 0 {
+				path = path[separator+1:]
+			}
+			name = path
+		}
+		if name != "" && name != "_" && name != "." {
+			index.importedPackages[name] = true
+		}
+	}
+	for _, declaration := range tree.Decls {
+		general, ok := declaration.(*ast.GenDecl)
+		if !ok || general.Tok != token.TYPE {
+			continue
+		}
+		for _, specification := range general.Specs {
+			typeSpec, ok := specification.(*ast.TypeSpec)
+			if !ok || !typeSpec.Assign.IsValid() || typeSpec.Name == nil {
+				continue
+			}
+			if isSyncWaitGroupType(typeSpec.Type) {
+				index.waitGroupAliases[typeSpec.Name.Name] = true
+			}
+		}
+	}
+	return index
+}
+
+func markWaitGroupOwnedLaunches(body *ast.BlockStmt, owned map[*ast.GoStmt]bool, workerIndexes ...namedWorkerIndex) {
+	if body == nil {
+		return
+	}
+	workers := namedWorkerIndex{}
+	if len(workerIndexes) > 0 {
+		workers = workerIndexes[0]
+	}
 	waitGroups := make(map[string]bool)
 	adds := make(map[string][]token.Pos)
 	waits := make(map[string][]token.Pos)
@@ -69,9 +135,9 @@ func markWaitGroupOwnedLaunches(body *ast.BlockStmt, owned map[*ast.GoStmt]bool)
 			launches = append(launches, statement)
 			return false
 		case *ast.ValueSpec:
-			collectWaitGroupValueSpec(statement, waitGroups)
+			collectWaitGroupValueSpecWithAliases(statement, waitGroups, workers.waitGroupAliases)
 		case *ast.AssignStmt:
-			collectWaitGroupAssignment(statement, waitGroups)
+			collectWaitGroupAssignmentWithAliases(statement, waitGroups, workers.waitGroupAliases)
 		case *ast.CallExpr:
 			receiver, method, ok := waitGroupMethod(statement)
 			if !ok {
@@ -89,7 +155,13 @@ func markWaitGroupOwnedLaunches(body *ast.BlockStmt, owned map[*ast.GoStmt]bool)
 	for _, launch := range launches {
 		receiver, ok := deferredWaitGroupDoneReceiver(launch)
 		if !ok {
-			receiver, ok = waitGroupArgumentReceiver(launch, waitGroups)
+			var argumentIndex int
+			receiver, argumentIndex, ok = waitGroupArgument(launch, waitGroups)
+			if ok {
+				functionAliases := namedWorkerFunctionAliases(body, workers, launch.Pos())
+				worker, resolved := resolveNamedWorker(launch.Call, workers, functionAliases)
+				ok = resolved && namedWorkerCompletes(worker, argumentIndex, workers.waitGroupAliases)
+			}
 		}
 		if !ok {
 			continue
@@ -109,14 +181,219 @@ func markWaitGroupOwnedLaunches(body *ast.BlockStmt, owned map[*ast.GoStmt]bool)
 	}
 }
 
+func namedWorkerFunctionAliases(body *ast.BlockStmt, workers namedWorkerIndex, boundary token.Pos) map[string]string {
+	aliases := map[string]string{}
+	ambiguous := map[string]bool{}
+	for _, statement := range body.List {
+		if boundary.IsValid() && statement.Pos() >= boundary {
+			break
+		}
+		switch statement := statement.(type) {
+		case *ast.DeclStmt:
+			declaration, ok := statement.Decl.(*ast.GenDecl)
+			if !ok || declaration.Tok != token.VAR {
+				continue
+			}
+			for _, specification := range declaration.Specs {
+				valueSpec, ok := specification.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for index, name := range valueSpec.Names {
+					if index < len(valueSpec.Values) {
+						setNamedWorkerAlias(name.Name, valueSpec.Values[index], workers, aliases, ambiguous)
+					}
+				}
+			}
+		case *ast.AssignStmt:
+			for index, left := range statement.Lhs {
+				if index < len(statement.Rhs) {
+					if name, ok := left.(*ast.Ident); ok {
+						setNamedWorkerAlias(name.Name, statement.Rhs[index], workers, aliases, ambiguous)
+					}
+				}
+			}
+		}
+	}
+	for name := range ambiguous {
+		delete(aliases, name)
+	}
+	return aliases
+}
+
+func setNamedWorkerAlias(name string, expression ast.Expr, workers namedWorkerIndex, aliases map[string]string, ambiguous map[string]bool) {
+	target, ok := expression.(*ast.Ident)
+	if !ok || len(workers.functions[target.Name]) != 1 {
+		if _, exists := aliases[name]; exists {
+			delete(aliases, name)
+			ambiguous[name] = true
+		}
+		return
+	}
+	if previous, exists := aliases[name]; exists && previous != target.Name {
+		delete(aliases, name)
+		ambiguous[name] = true
+		return
+	}
+	if !ambiguous[name] {
+		aliases[name] = target.Name
+	}
+}
+
+func resolveNamedWorker(call *ast.CallExpr, workers namedWorkerIndex, aliases map[string]string) (*ast.FuncDecl, bool) {
+	if call == nil {
+		return nil, false
+	}
+	switch function := call.Fun.(type) {
+	case *ast.Ident:
+		name := function.Name
+		if target, ok := aliases[name]; ok {
+			name = target
+		}
+		declarations := workers.functions[name]
+		if len(declarations) == 1 {
+			return declarations[0], true
+		}
+	case *ast.SelectorExpr:
+		packageName, isIdentifier := function.X.(*ast.Ident)
+		if !isIdentifier || workers.importedPackages[packageName.Name] {
+			return nil, false
+		}
+		declarations := workers.methods[function.Sel.Name]
+		if len(declarations) == 1 {
+			return declarations[0], true
+		}
+	}
+	return nil, false
+}
+
+func namedWorkerCompletes(function *ast.FuncDecl, argumentIndex int, aliases map[string]bool) bool {
+	if function == nil || function.Body == nil {
+		return false
+	}
+	parameter, isWaitGroup := namedWorkerParameter(function, argumentIndex, aliases)
+	if !isWaitGroup {
+		return false
+	}
+	receivers := map[string]bool{parameter: true}
+	for _, statement := range function.Body.List {
+		switch statement := statement.(type) {
+		case *ast.DeclStmt:
+			if !collectNamedWorkerAliasesFromDecl(statement, receivers) {
+				return false
+			}
+		case *ast.AssignStmt:
+			if !collectNamedWorkerAliasesFromAssignment(statement, receivers) {
+				return false
+			}
+		case *ast.DeferStmt:
+			name, method, ok := waitGroupMethod(statement.Call)
+			if ok && method == "Done" && receivers[name] {
+				return true
+			}
+		case *ast.EmptyStmt:
+			continue
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+func namedWorkerParameter(function *ast.FuncDecl, argumentIndex int, aliases map[string]bool) (string, bool) {
+	if function.Type == nil || function.Type.Params == nil || argumentIndex < 0 {
+		return "", false
+	}
+	position := 0
+	for _, field := range function.Type.Params.List {
+		count := len(field.Names)
+		if count == 0 {
+			count = 1
+		}
+		if argumentIndex < position+count {
+			nameIndex := argumentIndex - position
+			if len(field.Names) == 0 || nameIndex >= len(field.Names) {
+				return "", false
+			}
+			name := field.Names[nameIndex].Name
+			return name, isSyncWaitGroupPointer(field.Type, aliases)
+		}
+		position += count
+	}
+	return "", false
+}
+
+func isSyncWaitGroupPointer(expression ast.Expr, aliases map[string]bool) bool {
+	star, ok := expression.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	if isSyncWaitGroupType(star.X) {
+		return true
+	}
+	name, ok := star.X.(*ast.Ident)
+	return ok && aliases[name.Name]
+}
+
+func collectNamedWorkerAliasesFromDecl(statement *ast.DeclStmt, receivers map[string]bool) bool {
+	declaration, ok := statement.Decl.(*ast.GenDecl)
+	if !ok || declaration.Tok != token.VAR {
+		return true
+	}
+	for _, specification := range declaration.Specs {
+		valueSpec, ok := specification.(*ast.ValueSpec)
+		if !ok {
+			continue
+		}
+		for index, name := range valueSpec.Names {
+			if index >= len(valueSpec.Values) {
+				continue
+			}
+			if !setNamedWorkerReceiver(name.Name, valueSpec.Values[index], receivers) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func collectNamedWorkerAliasesFromAssignment(statement *ast.AssignStmt, receivers map[string]bool) bool {
+	for index, left := range statement.Lhs {
+		name, ok := left.(*ast.Ident)
+		if !ok || index >= len(statement.Rhs) {
+			continue
+		}
+		if !setNamedWorkerReceiver(name.Name, statement.Rhs[index], receivers) {
+			return false
+		}
+	}
+	return true
+}
+
+func setNamedWorkerReceiver(name string, expression ast.Expr, receivers map[string]bool) bool {
+	source, aliases := expression.(*ast.Ident)
+	if receivers[name] && (!aliases || !receivers[source.Name]) {
+		return false
+	}
+	if aliases && receivers[source.Name] {
+		receivers[name] = true
+	}
+	return true
+}
+
 // waitGroupArgumentReceiver recognizes the delegation shape
 // `go worker(&wg)` for a locally declared WaitGroup: the callee owns
 // Done while the caller keeps Add and Wait.
 func waitGroupArgumentReceiver(launch *ast.GoStmt, waitGroups map[string]bool) (string, bool) {
+	receiver, _, ok := waitGroupArgument(launch, waitGroups)
+	return receiver, ok
+}
+
+func waitGroupArgument(launch *ast.GoStmt, waitGroups map[string]bool) (string, int, bool) {
 	if _, literal := launch.Call.Fun.(*ast.FuncLit); literal {
-		return "", false
+		return "", 0, false
 	}
-	for _, argument := range launch.Call.Args {
+	for index, argument := range launch.Call.Args {
 		address, ok := argument.(*ast.UnaryExpr)
 		if !ok || address.Op != token.AND {
 			continue
@@ -125,31 +402,39 @@ func waitGroupArgumentReceiver(launch *ast.GoStmt, waitGroups map[string]bool) (
 		if !ok || !waitGroups[name.Name] {
 			continue
 		}
-		return name.Name, true
+		return name.Name, index, true
 	}
-	return "", false
+	return "", 0, false
 }
 
 func collectWaitGroupValueSpec(spec *ast.ValueSpec, waitGroups map[string]bool) {
-	if isSyncWaitGroupType(spec.Type) {
+	collectWaitGroupValueSpecWithAliases(spec, waitGroups, nil)
+}
+
+func collectWaitGroupValueSpecWithAliases(spec *ast.ValueSpec, waitGroups map[string]bool, aliases map[string]bool) {
+	if isSyncWaitGroupTypeWithAliases(spec.Type, aliases) {
 		for _, name := range spec.Names {
 			waitGroups[name.Name] = true
 		}
 		return
 	}
 	for index, value := range spec.Values {
-		if index < len(spec.Names) && isSyncWaitGroupValue(value) {
+		if index < len(spec.Names) && isSyncWaitGroupValueWithAliases(value, aliases) {
 			waitGroups[spec.Names[index].Name] = true
 		}
 	}
 }
 
 func collectWaitGroupAssignment(assignment *ast.AssignStmt, waitGroups map[string]bool) {
+	collectWaitGroupAssignmentWithAliases(assignment, waitGroups, nil)
+}
+
+func collectWaitGroupAssignmentWithAliases(assignment *ast.AssignStmt, waitGroups map[string]bool, aliases map[string]bool) {
 	if assignment.Tok != token.DEFINE {
 		return
 	}
 	for index, value := range assignment.Rhs {
-		if index >= len(assignment.Lhs) || !isSyncWaitGroupValue(value) {
+		if index >= len(assignment.Lhs) || !isSyncWaitGroupValueWithAliases(value, aliases) {
 			continue
 		}
 		name, ok := assignment.Lhs[index].(*ast.Ident)
@@ -160,14 +445,25 @@ func collectWaitGroupAssignment(assignment *ast.AssignStmt, waitGroups map[strin
 }
 
 func isSyncWaitGroupValue(expression ast.Expr) bool {
+	return isSyncWaitGroupValueWithAliases(expression, nil)
+}
+
+func isSyncWaitGroupValueWithAliases(expression ast.Expr, aliases map[string]bool) bool {
 	if address, ok := expression.(*ast.UnaryExpr); ok && address.Op == token.AND {
 		expression = address.X
 	}
 	composite, ok := expression.(*ast.CompositeLit)
-	return ok && isSyncWaitGroupType(composite.Type)
+	return ok && isSyncWaitGroupTypeWithAliases(composite.Type, aliases)
 }
 
 func isSyncWaitGroupType(expression ast.Expr) bool {
+	return isSyncWaitGroupTypeWithAliases(expression, nil)
+}
+
+func isSyncWaitGroupTypeWithAliases(expression ast.Expr, aliases map[string]bool) bool {
+	if name, ok := expression.(*ast.Ident); ok {
+		return aliases[name.Name]
+	}
 	selector, ok := expression.(*ast.SelectorExpr)
 	if !ok || selector.Sel.Name != "WaitGroup" {
 		return false
