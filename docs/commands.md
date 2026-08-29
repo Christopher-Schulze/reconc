@@ -786,7 +786,9 @@ fingerprint, HEAD/index/worktree identity, typed TASK state, completion checks,
 current successful command receipts, required evidence, violations, exact
 remediation, and any older unresolved block superseded by the current candidate.
 JSON is the default; Markdown is rendered from the same verified typed data.
-`--output` atomically mirrors the exact stdout bytes to a file. Absolute paths,
+`--output` stages the exact rendered stdout bytes in a private temporary file
+and atomically publishes them only after rendering completes. Final symlinks and
+non-regular targets are rejected without changing the existing path. Absolute paths,
 home/user identity, session IDs, prompts, transcripts, environment data, and raw
 command arguments are excluded or redacted. Root redaction matches the
 canonical absolute repository path only; it never globally replaces a common

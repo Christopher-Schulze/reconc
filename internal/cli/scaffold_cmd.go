@@ -127,7 +127,7 @@ func runInitOperation(options initCLIOptions, version string, stdout, stderr io.
 		if renderErr := renderInitResult(out, report, options.jsonOut); renderErr != nil {
 			return renderErr
 		}
-		return initResultError(options.jsonOut, err)
+		return commitOutput(closeOutput, initResultError(options.jsonOut, err))
 	}
 	report, initErr := reconbootstrap.Initialize(options.request, version)
 	if report != nil {
@@ -140,10 +140,10 @@ func runInitOperation(options initCLIOptions, version string, stdout, stderr io.
 		return err
 	}
 	if initErr != nil {
-		return initResultError(options.jsonOut, initErr)
+		return commitOutput(closeOutput, initResultError(options.jsonOut, initErr))
 	}
 	if report.Status != reconbootstrap.InitComplete {
-		return &CLIError{ExitCode: 1, Message: ""}
+		return commitOutput(closeOutput, &CLIError{ExitCode: 1, Message: ""})
 	}
 	return nil
 }

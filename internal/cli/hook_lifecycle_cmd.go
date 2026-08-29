@@ -158,7 +158,7 @@ func runHookInstall(args []string, stdout, stderr io.Writer) (resultErr error) {
 		fmt.Fprintf(out, "Error:   %s\n", installErr)
 	}
 	if installErr != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc hook install: " + installErr.Error()}
+		return commitOutput(closeOutput, &CLIError{ExitCode: 1, Message: "reconc hook install: " + installErr.Error()})
 	}
 	// Surface any user-modified reconc entries that got overwritten so
 	// operators notice.

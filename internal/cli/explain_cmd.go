@@ -139,7 +139,9 @@ func runExplain(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if jsonOut {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(report)
+		if err := enc.Encode(report); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc explain: json encode: " + err.Error()}
+		}
 		return nil
 	}
 

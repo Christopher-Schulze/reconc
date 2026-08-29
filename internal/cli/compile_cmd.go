@@ -81,7 +81,7 @@ func runCompileCommand(command string, args []string, version string, stdout, st
 			return &CLIError{ExitCode: 1, Message: "reconc " + command + ": json encode: " + err.Error()}
 		}
 		if strictConflicts && len(compiled.Conflicts) > 0 {
-			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc %s: %d rule conflict(s) detected under --strict-conflicts", command, len(compiled.Conflicts))}
+			return commitOutput(closeOutput, &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc %s: %d rule conflict(s) detected under --strict-conflicts", command, len(compiled.Conflicts))})
 		}
 		return nil
 	}
@@ -103,7 +103,7 @@ func runCompileCommand(command string, args []string, version string, stdout, st
 		}
 	}
 	if strictConflicts && len(compiled.Conflicts) > 0 {
-		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc %s: %d rule conflict(s) detected under --strict-conflicts", command, len(compiled.Conflicts))}
+		return commitOutput(closeOutput, &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc %s: %d rule conflict(s) detected under --strict-conflicts", command, len(compiled.Conflicts))})
 	}
 	return nil
 }

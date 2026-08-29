@@ -5,35 +5,52 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
+
+	"reconc.dev/reconc/internal/atomicfile"
 )
 
-func teeToFile(w io.Writer, path string) (io.Writer, func() error, error) {
+const maxCLIOutputBytes int64 = (1 << 63) - 2
+
+func teeToFile(w io.Writer, path string) (io.Writer, func(bool) error, error) {
 	if path == "" {
 		tracked := &trackedOutputWriter{writer: w}
-		return tracked, tracked.Err, nil
+		return tracked, func(bool) error { return tracked.Err() }, nil
 	}
-	dir := filepath.Dir(path)
-	if dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, nil, err
-		}
-	}
-	file, err := os.Create(path)
+	file, err := os.CreateTemp("", ".reconc-cli-output-*.tmp")
 	if err != nil {
 		return nil, nil, err
 	}
 	tracked := &trackedOutputWriter{writer: io.MultiWriter(w, file)}
-	closeOutput := func() error {
-		return errors.Join(tracked.Err(), file.Sync(), file.Close())
+	finished := false
+	closeOutput := func(commit bool) error {
+		if finished {
+			return nil
+		}
+		finished = true
+		trackedErr := tracked.Err()
+		if !commit || trackedErr != nil {
+			return errors.Join(trackedErr, file.Close(), os.Remove(file.Name()))
+		}
+		if err := file.Sync(); err != nil {
+			return errors.Join(trackedErr, err, file.Close(), os.Remove(file.Name()))
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return errors.Join(trackedErr, err, file.Close(), os.Remove(file.Name()))
+		}
+		_, publishErr := atomicfile.WriteStream(path, file, maxCLIOutputBytes, 0o644)
+		return errors.Join(trackedErr, publishErr, file.Close(), os.Remove(file.Name()))
 	}
 	return tracked, closeOutput, nil
 }
 
-func joinOutputCloseError(resultErr *error, closeOutput func() error) {
-	*resultErr = errors.Join(*resultErr, closeOutput())
+func joinOutputCloseError(resultErr *error, closeOutput func(bool) error) {
+	*resultErr = errors.Join(*resultErr, closeOutput(*resultErr == nil))
+}
+
+func commitOutput(closeOutput func(bool) error, result error) error {
+	return errors.Join(result, closeOutput(true))
 }
 
 // nextArgValue advances i and returns the next argument as the value

@@ -91,7 +91,7 @@ func runDoctor(args []string, version string, stdout, stderr io.Writer) (resultE
 			renderGlobalDoctorText(out, report)
 		}
 		if report.Blocking() {
-			return &CLIError{ExitCode: 1, Message: ""}
+			return commitOutput(closeOutput, &CLIError{ExitCode: 1, Message: ""})
 		}
 		return nil
 	}
@@ -117,7 +117,7 @@ func runDoctor(args []string, version string, stdout, stderr io.Writer) (resultE
 			renderDoctorDeepText(report, out)
 		}
 		if report.hasFail() {
-			return &CLIError{ExitCode: 1, Message: ""}
+			return commitOutput(closeOutput, &CLIError{ExitCode: 1, Message: ""})
 		}
 		return nil
 	}
@@ -258,7 +258,9 @@ func runStatus(args []string, stdout, stderr io.Writer) (resultErr error) {
 		}
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(payload)
+		if err := enc.Encode(payload); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc status: json encode: " + err.Error()}
+		}
 		return nil
 	}
 

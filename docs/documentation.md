@@ -1022,8 +1022,9 @@ remediation, matched-path, candidate-fingerprint, policy-lock, worktree, and
 optional Git-range metadata. It excludes absolute host identity and escapes
 JSON, XML, URI, terminal-control, and workflow-command content. Outputs are
 deterministic, capped at 1,024 findings and 8 MiB, make no network call, and
-are atomically published by `--output` before the exact same bytes reach
-stdout. Existing text/JSON/terse defaults and exit codes do not change.
+are rendered to stdout and staged for `--output`; after rendering succeeds, the
+complete same bytes are atomically published. Existing text/JSON/terse defaults
+and exit codes do not change.
 
 ```bash
 # GitHub Code Scanning; map RECONC_BASE_SHA to github.event.pull_request.base.sha
@@ -1059,7 +1060,9 @@ by omission, bounded arrays/text, and no prompts, transcripts, session IDs,
 environment values, usernames, home paths, or raw command arguments. Command
 receipts expose either a parser-proven, wrapper-resolved executable summary or
 a deterministic uncertainty summary plus a SHA-256 identity of that sanitized
-classification only. `--output` atomically writes the exact stdout bytes.
+classification only. Shared CLI `--output` paths stage complete rendered bytes
+privately and publish them atomically; final symlinks and non-regular targets
+fail closed while the existing destination remains intact.
 The public schema is `schemas/v1/proof-bundle.schema.json`.
 
 Exit codes:

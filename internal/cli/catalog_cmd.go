@@ -164,7 +164,9 @@ func runPresetList(args []string, stdout, stderr io.Writer) (resultErr error) {
 		}
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(payload)
+		if err := enc.Encode(payload); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc preset list: json encode: " + err.Error()}
+		}
 		return nil
 	}
 	if len(list) == 0 {
@@ -234,7 +236,9 @@ func runPresetShow(args []string, stdout, stderr io.Writer) (resultErr error) {
 		}
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(payload)
+		if err := enc.Encode(payload); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc preset show: json encode: " + err.Error()}
+		}
 		return nil
 	}
 	// Plain content to stdout so users can redirect into a file.

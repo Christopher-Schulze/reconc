@@ -332,7 +332,7 @@ func runFixCommand(command string, args []string, nextOnly bool, reconcVersion s
 			writeNextRemediationText(out, next)
 		}
 		if report.Decision == runtime.DecisionBlock {
-			return &CLIError{ExitCode: 2, Message: ""}
+			return commitOutput(closeOutput, &CLIError{ExitCode: 2, Message: ""})
 		}
 		return nil
 	}
@@ -348,7 +348,7 @@ func runFixCommand(command string, args []string, nextOnly bool, reconcVersion s
 	}
 
 	if report.Decision == runtime.DecisionBlock {
-		return &CLIError{ExitCode: 2, Message: ""}
+		return commitOutput(closeOutput, &CLIError{ExitCode: 2, Message: ""})
 	}
 	return nil
 }
@@ -446,9 +446,9 @@ func runPersistedNext(args []string, stdout io.Writer) (resultErr error) {
 			if err := encoder.Encode(payload); err != nil {
 				return &CLIError{ExitCode: 1, Message: "reconc next: json encode: " + err.Error()}
 			}
-			return &CLIError{ExitCode: 1, Message: ""}
+			return commitOutput(closeOutput, &CLIError{ExitCode: 1, Message: ""})
 		}
-		return &CLIError{ExitCode: 1, Message: "reconc next: stored blocking decision is stale because repository, policy, or active-session evidence changed; rerun `" + replayCommand + "`, then `" + renderDirectCommand([]string{"reconc", "next", candidate.RepoRoot}) + "`"}
+		return commitOutput(closeOutput, &CLIError{ExitCode: 1, Message: "reconc next: stored blocking decision is stale because repository, policy, or active-session evidence changed; rerun `" + replayCommand + "`, then `" + renderDirectCommand([]string{"reconc", "next", candidate.RepoRoot}) + "`"})
 	}
 
 	plan := runtime.BuildFixPlan(record.Report)
@@ -465,7 +465,7 @@ func runPersistedNext(args []string, stdout io.Writer) (resultErr error) {
 	} else {
 		writeNextRemediationText(out, next)
 	}
-	return &CLIError{ExitCode: 2, Message: ""}
+	return commitOutput(closeOutput, &CLIError{ExitCode: 2, Message: ""})
 }
 
 func renderPolicyReplayCommand(report *runtime.CheckReport) string {
