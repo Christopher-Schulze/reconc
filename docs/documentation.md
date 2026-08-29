@@ -3122,6 +3122,9 @@ field mappings. Reconc executes no manifest-supplied code, expression, shell,
 template, or network action. The compiler validates the filename and manifest,
 adds its digest and redacted capability summary to the lock contract, and
 therefore makes any manifest edit stale until explicit refresh.
+Manifest admission uses one bounded token pass for duplicate keys, field
+presence, known nested shapes, and depth before one typed decode; nested generic
+field maps are not re-decoded from the same manifest bytes.
 
 `reconc hook bridge <name> <host-event> [repo]` reads one bounded host payload,
 strictly validates its 8 MiB byte, 32-level depth, 65,536-member,

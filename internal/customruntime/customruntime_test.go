@@ -63,6 +63,25 @@ func TestDecodeManifestRejectsAmbiguousOrUnsafeContracts(t *testing.T) {
 	}
 }
 
+func TestDecodeManifestRejectsNestedDuplicateKeysAndCopiesInput(t *testing.T) {
+	body, err := os.ReadFile("testdata/local-agent.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate := strings.Replace(string(body), `"pre_execution": false, "synchronous_response": false`, `"pre_execution": false, "pre_execution": true, "synchronous_response": false`, 1)
+	if _, err := DecodeManifest([]byte(duplicate)); err == nil || !strings.Contains(err.Error(), "duplicate key") {
+		t.Fatalf("nested duplicate key error = %v", err)
+	}
+	manifest, err := DecodeManifest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body[0] = 'x'
+	if manifest.Name != "local-agent" || len(manifest.Routes) != 4 {
+		t.Fatalf("manifest retained mutable input alias: %+v", manifest)
+	}
+}
+
 func TestNormalizeHostPayloadUsesExactPointersAndExcludesUnselectedData(t *testing.T) {
 	t.Parallel()
 	manifest := mustManifest(t, "testdata/local-agent.json")
