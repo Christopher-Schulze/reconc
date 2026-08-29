@@ -2,6 +2,7 @@ package actionstate
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"reconc.dev/reconc/internal/retention"
@@ -187,6 +188,24 @@ func (s PrivateProjectStorage) ValidateJSONLFile(path string, maximum int64) err
 		return err
 	}
 	return validatePrivateRegularFile(path, maximum)
+}
+
+// ValidateOpenedJSONLFile validates one already opened private JSONL file.
+// The caller retains ownership of the descriptor and must close it.
+func (s PrivateProjectStorage) ValidateOpenedJSONLFile(file *os.File, info os.FileInfo, maximum int64) error {
+	if file == nil || info == nil {
+		return fmt.Errorf("private JSONL file handle is unavailable")
+	}
+	if maximum <= 0 {
+		return fmt.Errorf("private JSONL file maximum must be positive")
+	}
+	if info.Size() > maximum {
+		return fmt.Errorf("private JSONL file exceeds %d bytes", maximum)
+	}
+	if err := s.validateJSONLFilePath(file.Name()); err != nil {
+		return err
+	}
+	return validatePrivateFile(file, info)
 }
 
 func (s PrivateProjectStorage) validateJSONLFilePath(path string) error {

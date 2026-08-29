@@ -56,14 +56,14 @@ func tailDataWithLayout(path string, maxBytes int64, layout Layout) (int64, int6
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return 0, 0, nil, 0, fmt.Errorf("JSONL path must be a non-symlink regular file: %s", path)
 	}
-	if err := validateLayoutSecurityFile(layout, path, maxBytes); err != nil {
-		return 0, 0, nil, 0, err
-	}
 	if info.Size() <= maxBytes {
+		if err := validateLayoutSecurityFile(layout, path, maxBytes); err != nil {
+			return 0, 0, nil, 0, err
+		}
 		return info.Size(), info.Size(), nil, info.Mode().Perm(), nil
 	}
 	var data []byte
-	err = boundedio.WithRegularFileSnapshot(path, info.Size(), func(file *os.File, opened os.FileInfo) error {
+	err = withValidatedLayoutSecurityFileLimits(layout, path, info.Size(), maxBytes, func(file *os.File, opened os.FileInfo) error {
 		start := opened.Size() - maxBytes
 		if _, seekErr := file.Seek(start, 0); seekErr != nil {
 			return seekErr

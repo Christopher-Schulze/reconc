@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"reconc.dev/reconc/internal/boundedio"
 )
 
 const (
@@ -51,6 +53,7 @@ type LayoutSecurity interface {
 	ValidateJSONLDirectory(path string) error
 	SecureJSONLFile(path string) error
 	ValidateJSONLFile(path string, maximum int64) error
+	ValidateOpenedJSONLFile(file *os.File, info os.FileInfo, maximum int64) error
 }
 
 // Layout binds the lock, transaction journal, temporary backup prefix, and
@@ -121,10 +124,49 @@ func validateLayoutSecurityFile(layout Layout, path string, maximum int64) error
 	if layout.Security == nil {
 		return nil
 	}
-	if err := layout.Security.ValidateJSONLFile(path, maximum); err != nil {
+	return boundedio.WithRegularFileSnapshot(path, maximum, func(file *os.File, info os.FileInfo) error {
+		return validateOpenedLayoutSecurityFile(layout, file, info, maximum)
+	})
+}
+
+func validateOpenedLayoutSecurityFile(layout Layout, file *os.File, info os.FileInfo, maximum int64) error {
+	if layout.Security == nil {
+		return nil
+	}
+	if file == nil || info == nil {
+		return errors.New("JSONL file security requires an opened file")
+	}
+	if err := layout.Security.ValidateOpenedJSONLFile(file, info, maximum); err != nil {
 		return fmt.Errorf("validate JSONL file security: %w", err)
 	}
 	return nil
+}
+
+func withValidatedLayoutSecurityFile(
+	layout Layout,
+	path string,
+	maximum int64,
+	use func(*os.File, os.FileInfo) error,
+) error {
+	return withValidatedLayoutSecurityFileLimits(layout, path, maximum, maximum, use)
+}
+
+func withValidatedLayoutSecurityFileLimits(
+	layout Layout,
+	path string,
+	snapshotMaximum int64,
+	securityMaximum int64,
+	use func(*os.File, os.FileInfo) error,
+) error {
+	if use == nil {
+		return errors.New("validated JSONL file requires a callback")
+	}
+	return boundedio.WithRegularFileSnapshot(path, snapshotMaximum, func(file *os.File, info os.FileInfo) error {
+		if err := validateOpenedLayoutSecurityFile(layout, file, info, securityMaximum); err != nil {
+			return err
+		}
+		return use(file, info)
+	})
 }
 
 func secureLayoutSecurityFile(layout Layout, path string, maximum int64) error {

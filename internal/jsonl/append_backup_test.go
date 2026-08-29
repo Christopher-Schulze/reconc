@@ -40,6 +40,53 @@ func TestCreateAppendBackupRejectsSourceReplacement(t *testing.T) {
 	assertAppendBackupBytes(t, source, replacement)
 }
 
+func TestOpenAppendBackupSourceRejectsSecurityReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("replacing an open source is not reliable on Windows")
+	}
+	for _, test := range []struct {
+		name    string
+		symlink bool
+	}{
+		{name: "regular replacement"},
+		{name: "symlink substitution", symlink: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "events.jsonl")
+			source := archivePath(path, 1)
+			if err := os.WriteFile(source, []byte("archive\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			security := &replacingLayoutSecurity{
+				path: source, replacement: []byte("replacement\n"), symlink: test.symlink,
+			}
+			if test.symlink {
+				security.target = filepath.Join(root, "foreign.jsonl")
+				if err := os.WriteFile(security.target, []byte("foreign\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := os.Lstat(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			layout := defaultLayout(path)
+			layout.Security = security
+			file, _, data, _, err := openAppendBackupSource(source, before, layout, 64)
+			if file != nil {
+				_ = file.Close()
+			}
+			if err == nil {
+				t.Fatal("security-validated replacement was accepted")
+			}
+			if data != nil {
+				t.Fatalf("rejected replacement returned bytes: %q", data)
+			}
+		})
+	}
+}
+
 func TestCreateAppendBackupRejectsHardLinkCountChange(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "events.jsonl")

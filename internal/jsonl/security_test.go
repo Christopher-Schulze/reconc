@@ -34,6 +34,15 @@ type blockingLockSecurity struct {
 	secured       []os.FileInfo
 }
 
+type replacingLayoutSecurity struct {
+	path        string
+	replacement []byte
+	target      string
+	symlink     bool
+	once        sync.Once
+	err         error
+}
+
 func (s *blockingLockSecurity) JSONLSecurityIdentity() string {
 	return "blocking-private-v1"
 }
@@ -82,6 +91,20 @@ func (s *blockingLockSecurity) ValidateJSONLFile(path string, _ int64) error {
 		return errors.New("file security publication is incomplete")
 	}
 	return nil
+}
+
+func (s *blockingLockSecurity) ValidateOpenedJSONLFile(file *os.File, info os.FileInfo, _ int64) error {
+	if file == nil || info == nil {
+		return errors.New("opened file is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, candidate := range s.secured {
+		if os.SameFile(info, candidate) {
+			return nil
+		}
+	}
+	return errors.New("file security publication is incomplete")
 }
 
 func TestLayoutSecurityPublishesFirstLockOnlyAfterSecurity(t *testing.T) {
@@ -190,6 +213,134 @@ func (s *recordingLayoutSecurity) ValidateJSONLFile(path string, _ int64) error 
 		return errors.New("rejected existing file")
 	}
 	return nil
+}
+
+func (s *recordingLayoutSecurity) ValidateOpenedJSONLFile(file *os.File, info os.FileInfo, maximum int64) error {
+	if file == nil || info == nil {
+		return errors.New("opened file is required")
+	}
+	opened, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(opened, info) {
+		return errors.New("security received an unbound file descriptor")
+	}
+	return s.ValidateJSONLFile(file.Name(), maximum)
+}
+
+func (s *replacingLayoutSecurity) JSONLSecurityIdentity() string {
+	return "replacing-private-v1"
+}
+
+func (s *replacingLayoutSecurity) ValidateJSONLDirectory(path string) error {
+	return nil
+}
+
+func (s *replacingLayoutSecurity) SecureJSONLFile(path string) error {
+	return nil
+}
+
+func (s *replacingLayoutSecurity) ValidateJSONLFile(path string, _ int64) error {
+	return nil
+}
+
+func (s *replacingLayoutSecurity) ValidateOpenedJSONLFile(file *os.File, info os.FileInfo, _ int64) error {
+	if file == nil || info == nil {
+		return errors.New("opened file is required")
+	}
+	opened, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(opened, info) {
+		return errors.New("security received an unbound file descriptor")
+	}
+	s.once.Do(func() {
+		moved := s.path + ".moved"
+		if err := os.Rename(s.path, moved); err != nil {
+			s.err = err
+			return
+		}
+		if s.symlink {
+			s.err = os.Symlink(s.target, s.path)
+			return
+		}
+		s.err = os.WriteFile(s.path, s.replacement, 0o600)
+	})
+	return s.err
+}
+
+func TestLayoutSecurityReadRejectsReplacementDuringBoundSnapshot(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		symlink bool
+	}{
+		{name: "regular replacement"},
+		{name: "symlink substitution", symlink: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			path := filepath.Join(directory, "backup.jsonl")
+			if err := os.WriteFile(path, []byte("original\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			security := &replacingLayoutSecurity{
+				path: path, replacement: []byte("replacement\n"), symlink: test.symlink,
+			}
+			if test.symlink {
+				security.target = filepath.Join(directory, "foreign.jsonl")
+				if err := os.WriteFile(security.target, []byte("foreign\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			layout := defaultLayout(path)
+			layout.Security = security
+			body, err := readBoundedBackupWithLayout(path, 64, 0o600, layout)
+			if err == nil {
+				t.Fatal("security-validated replacement was accepted")
+			}
+			if body != nil {
+				t.Fatalf("rejected replacement returned bytes: %q", body)
+			}
+		})
+	}
+}
+
+func TestLayoutSecurityTailRejectsReplacementDuringBoundSnapshot(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		symlink bool
+	}{
+		{name: "regular replacement"},
+		{name: "symlink substitution", symlink: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			path := filepath.Join(directory, "events.jsonl")
+			if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			security := &replacingLayoutSecurity{
+				path: path, replacement: []byte("replacement\n"), symlink: test.symlink,
+			}
+			if test.symlink {
+				security.target = filepath.Join(directory, "foreign.jsonl")
+				if err := os.WriteFile(security.target, []byte("foreign\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			layout := defaultLayout(path)
+			layout.Security = security
+			_, _, data, _, err := tailDataWithLayout(path, 4, layout)
+			if err == nil {
+				t.Fatal("security-validated replacement was accepted")
+			}
+			if data != nil {
+				t.Fatalf("rejected replacement returned bytes: %q", data)
+			}
+		})
+	}
 }
 
 func TestLayoutSecurityCoversRotationArchivesAndRecoveryBackups(t *testing.T) {

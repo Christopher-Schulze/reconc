@@ -12,7 +12,6 @@ import (
 	"runtime"
 
 	"reconc.dev/reconc/internal/atomicfile"
-	"reconc.dev/reconc/internal/boundedio"
 )
 
 func prepareRotationInputs(path string, maxArchives int, maxBytes int64) error {
@@ -208,9 +207,6 @@ func createAppendBackupWithLayoutHooks(
 	if info.Size() > maxBytes {
 		return appendJournalBackup{}, fmt.Errorf("jsonl archive %s exceeds %d bytes", source, maxBytes)
 	}
-	if err := validateLayoutSecurityFile(layout, source, maxBytes); err != nil {
-		return appendJournalBackup{}, err
-	}
 	if !layoutIsDefault(path, layout) && runtime.GOOS != "windows" &&
 		info.Mode().Perm() != layout.FileMode.Perm() {
 		return appendJournalBackup{}, fmt.Errorf(
@@ -332,6 +328,9 @@ func openAppendBackupSource(
 	if beforeLinks != openedLinks {
 		return closeOnError(fmt.Errorf("JSONL archive hard-link count changed while opening: %s", source))
 	}
+	if err := validateOpenedLayoutSecurityFile(layout, file, opened, maxBytes); err != nil {
+		return closeOnError(err)
+	}
 	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
 	if err != nil {
 		return closeOnError(fmt.Errorf("read JSONL archive: %w", err))
@@ -340,9 +339,6 @@ func openAppendBackupSource(
 		return closeOnError(fmt.Errorf("JSONL archive changed or exceeds %d bytes: %s", maxBytes, source))
 	}
 	if err := validateAppendBackupSource(file, opened, source, data, openedLinks, 0, maxBytes); err != nil {
-		return closeOnError(err)
-	}
-	if err := validateLayoutSecurityFile(layout, source, maxBytes); err != nil {
 		return closeOnError(err)
 	}
 	return file, opened, data, openedLinks, nil
@@ -422,11 +418,8 @@ func digestBoundedBackupWithLayout(path string, maxBytes int64, mode os.FileMode
 }
 
 func readBoundedBackupWithLayout(path string, maxBytes int64, mode os.FileMode, layout Layout) ([]byte, error) {
-	if err := validateLayoutSecurityFile(layout, path, maxBytes); err != nil {
-		return nil, err
-	}
 	var data []byte
-	err := boundedio.WithRegularFileSnapshot(path, maxBytes, func(file *os.File, info os.FileInfo) error {
+	err := withValidatedLayoutSecurityFile(layout, path, maxBytes, func(file *os.File, info os.FileInfo) error {
 		if runtime.GOOS != "windows" && info.Mode().Perm() != mode.Perm() {
 			return fmt.Errorf("JSONL transaction file %s has mode %o; want %o", path, info.Mode().Perm(), mode.Perm())
 		}
@@ -440,6 +433,9 @@ func readBoundedBackupWithLayout(path string, maxBytes int64, mode os.FileMode, 
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
 	return data, err
 }
 

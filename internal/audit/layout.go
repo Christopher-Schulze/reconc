@@ -43,14 +43,21 @@ func (security auditLayoutSecurity) SecureJSONLFile(path string) error {
 
 func (security auditLayoutSecurity) ValidateJSONLFile(path string, maximum int64) error {
 	return boundedio.WithRegularFileSnapshot(path, maximum, func(file *os.File, info os.FileInfo) error {
-		if info.Size() > maximum {
-			return fmt.Errorf("audit JSONL file exceeds %d bytes", maximum)
-		}
-		if path == security.lockPath {
-			return privatefs.ValidateFile(file, info)
-		}
-		return privatefs.ValidateFileAllowLinks(file, info)
+		return security.ValidateOpenedJSONLFile(file, info, maximum)
 	})
+}
+
+func (security auditLayoutSecurity) ValidateOpenedJSONLFile(file *os.File, info os.FileInfo, maximum int64) error {
+	if file == nil || info == nil {
+		return errors.New("audit JSONL file handle is unavailable")
+	}
+	if info.Size() > maximum {
+		return fmt.Errorf("audit JSONL file exceeds %d bytes", maximum)
+	}
+	if file.Name() == security.lockPath {
+		return privatefs.ValidateFile(file, info)
+	}
+	return privatefs.ValidateFileAllowLinks(file, info)
 }
 
 func auditLayout(path string) jsonl.Layout {
@@ -272,7 +279,9 @@ func validateAuditContentFiles(path string, layout jsonl.Layout) error {
 		return errors.New("audit layout security contract is unavailable")
 	}
 	for _, source := range sources {
-		if err := security.ValidateJSONLFile(source, DefaultMaxSizeBytes); err != nil {
+		if err := boundedio.WithRegularFileSnapshot(source, DefaultMaxSizeBytes, func(file *os.File, info os.FileInfo) error {
+			return security.ValidateOpenedJSONLFile(file, info, DefaultMaxSizeBytes)
+		}); err != nil {
 			return fmt.Errorf("validate audit evidence %s: %w", source, err)
 		}
 	}
