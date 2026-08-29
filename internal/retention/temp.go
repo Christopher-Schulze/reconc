@@ -42,7 +42,7 @@ func enforceStateTotal(options Options, project, activeID string, hasActive bool
 			active := hasActive && (dir == "sessions" || dir == "reports") && entry.Name() == activeID+".json"
 			active = active || hasActive && dir == "locks" && (entry.Name() == activeID+".lock" || entry.Name() == activeID+".stop-policy.lock")
 			active = active || dir == "policy-decisions" && entry.Name() == "latest.json"
-			item := candidate{path: filepath.Join(path, entry.Name()), name: dir + "/" + entry.Name(), size: info.Size(), mtime: info.ModTime(), active: active}
+			item := candidate{path: filepath.Join(path, entry.Name()), name: dir + "/" + entry.Name(), size: info.Size(), mtime: info.ModTime(), active: active, info: info}
 			candidates = append(candidates, item)
 			class.BytesBefore += item.size
 		}
@@ -94,7 +94,7 @@ func pruneRepoTemps(options Options, report *Report) ClassReport {
 			if strings.HasSuffix(name, ".build.lock") {
 				info, err := entry.Info()
 				if err == nil {
-					item := candidate{path: path, name: name, mtime: info.ModTime(), dir: true}
+					item := candidate{path: path, name: name, mtime: info.ModTime(), dir: true, info: info}
 					var treeErr error
 					item.size, item.mtime, treeErr = treeSizeAndLatest(path, info.ModTime())
 					if treeErr != nil {
@@ -111,7 +111,7 @@ func pruneRepoTemps(options Options, report *Report) ClassReport {
 		}
 		info, err := entry.Info()
 		if err == nil {
-			candidates = append(candidates, candidate{path: path, name: name, size: info.Size(), mtime: info.ModTime()})
+			candidates = append(candidates, candidate{path: path, name: name, size: info.Size(), mtime: info.ModTime(), info: info})
 		}
 		return nil
 	})
@@ -146,7 +146,7 @@ func pruneOwnedTempRoots(options Options, report *Report) ClassReport {
 			report.Errors = append(report.Errors, fmt.Sprintf("walk owned temp %s: %v", filepath.Join(options.TempRoot, entry.Name()), err))
 			return class
 		}
-		candidates = append(candidates, candidate{path: filepath.Join(options.TempRoot, entry.Name()), name: entry.Name(), size: size, mtime: latest, dir: true})
+		candidates = append(candidates, candidate{path: filepath.Join(options.TempRoot, entry.Name()), name: entry.Name(), size: size, mtime: latest, dir: true, info: info})
 	}
 	return pruneExpiredCandidates(class, candidates, options.Now, options.Policy.AbandonedTempAge, options.DryRun, report)
 }
@@ -207,7 +207,7 @@ func enforceRepoTotal(options Options, report *Report) ClassReport {
 			report.Errors = append(report.Errors, fmt.Sprintf("stat generated binary %s: %v", filepath.Join(cache, entry.Name()), err))
 			return class
 		}
-		removable = append(removable, candidate{path: filepath.Join(cache, entry.Name()), name: entry.Name(), size: info.Size(), mtime: info.ModTime()})
+		removable = append(removable, candidate{path: filepath.Join(cache, entry.Name()), name: entry.Name(), size: info.Size(), mtime: info.ModTime(), info: info})
 	}
 	// Only the plain run-decision ring is eligible for the repo-total budget.
 	// The audit ring is a SHA-256 hash chain with a detached head that pins the
@@ -233,7 +233,7 @@ func enforceRepoTotal(options Options, report *Report) ClassReport {
 			report.Errors = append(report.Errors, fmt.Sprintf("runtime archive must be a non-symlink regular file: %s", path))
 			return class
 		}
-		removable = append(removable, candidate{path: path, name: filepath.Base(path), size: info.Size(), mtime: info.ModTime()})
+		removable = append(removable, candidate{path: path, name: filepath.Base(path), size: info.Size(), mtime: info.ModTime(), info: info})
 	}
 	sort.Slice(removable, func(i, j int) bool {
 		if removable[i].mtime.Equal(removable[j].mtime) {

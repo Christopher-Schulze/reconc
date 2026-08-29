@@ -25,6 +25,7 @@ type candidate struct {
 	mtime  time.Time
 	active bool
 	dir    bool
+	info   os.FileInfo
 }
 
 const (
@@ -268,7 +269,7 @@ func pruneProjectRoots(options Options, report *Report, preserveRecent bool) Cla
 		live := path == current || activeSession != "" || activeErr != nil || decisionPresent || decisionErr != nil ||
 			actionStatePresent || actionStateErr != nil
 		recent := preserveRecent && options.Policy.Locks.MaxAge > 0 && options.Now.Sub(latest) <= options.Policy.Locks.MaxAge
-		item := candidate{path: path, name: entry.Name(), size: size, mtime: latest, active: live || recent, dir: true}
+		item := candidate{path: path, name: entry.Name(), size: size, mtime: latest, active: live || recent, dir: true, info: info}
 		class.BytesBefore += size
 		if item.active {
 			protected = append(protected, item)
@@ -471,7 +472,7 @@ func pruneClass(name, dir string, policy ClassPolicy, now time.Time, dryRun bool
 		if !info.Mode().IsRegular() {
 			continue
 		}
-		item := candidate{path: filepath.Join(dir, entry.Name()), name: entry.Name(), size: info.Size(), mtime: info.ModTime(), active: activeNames != nil && activeNames[entry.Name()]}
+		item := candidate{path: filepath.Join(dir, entry.Name()), name: entry.Name(), size: info.Size(), mtime: info.ModTime(), active: activeNames != nil && activeNames[entry.Name()], info: info}
 		candidates = append(candidates, item)
 		class.BytesBefore += item.size
 	}
@@ -502,20 +503,105 @@ func pruneClass(name, dir string, policy ClassPolicy, now time.Time, dryRun bool
 }
 
 func removeCandidate(item candidate, dryRun bool, report *Report) bool {
+	return removeCandidateWithHooks(item, dryRun, report, candidateRemovalHooks{})
+}
+
+type candidateRemovalHooks struct {
+	afterValidation func(candidate) error
+}
+
+func removeCandidateWithHooks(item candidate, dryRun bool, report *Report, hooks candidateRemovalHooks) bool {
 	if dryRun {
 		return true
 	}
-	var err error
-	if item.dir {
-		err = os.RemoveAll(item.path)
-	} else {
-		err = os.Remove(item.path)
+	if item.info == nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("remove %s: missing discovered identity", item.path))
+		return false
 	}
+	parentPath := filepath.Dir(item.path)
+	parentInfo, err := os.Lstat(parentPath)
 	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("remove %s: inspect parent: %v", item.path, err))
+		return false
+	}
+	if parentInfo.Mode()&os.ModeSymlink != 0 || !parentInfo.IsDir() {
+		report.Errors = append(report.Errors, fmt.Sprintf("remove %s: parent is not a non-symlink directory", item.path))
+		return false
+	}
+	root, err := os.OpenRoot(parentPath)
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("remove %s: open parent: %v", item.path, err))
+		return false
+	}
+	openedParent, statErr := root.Stat(".")
+	if statErr != nil || !openedParent.IsDir() || !os.SameFile(parentInfo, openedParent) {
+		closeErr := root.Close()
+		report.Errors = append(report.Errors, fmt.Sprintf("remove %s: parent changed identity: %v", item.path, errors.Join(statErr, closeErr)))
+		return false
+	}
+	name := filepath.Base(item.path)
+	if err := validateCandidateAt(root, name, item); err != nil {
+		closeErr := root.Close()
+		report.Errors = append(report.Errors, fmt.Sprintf("remove %s: %v", item.path, errors.Join(err, closeErr)))
+		return false
+	}
+	if hooks.afterValidation != nil {
+		if err := hooks.afterValidation(item); err != nil {
+			closeErr := root.Close()
+			report.Errors = append(report.Errors, fmt.Sprintf("remove %s: before-delete hook: %v", item.path, errors.Join(err, closeErr)))
+			return false
+		}
+		if err := validateCandidateAt(root, name, item); err != nil {
+			closeErr := root.Close()
+			report.Errors = append(report.Errors, fmt.Sprintf("remove %s: %v", item.path, errors.Join(err, closeErr)))
+			return false
+		}
+	}
+	if item.dir {
+		target, openErr := root.OpenRoot(name)
+		if openErr == nil {
+			targetInfo, targetStatErr := target.Stat(".")
+			closeTargetErr := target.Close()
+			if targetStatErr != nil || !sameCandidateType(item, targetInfo) || !os.SameFile(item.info, targetInfo) {
+				openErr = errors.Join(targetStatErr, closeTargetErr, errors.New("directory identity changed before recursive removal"))
+			} else {
+				openErr = closeTargetErr
+			}
+		}
+		if openErr == nil {
+			openErr = root.RemoveAll(name)
+		}
+		err = openErr
+	} else {
+		err = root.Remove(name)
+	}
+	closeErr := root.Close()
+	if err := errors.Join(err, closeErr); err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("remove %s: %v", item.path, err))
 		return false
 	}
 	return true
+}
+
+func validateCandidateAt(root *os.Root, name string, item candidate) error {
+	current, err := root.Lstat(name)
+	if err != nil {
+		return err
+	}
+	if !sameCandidateType(item, current) || !os.SameFile(item.info, current) {
+		return errors.New("target identity or type changed before deletion")
+	}
+	return nil
+}
+
+func sameCandidateType(item candidate, info os.FileInfo) bool {
+	if info == nil {
+		return false
+	}
+	if item.dir {
+		return info.Mode()&os.ModeSymlink == 0 && info.IsDir()
+	}
+	return info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular()
 }
 
 func liveActiveSession(project, requested string, now time.Time, maxAge time.Duration) (string, error) {

@@ -2255,6 +2255,10 @@ on an invalid chain or mismatched ring policy. Repo runtime is capped at 48 MiB.
 grace, retaining recent work while removing hard-kill residue before a full
 working day passes. Active session/report/lock files, live build-lock targets,
 run state/locks, and recent temp trees are never deleted to force a budget.
+Retention candidates retain their discovered non-symlink identity and expected
+type. Before deletion, the parent directory is reopened as an identity-bound
+root and the candidate is revalidated; recursive removal stays inside that
+root and refuses replacements, symlinks, or repopulated directories.
 Global temp and project-root scanning use independent six-hour markers, so
 multiple repos do not re-walk either tree on every session start.
 Durable publication and CLI output paths propagate write, sync, close, and

@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 352 Revalidate retention candidates before deletion -> tasks/352-revalidate-retention-candidates-before-deletion.md
 - [ ] 353 Bind action-state transaction cleanup to read identity -> tasks/353-bind-action-state-transaction-cleanup-to-read-identity.md
 - [ ] 354 Prevent JSONL lock inode splitting -> tasks/354-prevent-jsonl-lock-inode-splitting.md
 - [ ] 355 Root TASK lifecycle lock acquisition -> tasks/355-root-lifecycle-lock-acquisition.md
@@ -31,6 +30,7 @@
 
 ## Done
 
+- [x] 352 Revalidate retention candidates before deletion -> tasks/done/352-revalidate-retention-candidates-before-deletion.md
 - [x] 351 Bind JSONL layout security to opened files -> tasks/done/351-bind-jsonl-layout-security-to-opened-files.md
 - [x] 350 Fail closed on dynamic find launcher arguments -> tasks/done/350-fail-closed-on-dynamic-find-launcher-arguments.md
 - [x] 349 Preserve distinct tool-use event identities -> tasks/done/349-preserve-distinct-tool-use-event-identities.md
