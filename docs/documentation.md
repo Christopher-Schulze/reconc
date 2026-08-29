@@ -2210,7 +2210,10 @@ rebuilding the detached head. A successful callback is marked `resolved`
 before cleanup, so cleanup-only recovery never repeats it. Legacy version-1
 `published` journals remain callback-owned because their state cannot prove
 whether head publication started. Resolved recovery removes only transaction
-artifacts.
+artifacts. A private-audit recovery journal is retried through the legacy
+generic layout only when JSONL returns the typed `ErrLayoutMismatch`
+classification; wording in unrelated recovery failures never changes that
+control flow.
 Malformed journals or corrupt backups fail closed and remain available for
 diagnosis. Generic retention never rewrites chained audit evidence and fails
 on an invalid chain or mismatched ring policy. Repo runtime is capped at 48 MiB. Known

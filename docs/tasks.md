@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 323 Replace audit error-string protocols with typed classification -> tasks/323-replace-audit-error-string-protocols-with-typed-classification.md
 - [ ] 324 Stream audit archive verification -> tasks/324-stream-audit-archive-verification.md
 - [ ] 325 Retain bootstrap receipt-plan pairs atomically -> tasks/325-retain-bootstrap-receipt-plan-pairs-atomically.md
 - [ ] 326 Surface repeated-stop state mutation failures -> tasks/326-surface-repeated-stop-state-mutation-failures.md
@@ -31,6 +30,7 @@
 
 ## Done
 
+- [x] 323 Replace audit error-string protocols with typed classification -> tasks/done/323-replace-audit-error-string-protocols-with-typed-classification.md
 - [x] 322 Remove duplicate TASK move precondition validation -> tasks/done/322-remove-duplicate-move-precondition-validation.md
 - [x] 321 Capture coherent command-proof Git state -> tasks/done/321-capture-coherent-command-proof-git-state.md
 - [x] 320 Close the completion-proof publication mutation window -> tasks/done/320-close-the-completion-proof-publication-mutation-window.md
@@ -40,4 +40,3 @@
 - [x] 316 Eliminate logical-condition child allocations -> tasks/done/316-eliminate-logical-condition-child-allocations.md
 - [x] 315 Check forbid-command path triggers before command analysis -> tasks/done/315-check-forbid-command-path-triggers-before-command-analysis.md
 - [x] 314 Remove the discarded action-ledger checkpoint decode -> tasks/done/314-remove-the-discarded-action-ledger-checkpoint-decode.md
-- [x] 313 Eliminate redundant compiler payload serialization -> tasks/done/313-eliminate-redundant-compiler-payload-serialization.md

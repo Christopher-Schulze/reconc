@@ -13,14 +13,19 @@ Audit recovery decides whether to try the legacy JSONL layout by searching an er
 
 ## Sub-Tasks
 
-- [ ] Define the JSONL layout mismatch error contract
-- [ ] Replace audit substring branching
-- [ ] Add wrapped and lookalike error regressions
-- [ ] Run audit, JSONL, migration, and recovery gates
+- [x] Define the JSONL layout mismatch error contract
+- [x] Replace audit substring branching
+- [x] Add wrapped and lookalike error regressions
+- [x] Run audit, JSONL, migration, and recovery gates
 
 ## Notes
 
 - Evidence: `internal/audit/audit.go:604-626`.
+- Added `jsonl.ErrLayoutMismatch`; journal errors retain the journal path and
+  remain classifiable through `errors.Is`.
+- Audit recovery now retries the generic layout only for that typed condition.
+- Verified with `go test ./internal/jsonl`, `go test ./internal/audit`, and the
+  focused lookalike regression.
 
 ## Deviations
 

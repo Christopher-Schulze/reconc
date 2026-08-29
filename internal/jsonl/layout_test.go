@@ -83,8 +83,15 @@ func TestCustomJournalRejectsDifferentLayout(t *testing.T) {
 	}
 	foreign := layout
 	foreign.LockPath = filepath.Join(filepath.Dir(path), "foreign.lock")
-	if err := RecoverWithLayout(path, foreign, func() error { return nil }); err == nil {
+	err := RecoverWithLayout(path, foreign, func() error { return nil })
+	if err == nil {
 		t.Fatalf("RecoverWithLayout() accepted a journal from a different layout")
+	}
+	if !errors.Is(err, ErrLayoutMismatch) {
+		t.Fatalf("RecoverWithLayout() error = %v, want ErrLayoutMismatch", err)
+	}
+	if !strings.Contains(err.Error(), layout.JournalPath) {
+		t.Fatalf("RecoverWithLayout() error = %v, want journal path context", err)
 	}
 	if _, err := os.Lstat(layout.JournalPath); err != nil {
 		t.Fatalf("foreign recovery changed the original journal: %v", err)

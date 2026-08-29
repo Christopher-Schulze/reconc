@@ -29,6 +29,10 @@ const (
 // by supplying the same idempotent commit callback used for the append.
 var ErrTransactionCommitRequired = errors.New("JSONL transaction commit may have started; owner callback is required for recovery")
 
+// ErrLayoutMismatch means an append journal belongs to a different JSONL
+// layout than the one supplied for recovery.
+var ErrLayoutMismatch = errors.New("JSONL append journal belongs to a different layout")
+
 // Policy bounds one live JSONL file plus a fixed archive ring.
 type Policy struct {
 	MaxBytes    int64

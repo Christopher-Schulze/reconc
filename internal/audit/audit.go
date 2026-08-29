@@ -618,7 +618,7 @@ func recoverPendingAppend(repoRoot string) error {
 		return writeChainHead(repoRoot, entries)
 	}
 	err = jsonl.RecoverWithLayout(path, layout, commit)
-	if err == nil || !strings.Contains(err.Error(), "belongs to a different layout") {
+	if err == nil || !errors.Is(err, jsonl.ErrLayoutMismatch) {
 		return err
 	}
 	// A pre-private audit journal used the generic JSONL layout. Recover it
