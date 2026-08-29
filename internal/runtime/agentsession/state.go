@@ -566,11 +566,11 @@ func mutateSessionStateResolved(root, sessionID string, mutate func(SessionState
 		if updated.ReportPath == "" {
 			updated.ReportPath = sessionReportPath(root, sessionID)
 		}
+		// Normalize before the single publication comparison. This both removes
+		// apparent changes that collapse through trimming/deduplication and keeps
+		// the no-op path from paying a second full-state equality pass.
+		updated = normalizeSessionState(updated)
 		stateChanged := !reflect.DeepEqual(state, updated)
-		if stateChanged {
-			updated = normalizeSessionState(updated)
-			stateChanged = !reflect.DeepEqual(state, updated)
-		}
 		if !stateChanged {
 			info, err := os.Stat(sessionStatePath(root, sessionID))
 			if errors.Is(err, os.ErrNotExist) {

@@ -24,6 +24,7 @@ Session normalization sorts and deduplicates collections, clears them, then rebu
 - String collections now sort and deduplicate once, then rebuild with one retained-byte pass; command results use one normalized identity map and one encoded-byte accumulator.
 - Write-epoch entries retain the pre-existing normalization behavior, including entries whose over-limit write path is rejected while its epoch remains recorded.
 - Golden, overflow/epoch, concurrent, and maximum-state benchmark coverage passed. `go test ./internal/runtime/agentsession -count=1`, the package race suite, `make test-fast`, `make vet`, `make lint`, and `make self-host` are green.
+- Documentation now states that mutations normalize and compare once before deciding whether to publish.
 
 ## Deviations
 

@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 330 Avoid duplicate full session-state equality passes -> tasks/330-avoid-duplicate-full-session-state-equality-passes.md
+- [~] 331 Reuse one runtime evaluator across MCP gateway checks -> tasks/331-reuse-one-runtime-evaluator-across-mcp-gateway-checks.md
 
 ## Queue
 
-- [ ] 331 Reuse one runtime evaluator across MCP gateway checks -> tasks/331-reuse-one-runtime-evaluator-across-mcp-gateway-checks.md
 - [ ] 332 Share pre-decision identity work within one hook event -> tasks/332-share-pre-decision-identity-work-within-one-hook-event.md
 - [ ] 333 Index immutable schema contracts for direct lookup -> tasks/333-index-immutable-schema-contracts-for-direct-lookup.md
 - [ ] 334 Propagate protocol and identity serialization failures -> tasks/334-propagate-protocol-and-identity-serialization-failures.md
@@ -25,6 +24,7 @@
 
 ## Done
 
+- [x] 330 Avoid duplicate full session-state equality passes -> tasks/done/330-avoid-duplicate-full-session-state-equality-passes.md
 - [x] 329 Linearize session-state normalization -> tasks/done/329-linearize-session-state-normalization.md
 - [x] 328 Cache Git alias discovery within one evaluation -> tasks/done/328-cache-git-alias-discovery-within-one-evaluation.md
 - [x] 327 Reuse shell parser state safely -> tasks/done/327-reuse-shell-parser-state-safely.md
@@ -34,4 +34,3 @@
 - [x] 323 Replace audit error-string protocols with typed classification -> tasks/done/323-replace-audit-error-string-protocols-with-typed-classification.md
 - [x] 322 Remove duplicate TASK move precondition validation -> tasks/done/322-remove-duplicate-move-precondition-validation.md
 - [x] 321 Capture coherent command-proof Git state -> tasks/done/321-capture-coherent-command-proof-git-state.md
-- [x] 320 Close the completion-proof publication mutation window -> tasks/done/320-close-the-completion-proof-publication-mutation-window.md

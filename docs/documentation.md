@@ -2101,9 +2101,10 @@ Runtime retention is product-owned rather than harness-owned. `SessionStart`
 and `SessionEnd` run a cross-process-safe due check with a six-hour interval;
 Stop never prunes. `reconc prune [repo] [--dry-run] [--json]` runs the same
 core explicitly. Unchanged session files, active-session pointers, reports,
-command proofs, and run state are byte-compared and never republished. No-op
-session mutations also skip normalization and atomic publication after identity
-validation; missing or non-private state and pointer modes are still repaired.
+command proofs, and run state are byte-compared and never republished. Session
+mutations normalize once, compare the normalized result once, and skip atomic
+publication when the apparent change normalizes away; missing or non-private
+state and pointer modes are still repaired.
 Run-decision class reports include `inspection_status` when their JSONL ring is
 projected or enforced. `complete` makes zero deletion and byte values measured
 zeroes; `unknown` means inspection failed and no after/freed/deleted projection
@@ -2120,8 +2121,8 @@ workspace-only routes validate any existing state without creating a session,
 refreshing the active pointer, or serializing an unchanged state.
 Pre-tool and permission routes reuse a bounded external decision only when the
 stable tool-call ID, canonical normalized tool input, complete policy-lock
-bytes, current policy-source digest, session-state bytes, and project
-evidence-taint bytes match exactly.
+bytes, current policy-source digest, session-state bytes, project
+evidence-taint bytes, and command-tool Git-alias snapshot match exactly.
 The identity is sampled again after reading the cache; missing IDs, unreadable
 identity inputs, policy or evidence mutation, oversized diagnostics, and
 malformed cache entries force a fresh fail-closed evaluation. Session cleanup
