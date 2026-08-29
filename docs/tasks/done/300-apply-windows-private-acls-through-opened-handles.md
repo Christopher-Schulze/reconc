@@ -16,16 +16,16 @@ Windows private-file hardening opens a no-follow handle but applies owner and DA
 - [x] Inventory every Windows by-path security mutation
 - [x] Implement one handle-bound security descriptor writer
 - [x] Add replacement and reparse-point fault injection
-- [~] Run Windows-native private-state and release gates
+- [x] Run Windows-native private-state and release gates
 
 ## Notes
 
 - Evidence: `internal/privatefs/privatefs_windows.go:75-78` and the corresponding action-state ACL path.
 - Production inventory found two path-based writers: `privatefs.secureWindowsHandle`
   and the legacy Action State mode helper. PrivateFS now reopens the supplied
-  object handle with exactly `WRITE_DAC|WRITE_OWNER` and applies owner plus the
-  protected DACL with `SetSecurityInfo`; Action State delegates to that one
-  writer. No production `SetNamedSecurityInfo` call remains.
+  object handle with exactly `READ_CONTROL|WRITE_DAC|WRITE_OWNER` and applies
+  owner plus the protected DACL with `SetSecurityInfo`; Action State delegates
+  to that one writer. No production `SetNamedSecurityInfo` call remains.
 - Windows-only regressions inject access denial while asserting exact requested
   rights, replace the path after the security handle is bound, and prove that a
   rejected reparse point leaves its target security descriptor unchanged.
@@ -34,8 +34,12 @@ Windows private-file hardening opens a no-follow handle but applies owner and DA
   test compilation, Windows amd64 vet, and Windows amd64 Staticcheck. The exact
   `make lint` wrapper could not query already cached module metadata because
   local DNS to `proxy.golang.org` failed; the same cached `v0.8.1` source was
-  built and run directly. The mandatory native regressions are included in the
-  always-on `windows-2025` preflight; native CI remains the only acceptance gate.
+  built and run directly. Main CI run `33250381671` at
+  `02f397303ab5bdfdaa1858cf9d5b93b9bd1f39bc` passed every required job,
+  including Windows runtime preflight, the full Windows suite, CLI smoke, and
+  the native Windows installer (`99094938700`), plus Ubuntu, macOS, release
+  trust, and LangChain interoperability (`99094938617`, `99094938669`,
+  `99094938675`, `99094938702`). No version, tag, or release was changed.
 
 ## Deviations
 
