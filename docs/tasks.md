@@ -2,12 +2,10 @@
 
 ## Active
 
-- [~] 338 Parse custom-runtime manifests once -> tasks/338-parse-custom-runtime-manifests-once.md
+- [~] 340 Centralize archive-ring bounds and symlink accounting -> tasks/340-centralize-archive-ring-bounds-and-symlink-accounting.md
 
 ## Queue
 
-- [ ] 339 Reuse canonical bytes across proof serialization -> tasks/339-reuse-canonical-bytes-across-proof-serialization.md
-- [ ] 340 Centralize archive-ring bounds and symlink accounting -> tasks/340-centralize-archive-ring-bounds-and-symlink-accounting.md
 - [ ] 341 Remove duplicate JSONL lock validation -> tasks/341-remove-duplicate-jsonl-lock-validation.md
 
 ## Blocked
@@ -17,6 +15,8 @@
 
 ## Done
 
+- [x] 339 Reuse canonical bytes across proof serialization -> tasks/done/339-reuse-canonical-bytes-across-proof-serialization.md
+- [x] 338 Parse custom-runtime manifests once -> tasks/done/338-parse-custom-runtime-manifests-once.md
 - [x] 337 Report atomic-file post-publication outcomes truthfully -> tasks/done/337-report-atomic-file-post-publication-outcomes-truthfully.md
 - [x] 336 Root bootstrap publication against path replacement -> tasks/done/336-root-bootstrap-publication-against-path-replacement.md
 - [x] 335 Pin JSONL backup source identity before linking -> tasks/done/335-pin-jsonl-backup-source-identity-before-linking.md

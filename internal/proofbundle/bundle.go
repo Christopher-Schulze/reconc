@@ -212,11 +212,15 @@ func Generate(repo, version string) (*Bundle, error) {
 		return nil, errors.New("repository, policy, or active-session state changed while exporting proof; retry")
 	}
 	sortBundle(bundle)
-	bundle.Digest, err = digest(bundle)
+	if err := verifyContract(bundle, false); err != nil {
+		return nil, err
+	}
+	canonical, err := canonicalBytes(bundle)
 	if err != nil {
 		return nil, fmt.Errorf("calculate proof bundle digest: %w", err)
 	}
-	body, err := MarshalJSON(bundle)
+	bundle.Digest = hashBytes(canonical)
+	body, err := marshalIndented(bundle)
 	if err != nil {
 		return nil, err
 	}
@@ -637,22 +641,38 @@ func sortBundle(bundle *Bundle) {
 }
 
 func hashString(value string) string {
-	sum := sha256.Sum256([]byte(value))
+	return hashBytes([]byte(value))
+}
+
+func hashBytes(value []byte) string {
+	sum := sha256.Sum256(value)
 	return hex.EncodeToString(sum[:])
 }
 
 func digest(bundle *Bundle) (string, error) {
+	body, err := canonicalBytes(bundle)
+	if err != nil {
+		return "", err
+	}
+	return hashBytes(body), nil
+}
+
+func canonicalBytes(bundle *Bundle) ([]byte, error) {
 	copyBundle := *bundle
 	copyBundle.Digest = ""
 	body, err := json.Marshal(copyBundle)
 	if err != nil {
-		return "", fmt.Errorf("marshal proof bundle digest: %w", err)
+		return nil, fmt.Errorf("marshal proof bundle digest: %w", err)
 	}
-	return hashString(string(body)), nil
+	return body, nil
 }
 
 // Verify checks the public contract and its self-digest.
 func Verify(bundle *Bundle) error {
+	return verifyContract(bundle, true)
+}
+
+func verifyContract(bundle *Bundle, checkDigest bool) error {
 	if bundle == nil {
 		return invalidProof("is nil")
 	}
@@ -662,7 +682,7 @@ func Verify(bundle *Bundle) error {
 	if err := verifyBundleCollections(bundle); err != nil {
 		return err
 	}
-	if err := verifyBundleIdentity(bundle); err != nil {
+	if err := verifyBundleIdentity(bundle, checkDigest); err != nil {
 		return err
 	}
 	if err := verifyTaskIdentity(bundle.Task); err != nil {
@@ -683,12 +703,14 @@ func Verify(bundle *Bundle) error {
 	if err := verifyDecision(bundle); err != nil {
 		return err
 	}
-	expected, err := digest(bundle)
-	if err != nil {
-		return invalidProof(err.Error())
-	}
-	if expected == "" || !equalDigest(expected, bundle.Digest) {
-		return invalidProof("digest mismatch")
+	if checkDigest {
+		expected, err := digest(bundle)
+		if err != nil {
+			return invalidProof(err.Error())
+		}
+		if expected == "" || !equalDigest(expected, bundle.Digest) {
+			return invalidProof("digest mismatch")
+		}
 	}
 	return nil
 }
@@ -698,6 +720,10 @@ func MarshalJSON(bundle *Bundle) ([]byte, error) {
 	if err := Verify(bundle); err != nil {
 		return nil, err
 	}
+	return marshalIndented(bundle)
+}
+
+func marshalIndented(bundle *Bundle) ([]byte, error) {
 	body, err := json.MarshalIndent(bundle, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshal proof bundle: %w", err)

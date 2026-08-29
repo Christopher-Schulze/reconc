@@ -62,6 +62,11 @@ load the lockfile and run the runtime evaluator. `fix` / `explain`
 also use the runtime then render the result. `done` binds the evaluated
 candidate through `completiongate`; `proof` renders that same candidate through
 `proofbundle`. `why`, `diff`, and `sources` inspect compiled policy state.
+Proof self-digests hash one compact canonical payload per generation or
+verification; indented JSON and Markdown remain separate presentation encodings.
+Policy-decision receipts reuse the one canonical report encoding for both the
+report hash and enclosing-record digest, while their indented private file is a
+separate publication encoding.
 Host-native MCP events and configured generic MCP identities enter through the
 same compiled lockfile. Exact selectors classify a call as repository read,
 repository write, command, or external before session evidence is considered;

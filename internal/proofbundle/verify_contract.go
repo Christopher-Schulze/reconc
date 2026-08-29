@@ -9,14 +9,14 @@ import (
 	"reconc.dev/reconc/internal/completiongate"
 )
 
-func verifyBundleIdentity(bundle *Bundle) error {
+func verifyBundleIdentity(bundle *Bundle, requireDigest bool) error {
 	if !validBuildIdentity(bundle.Build) {
 		return invalidProof("build identity is incomplete")
 	}
 	if bundle.Build.SourceDigest != "" && bundle.Build.SourceDigest != "unavailable" && !validDigest(bundle.Build.SourceDigest) {
 		return invalidProof("build source digest is invalid")
 	}
-	if !validDigest(bundle.Candidate.Fingerprint) || !validDigest(bundle.Candidate.PolicyLockHash) || !validDigest(bundle.CompletionDigest) || !validDigest(bundle.Digest) {
+	if !validDigest(bundle.Candidate.Fingerprint) || !validDigest(bundle.Candidate.PolicyLockHash) || !validDigest(bundle.CompletionDigest) || (requireDigest && !validDigest(bundle.Digest)) {
 		return invalidProof("digest identity is incomplete")
 	}
 	if bundle.Candidate.PolicyReportHash != "" && !validDigest(bundle.Candidate.PolicyReportHash) {

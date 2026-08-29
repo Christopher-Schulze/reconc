@@ -13,14 +13,16 @@ Policy-proof and proof-bundle creation marshal overlapping report, digest payloa
 
 ## Sub-Tasks
 
-- [ ] Diagram proof payload and byte-identity boundaries
-- [ ] Cache canonical bytes within one generate or verify operation
-- [ ] Keep presentation bytes separate where indentation changes identity
-- [ ] Run policyproof, proofbundle, completion, schema, and benchmark gates
+- [x] Diagram proof payload and byte-identity boundaries
+- [x] Cache canonical bytes within one generate or verify operation
+- [x] Keep presentation bytes separate where indentation changes identity
+- [x] Run policyproof, proofbundle, completion, schema, and benchmark gates
 
 ## Notes
 
 - Evidence: `internal/policyproof/proof.go` record construction/validation and `internal/proofbundle/bundle.go` generation, digest, verification, and marshaling.
+- Canonical policy-report bytes are encoded once per record construction or validation and embedded as `json.RawMessage` for the enclosing digest payload. Proof-bundle generation validates fields without a pre-digest round trip, hashes one compact payload, and keeps indented JSON as a separate presentation encoding.
+- Verified with `go test ./internal/policyproof ./internal/proofbundle ./internal/completiongate -count=1` and `go test ./internal/proofbundle -run '^$' -bench 'Benchmark(Digest|MarshalJSON)MaximumArtifact$' -benchmem -count=1`.
 
 ## Deviations
 

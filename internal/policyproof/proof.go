@@ -43,13 +43,13 @@ type Record struct {
 }
 
 type recordPayload struct {
-	Schema               string               `json:"schema"`
-	FormatVersion        string               `json:"format_version"`
-	Event                string               `json:"event"`
-	RepoRoot             string               `json:"repo_root"`
-	CandidateFingerprint string               `json:"candidate_fingerprint"`
-	PolicyReportHash     string               `json:"policy_report_hash"`
-	Report               *runtime.CheckReport `json:"report"`
+	Schema               string          `json:"schema"`
+	FormatVersion        string          `json:"format_version"`
+	Event                string          `json:"event"`
+	RepoRoot             string          `json:"repo_root"`
+	CandidateFingerprint string          `json:"candidate_fingerprint"`
+	PolicyReportHash     string          `json:"policy_report_hash"`
+	Report               json.RawMessage `json:"report"`
 }
 
 // Store atomically replaces the unresolved blocking receipt after validating
@@ -144,17 +144,17 @@ func newRecord(repoRoot, event, candidateFingerprint string, report *runtime.Che
 	if report != nil {
 		reportRoot = filepath.Clean(report.RepoRoot)
 	}
+	reportBytes, err := marshalReport(report)
+	if err != nil {
+		return Record{}, fmt.Errorf("encode policy report identity: %w", err)
+	}
 	record := Record{
 		Schema: Schema, FormatVersion: FormatVersion, Event: strings.TrimSpace(event),
 		RepoRoot: reportRoot, CandidateFingerprint: strings.TrimSpace(candidateFingerprint),
 		Report: report,
 	}
 	if report != nil {
-		reportDigest, err := reportHash(report)
-		if err != nil {
-			return Record{}, fmt.Errorf("encode policy report identity: %w", err)
-		}
-		record.PolicyReportHash = reportDigest
+		record.PolicyReportHash = hash(reportBytes)
 	}
 	if err := validateRecordShape(record); err != nil {
 		return Record{}, err
@@ -162,7 +162,7 @@ func newRecord(repoRoot, event, candidateFingerprint string, report *runtime.Che
 	if err := requireSameRepository(record.RepoRoot, repoRoot); err != nil {
 		return Record{}, err
 	}
-	digest, err := recordDigest(record)
+	digest, err := recordDigestWithReportBytes(record, reportBytes)
 	if err != nil {
 		return Record{}, err
 	}
@@ -180,14 +180,15 @@ func validateRecord(record Record, repoRoot string) error {
 	if err := requireSameRepository(record.RepoRoot, repoRoot); err != nil {
 		return err
 	}
-	reportDigest, err := reportHash(record.Report)
+	reportBytes, err := marshalReport(record.Report)
 	if err != nil {
 		return fmt.Errorf("encode policy report identity: %w", err)
 	}
+	reportDigest := hash(reportBytes)
 	if record.PolicyReportHash != reportDigest {
 		return errors.New("policy decision proof report hash mismatch")
 	}
-	digest, err := recordDigest(record)
+	digest, err := recordDigestWithReportBytes(record, reportBytes)
 	if err != nil {
 		return err
 	}
@@ -250,22 +251,41 @@ func requireSameRepository(left, right string) error {
 	return nil
 }
 
-func reportHash(report *runtime.CheckReport) (string, error) {
+func marshalReport(report *runtime.CheckReport) ([]byte, error) {
 	if report == nil {
-		return "", nil
+		return nil, nil
 	}
 	body, err := json.Marshal(report)
 	if err != nil {
-		return "", fmt.Errorf("marshal policy report identity: %w", err)
+		return nil, fmt.Errorf("marshal policy report identity: %w", err)
+	}
+	return body, nil
+}
+
+func reportHash(report *runtime.CheckReport) (string, error) {
+	body, err := marshalReport(report)
+	if err != nil {
+		return "", err
+	}
+	if report == nil {
+		return "", nil
 	}
 	return hash(body), nil
 }
 
 func recordDigest(record Record) (string, error) {
+	reportBytes, err := marshalReport(record.Report)
+	if err != nil {
+		return "", fmt.Errorf("encode policy report identity: %w", err)
+	}
+	return recordDigestWithReportBytes(record, reportBytes)
+}
+
+func recordDigestWithReportBytes(record Record, reportBytes []byte) (string, error) {
 	payload := recordPayload{
 		Schema: record.Schema, FormatVersion: record.FormatVersion, Event: record.Event,
 		RepoRoot: record.RepoRoot, CandidateFingerprint: record.CandidateFingerprint,
-		PolicyReportHash: record.PolicyReportHash, Report: record.Report,
+		PolicyReportHash: record.PolicyReportHash, Report: json.RawMessage(reportBytes),
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

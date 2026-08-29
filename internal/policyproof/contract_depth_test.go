@@ -1,6 +1,7 @@
 package policyproof
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,43 @@ import (
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/runtime"
 )
+
+func TestRecordDigestRetainsCanonicalReportEncoding(t *testing.T) {
+	repo := t.TempDir()
+	report := policyProofBlockingReport(repo)
+	record, err := newRecord(repo, "check", strings.Repeat("a", 64), report)
+	if err != nil {
+		t.Fatalf("newRecord: %v", err)
+	}
+	reportBytes, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	wantReportHash := hash(reportBytes)
+	if record.PolicyReportHash != wantReportHash {
+		t.Fatalf("report hash = %q, want %q", record.PolicyReportHash, wantReportHash)
+	}
+	payload := struct {
+		Schema               string               `json:"schema"`
+		FormatVersion        string               `json:"format_version"`
+		Event                string               `json:"event"`
+		RepoRoot             string               `json:"repo_root"`
+		CandidateFingerprint string               `json:"candidate_fingerprint"`
+		PolicyReportHash     string               `json:"policy_report_hash"`
+		Report               *runtime.CheckReport `json:"report"`
+	}{
+		Schema: record.Schema, FormatVersion: record.FormatVersion, Event: record.Event,
+		RepoRoot: record.RepoRoot, CandidateFingerprint: record.CandidateFingerprint,
+		PolicyReportHash: record.PolicyReportHash, Report: report,
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal digest payload: %v", err)
+	}
+	if record.Digest != hash(payloadBytes) {
+		t.Fatalf("record digest changed canonical payload encoding")
+	}
+}
 
 func policyProofBlockingReport(repo string) *runtime.CheckReport {
 	report := runtime.NewEmptyReport(
