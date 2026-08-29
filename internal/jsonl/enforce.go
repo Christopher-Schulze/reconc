@@ -1,6 +1,7 @@
 package jsonl
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -20,8 +21,8 @@ func EnforceWithLayout(path string, policy Policy, layout Layout) (EnforceResult
 		return EnforceResult{}, err
 	}
 	result := EnforceResult{}
-	err := withLayoutLock(path, layout, func() error {
-		if err := recoverAppendLockedWithLayout(path, layout, nil); err != nil {
+	err := withLayoutLockLeaseContext(context.Background(), path, layout, true, func(lockedLayout Layout) error {
+		if err := recoverAppendLockedWithLayout(path, lockedLayout, nil); err != nil {
 			return err
 		}
 		candidates, err := archiveCandidates(path)
@@ -38,7 +39,7 @@ func EnforceWithLayout(path string, policy Policy, layout Layout) (EnforceResult
 					if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 						return fmt.Errorf("JSONL archive must be a non-symlink regular file: %s", candidate.path)
 					}
-					if err := removeJSONLPath(candidate.path); err != nil {
+					if err := removeJSONLPathWithLayout(candidate.path, lockedLayout); err != nil {
 						return err
 					}
 					result.BytesFreed += info.Size()
@@ -51,7 +52,7 @@ func EnforceWithLayout(path string, policy Policy, layout Layout) (EnforceResult
 			if index > 0 {
 				candidate = fmt.Sprintf("%s.%d", path, index)
 			}
-			freed, err := trimTailWithLayout(candidate, policy.MaxBytes, layout)
+			freed, err := trimTailWithLayout(candidate, policy.MaxBytes, lockedLayout)
 			if err != nil {
 				return err
 			}

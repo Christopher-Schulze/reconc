@@ -26,11 +26,11 @@ func AppendWithLayout(path string, record []byte, policy Policy, layout Layout) 
 	if err != nil {
 		return err
 	}
-	return withLayoutLock(path, layout, func() error {
-		if err := recoverAppendLockedWithLayout(path, layout, nil); err != nil {
+	return withLayoutLockLeaseContext(context.Background(), path, layout, true, func(lockedLayout Layout) error {
+		if err := recoverAppendLockedWithLayout(path, lockedLayout, nil); err != nil {
 			return err
 		}
-		return appendNormalizedLockedWithLayout(path, normalized, policy, layout, nil)
+		return appendNormalizedLockedWithLayout(path, normalized, policy, lockedLayout, nil)
 	})
 }
 
@@ -76,15 +76,15 @@ func AppendTransactionContextWithLayout(
 	if prepare == nil {
 		return errors.New("jsonl prepare callback is required")
 	}
-	return withLayoutLockContext(ctx, path, layout, func() error {
-		if err := recoverAppendLockedWithLayout(path, layout, commit); err != nil {
+	return withLayoutLockLeaseContext(ctx, path, layout, true, func(lockedLayout Layout) error {
+		if err := recoverAppendLockedWithLayout(path, lockedLayout, commit); err != nil {
 			return err
 		}
 		record, err := prepare()
 		if err != nil {
 			return err
 		}
-		return appendLockedWithLayout(path, record, policy, layout, commit)
+		return appendLockedWithLayout(path, record, policy, lockedLayout, commit)
 	})
 }
 
@@ -117,8 +117,8 @@ func RecoverContextWithLayout(ctx context.Context, path string, layout Layout, c
 	} else if err != nil {
 		return err
 	}
-	return withLayoutLockContext(ctx, path, layout, func() error {
-		return recoverAppendLockedWithLayout(path, layout, commit)
+	return withLayoutLockLeaseContext(ctx, path, layout, true, func(lockedLayout Layout) error {
+		return recoverAppendLockedWithLayout(path, lockedLayout, commit)
 	})
 }
 
@@ -138,8 +138,8 @@ func ReadSnapshotContextWithLayout(
 	if err := validateLayout(path, layout); err != nil {
 		return err
 	}
-	return withLayoutLockContext(ctx, path, layout, func() error {
-		if err := recoverAppendLockedWithLayout(path, layout, commit); err != nil {
+	return withLayoutLockLeaseContext(ctx, path, layout, true, func(lockedLayout Layout) error {
+		if err := recoverAppendLockedWithLayout(path, lockedLayout, commit); err != nil {
 			return err
 		}
 		return read()
@@ -161,8 +161,8 @@ func ReadExistingSnapshotContextWithLayout(
 	if err := validateLayout(path, layout); err != nil {
 		return err
 	}
-	return withExistingLayoutLockContext(ctx, path, layout, func() error {
-		if err := recoverAppendLockedWithLayout(path, layout, commit); err != nil {
+	return withLayoutLockLeaseContext(ctx, path, layout, false, func(lockedLayout Layout) error {
+		if err := recoverAppendLockedWithLayout(path, lockedLayout, commit); err != nil {
 			return err
 		}
 		return read()
@@ -184,7 +184,12 @@ func WithExistingLayoutLockContext(
 	if err := validateLayout(path, layout); err != nil {
 		return err
 	}
-	return withExistingLayoutLockContext(ctx, path, layout, inspect)
+	return withLayoutLockLeaseContext(ctx, path, layout, false, func(lockedLayout Layout) error {
+		if err := lockedLayout.validateLockLease(); err != nil {
+			return err
+		}
+		return inspect()
+	})
 }
 
 func appendLockedWithLayout(path string, record []byte, policy Policy, layout Layout, commit func() error) error {
@@ -214,6 +219,9 @@ func appendNormalizedLockedWithLayout(
 	layout Layout,
 	commit func() error,
 ) error {
+	if err := layout.validateLockLease(); err != nil {
+		return err
+	}
 	info, err := os.Lstat(path)
 	if err == nil {
 		if securityErr := validateLayoutSecurityFile(layout, path, policy.MaxBytes); securityErr != nil {
@@ -229,6 +237,9 @@ func appendNormalizedLockedWithLayout(
 		return fmt.Errorf("jsonl live path has mode %o; want %o", info.Mode().Perm(), layout.FileMode.Perm())
 	case err == nil && info.Size()+int64(len(record)) > policy.MaxBytes:
 		rotateRequired = true
+		if err := layout.validateLockLease(); err != nil {
+			return err
+		}
 		if err := prepareRotationInputsWithLayout(path, policy.MaxArchives, policy.MaxBytes, layout); err != nil {
 			return err
 		}
@@ -238,6 +249,9 @@ func appendNormalizedLockedWithLayout(
 	transactional := commit != nil
 	var journal *appendJournal
 	if rotateRequired || transactional {
+		if err := layout.validateLockLease(); err != nil {
+			return err
+		}
 		prepared, err := beginAppendJournalWithLayout(path, policy, layout, rotateRequired, transactional)
 		if err != nil {
 			return err
@@ -245,7 +259,7 @@ func appendNormalizedLockedWithLayout(
 		journal = &prepared
 	}
 	if rotateRequired {
-		if err := rotate(path, policy.MaxArchives); err != nil {
+		if err := rotateWithLayout(path, policy.MaxArchives, layout); err != nil {
 			return rollbackAppendErrorWithLayout(path, layout, journal, err)
 		}
 	}
@@ -258,17 +272,26 @@ func appendNormalizedLockedWithLayout(
 		return rollbackAppendErrorWithLayout(path, layout, journal, err)
 	}
 	if journal != nil {
+		if err := layout.validateLockLease(); err != nil {
+			return rollbackAppendErrorWithLayout(path, layout, journal, err)
+		}
 		journal.State = appendStatePublished
 		if err := writeAppendJournalWithLayout(path, layout, *journal); err != nil {
 			return rollbackAppendErrorWithLayout(path, layout, journal, err)
 		}
 	}
 	if commit != nil {
+		if err := layout.validateLockLease(); err != nil {
+			return err
+		}
 		journal.State = appendStateCommitting
 		if err := writeAppendJournalWithLayout(path, layout, *journal); err != nil {
 			return err
 		}
 		if err := commit(); err != nil {
+			return err
+		}
+		if err := layout.validateLockLease(); err != nil {
 			return err
 		}
 		journal.State = appendStateResolved
@@ -277,6 +300,9 @@ func appendNormalizedLockedWithLayout(
 		}
 	}
 	if journal != nil {
+		if err := layout.validateLockLease(); err != nil {
+			return err
+		}
 		return finishAppendJournalWithLayout(path, layout, *journal)
 	}
 	return nil
@@ -295,7 +321,7 @@ type appendOpenHooks struct {
 }
 
 func appendRecordWithLayoutHooks(path string, record []byte, layout Layout, maximum int64, hooks appendOpenHooks) (resultErr error) {
-	parent, err := openJSONLParent(path)
+	parent, err := openJSONLParentWithLayout(path, layout)
 	if err != nil {
 		return err
 	}
@@ -325,14 +351,23 @@ func appendRecordWithLayoutHooks(path string, record []byte, layout Layout, maxi
 			return errors.Join(err, file.Close())
 		}
 	}
+	if err := parent.validateLockLease(); err != nil {
+		return errors.Join(err, file.Close())
+	}
 	if layout.Security != nil && created {
 		if err := secureLayoutSecurityFile(layout, path, maximum); err != nil {
 			return errors.Join(err, file.Close())
 		}
 	} else if layout.Security == nil && (created || !layoutIsDefault(path, layout)) {
+		if err := parent.validateLockLease(); err != nil {
+			return errors.Join(err, file.Close())
+		}
 		if err := file.Chmod(layout.FileMode); err != nil {
 			return errors.Join(err, file.Close())
 		}
+	}
+	if err := parent.validateLockLease(); err != nil {
+		return errors.Join(err, file.Close())
 	}
 	writeErr := writeFull(file, record)
 	syncErr := file.Sync()
@@ -348,6 +383,9 @@ func appendRecordWithLayoutHooks(path string, record []byte, layout Layout, maxi
 }
 
 func removeCreatedAppendFile(parent *jsonlParent, file *os.File, opened os.FileInfo) error {
+	if err := parent.validateLockLease(); err != nil {
+		return err
+	}
 	current, lstatErr := parent.root.Lstat(parent.name)
 	if lstatErr != nil || opened == nil || current == nil || !opened.Mode().IsRegular() ||
 		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() || !os.SameFile(opened, current) {
@@ -369,9 +407,15 @@ func openAppendRecordFile(parent *jsonlParent, path string, layout Layout, maxim
 			return nil, nil, false, false, err
 		}
 	}
+	if err := parent.validateLockLease(); err != nil {
+		return nil, nil, false, false, err
+	}
 	if !missing {
 		file, err := parent.root.OpenFile(parent.name, os.O_APPEND|os.O_WRONLY, 0)
 		return file, before, false, false, err
+	}
+	if err := parent.validateLockLease(); err != nil {
+		return nil, nil, false, false, err
 	}
 	file, err := parent.root.OpenFile(parent.name, os.O_CREATE|os.O_EXCL|os.O_APPEND|os.O_WRONLY, layout.FileMode)
 	if err == nil {
@@ -383,6 +427,9 @@ func openAppendRecordFile(parent *jsonlParent, path string, layout Layout, maxim
 	before, missing, err = inspectAppendRecordFile(parent, path, layout, maximum)
 	if err != nil || missing {
 		return nil, nil, false, false, errors.Join(fmt.Errorf("jsonl live path changed identity during creation"), err)
+	}
+	if err := parent.validateLockLease(); err != nil {
+		return nil, nil, false, false, err
 	}
 	file, err = parent.root.OpenFile(parent.name, os.O_APPEND|os.O_WRONLY, 0)
 	return file, before, false, true, err

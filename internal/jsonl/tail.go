@@ -29,6 +29,9 @@ func trimTailWithLayout(path string, maxBytes int64, layout Layout) (int64, erro
 	if err != nil || original == kept {
 		return 0, err
 	}
+	if err := layout.validateLockLease(); err != nil {
+		return 0, err
+	}
 	result, err := atomicfile.WriteIfChanged(path, data, mode)
 	if err != nil {
 		return 0, err

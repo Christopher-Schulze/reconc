@@ -69,6 +69,7 @@ type Layout struct {
 	JournalMode   os.FileMode
 	LockTimeout   time.Duration
 	Security      LayoutSecurity
+	lockLease     *layoutLockLease
 }
 
 func defaultLayout(path string) Layout {
@@ -172,6 +173,9 @@ func withValidatedLayoutSecurityFileLimits(
 func secureLayoutSecurityFile(layout Layout, path string, maximum int64) error {
 	if layout.Security == nil {
 		return nil
+	}
+	if err := layout.validateLockLease(); err != nil {
+		return err
 	}
 	if err := layout.Security.SecureJSONLFile(path); err != nil {
 		return fmt.Errorf("secure JSONL file: %w", err)

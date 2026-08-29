@@ -10,10 +10,11 @@ import (
 )
 
 type jsonlParent struct {
-	root      *os.Root
-	info      os.FileInfo
-	directory string
-	name      string
+	root           *os.Root
+	info           os.FileInfo
+	directory      string
+	name           string
+	lockValidation func() error
 }
 
 var jsonlDirectorySync = atomicfile.SyncDirectory
@@ -45,6 +46,15 @@ func openJSONLParent(path string) (*jsonlParent, error) {
 	return &jsonlParent{root: root, info: opened, directory: directory, name: filepath.Base(path)}, nil
 }
 
+func openJSONLParentWithLayout(path string, layout Layout) (*jsonlParent, error) {
+	parent, err := openJSONLParent(path)
+	if err != nil {
+		return nil, err
+	}
+	parent.lockValidation = layout.validateLockLease
+	return parent, nil
+}
+
 func (parent *jsonlParent) validate() error {
 	opened, statErr := parent.root.Stat(".")
 	current, lstatErr := os.Lstat(parent.directory)
@@ -59,11 +69,25 @@ func (parent *jsonlParent) validate() error {
 	return nil
 }
 
+func (parent *jsonlParent) validateLockLease() error {
+	if parent == nil || parent.lockValidation == nil {
+		return nil
+	}
+	return parent.lockValidation()
+}
+
 func (parent *jsonlParent) syncMutation() error {
-	return errors.Join(jsonlDirectorySync(parent.root), parent.validate())
+	if err := parent.validateLockLease(); err != nil {
+		return err
+	}
+	syncErr := jsonlDirectorySync(parent.root)
+	return errors.Join(syncErr, parent.validateLockLease(), parent.validate())
 }
 
 func (parent *jsonlParent) remove(name string) (bool, error) {
+	if err := parent.validateLockLease(); err != nil {
+		return false, err
+	}
 	if err := parent.validate(); err != nil {
 		return false, err
 	}
@@ -76,6 +100,9 @@ func (parent *jsonlParent) remove(name string) (bool, error) {
 }
 
 func (parent *jsonlParent) rename(source, destination string) (bool, error) {
+	if err := parent.validateLockLease(); err != nil {
+		return false, err
+	}
 	if err := parent.validate(); err != nil {
 		return false, err
 	}
@@ -96,8 +123,8 @@ func (parent *jsonlParent) close() error {
 	return err
 }
 
-func removeJSONLPath(path string) (resultErr error) {
-	parent, err := openJSONLParent(path)
+func removeJSONLPathWithLayout(path string, layout Layout) (resultErr error) {
+	parent, err := openJSONLParentWithLayout(path, layout)
 	if err != nil {
 		return err
 	}
@@ -106,16 +133,19 @@ func removeJSONLPath(path string) (resultErr error) {
 	return err
 }
 
-func linkJSONLPath(source, destination string) (resultErr error) {
+func linkJSONLPathWithLayout(source, destination string, layout Layout) (resultErr error) {
 	if filepath.Dir(source) != filepath.Dir(destination) {
 		return errors.New("jsonl link paths must share one parent")
 	}
-	parent, err := openJSONLParent(destination)
+	parent, err := openJSONLParentWithLayout(destination, layout)
 	if err != nil {
 		return err
 	}
 	defer func() { resultErr = errors.Join(resultErr, parent.close()) }()
 	if err := parent.validate(); err != nil {
+		return err
+	}
+	if err := parent.validateLockLease(); err != nil {
 		return err
 	}
 	if err := parent.root.Link(filepath.Base(source), parent.name); err != nil {

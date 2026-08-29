@@ -25,16 +25,27 @@ func withLayoutLockContext(ctx context.Context, path string, layout Layout, fn f
 	return withLayoutLockModeContext(ctx, path, layout, true, fn)
 }
 
-func withExistingLayoutLockContext(ctx context.Context, path string, layout Layout, fn func() error) error {
-	return withLayoutLockModeContext(ctx, path, layout, false, fn)
-}
-
 func withLayoutLockModeContext(
 	ctx context.Context,
 	path string,
 	layout Layout,
 	create bool,
 	fn func() error,
+) error {
+	if fn == nil {
+		return errors.New("jsonl lock callback is required")
+	}
+	return withLayoutLockLeaseContext(ctx, path, layout, create, func(Layout) error {
+		return fn()
+	})
+}
+
+func withLayoutLockLeaseContext(
+	ctx context.Context,
+	path string,
+	layout Layout,
+	create bool,
+	fn func(Layout) error,
 ) error {
 	if ctx == nil {
 		return errors.New("jsonl lock context is required")
@@ -70,9 +81,23 @@ func withLayoutLockModeContext(
 	if err := validateLayoutSecurityFile(layout, layout.LockPath, 4<<10); err != nil {
 		return closeLocked(err)
 	}
-	fnErr := fn()
+	identity, err := lock.Stat()
+	if err != nil {
+		return closeLocked(err)
+	}
+	lease := &layoutLockLease{path: layout.LockPath, file: lock, identity: identity}
+	if err := lease.validate(); err != nil {
+		return closeLocked(err)
+	}
+	lockedLayout := layout
+	lockedLayout.lockLease = lease
+	fnErr := fn(lockedLayout)
+	leaseErr := lease.validate()
 	unlockErr := unlock()
 	closeErr := lock.Close()
+	if leaseErr != nil {
+		fnErr = errors.Join(fnErr, fmt.Errorf("JSONL lock lease changed: %w", leaseErr))
+	}
 	if fnErr != nil {
 		return errors.Join(fnErr, unlockErr, closeErr)
 	}
@@ -80,6 +105,26 @@ func withLayoutLockModeContext(
 		return errors.Join(fmt.Errorf("unlock JSONL: %w", unlockErr), closeErr)
 	}
 	return closeErr
+}
+
+type layoutLockLease struct {
+	path     string
+	file     *os.File
+	identity os.FileInfo
+}
+
+func (lease *layoutLockLease) validate() error {
+	if lease == nil || lease.file == nil || lease.identity == nil {
+		return errors.New("JSONL lock lease is unavailable")
+	}
+	return validateOpenedLayoutLockIdentity(lease.path, lease.file, lease.identity)
+}
+
+func (layout Layout) validateLockLease() error {
+	if layout.lockLease == nil {
+		return nil
+	}
+	return layout.lockLease.validate()
 }
 
 func openLayoutLockFile(path string, layout Layout, create bool) (*os.File, error) {

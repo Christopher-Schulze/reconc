@@ -1264,9 +1264,11 @@ that wins the race is reopened without create permission and must retain the
 same identity and one directory link before append. Dangling symlinks,
 hard-link aliases, leaf replacement, and parent replacement therefore fail
 before record bytes are written or an out-of-tree target can be created. After
-the cross-process lock is acquired, its opened descriptor is identity-checked
-once at the validation boundary; layout-security validation remains a separate
-check and no redundant post-validation stat is performed.
+the cross-process lock is acquired, its opened descriptor remains a lease: the
+descriptor-to-path identity is revalidated before every protected mutation and
+again before release. A replacement or unlink therefore fails closed instead
+of allowing a second writer to operate through a different lock inode;
+layout-security validation remains a separate check.
 Archive discovery keeps the parent-directory snapshot strict, but retries only
 the bounded `directory snapshot changed` result for two seconds so a competing
 secured lock publisher can finish removing a losing candidate. Failure to reach

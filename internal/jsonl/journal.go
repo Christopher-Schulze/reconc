@@ -19,6 +19,9 @@ func prepareRotationInputs(path string, maxArchives int, maxBytes int64) error {
 }
 
 func prepareRotationInputsWithLayout(path string, maxArchives int, maxBytes int64, layout Layout) error {
+	if err := layout.validateLockLease(); err != nil {
+		return err
+	}
 	for index := maxArchives; index >= 0; index-- {
 		candidate := archivePath(path, index)
 		if _, err := trimTailWithLayout(candidate, maxBytes, layout); err != nil {
@@ -29,7 +32,7 @@ func prepareRotationInputsWithLayout(path string, maxArchives int, maxBytes int6
 }
 
 func rotate(path string, maxArchives int) error {
-	return rotateWithHooks(path, maxArchives, rotationHooks{})
+	return rotateWithLayout(path, maxArchives, defaultLayout(path))
 }
 
 type rotationHooks struct {
@@ -37,7 +40,15 @@ type rotationHooks struct {
 }
 
 func rotateWithHooks(path string, maxArchives int, hooks rotationHooks) (resultErr error) {
-	parent, err := openJSONLParent(path)
+	return rotateWithLayoutHooks(path, maxArchives, defaultLayout(path), hooks)
+}
+
+func rotateWithLayout(path string, maxArchives int, layout Layout) error {
+	return rotateWithLayoutHooks(path, maxArchives, layout, rotationHooks{})
+}
+
+func rotateWithLayoutHooks(path string, maxArchives int, layout Layout, hooks rotationHooks) (resultErr error) {
+	parent, err := openJSONLParentWithLayout(path, layout)
 	if err != nil {
 		return err
 	}
@@ -100,6 +111,9 @@ func beginAppendJournalWithLayout(
 	rotated bool,
 	transactional bool,
 ) (appendJournal, error) {
+	if err := layout.validateLockLease(); err != nil {
+		return appendJournal{}, err
+	}
 	state := appendStatePrepared
 	if rotated {
 		state = appendStatePreparing
@@ -125,6 +139,9 @@ func beginAppendJournalWithLayout(
 		return appendJournal{}, err
 	}
 	if rotated {
+		if err := layout.validateLockLease(); err != nil {
+			return appendJournal{}, err
+		}
 		for index := 0; index <= policy.MaxArchives; index++ {
 			backupPath := appendBackupPathWithLayout(layout, index)
 			if _, err := os.Lstat(backupPath); err == nil {
@@ -137,6 +154,10 @@ func beginAppendJournalWithLayout(
 			return appendJournal{}, err
 		}
 		for index := 0; index <= policy.MaxArchives; index++ {
+			if err := layout.validateLockLease(); err != nil {
+				cleanupErr := abortPreparingAppendWithLayout(layout, policy.MaxArchives)
+				return appendJournal{}, errors.Join(err, wrapAppendCleanupError(cleanupErr))
+			}
 			backup, err := createAppendBackupWithLayout(path, layout, index, policy.MaxBytes)
 			if err != nil {
 				cleanupErr := abortPreparingAppendWithLayoutPreserving(layout, policy.MaxArchives, appendBackupCollisionPath(err))
@@ -149,6 +170,10 @@ func beginAppendJournalWithLayout(
 			}
 		}
 		journal.State = appendStatePrepared
+	}
+	if err := layout.validateLockLease(); err != nil {
+		cleanupErr := abortPreparingAppendWithLayout(layout, policy.MaxArchives)
+		return appendJournal{}, errors.Join(err, wrapAppendCleanupError(cleanupErr))
 	}
 	if err := writeAppendJournalWithLayout(path, layout, journal); err != nil {
 		cleanupErr := abortPreparingAppendWithLayout(layout, policy.MaxArchives)
@@ -192,6 +217,9 @@ func createAppendBackupWithLayoutHooks(
 	maxBytes int64,
 	hooks appendBackupHooks,
 ) (backup appendJournalBackup, resultErr error) {
+	if err := layout.validateLockLease(); err != nil {
+		return appendJournalBackup{}, err
+	}
 	backup = appendJournalBackup{Index: index}
 	source := archivePath(path, index)
 	info, err := os.Lstat(source)
@@ -233,11 +261,14 @@ func createAppendBackupWithLayoutHooks(
 			return appendJournalBackup{}, err
 		}
 	}
+	if err := layout.validateLockLease(); err != nil {
+		return appendJournalBackup{}, err
+	}
 	if err := validateAppendBackupSource(sourceFile, sourceInfo, source, sourceData, sourceLinks, 0, maxBytes); err != nil {
 		return appendJournalBackup{}, err
 	}
 	linked := false
-	if err := linkJSONLPath(source, backupPath); err == nil {
+	if err := linkJSONLPathWithLayout(source, backupPath, layout); err == nil {
 		linked = true
 	} else {
 		if _, collisionErr := os.Lstat(backupPath); collisionErr == nil {
@@ -252,6 +283,9 @@ func createAppendBackupWithLayoutHooks(
 		if layoutIsDefault(path, layout) {
 			backupMode = info.Mode().Perm()
 		}
+		if err := layout.validateLockLease(); err != nil {
+			return appendJournalBackup{}, err
+		}
 		if _, writeErr := atomicfile.WriteNew(backupPath, sourceData, backupMode); writeErr != nil {
 			return appendJournalBackup{}, fmt.Errorf("write JSONL append backup: %w", writeErr)
 		}
@@ -264,7 +298,7 @@ func createAppendBackupWithLayoutHooks(
 		return appendJournalBackup{}, fmt.Errorf("inspect JSONL append backup: %w", err)
 	}
 	if linked && (!backupInfo.Mode().IsRegular() || !os.SameFile(sourceInfo, backupInfo)) {
-		cleanupErr := removeAppendBackupIfSame(backupPath, backupInfo)
+		cleanupErr := removeAppendBackupIfSameWithLayout(backupPath, backupInfo, layout)
 		return appendJournalBackup{}, errors.Join(
 			fmt.Errorf("JSONL append backup is not linked to the validated archive: %s", backupPath), cleanupErr,
 		)
@@ -274,7 +308,7 @@ func createAppendBackupWithLayoutHooks(
 		linkDelta = 1
 	}
 	if err := validateAppendBackupSource(sourceFile, sourceInfo, source, sourceData, sourceLinks, linkDelta, maxBytes); err != nil {
-		cleanupErr := removeAppendBackupIfSame(backupPath, backupInfo)
+		cleanupErr := removeAppendBackupIfSameWithLayout(backupPath, backupInfo, layout)
 		return appendJournalBackup{}, errors.Join(err, cleanupErr)
 	}
 	expectedMode := info.Mode().Perm()
@@ -283,11 +317,11 @@ func createAppendBackupWithLayoutHooks(
 	}
 	digest, err := digestBoundedBackupWithLayout(backupPath, maxBytes, expectedMode, layout)
 	if err != nil {
-		cleanupErr := removeAppendBackupIfSame(backupPath, backupInfo)
+		cleanupErr := removeAppendBackupIfSameWithLayout(backupPath, backupInfo, layout)
 		return appendJournalBackup{}, errors.Join(err, cleanupErr)
 	}
 	if digest != wantDigest {
-		cleanupErr := removeAppendBackupIfSame(backupPath, backupInfo)
+		cleanupErr := removeAppendBackupIfSameWithLayout(backupPath, backupInfo, layout)
 		return appendJournalBackup{}, errors.Join(
 			fmt.Errorf("JSONL append backup content changed during publication: %s", backupPath), cleanupErr,
 		)
@@ -394,7 +428,10 @@ func sameAppendBackupSnapshot(left, right os.FileInfo) bool {
 		left.ModTime().Equal(right.ModTime())
 }
 
-func removeAppendBackupIfSame(path string, expected os.FileInfo) error {
+func removeAppendBackupIfSameWithLayout(path string, expected os.FileInfo, layout Layout) error {
+	if err := layout.validateLockLease(); err != nil {
+		return err
+	}
 	current, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -405,7 +442,7 @@ func removeAppendBackupIfSame(path string, expected os.FileInfo) error {
 	if expected == nil || !os.SameFile(expected, current) {
 		return fmt.Errorf("refuse to remove changed JSONL append backup: %s", path)
 	}
-	return removeJSONLPath(path)
+	return removeJSONLPathWithLayout(path, layout)
 }
 
 func digestBoundedBackupWithLayout(path string, maxBytes int64, mode os.FileMode, layout Layout) (string, error) {
@@ -444,6 +481,9 @@ func writeAppendJournal(path string, journal appendJournal) error {
 }
 
 func writeAppendJournalWithLayout(path string, layout Layout, journal appendJournal) error {
+	if err := layout.validateLockLease(); err != nil {
+		return err
+	}
 	body, err := json.MarshalIndent(journal, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal JSONL append journal: %w", err)
@@ -459,11 +499,17 @@ func writeAppendJournalWithLayout(path string, layout Layout, journal appendJour
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if err := layout.validateLockLease(); err != nil {
+		return err
+	}
 	result, err := atomicfile.WriteIfChanged(layout.JournalPath, body, layout.JournalMode)
 	if err != nil {
 		return fmt.Errorf("write JSONL append journal: %w", err)
 	}
 	if result.Changed {
+		if err := layout.validateLockLease(); err != nil {
+			return err
+		}
 		if err := secureLayoutSecurityFile(layout, layout.JournalPath, maxAppendJournalBytes); err != nil {
 			return err
 		}
@@ -576,6 +622,9 @@ func lowerHexDigest(value string) bool {
 }
 
 func recoverAppendLockedWithLayout(path string, layout Layout, commit func() error) error {
+	if err := layout.validateLockLease(); err != nil {
+		return err
+	}
 	journal, err := readAppendJournalWithLayout(path, layout)
 	if err != nil {
 		return err
@@ -600,13 +649,22 @@ func recoverAppendLockedWithLayout(path string, layout Layout, commit func() err
 			return ErrTransactionCommitRequired
 		}
 		if journal.State == appendStatePublished {
+			if err := layout.validateLockLease(); err != nil {
+				return err
+			}
 			journal.State = appendStateCommitting
 			if err := writeAppendJournalWithLayout(path, layout, *journal); err != nil {
 				return err
 			}
 		}
+		if err := layout.validateLockLease(); err != nil {
+			return err
+		}
 		if err := commit(); err != nil {
 			return fmt.Errorf("recover JSONL transaction commit: %w", err)
+		}
+		if err := layout.validateLockLease(); err != nil {
+			return err
 		}
 		journal.State = appendStateResolved
 		if err := writeAppendJournalWithLayout(path, layout, *journal); err != nil {
@@ -631,11 +689,14 @@ func rollbackAppendErrorWithLayout(path string, layout Layout, journal *appendJo
 }
 
 func rollbackAppendJournalWithLayout(path string, layout Layout, journal appendJournal) error {
+	if err := layout.validateLockLease(); err != nil {
+		return err
+	}
 	if journal.Rotated {
 		for _, backup := range journal.Backups {
 			destination := archivePath(path, backup.Index)
 			if !backup.Existed {
-				if err := removeJSONLPath(destination); err != nil {
+				if err := removeJSONLPathWithLayout(destination, layout); err != nil {
 					return err
 				}
 				continue
@@ -665,6 +726,9 @@ func rollbackAppendJournalWithLayout(path string, layout Layout, journal appendJ
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
+			if err := layout.validateLockLease(); err != nil {
+				return err
+			}
 			result, err := atomicfile.WriteIfChanged(destination, data, restoreMode)
 			if err != nil {
 				return fmt.Errorf("restore JSONL append backup: %w", err)
@@ -679,7 +743,7 @@ func rollbackAppendJournalWithLayout(path string, layout Layout, journal appendJ
 		if err := truncateRegularFileWithLayout(path, journal.LiveSize, journal.MaxBytes, layout); err != nil {
 			return fmt.Errorf("truncate interrupted JSONL append: %w", err)
 		}
-	} else if err := removeJSONLPath(path); err != nil {
+	} else if err := removeJSONLPathWithLayout(path, layout); err != nil {
 		return err
 	}
 	journal.State = appendStateResolved
@@ -690,6 +754,9 @@ func rollbackAppendJournalWithLayout(path string, layout Layout, journal appendJ
 }
 
 func truncateRegularFileWithLayout(path string, size, maximum int64, layout Layout) error {
+	if err := layout.validateLockLease(); err != nil {
+		return err
+	}
 	if err := validateLayoutSecurityFile(layout, path, maximum); err != nil {
 		return err
 	}
@@ -719,6 +786,9 @@ func truncateRegularFileWithLayout(path string, size, maximum int64, layout Layo
 			"JSONL live file is %d bytes; cannot restore prior size %d", opened.Size(), size,
 		), file.Close())
 	}
+	if err := layout.validateLockLease(); err != nil {
+		return errors.Join(err, file.Close())
+	}
 	truncateErr := file.Truncate(size)
 	syncErr := file.Sync()
 	closeErr := file.Close()
@@ -729,10 +799,13 @@ func truncateRegularFileWithLayout(path string, size, maximum int64, layout Layo
 }
 
 func finishAppendJournalWithLayout(path string, layout Layout, journal appendJournal) error {
+	if err := layout.validateLockLease(); err != nil {
+		return err
+	}
 	if err := cleanupAppendBackupsWithLayout(layout, journal.Backups); err != nil {
 		return err
 	}
-	if err := removeJSONLPath(layout.JournalPath); err != nil {
+	if err := removeJSONLPathWithLayout(layout.JournalPath, layout); err != nil {
 		return err
 	}
 	return nil
@@ -741,7 +814,7 @@ func finishAppendJournalWithLayout(path string, layout Layout, journal appendJou
 func cleanupAppendBackupsWithLayout(layout Layout, backups []appendJournalBackup) error {
 	var cleanupErr error
 	for _, backup := range backups {
-		if err := removeJSONLPath(appendBackupPathWithLayout(layout, backup.Index)); err != nil {
+		if err := removeJSONLPathWithLayout(appendBackupPathWithLayout(layout, backup.Index), layout); err != nil {
 			cleanupErr = errors.Join(cleanupErr, err)
 		}
 	}
@@ -755,18 +828,22 @@ func abortPreparingAppendWithLayout(layout Layout, maxArchives int) error {
 func abortPreparingAppendWithLayoutPreserving(layout Layout, maxArchives int, preservePath string) error {
 	var cleanupErr error
 	for index := 0; index <= maxArchives; index++ {
+		if err := layout.validateLockLease(); err != nil {
+			cleanupErr = errors.Join(cleanupErr, err)
+			break
+		}
 		backupPath := appendBackupPathWithLayout(layout, index)
 		if backupPath == preservePath {
 			continue
 		}
-		if err := removeJSONLPath(backupPath); err != nil {
+		if err := removeJSONLPathWithLayout(backupPath, layout); err != nil {
 			cleanupErr = errors.Join(cleanupErr, err)
 		}
 	}
 	if cleanupErr != nil {
 		return cleanupErr
 	}
-	if err := removeJSONLPath(layout.JournalPath); err != nil {
+	if err := removeJSONLPathWithLayout(layout.JournalPath, layout); err != nil {
 		return err
 	}
 	return nil
