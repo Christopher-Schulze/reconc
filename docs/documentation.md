@@ -386,7 +386,10 @@ Every host and release build embeds a deterministic version, target, and
 production-source digest. The build verifies that marker directly from the
 finished binary bytes without executing the artifact. Timestamps, test-only
 files, and physical checkout paths do not affect the digest; target-selected
-production Go files, embedded assets, `go.mod`, and `go.sum` do.
+production Go files, embedded assets, `go.mod`, and `go.sum` do. Embedded asset
+discovery mirrors the active Go toolchain: explicit wildcard or file matches
+include hidden matches, directory recursion excludes hidden names unless the
+pattern uses `all:`, and only the matched bytes enter the digest.
 
 The stdlib-only SBOM generator inventories both repository Go modules with
 `go list -m -json all`, resolves their selected dependency graph, and records

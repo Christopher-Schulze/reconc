@@ -1,8 +1,12 @@
 package buildprovenance
 
 import (
+	"context"
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -46,6 +50,13 @@ func TestComputeSourceDigestTracksTargetProductionInputs(t *testing.T) {
 	if got := mustSourceDigest(t, root); got == initial {
 		t.Fatal("embedded production asset change did not invalidate digest")
 	}
+
+	root = writeSourceFixture(t)
+	initial = mustSourceDigest(t, root)
+	writeTestFile(t, root, "cmd/reconc/config/.hidden.txt", "embedded-hidden-change\n")
+	if got := mustSourceDigest(t, root); got == initial {
+		t.Fatal("hidden explicitly matched asset change did not invalidate digest")
+	}
 }
 
 func TestComputeSourceDigestIsRepoLocationIndependent(t *testing.T) {
@@ -55,6 +66,36 @@ func TestComputeSourceDigestIsRepoLocationIndependent(t *testing.T) {
 	secondDigest := mustSourceDigest(t, second)
 	if firstDigest != secondDigest {
 		t.Fatalf("identical source bytes in different roots produced %s and %s", firstDigest, secondDigest)
+	}
+}
+
+func TestEmbeddedDiscoveryMatchesGoToolchainHiddenSemantics(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "go.mod", "module example.test/embed\n\ngo 1.27\n")
+	for _, relative := range []string{
+		"assets/visible.txt",
+		"assets/.wild.txt",
+		"assets/_wild.txt",
+		"assets/nested/visible.txt",
+		"assets/nested/.deep.txt",
+		"assets/nested/_deep.txt",
+		"assets/.hidden-dir/visible.txt",
+		"assets/.hidden-dir/.deep.txt",
+	} {
+		writeTestFile(t, root, relative, relative+"\n")
+	}
+	for _, pattern := range []string{"assets/*", "assets", "all:assets"} {
+		t.Run(pattern, func(t *testing.T) {
+			writeTestFile(t, root, "fixture.go", "package fixture\n\nimport \"embed\"\n\n//go:embed "+pattern+"\nvar files embed.FS\n")
+			want := goEmbedFiles(t, root)
+			got, err := matchEmbeddedFiles(root, pattern)
+			if err != nil {
+				t.Fatalf("match %q: %v", pattern, err)
+			}
+			if !equalStringSlices(got, want) {
+				t.Fatalf("match %q = %v, go list = %v", pattern, got, want)
+			}
+		})
 	}
 }
 
@@ -251,4 +292,37 @@ func mustSourceDigest(t *testing.T, root string) string {
 		t.Fatalf("compute source digest: %v", err)
 	}
 	return digest
+}
+
+func goEmbedFiles(t *testing.T, root string) []string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "go", "list", "-json", ".")
+	command.Dir = root
+	command.Env = append(os.Environ(), "GOWORK=off")
+	body, err := command.Output()
+	if err != nil {
+		t.Fatalf("go list embed fixture: %v", err)
+	}
+	var packageInfo struct {
+		EmbedFiles []string `json:"EmbedFiles"`
+	}
+	if err := json.Unmarshal(body, &packageInfo); err != nil {
+		t.Fatalf("decode go list output: %v", err)
+	}
+	sort.Strings(packageInfo.EmbedFiles)
+	return packageInfo.EmbedFiles
+}
+
+func equalStringSlices(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }

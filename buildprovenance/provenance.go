@@ -350,20 +350,17 @@ func matchEmbeddedFiles(directory string, pattern string) ([]string, error) {
 		if relative == "." {
 			return nil
 		}
-		if !includeHidden && hasHiddenPathElement(relative) {
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
 		if entry.IsDir() {
 			return nil
 		}
-		matched, err := matchesEmbedPattern(pattern, relative)
+		matched, matchedRoot, err := matchesEmbedPattern(pattern, relative)
 		if err != nil {
 			return err
 		}
 		if !matched {
+			return nil
+		}
+		if !includeHidden && hasHiddenPathElementAfter(relative, matchedRoot) {
 			return nil
 		}
 		if !entry.Type().IsRegular() {
@@ -394,20 +391,28 @@ func validEmbedPattern(pattern string) bool {
 	return true
 }
 
-func matchesEmbedPattern(pattern string, relative string) (bool, error) {
+func matchesEmbedPattern(pattern string, relative string) (bool, string, error) {
 	matched, err := path.Match(pattern, relative)
 	if err != nil || matched {
-		return matched, err
+		return matched, relative, err
 	}
 	parent := path.Dir(relative)
 	for parent != "." {
 		matched, err = path.Match(pattern, parent)
 		if err != nil || matched {
-			return matched, err
+			return matched, parent, err
 		}
 		parent = path.Dir(parent)
 	}
-	return false, nil
+	return false, "", nil
+}
+
+func hasHiddenPathElementAfter(relative, matchedRoot string) bool {
+	if matchedRoot == "" || relative == matchedRoot {
+		return false
+	}
+	suffix := strings.TrimPrefix(relative, strings.TrimSuffix(matchedRoot, "/")+"/")
+	return suffix != relative && hasHiddenPathElement(suffix)
 }
 
 func hasHiddenPathElement(relative string) bool {
