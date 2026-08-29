@@ -1,6 +1,9 @@
 package runtime
 
 import (
+	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -64,6 +67,83 @@ func TestCompileRuntimePathMatchersHonorsAggregateBound(t *testing.T) {
 	if compiled.byPattern[pattern].glob != nil {
 		t.Fatal("runtime matcher exceeded its explicit aggregate bound")
 	}
+}
+
+func TestCompileRuntimePathMatchersPrioritizesStableBenefitPerByte(t *testing.T) {
+	t.Parallel()
+	rules, hotPatterns := overBudgetRuntimeMatcherRules()
+	first, err := compileRuntimePathMatchers(rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reversed := append([]policy.Rule(nil), rules...)
+	for left, right := 0, len(reversed)-1; left < right; left, right = left+1, right-1 {
+		reversed[left], reversed[right] = reversed[right], reversed[left]
+	}
+	second, err := compileRuntimePathMatchers(reversed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := compiledRuntimeMatcherPatterns(first), compiledRuntimeMatcherPatterns(second); !reflect.DeepEqual(got, want) {
+		t.Fatalf("compiled selection changed with policy order:\nfirst=%v\nsecond=%v", got, want)
+	}
+	compiledBytes := 0
+	for pattern, matcher := range first.byPattern {
+		if matcher.glob != nil {
+			compiledBytes += matcher.glob.LogicalBytes()
+		}
+		prefix := pattern
+		if index := strings.Index(pattern, "/{"); index >= 0 {
+			prefix = pattern[:index]
+		}
+		for _, path := range []string{prefix + "/entry0/file.go", "unrelated/file.go"} {
+			want, err := MatchPath(pattern, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := matcher.Match(path); got != want {
+				t.Fatalf("selected matcher %q against %q = %v, want %v", pattern, path, got, want)
+			}
+		}
+	}
+	if compiledBytes > maxRuntimeCompiledPathMatchers {
+		t.Fatalf("compiled matcher bytes = %d, maximum %d", compiledBytes, maxRuntimeCompiledPathMatchers)
+	}
+	for _, pattern := range hotPatterns {
+		if first.byPattern[pattern].glob == nil {
+			t.Fatalf("high-benefit pattern %q fell back dynamically", pattern)
+		}
+	}
+}
+
+func TestRuntimeMatcherCandidatePriorityIsExactAndDeterministic(t *testing.T) {
+	t.Parallel()
+	candidates := []runtimeMatcherCandidate{
+		{pattern: "low", references: 1, logicalBytes: 100},
+		{pattern: "few", references: 1, logicalBytes: 5},
+		{pattern: "z-many", references: 2, logicalBytes: 10},
+		{pattern: "a-many", references: 2, logicalBytes: 10},
+	}
+	prioritizeRuntimeMatcherCandidates(candidates)
+	want := []string{"a-many", "z-many", "few", "low"}
+	got := make([]string, len(candidates))
+	for index := range candidates {
+		got[index] = candidates[index].pattern
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("candidate priority = %v, want %v", got, want)
+	}
+}
+
+func compiledRuntimeMatcherPatterns(matchers *runtimePathMatchers) []string {
+	patterns := []string{}
+	for pattern, matcher := range matchers.byPattern {
+		if matcher.glob != nil {
+			patterns = append(patterns, pattern)
+		}
+	}
+	sort.Strings(patterns)
+	return patterns
 }
 
 func TestCompileRuntimePathMatchersIncludesNestedRulePatterns(t *testing.T) {
@@ -152,6 +232,78 @@ func BenchmarkDynamicPathMatcherRules(b *testing.B) {
 			}
 		}
 	}
+}
+
+func BenchmarkOverBudgetRuntimePathMatchers(b *testing.B) {
+	rules, hotPatterns := overBudgetRuntimeMatcherRules()
+	matchers, err := compileRuntimePathMatchers(rules)
+	if err != nil {
+		b.Fatal(err)
+	}
+	fallbacks := 0
+	for _, pattern := range hotPatterns {
+		if matchers.byPattern[pattern].glob == nil {
+			fallbacks++
+		}
+	}
+	allFallbacks := 0
+	for _, matcher := range matchers.byPattern {
+		if matcher.glob == nil {
+			allFallbacks++
+		}
+	}
+	cold, err := CompilePathMatcher(rules[0].Paths[0])
+	if err != nil || cold.glob == nil {
+		b.Fatalf("cold matcher was not compilable: %v", err)
+	}
+	hot, err := CompilePathMatcher(hotPatterns[0])
+	if err != nil || hot.glob == nil {
+		b.Fatalf("hot matcher was not compilable: %v", err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.ReportMetric(float64(allFallbacks), "all-fallbacks")
+	b.ReportMetric(float64(cold.glob.LogicalBytes()), "cold-bytes")
+	b.ReportMetric(float64(hot.glob.LogicalBytes()), "hot-bytes")
+	b.ReportMetric(float64(fallbacks), "hot-fallbacks")
+	for range b.N {
+		for index, pattern := range hotPatterns {
+			if !matchers.byPattern[pattern].Match("z-hot-" + strconv.Itoa(index) + "/entry0/file.go") {
+				b.Fatal("hot matcher missed")
+			}
+		}
+	}
+}
+
+func overBudgetRuntimeMatcherRules() ([]policy.Rule, []string) {
+	rules := make([]policy.Rule, 0, 48+8*64)
+	for index := 0; index < 48; index++ {
+		rules = append(rules, policy.Rule{Paths: []string{largeRuntimeMatcherPattern("a-cold-"+strconv.Itoa(index), 256)}})
+	}
+	hotPatterns := make([]string, 8)
+	for index := range hotPatterns {
+		pattern := largeRuntimeMatcherPattern("z-hot-"+strconv.Itoa(index), 96)
+		hotPatterns[index] = pattern
+		for range 64 {
+			rules = append(rules, policy.Rule{Paths: []string{pattern}})
+		}
+	}
+	return rules, hotPatterns
+}
+
+func largeRuntimeMatcherPattern(prefix string, alternatives int) string {
+	var pattern strings.Builder
+	pattern.WriteString(prefix)
+	pattern.WriteString("/{")
+	for index := 0; index < alternatives; index++ {
+		if index > 0 {
+			pattern.WriteByte(',')
+		}
+		pattern.WriteString("entry")
+		pattern.WriteString(strconv.Itoa(index))
+	}
+	pattern.WriteString("}/**")
+	return pattern.String()
 }
 
 func TestMatchPathLiteral(t *testing.T) {

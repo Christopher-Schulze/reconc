@@ -14,6 +14,7 @@ package runtime
 
 import (
 	"fmt"
+	"math/bits"
 	"sort"
 	"strings"
 
@@ -79,11 +80,17 @@ type runtimePathMatchers struct {
 	byPattern map[string]CompiledPathMatcher
 }
 
+type runtimeMatcherCandidate struct {
+	pattern      string
+	logicalBytes int
+	references   int
+}
+
 func compileRuntimePathMatchers(rules []policy.Rule) (*runtimePathMatchers, error) {
-	patterns := make(map[string]struct{})
+	patterns := make(map[string]int)
 	add := func(values []string) {
 		for _, value := range values {
-			patterns[value] = struct{}{}
+			patterns[value]++
 		}
 	}
 	for index := range rules {
@@ -103,7 +110,9 @@ func compileRuntimePathMatchers(rules []policy.Rule) (*runtimePathMatchers, erro
 	}
 	sort.Strings(ordered)
 	compiled := make(map[string]CompiledPathMatcher, len(ordered))
+	candidates := make([]runtimeMatcherCandidate, 0, len(ordered))
 	compiledBytes := 0
+	overBudget := false
 	for _, pattern := range ordered {
 		matcher, err := CompilePathMatcher(pattern)
 		if err != nil {
@@ -111,15 +120,71 @@ func compileRuntimePathMatchers(rules []policy.Rule) (*runtimePathMatchers, erro
 		}
 		if matcher.glob != nil {
 			logicalBytes := matcher.glob.LogicalBytes()
-			if logicalBytes > maxRuntimeCompiledPathMatcherBytes || compiledBytes > maxRuntimeCompiledPathMatchers-logicalBytes {
+			if logicalBytes > maxRuntimeCompiledPathMatcherBytes {
 				matcher.glob = nil
 			} else {
-				compiledBytes += logicalBytes
+				candidates = append(candidates, runtimeMatcherCandidate{
+					pattern: pattern, logicalBytes: logicalBytes, references: patterns[pattern],
+				})
+				if overBudget || compiledBytes > maxRuntimeCompiledPathMatchers-logicalBytes {
+					overBudget = true
+					matcher.glob = nil
+				} else {
+					compiledBytes += logicalBytes
+				}
 			}
 		}
 		compiled[pattern] = matcher
 	}
+	if overBudget {
+		prioritizeRuntimeMatcherCandidates(candidates)
+		for _, candidate := range candidates {
+			matcher := compiled[candidate.pattern]
+			matcher.glob = nil
+			compiled[candidate.pattern] = matcher
+		}
+		compiledBytes = 0
+		for _, candidate := range candidates {
+			if compiledBytes > maxRuntimeCompiledPathMatchers-candidate.logicalBytes {
+				continue
+			}
+			matcher, err := CompilePathMatcher(candidate.pattern)
+			if err != nil {
+				return nil, fmt.Errorf("recompile prioritized runtime path pattern %q: %w", candidate.pattern, err)
+			}
+			if matcher.glob == nil || matcher.glob.LogicalBytes() != candidate.logicalBytes {
+				return nil, fmt.Errorf("recompile prioritized runtime path pattern %q changed its admission cost", candidate.pattern)
+			}
+			compiled[candidate.pattern] = matcher
+			compiledBytes += candidate.logicalBytes
+		}
+	}
 	return &runtimePathMatchers{byPattern: compiled}, nil
+}
+
+// prioritizeRuntimeMatcherCandidates orders eligible matchers by exact policy
+// references per logical byte. This stable benefit/cost rule spends the fixed
+// plan budget on the programs expected to avoid the most fallback work; equal
+// ratios prefer more references, then smaller programs, then lexical identity.
+func prioritizeRuntimeMatcherCandidates(candidates []runtimeMatcherCandidate) {
+	sort.Slice(candidates, func(i, j int) bool {
+		left, right := candidates[i], candidates[j]
+		leftHigh, leftLow := bits.Mul64(uint64(left.references), uint64(right.logicalBytes))
+		rightHigh, rightLow := bits.Mul64(uint64(right.references), uint64(left.logicalBytes))
+		if leftHigh != rightHigh {
+			return leftHigh > rightHigh
+		}
+		if leftLow != rightLow {
+			return leftLow > rightLow
+		}
+		if left.references != right.references {
+			return left.references > right.references
+		}
+		if left.logicalBytes != right.logicalBytes {
+			return left.logicalBytes < right.logicalBytes
+		}
+		return left.pattern < right.pattern
+	})
 }
 
 func (m *runtimePathMatchers) matchAny(patterns []string, path string) (matchedPattern string, matched bool, err error) {
