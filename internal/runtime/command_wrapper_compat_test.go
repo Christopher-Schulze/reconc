@@ -76,7 +76,7 @@ func TestStackedWrappersShareOneEvidenceAndPolicyIdentity(t *testing.T) {
 		t.Fatalf("stacked evidence identities = %#v / %#v", index.commands, index.results)
 	}
 	rules := []policy.Rule{{Commands: []string{"go test ./...", "rtk rtk go test ./..."}}}
-	cache := newCommandInvocationCache(rules, root)
+	cache := newCommandInvocationCache(compileCommandExpectationPlan(rules, root))
 	if len(cache.expected) != 1 {
 		t.Fatalf("equivalent policy commands created %d cache entries", len(cache.expected))
 	}

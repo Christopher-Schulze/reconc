@@ -538,3 +538,68 @@ func TestRuntimePlanRejectsUnbindableCacheInputsInComposites(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimePlanReusesImmutableCommandExpectationsAcrossEvaluations(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules:\n  - id: tests\n    kind: require_command_success\n    when_paths: ['src/**']\n    commands: ['go test ./...']\n    mode: block\n    message: tests\n  - id: shell\n    kind: forbid_command\n    commands: ['rm -rf']\n    mode: block\n    message: shell\n")
+	evaluator := NewEvaluator()
+	plan, err := evaluator.loadFreshRuntimePlan(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectations := plan.commandExpectations
+	if expectations == nil || expectations.repoRoot != repo || len(expectations.expected) != 2 {
+		t.Fatalf("prepared command expectations = %#v", expectations)
+	}
+
+	firstCache := newCommandInvocationCache(expectations)
+	secondCache := newCommandInvocationCache(expectations)
+	firstCache.observedInvocations("go test ./...")
+	if firstCache.commandExpectationPlan != secondCache.commandExpectationPlan || len(secondCache.observed) != 0 {
+		t.Fatal("immutable expectations were not shared independently of evaluation-local observed state")
+	}
+
+	inputs := ExecutionInputs{
+		WritePaths: []string{"src/main.go"},
+		CommandResults: []CommandResult{{
+			Command: "go test ./...", Outcome: CommandOutcomeSuccess,
+		}},
+	}
+	firstReport, err := evaluateRuntimePlan(repo, plan, inputs, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondReport, err := evaluateRuntimePlan(repo, plan, inputs, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := evaluator.loadFreshRuntimePlan(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(firstReport, secondReport) || reloaded != plan || reloaded.commandExpectations != expectations {
+		t.Fatal("repeated evaluation rebuilt command expectations or changed decisions")
+	}
+}
+
+func TestRuntimePlanCommandExpectationsPreserveRootAnchoredPolicySemantics(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	writeFile(t, repo, "policies/rules.yml", "rules:\n  - id: tests\n    kind: require_command_success\n    when_paths: ['src/**']\n    commands: ['cd "+repo+" && go test ./...']\n    mode: block\n    message: tests\n")
+	if _, err := compiler.CompileRepoPolicy(repo, "0.1.0-test"); err != nil {
+		t.Fatal(err)
+	}
+	report, err := NewEvaluator().CheckRepoPolicy(repo, ExecutionInputs{
+		WritePaths: []string{"src/main.go"},
+		CommandResults: []CommandResult{{
+			Command: "go test ./...", Outcome: CommandOutcomeSuccess,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Decision != DecisionPass {
+		t.Fatalf("root-anchored prepared expectation decision = %s, violations=%+v", report.Decision, report.Violations)
+	}
+}

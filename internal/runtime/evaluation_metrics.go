@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/ingest"
@@ -24,7 +25,10 @@ type EvaluationMetrics struct {
 
 // CompiledPolicyEvaluator owns one validated in-memory runtime plan.
 type CompiledPolicyEvaluator struct {
-	plan *runtimePlan
+	plan       *runtimePlan
+	rootMu     sync.Mutex
+	root       string
+	rootedPlan *runtimePlan
 }
 
 // CompiledActionRuntime is the production action evaluator and the exact
@@ -84,15 +88,27 @@ func (e *CompiledPolicyEvaluator) CheckWithTraceContext(ctx context.Context, rep
 	if e == nil || e.plan == nil {
 		return nil, EvaluationMetrics{}, EvaluationTrace{}, fmt.Errorf("compiled policy evaluator is nil")
 	}
-	report, err := evaluateRuntimePlanContext(ctx, repoRoot, e.plan, inputs, nil, false)
+	plan := e.planForRoot(repoRoot)
+	report, err := evaluateRuntimePlanContext(ctx, repoRoot, plan, inputs, nil, false)
 	if err != nil {
 		return nil, EvaluationMetrics{}, EvaluationTrace{}, err
 	}
-	matched, err := matchedRuleIDs(repoRoot, e.plan.pathMatchers, e.plan.templateMatchers, e.plan.rules, report.Inputs, inputs)
+	matched, err := matchedRuleIDs(repoRoot, plan, report.Inputs, inputs)
 	if err != nil {
 		return nil, EvaluationMetrics{}, EvaluationTrace{}, err
 	}
-	return report, evaluationMetrics(e.plan.rules, report.Inputs), EvaluationTrace{MatchedRuleIDs: matched}, nil
+	return report, evaluationMetrics(plan.rules, report.Inputs), EvaluationTrace{MatchedRuleIDs: matched}, nil
+}
+
+func (e *CompiledPolicyEvaluator) planForRoot(repoRoot string) *runtimePlan {
+	e.rootMu.Lock()
+	defer e.rootMu.Unlock()
+	if e.rootedPlan != nil && e.root == repoRoot {
+		return e.rootedPlan
+	}
+	e.root = repoRoot
+	e.rootedPlan = e.plan.withCommandExpectationRoot(repoRoot)
+	return e.rootedPlan
 }
 
 // RuleIDs returns every compiled candidate rule in stable lexical order.
@@ -280,24 +296,24 @@ func requireScriptBoundaryCount(rule *policy.Rule) int {
 	return count
 }
 
-func matchedRuleIDs(repoRoot string, matchers *runtimePathMatchers, templateMatchers *runtimeTemplateMatchers, rules []policy.Rule, normalized, original ExecutionInputs) ([]string, error) {
+func matchedRuleIDs(repoRoot string, plan *runtimePlan, normalized, original ExecutionInputs) ([]string, error) {
 	ctx := &evalContext{
 		repoRoot:         repoRoot,
 		rawCommands:      rawCommandsPreservingSyntax(original.Commands, original.CommandResults),
-		matchers:         matchers,
-		templateMatchers: templateMatchers,
-		commandCache:     newCommandInvocationCache(rules, repoRoot),
+		matchers:         plan.pathMatchers,
+		templateMatchers: plan.templateMatchers,
+		commandCache:     newCommandInvocationCache(plan.commandExpectations),
 		commandEvidence:  newCommandEvidenceIndex(normalized, repoRoot),
 		contextMemo:      newMatchContextMemo(),
 	}
 	ids := []string{}
-	for index := range rules {
-		matched, err := ruleTriggerMatches(ctx, &rules[index], normalized)
+	for index := range plan.rules {
+		matched, err := ruleTriggerMatches(ctx, &plan.rules[index], normalized)
 		if err != nil {
 			return nil, err
 		}
 		if matched {
-			ids = append(ids, rules[index].ID)
+			ids = append(ids, plan.rules[index].ID)
 		}
 	}
 	sort.Strings(ids)

@@ -49,20 +49,22 @@ type runtimePlanLoad struct {
 }
 
 type runtimePlan struct {
-	defaultMode          policy.Mode
-	rules                []policy.Rule
-	ruleByID             map[string]int
-	rulesByKind          map[policy.Kind][]int
-	preCommandRules      []int
-	sourceDigest         string
-	lockDigest           string
-	sourceCount          int
-	actions              *action.CompiledPlan
-	customRuntimeDigests map[string]string
-	sources              []runtimeSource
-	sourceFreshness      sourceFreshnessRecipe
-	pathMatchers         *runtimePathMatchers
-	templateMatchers     *runtimeTemplateMatchers
+	defaultMode            policy.Mode
+	rules                  []policy.Rule
+	ruleByID               map[string]int
+	rulesByKind            map[policy.Kind][]int
+	preCommandRules        []int
+	sourceDigest           string
+	lockDigest             string
+	sourceCount            int
+	actions                *action.CompiledPlan
+	customRuntimeDigests   map[string]string
+	sources                []runtimeSource
+	sourceFreshness        sourceFreshnessRecipe
+	pathMatchers           *runtimePathMatchers
+	templateMatchers       *runtimeTemplateMatchers
+	commandExpectations    *commandExpectationPlan
+	commandExpectationRoot string
 }
 
 type runtimeEnvelope struct {
@@ -179,7 +181,7 @@ func (e *Evaluator) loadRuntimePlanOwned(root string) (*runtimePlan, error) {
 		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
-	plan, err := compileRuntimePlanFromLock(lock)
+	plan, err := compileRuntimePlanFromLockForRoot(lock, root)
 	if err != nil {
 		e.invalidateRuntimePlan(root)
 		return nil, err
@@ -245,10 +247,14 @@ func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
 }
 
 func compileRuntimePlanWithParts(payload map[string]interface{}, rulesJSON, actionsJSON []byte, compiledActions *action.CompiledPlan) (*runtimePlan, error) {
-	return compileRuntimePlanPrepared(payload, nil, rulesJSON, actionsJSON, nil, compiledActions)
+	return compileRuntimePlanPrepared(payload, nil, rulesJSON, actionsJSON, nil, compiledActions, "")
 }
 
 func compileRuntimePlanFromLock(lock *decodedLockfile) (*runtimePlan, error) {
+	return compileRuntimePlanFromLockForRoot(lock, "")
+}
+
+func compileRuntimePlanFromLockForRoot(lock *decodedLockfile, repoRoot string) (*runtimePlan, error) {
 	if lock == nil {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile is nil"}
 	}
@@ -257,7 +263,7 @@ func compileRuntimePlanFromLock(lock *decodedLockfile) (*runtimePlan, error) {
 			return nil, err
 		}
 	}
-	return compileRuntimePlanPrepared(lock.payload, lock.envelope, lock.rulesJSON, lock.actionsJSON, lock.rules, lock.actions)
+	return compileRuntimePlanPrepared(lock.payload, lock.envelope, lock.rulesJSON, lock.actionsJSON, lock.rules, lock.actions, repoRoot)
 }
 
 func compileRuntimePlanPrepared(
@@ -266,6 +272,7 @@ func compileRuntimePlanPrepared(
 	rulesJSON, actionsJSON []byte,
 	rules []policy.Rule,
 	compiledActions *action.CompiledPlan,
+	repoRoot string,
 ) (*runtimePlan, error) {
 	var err error
 	if envelope == nil {
@@ -334,7 +341,22 @@ func compileRuntimePlanPrepared(
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile template matcher preparation failed", Cause: err}
 	}
 	plan.templateMatchers = templateMatchers
+	plan.bindCommandExpectations(repoRoot)
 	return plan, nil
+}
+
+func (plan *runtimePlan) bindCommandExpectations(repoRoot string) {
+	plan.commandExpectations = compileCommandExpectationPlan(plan.rules, repoRoot)
+	plan.commandExpectationRoot = repoRoot
+}
+
+func (plan *runtimePlan) withCommandExpectationRoot(repoRoot string) *runtimePlan {
+	if plan == nil || plan.commandExpectationRoot == repoRoot {
+		return plan
+	}
+	rooted := *plan
+	rooted.bindCommandExpectations(repoRoot)
+	return &rooted
 }
 
 func customRuntimeManifestDigests(envelope *runtimeEnvelope) (map[string]string, error) {

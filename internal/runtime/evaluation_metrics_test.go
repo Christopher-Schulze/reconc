@@ -77,3 +77,35 @@ func TestCompiledPolicyEvaluatorTracesSatisfiedRuleTriggers(t *testing.T) {
 		t.Fatalf("satisfied trace = %+v, report=%+v", trace, report)
 	}
 }
+
+func TestCompiledPolicyEvaluatorReusesRootBoundCommandExpectations(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	writeFile(t, repo, "policies/rules.yml", "rules:\n  - id: tests\n    kind: require_command_success\n    when_paths: ['src/**']\n    commands: ['cd "+repo+" && go test ./...']\n    mode: block\n    message: tests\n")
+	_, body, err := compiler.RenderRepoPolicy(repo, "0.1.0-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluator, err := NewCompiledPolicyEvaluator(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := evaluator.planForRoot(repo)
+	second := evaluator.planForRoot(repo)
+	if first != second || first.commandExpectations == nil || first.commandExpectationRoot != repo {
+		t.Fatal("compiled evaluator rebuilt or failed to root command expectations")
+	}
+	report, _, err := evaluator.Check(repo, ExecutionInputs{
+		WritePaths: []string{"src/main.go"},
+		CommandResults: []CommandResult{{
+			Command: "go test ./...", Outcome: CommandOutcomeSuccess,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Decision != DecisionPass || evaluator.planForRoot(repo) != first {
+		t.Fatalf("root-bound compiled evaluation = %+v", report)
+	}
+}

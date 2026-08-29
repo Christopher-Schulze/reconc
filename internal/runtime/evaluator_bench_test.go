@@ -543,7 +543,7 @@ func BenchmarkForbiddenCommandPrepared(b *testing.B) {
 	expected := []string{"pip install", "git clean -fd", "rm -rf", "npm publish", "terraform destroy", "kubectl delete"}
 	commands := []string{"echo ready && pip install requests", "git status && git clean -fd build", `echo "$(rm -rf build)"`, "echo ready"}
 	rule := policy.Rule{Commands: expected}
-	cache := newCommandInvocationCache([]policy.Rule{rule}, "")
+	cache := newCommandInvocationCache(compileCommandExpectationPlan([]policy.Rule{rule}, ""))
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
@@ -569,13 +569,29 @@ func BenchmarkCommandEvidencePrepared(b *testing.B) {
 	commands := []string{"rtk go test ./...", "cd /repo && go build ./...", "echo ready"}
 	expected := []string{"go test ./...", "go build ./..."}
 	rule := policy.Rule{Commands: expected}
-	cache := newCommandInvocationCache([]policy.Rule{rule}, "/repo")
+	cache := newCommandInvocationCache(compileCommandExpectationPlan([]policy.Rule{rule}, "/repo"))
 	evidence := newCommandEvidenceIndex(ExecutionInputs{Commands: commands}, "/repo")
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
 		if got := matchingCommandsWithEvidence(evidence, cache, commands, expected, "/repo", policy.CommandMatchExact); len(got) != 2 {
 			b.Fatalf("prepared evidence produced %v", got)
+		}
+	}
+}
+
+func BenchmarkRuntimePlanCommandExpectationReuse(b *testing.B) {
+	rules := make([]policy.Rule, 128)
+	for index := range rules {
+		rules[index] = policy.Rule{Commands: []string{"go test ./pkg/" + strconv.Itoa(index)}}
+	}
+	expectations := compileCommandExpectationPlan(rules, "/repo")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		cache := newCommandInvocationCache(expectations)
+		if cache.commandExpectationPlan != expectations || len(cache.expected) != len(rules) {
+			b.Fatal("prepared expectations were not reused")
 		}
 	}
 }

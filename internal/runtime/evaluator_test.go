@@ -467,7 +467,7 @@ func TestForbidCommandChecksPathBeforeCommandAnalysis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cache := newCommandInvocationCache([]policy.Rule{rule}, "")
+	cache := newCommandInvocationCache(compileCommandExpectationPlan([]policy.Rule{rule}, ""))
 	ctx := &evalContext{matchers: matchers, commandCache: cache}
 	inputs := ExecutionInputs{
 		WritePaths: []string{"docs/readme.md"},
@@ -1232,10 +1232,10 @@ func TestMatchingForbiddenCommandsChecksEveryCompoundSegment(t *testing.T) {
 }
 
 func TestMatchingForbiddenCommandsReusesPreparedParses(t *testing.T) {
-	cache := newCommandInvocationCache([]policy.Rule{{
+	cache := newCommandInvocationCache(compileCommandExpectationPlan([]policy.Rule{{
 		Commands: []string{"pip install", "git clean -fd"},
 		Checks:   []policy.Check{{Commands: []string{"pip install"}}},
-	}}, "")
+	}}, ""))
 	commands := []string{"echo ready && pip install requests", "echo ready && pip install requests"}
 	if got := matchingForbiddenCommandsWithCache(cache, commands, []string{"pip install", "git clean -fd"}, "", policy.CommandMatchPrefix); len(got) != len(commands) {
 		t.Fatalf("cached forbidden matches = %v, want %d entries", got, len(commands))

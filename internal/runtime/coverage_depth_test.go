@@ -215,7 +215,7 @@ func TestCommandEvidenceIndexPreservesOrderAndFreshness(t *testing.T) {
 	if index.results[0].raw != inputs.CommandResults[0].Command || index.results[0].epoch != 9 {
 		t.Fatalf("result provenance lost: %#v", index.results[0])
 	}
-	cache := newCommandInvocationCache([]policy.Rule{{Commands: []string{"go  test ./..."}}}, "/repo")
+	cache := newCommandInvocationCache(compileCommandExpectationPlan([]policy.Rule{{Commands: []string{"go  test ./..."}}}, "/repo"))
 	if got := matchingCommandsWithEvidence(index, cache, inputs.Commands, []string{"go  test ./..."}, "/repo", policy.CommandMatchExact); !reflect.DeepEqual(got, []string{"rtk go  test ./...", "go test ./..."}) {
 		t.Fatalf("command evidence matching = %#v", got)
 	}

@@ -50,10 +50,15 @@ type observedCommandInvocations struct {
 	complete bool
 }
 
-type commandInvocationCache struct {
+type commandExpectationPlan struct {
 	expected           map[string]shellcommand.CompiledExpectation
 	normalizedExpected map[string]string
-	observed           map[string]observedCommandInvocations
+	repoRoot           string
+}
+
+type commandInvocationCache struct {
+	*commandExpectationPlan
+	observed map[string]observedCommandInvocations
 }
 
 type normalizedCommandEvidence struct {
@@ -87,7 +92,7 @@ func newCommandEvidenceIndex(inputs ExecutionInputs, repoRoot string) *commandEv
 	return index
 }
 
-func newCommandInvocationCache(rules []policy.Rule, repoRoot string) *commandInvocationCache {
+func compileCommandExpectationPlan(rules []policy.Rule, repoRoot string) *commandExpectationPlan {
 	commands := map[string]struct{}{}
 	normalizedExpected := map[string]string{}
 	add := func(values []string) {
@@ -116,15 +121,22 @@ func newCommandInvocationCache(rules []policy.Rule, repoRoot string) *commandInv
 	for _, command := range ordered {
 		expected[command] = shellcommand.CompileExpectation(command, 8)
 	}
-	return &commandInvocationCache{
+	return &commandExpectationPlan{
 		expected:           expected,
 		normalizedExpected: normalizedExpected,
-		observed:           make(map[string]observedCommandInvocations),
+		repoRoot:           repoRoot,
+	}
+}
+
+func newCommandInvocationCache(expectations *commandExpectationPlan) *commandInvocationCache {
+	return &commandInvocationCache{
+		commandExpectationPlan: expectations,
+		observed:               make(map[string]observedCommandInvocations),
 	}
 }
 
 func (c *commandInvocationCache) normalizedExpectedCommands(expected []string, repoRoot string) []string {
-	if c == nil {
+	if c == nil || c.commandExpectationPlan == nil {
 		return normalizeExpectedCommands(expected, repoRoot)
 	}
 	out := make([]string, 0, len(expected))
@@ -141,7 +153,7 @@ func (c *commandInvocationCache) normalizedExpectedCommands(expected []string, r
 }
 
 func (c *commandInvocationCache) expectedMatcher(command string) shellcommand.CompiledExpectation {
-	if c == nil {
+	if c == nil || c.commandExpectationPlan == nil {
 		return shellcommand.CompileExpectation(command, 8)
 	}
 	if matcher, ok := c.expected[command]; ok {
@@ -268,7 +280,7 @@ func (e *Evaluator) AssertRuleByIDContext(lifecycle context.Context, startPath, 
 		currentCommands:  normalized.currentCommands,
 		matchers:         plan.pathMatchers,
 		templateMatchers: plan.templateMatchers,
-		commandCache:     newCommandInvocationCache([]policy.Rule{*target}, root),
+		commandCache:     newCommandInvocationCache(plan.commandExpectations),
 		commandEvidence:  newCommandEvidenceIndex(normalized.inputs, root),
 		evidenceCache:    newEvidenceSnapshotCache(),
 		evidenceMemo:     newEvidenceMatchMemo(),
@@ -431,7 +443,7 @@ func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root 
 		preCommand:       preCommand,
 		matchers:         plan.pathMatchers,
 		templateMatchers: plan.templateMatchers,
-		commandCache:     newCommandInvocationCache(plan.rules, root),
+		commandCache:     newCommandInvocationCache(plan.commandExpectations),
 		commandEvidence:  newCommandEvidenceIndex(normalized.inputs, root),
 		evidenceCache:    newEvidenceSnapshotCache(),
 		evidenceMemo:     newEvidenceMatchMemo(),
