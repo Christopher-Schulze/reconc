@@ -2720,6 +2720,16 @@ block the transport reader, and final result processing waits for admitted
 progress to drain or cancel. LangChain launches the Go binary through LangChain's own MCP
 adapter; Reconc ships no Python or TypeScript LangChain adapter.
 
+Tool discovery and refresh use one Reconc-owned immutable published generation.
+Each refresh validates the complete downstream catalog and prepares every
+SDK-compatible definition before it notifies the upstream client and swaps one
+generation pointer containing contracts, advertised tools, generation identity,
+and its decision cache. A failed preparation or notification leaves the prior
+generation untouched. The SDK server keeps only a private notification sentinel;
+receiving middleware serves `tools/list` and `tools/call` from the same published
+snapshot, so clients cannot observe an intermediate remove/add catalog. Catalog
+pages use bounded opaque cursors over the sorted validated tool names.
+
 ### LangChain MCP interoperability
 
 The exact supported LangChain configuration launches the built Reconc binary

@@ -53,7 +53,6 @@ type Gateway struct {
 	server       actionstate.ObservedServer
 	bindings     []actionstate.EnvironmentBinding
 	snapshot     PolicySnapshot
-	cache        *action.DecisionCache
 	inspections  *actioninspect.EngineFactory
 
 	process       *ownedProcess
@@ -65,15 +64,15 @@ type Gateway struct {
 	upstreamNames map[string]struct{}
 	upstreamWire  *upstreamObserver
 
-	toolsMu      sync.RWMutex
-	tools        map[string]ToolContract
-	generation   uint64
-	refreshMu    sync.Mutex
-	transitionMu sync.Mutex
-	lifecycleMu  sync.Mutex
-	diagnosticMu sync.Mutex
-	closing      bool
-	fatalErr     error
+	toolsMu       sync.RWMutex
+	published     *publishedToolGeneration
+	notifyCatalog func() error
+	refreshMu     sync.Mutex
+	transitionMu  sync.Mutex
+	lifecycleMu   sync.Mutex
+	diagnosticMu  sync.Mutex
+	closing       bool
+	fatalErr      error
 
 	pendingMu sync.Mutex
 	pending   map[string]pendingApproval
@@ -84,6 +83,13 @@ type Gateway struct {
 	fatalErrors       chan error
 	closeOnce         sync.Once
 	closeErr          error
+}
+
+type publishedToolGeneration struct {
+	contracts  map[string]ToolContract
+	tools      []*mcp.Tool
+	generation uint64
+	cache      *action.DecisionCache
 }
 
 type pendingApproval struct {
@@ -176,7 +182,7 @@ func startGateway(parent context.Context, config Config) (*Gateway, error) {
 	gatewayCtx, cancel := context.WithCancel(parent)
 	gateway := &Gateway{
 		config: config, ctx: gatewayCtx, cancel: cancel, lease: lease,
-		snapshot: snapshot, cache: action.NewDecisionCache(), inspections: inspections,
+		snapshot: snapshot, inspections: inspections,
 		pending: make(map[string]pendingApproval), semaphore: make(chan struct{}, MaxConcurrentCalls),
 		refreshRequests: make(chan struct{}, 1), fatalErrors: make(chan error, 1),
 	}
@@ -469,15 +475,29 @@ func (g *Gateway) refreshTools(ctx context.Context) error {
 		return err
 	}
 	tools := toolMap(contracts)
-	g.toolsMu.Lock()
-	g.tools = tools
-	g.generation++
-	g.cache = action.NewDecisionCache()
-	g.toolsMu.Unlock()
-	if err := g.publishUpstreamTools(contracts); err != nil {
-		return wrapBoundaryError("publish validated downstream tool catalog", err)
+	catalogTools, err := sdkToolsFromContracts(contracts)
+	if err != nil {
+		return wrapBoundaryError("prepare validated downstream tool catalog", err)
 	}
+	sort.Slice(catalogTools, func(i, j int) bool { return catalogTools[i].Name < catalogTools[j].Name })
+	if err := g.notifyUpstreamToolListChanged(); err != nil {
+		return wrapBoundaryError("prepare downstream tool catalog notification", err)
+	}
+	g.publishToolGeneration(tools, catalogTools)
 	return nil
+}
+
+func (g *Gateway) publishToolGeneration(contracts map[string]ToolContract, tools []*mcp.Tool) {
+	g.toolsMu.Lock()
+	defer g.toolsMu.Unlock()
+	generation := uint64(1)
+	if g.published != nil {
+		generation = g.published.generation + 1
+	}
+	g.published = &publishedToolGeneration{
+		contracts: contracts, tools: tools, generation: generation,
+		cache: action.NewDecisionCache(),
+	}
 }
 
 func (g *Gateway) toolListChanged(context.Context) {
@@ -513,18 +533,24 @@ func (g *Gateway) runToolRefreshes() {
 func (g *Gateway) tool(name string) (ToolContract, uint64, bool) {
 	g.toolsMu.RLock()
 	defer g.toolsMu.RUnlock()
-	contract, ok := g.tools[name]
+	if g.published == nil {
+		return ToolContract{}, 0, false
+	}
+	contract, ok := g.published.contracts[name]
 	if ok {
 		contract.Canonical = append(json.RawMessage(nil), contract.Canonical...)
 	}
-	return contract, g.generation, ok
+	return contract, g.published.generation, ok
 }
 
 func (g *Gateway) generationCurrent(generation uint64, contract ToolContract) bool {
 	g.toolsMu.RLock()
 	defer g.toolsMu.RUnlock()
-	current, ok := g.tools[contract.Name]
-	return ok && g.generation == generation && current.ContractDigest == contract.ContractDigest
+	if g.published == nil {
+		return false
+	}
+	current, ok := g.published.contracts[contract.Name]
+	return ok && g.published.generation == generation && current.ContractDigest == contract.ContractDigest
 }
 
 func (g *Gateway) freshSnapshot(ctx context.Context) (PolicySnapshot, error) {

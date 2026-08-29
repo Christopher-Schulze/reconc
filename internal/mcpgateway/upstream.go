@@ -3,6 +3,7 @@ package mcpgateway
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -279,16 +280,12 @@ func (g *Gateway) serve() error {
 			PageSize: MaxToolsPerPage,
 		},
 	)
-	upstream.AddReceivingMiddleware(gatewayProtocolMiddleware)
+	upstream.AddReceivingMiddleware(gatewayProtocolMiddleware, g.toolCatalogMiddleware)
 	g.upstreamMu.Lock()
-	g.toolsMu.RLock()
-	contracts := make([]ToolContract, 0, len(g.tools))
-	for _, contract := range g.tools {
-		contracts = append(contracts, contract)
-	}
-	g.toolsMu.RUnlock()
 	g.upstream = upstream
-	if err := g.replaceUpstreamToolsLocked(contracts); err != nil {
+	if err := addSDKTool(upstream, gatewayCatalogNotificationTool(), func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return nil, fmt.Errorf("gateway catalog notification tool is internal")
+	}); err != nil {
 		g.upstream = nil
 		g.upstreamMu.Unlock()
 		return err
@@ -404,21 +401,130 @@ func (g *Gateway) replaceUpstreamTools(contracts []ToolContract) error {
 	return g.replaceUpstreamToolsLocked(contracts)
 }
 
-func (g *Gateway) publishUpstreamTools(contracts []ToolContract) error {
+const gatewayCatalogNotificationToolName = "reconc_catalog_notice"
+
+func gatewayCatalogNotificationTool() *mcp.Tool {
+	return &mcp.Tool{Name: gatewayCatalogNotificationToolName, InputSchema: json.RawMessage(`{"type":"object"}`)}
+}
+
+func (g *Gateway) notifyUpstreamToolListChanged() error {
 	if g == nil {
 		return nil
+	}
+	if g.notifyCatalog != nil {
+		return g.notifyCatalog()
 	}
 	g.upstreamMu.Lock()
 	defer g.upstreamMu.Unlock()
 	if g.upstream == nil {
 		return nil
 	}
-	return g.replaceUpstreamToolsLocked(contracts)
+	return addSDKTool(g.upstream, gatewayCatalogNotificationTool(), func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return nil, fmt.Errorf("gateway catalog notification tool is internal")
+	})
+}
+
+func sdkToolsFromContracts(contracts []ToolContract) ([]*mcp.Tool, error) {
+	prepared := make([]*mcp.Tool, 0, len(contracts))
+	for _, contract := range contracts {
+		tool, err := sdkToolFromContract(contract)
+		if err != nil {
+			return nil, err
+		}
+		prepared = append(prepared, tool)
+	}
+	return prepared, nil
+}
+
+func encodeGatewayCatalogCursor(name string) (string, error) {
+	if name == "" || !gatewayToolName.MatchString(name) {
+		return "", fmt.Errorf("invalid gateway catalog cursor name")
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(name)), nil
+}
+
+func decodeGatewayCatalogCursor(value string) (string, error) {
+	if value == "" || len(value) > 256 {
+		return "", fmt.Errorf("invalid gateway catalog cursor")
+	}
+	body, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return "", err
+	}
+	if len(body) == 0 || len(body) > 128 || !gatewayToolName.MatchString(string(body)) {
+		return "", fmt.Errorf("invalid gateway catalog cursor name")
+	}
+	return string(body), nil
+}
+
+func (g *Gateway) toolCatalogMiddleware(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
+		switch method {
+		case "tools/list":
+			listRequest, ok := request.(*mcp.ListToolsRequest)
+			if !ok || listRequest == nil {
+				return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "invalid tools/list request"}
+			}
+			return g.listPublishedTools(listRequest.Params)
+		case "tools/call":
+			callRequest, ok := request.(*mcp.CallToolRequest)
+			if !ok || callRequest == nil || callRequest.Params == nil {
+				return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "invalid tools/call request"}
+			}
+			contract, _, exists := g.tool(callRequest.Params.Name)
+			if !exists {
+				return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: fmt.Sprintf("unknown tool %q", callRequest.Params.Name)}
+			}
+			return g.handleTool(ctx, callRequest, contract)
+		default:
+			return next(ctx, method, request)
+		}
+	}
+}
+
+func (g *Gateway) listPublishedTools(params *mcp.ListToolsParams) (*mcp.ListToolsResult, error) {
+	cursor := ""
+	if params != nil {
+		cursor = params.Cursor
+	}
+	if cursor != "" {
+		var err error
+		cursor, err = decodeGatewayCatalogCursor(cursor)
+		if err != nil {
+			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "invalid tools/list cursor"}
+		}
+	}
+	g.toolsMu.RLock()
+	tools := make([]*mcp.Tool, 0)
+	if g.published != nil {
+		tools = append(tools, g.published.tools...)
+	}
+	g.toolsMu.RUnlock()
+	start := 0
+	for start < len(tools) && cursor != "" && tools[start].Name <= cursor {
+		start++
+	}
+	end := min(start+MaxToolsPerPage, len(tools))
+	page := make([]*mcp.Tool, end-start)
+	copy(page, tools[start:end])
+	result := &mcp.ListToolsResult{Tools: page, Cacheable: mcp.Cacheable{CacheScope: "public"}}
+	if end < len(tools) {
+		encoded, err := encodeGatewayCatalogCursor(tools[end-1].Name)
+		if err != nil {
+			return nil, err
+		}
+		result.NextCursor = encoded
+	}
+	return result, nil
 }
 
 func (g *Gateway) replaceUpstreamToolsLocked(contracts []ToolContract) error {
 	if g == nil || g.upstream == nil {
 		return fmt.Errorf("upstream MCP server is unavailable")
+	}
+	prepared, err := sdkToolsFromContracts(contracts)
+	if err != nil {
+		return err
 	}
 	byName := make(map[string]ToolContract, len(contracts))
 	for _, contract := range contracts {
@@ -429,11 +535,8 @@ func (g *Gateway) replaceUpstreamToolsLocked(contracts []ToolContract) error {
 			g.upstream.RemoveTools(name)
 		}
 	}
-	for _, contract := range contracts {
-		tool, err := sdkToolFromContract(contract)
-		if err != nil {
-			return err
-		}
+	for index, contract := range contracts {
+		tool := prepared[index]
 		contractCopy := contract
 		if err := addSDKTool(g.upstream, tool, func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return g.handleTool(ctx, request, contractCopy)

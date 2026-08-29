@@ -308,18 +308,25 @@ func (g *Gateway) evaluate(
 	input action.EvaluationInput,
 ) (action.EvaluationResult, bool) {
 	g.toolsMu.RLock()
-	cache := g.cache
+	var cache *action.DecisionCache
+	if g.published != nil {
+		cache = g.published.cache
+	}
 	g.toolsMu.RUnlock()
 	prepared := evaluator.Prepare(input)
-	if cached, ok, _ := cache.LookupPrepared(prepared); ok {
-		return cached, true
+	if cache != nil {
+		if cached, ok, _ := cache.LookupPrepared(prepared); ok {
+			return cached, true
+		}
 	}
 	started := time.Now()
 	result := prepared.Evaluate()
 	if time.Since(started) > EvaluationTimeout {
 		return gatewayFailureResult(input, action.ReasonDeadlineExceeded), false
 	}
-	cache.StorePrepared(prepared, result)
+	if cache != nil {
+		cache.StorePrepared(prepared, result)
+	}
 	return result, false
 }
 

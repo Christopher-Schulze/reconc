@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"strings"
@@ -239,5 +241,174 @@ func TestGatewaySerializesConcurrentToolPublication(t *testing.T) {
 	wait.Wait()
 	if len(gateway.upstreamNames) != 1 {
 		t.Fatalf("published tool names = %#v", gateway.upstreamNames)
+	}
+}
+
+func TestGatewayPublishesToolGenerationAsOneSnapshot(t *testing.T) {
+	first, err := validateToolContract(context.Background(), []byte(`{"name":"first","inputSchema":{"type":"object"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := validateToolContract(context.Background(), []byte(`{"name":"second","inputSchema":{"type":"object"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstTools, err := sdkToolsFromContracts([]ToolContract{first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondTools, err := sdkToolsFromContracts([]ToolContract{second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway := &Gateway{}
+	gateway.publishToolGeneration(toolMap([]ToolContract{first}), firstTools)
+	initial := gateway.published
+	if initial == nil || initial.generation != 1 || initial.cache == nil {
+		t.Fatal("initial tool generation was incomplete")
+	}
+	var wait sync.WaitGroup
+	stop := make(chan struct{})
+	wait.Add(1)
+	go func() {
+		defer wait.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			gateway.toolsMu.RLock()
+			generation := gateway.published
+			if generation == nil || generation.cache == nil || len(generation.contracts) != len(generation.tools) {
+				gateway.toolsMu.RUnlock()
+				t.Error("observer saw a split tool generation")
+				return
+			}
+			gateway.toolsMu.RUnlock()
+		}
+	}()
+	for index := 0; index < 256; index++ {
+		if index%2 == 0 {
+			gateway.publishToolGeneration(toolMap([]ToolContract{first}), firstTools)
+		} else {
+			gateway.publishToolGeneration(toolMap([]ToolContract{second}), secondTools)
+		}
+	}
+	close(stop)
+	wait.Wait()
+	if gateway.published == initial {
+		t.Fatal("tool generation did not advance")
+	}
+}
+
+func TestGatewayStagesSDKConversionBeforePublication(t *testing.T) {
+	first, err := validateToolContract(context.Background(), []byte(`{"name":"first","inputSchema":{"type":"object"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway := &Gateway{}
+	tools, err := sdkToolsFromContracts([]ToolContract{first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway.publishToolGeneration(toolMap([]ToolContract{first}), tools)
+	previous := gateway.published
+	broken := first
+	broken.Canonical = []byte(`{"name":"first"`)
+	if _, err := sdkToolsFromContracts([]ToolContract{broken}); err == nil {
+		t.Fatal("invalid SDK contract was accepted")
+	}
+	if gateway.published != previous {
+		t.Fatal("failed SDK preparation replaced the published generation")
+	}
+}
+
+func TestGatewayRefreshNotificationFailureKeepsPublishedGeneration(t *testing.T) {
+	first, err := validateToolContract(context.Background(), []byte(`{"name":"first","inputSchema":{"type":"object"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := validateToolContract(context.Background(), []byte(`{"name":"second","inputSchema":{"type":"object"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, err := sdkToolsFromContracts([]ToolContract{first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("injected catalog notification failure")
+	gateway := &Gateway{
+		downstream: &catalogDownstream{pages: map[string]ToolPage{
+			"": {Tools: []json.RawMessage{second.Canonical}},
+		}},
+		notifyCatalog: func() error { return failure },
+	}
+	gateway.publishToolGeneration(toolMap([]ToolContract{first}), tools)
+	previous := gateway.published
+	if err := gateway.refreshTools(context.Background()); err == nil || !errors.Is(err, failure) {
+		t.Fatalf("refresh notification failure = %v, want %v", err, failure)
+	}
+	if gateway.published != previous {
+		t.Fatal("failed catalog notification replaced the published generation")
+	}
+	if contract, _, ok := gateway.tool("first"); !ok || contract.ContractDigest != first.ContractDigest {
+		t.Fatal("previous published generation was not still usable")
+	}
+}
+
+func TestGatewayReplacementConversionFailureKeepsSDKCatalog(t *testing.T) {
+	first, err := validateToolContract(context.Background(), []byte(`{"name":"first","inputSchema":{"type":"object"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "test"}, nil)
+	gateway := &Gateway{upstream: server}
+	if err := gateway.replaceUpstreamTools([]ToolContract{first}); err != nil {
+		t.Fatal(err)
+	}
+	broken := first
+	broken.Canonical = []byte(`{"name":"first"`)
+	if err := gateway.replaceUpstreamTools([]ToolContract{broken}); err == nil {
+		t.Fatal("invalid replacement was accepted")
+	}
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(context.Background(), serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer serverSession.Close()
+	client := mcp.NewClient(&mcp.Implementation{Name: "client", Version: "test"}, nil)
+	clientSession, err := client.Connect(context.Background(), clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clientSession.Close()
+	page, err := clientSession.ListTools(context.Background(), nil)
+	if err != nil || len(page.Tools) != 1 || page.Tools[0].Name != first.Name {
+		t.Fatalf("SDK catalog after failed replacement = %#v, %v", page, err)
+	}
+}
+
+func TestGatewayListsPublishedCatalogWithBoundedOpaqueCursor(t *testing.T) {
+	contracts := make(map[string]ToolContract, MaxToolsPerPage+1)
+	tools := make([]*mcp.Tool, 0, MaxToolsPerPage+1)
+	for index := 0; index <= MaxToolsPerPage; index++ {
+		name := fmt.Sprintf("tool-%03d", index)
+		contracts[name] = ToolContract{Name: name}
+		tools = append(tools, &mcp.Tool{Name: name, InputSchema: json.RawMessage(`{"type":"object"}`)})
+	}
+	gateway := &Gateway{}
+	gateway.publishToolGeneration(contracts, tools)
+	first, err := gateway.listPublishedTools(nil)
+	if err != nil || len(first.Tools) != MaxToolsPerPage || first.NextCursor == "" {
+		t.Fatalf("first catalog page = %#v, %v", first, err)
+	}
+	second, err := gateway.listPublishedTools(&mcp.ListToolsParams{Cursor: first.NextCursor})
+	if err != nil || len(second.Tools) != 1 || second.Tools[0].Name != "tool-128" || second.NextCursor != "" {
+		t.Fatalf("second catalog page = %#v, %v", second, err)
+	}
+	if _, err := gateway.listPublishedTools(&mcp.ListToolsParams{Cursor: "not-a-cursor"}); err == nil {
+		t.Fatal("malformed catalog cursor was accepted")
 	}
 }
