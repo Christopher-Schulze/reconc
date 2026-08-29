@@ -2515,7 +2515,7 @@ one pattern matches, so an earlier match cannot hide a malformed later pattern.
 | `generated_reference` | Configured generator check has current successful command evidence | Current session |
 | `language_boundary` | Changed files use configured extensions inside configured zones | Matching changed files |
 | `dependency_pins` | Changed package JSON dependency manifests use exact semantic versions or explicit protocol prefixes | Matching changed manifests |
-| `package_scripts` | Every configured script that is actually declared and non-empty has current successful manager-scoped evidence; a configured manager must be the sole detected manager, while absent scripts stay optional | Matching package manifests, including inherited workspace manager evidence |
+| `package_scripts` | Every configured script that is actually declared and non-empty has current successful evidence from the configured or sole detected package manager; runner case and whitespace variants are normalized, while absent scripts stay optional | Matching package manifests, including inherited workspace manager evidence |
 | `network_boundary` | Changed source sites have a nearby executable guard marker or reasoned path exemption; comments and interpreted or raw strings do not count | Matching changed files |
 | `process_boundary` | Changed process-spawn sites have a nearby executable hardening marker or reasoned path exemption; comments and interpreted or raw strings do not count | Matching changed files |
 | `substantive_proof` | Fresh measured samples parsed from the referenced evidence, computed aggregate, threshold result, live command, and evidence hash agree | Full configured proof manifest |
@@ -4485,8 +4485,10 @@ all legacy formats still reject those dead fields during typed runtime-plan
 construction after migration.
 
 Native assurance now fails explicitly when a configured package manager is
-missing or mismatched, validates complete applicability lists before matching,
-and rejects invalid compiled command policies during plan loading. Substantive
+missing or mismatched, binds package-script candidates and success evidence to
+the configured or sole detected runner, validates complete applicability lists
+before matching, and rejects invalid compiled command policies during plan
+loading. Substantive
 proof authoring distinguishes the omitted 24-hour default from explicit
 `max_age_hours: 0`, which disables staleness without disabling timestamp or
 future-skew validation. Package-script and dependency-pin gates share the same

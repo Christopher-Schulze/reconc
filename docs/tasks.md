@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 368 Enforce package-script runner ownership -> tasks/368-enforce-package-script-runner-ownership.md
 - [ ] 369 Prove named WaitGroup worker completion -> tasks/369-prove-named-waitgroup-worker-completion.md
 - [ ] 370 Preserve prerelease precedence in harness compatibility -> tasks/370-preserve-prerelease-precedence-in-harness-compatibility.md
 - [ ] 371 Reject context paths through escaping parent symlinks -> tasks/371-reject-context-paths-through-escaping-parent-symlinks.md
@@ -15,6 +14,7 @@
 
 ## Done
 
+- [x] 368 Enforce package-script runner ownership -> tasks/done/368-enforce-package-script-runner-ownership.md
 - [x] 367 Bind substantive proof measurements to evidence -> tasks/done/367-bind-substantive-proof-measurements-to-evidence.md
 - [x] 366 Parse assurance guard markers outside comments and strings -> tasks/done/366-parse-assurance-guard-markers-outside-comments-and-strings.md
 - [x] 365 Reject duplicate keys in audit evidence -> tasks/done/365-reject-duplicate-keys-in-audit-evidence.md

@@ -1,6 +1,7 @@
 package assurance
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,6 +39,59 @@ func TestPackageScriptsScopesMonorepoCommandsToManifestDirectory(t *testing.T) {
 	findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{SuccessfulCommands: []string{"pnpm --dir 'packages/api service' run test"}})
 	if err != nil || len(findings) != 0 {
 		t.Fatalf("monorepo command evidence = %+v, %v", findings, err)
+	}
+}
+
+func TestPackageScriptsBindsEvidenceToDetectedRunner(t *testing.T) {
+	tests := []struct {
+		manager string
+		lock    string
+	}{
+		{manager: "bun", lock: "bun.lock"},
+		{manager: "npm", lock: "package-lock.json"},
+		{manager: "pnpm", lock: "pnpm-lock.yaml"},
+		{manager: "yarn", lock: "yarn.lock"},
+	}
+	for _, test := range tests {
+		t.Run(test.manager, func(t *testing.T) {
+			root := t.TempDir()
+			writePackageScriptFile(t, root, "package.json", fmt.Sprintf(`{"packageManager":%q,"scripts":{"test":"node --test"}}`, test.manager+"@1.0.0"))
+			writePackageScriptFile(t, root, test.lock, "lock")
+			other := "npm"
+			if test.manager == other {
+				other = "pnpm"
+			}
+			gate := policy.AssuranceGate{
+				ID: "scripts", Type: policy.AssurancePackageScripts,
+				ManifestPaths: []string{"package.json"}, PackageManager: test.manager,
+				Commands: []string{test.manager + " run test", other + " run test"},
+			}
+			findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{SuccessfulCommands: []string{other + " run test"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(findings) != 1 || !strings.Contains(findings[0].Message, "no current successful evidence") {
+				t.Fatalf("mismatched runner evidence accepted: %+v", findings)
+			}
+			findings, err = Evaluate(root, []policy.AssuranceGate{gate}, Inputs{SuccessfulCommands: []string{test.manager + " run test"}})
+			if err != nil || len(findings) != 0 {
+				t.Fatalf("detected runner evidence rejected: findings=%+v err=%v", findings, err)
+			}
+		})
+	}
+}
+
+func TestPackageScriptsAcceptsExplicitRunnerCaseVariant(t *testing.T) {
+	root := t.TempDir()
+	writePackageScriptFile(t, root, "package.json", `{"packageManager":"npm@11","scripts":{"test":"node --test"}}`)
+	writePackageScriptFile(t, root, "package-lock.json", "lock")
+	gate := policy.AssuranceGate{
+		ID: "scripts", Type: policy.AssurancePackageScripts,
+		ManifestPaths: []string{"package.json"}, PackageManager: "npm", Commands: []string{"NPM run test"},
+	}
+	findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{SuccessfulCommands: []string{"npm run test"}})
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("case-equivalent npm runner was rejected: findings=%+v err=%v", findings, err)
 	}
 }
 

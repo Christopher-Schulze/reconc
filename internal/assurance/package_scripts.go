@@ -65,14 +65,17 @@ func evaluatePackageScripts(root string, gate policy.AssuranceGate, successful [
 		if err != nil {
 			return nil, err
 		}
-		entry := packageScriptCommand{runner: parsed.Runner, script: parsed.Script, base: strings.Join(strings.Fields(command), " ")}
+		entry := packageScriptCommand{runner: parsed.Runner, script: parsed.Script, base: parsed.Runner + " run " + parsed.Script}
 		commandsByScript[entry.script] = append(commandsByScript[entry.script], entry)
 	}
 	manifests, err := state.matchingPackageManifests(root, gate.ManifestPaths, gate.ExcludePaths)
 	if err != nil {
 		return nil, err
 	}
-	successSet := stringSetNormalized(successful)
+	successSet := map[string]bool{}
+	for _, command := range successful {
+		successSet[normalizePackageScriptEvidence(command)] = true
+	}
 	findings := []Finding{}
 	for _, manifest := range manifests {
 		document, err := state.packageDocument(manifest.full)
@@ -122,6 +125,10 @@ func evaluatePackageScripts(root string, gate policy.AssuranceGate, successful [
 			})
 			continue
 		}
+		owner := ""
+		if len(managers) == 1 {
+			owner = managers[0]
+		}
 		scriptNames := make([]string, 0, len(commandsByScript))
 		for script := range commandsByScript {
 			scriptNames = append(scriptNames, script)
@@ -136,10 +143,10 @@ func evaluatePackageScripts(root string, gate policy.AssuranceGate, successful [
 				findings = append(findings, Finding{GateID: gate.ID, Paths: []string{manifest.relative}, Message: fmt.Sprintf("declared package script %q is empty in %s", script, manifest.relative), Remediation: "Define a real script command or remove the empty script declaration."})
 				continue
 			}
-			candidates := packageScriptCandidates(root, manifest.full, commandsByScript[script])
+			candidates := packageScriptCandidates(root, manifest.full, commandsByScript[script], owner)
 			matched := false
 			for _, candidate := range candidates {
-				if successSet[normalizeCommand(candidate)] {
+				if successSet[normalizePackageScriptEvidence(candidate)] {
 					matched = true
 					break
 				}
@@ -147,9 +154,13 @@ func evaluatePackageScripts(root string, gate policy.AssuranceGate, successful [
 			if matched {
 				continue
 			}
+			message := fmt.Sprintf("declared package script %q has no current successful evidence: %s", script, strings.Join(candidates, ", "))
+			if len(candidates) == 0 && owner != "" {
+				message = fmt.Sprintf("declared package script %q has no configured command owned by package manager %s", script, owner)
+			}
 			findings = append(findings, Finding{
 				GateID: gate.ID, Paths: []string{manifest.relative},
-				Message:     fmt.Sprintf("declared package script %q has no current successful evidence: %s", script, strings.Join(candidates, ", ")),
+				Message:     message,
 				Remediation: "Run one listed command successfully in the current session, then rerun the policy check.",
 			})
 		}
@@ -417,12 +428,15 @@ func pathWithinRoot(root, path string) bool {
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
-func packageScriptCandidates(root, manifest string, commands []packageScriptCommand) []string {
+func packageScriptCandidates(root, manifest string, commands []packageScriptCommand, owner string) []string {
 	directory := filepath.Dir(manifest)
 	relative, err := filepath.Rel(root, directory)
 	if err != nil || relative == "." {
 		out := make([]string, 0, len(commands))
 		for _, command := range commands {
+			if owner != "" && command.runner != owner {
+				continue
+			}
 			out = append(out, command.base)
 		}
 		return out
@@ -430,6 +444,9 @@ func packageScriptCandidates(root, manifest string, commands []packageScriptComm
 	path := shellQuotePackagePath(filepath.ToSlash(relative))
 	out := make([]string, 0, len(commands))
 	for _, command := range commands {
+		if owner != "" && command.runner != owner {
+			continue
+		}
 		flag := "--cwd"
 		if command.runner == "npm" {
 			flag = "--prefix"
@@ -439,6 +456,18 @@ func packageScriptCandidates(root, manifest string, commands []packageScriptComm
 		out = append(out, fmt.Sprintf("%s %s %s run %s", command.runner, flag, path, command.script))
 	}
 	return out
+}
+
+func normalizePackageScriptEvidence(command string) string {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return ""
+	}
+	switch strings.ToLower(fields[0]) {
+	case "bun", "npm", "pnpm", "yarn":
+		fields[0] = strings.ToLower(fields[0])
+	}
+	return strings.Join(fields, " ")
 }
 
 func shellQuotePackagePath(path string) string {
