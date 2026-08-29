@@ -4,12 +4,11 @@
 
 ## Queue
 
-- [ ] 373 Preserve MCP cleanup failures during cancellation -> tasks/373-preserve-mcp-cleanup-failures-during-cancellation.md
-
 ## Blocked
 
 ## Done
 
+- [x] 373 Preserve MCP cleanup failures during cancellation -> tasks/done/373-preserve-mcp-cleanup-failures-during-cancellation.md
 - [x] 372 Match go:embed hidden-file semantics in provenance -> tasks/done/372-match-go-embed-hidden-file-semantics-in-provenance.md
 - [x] 371 Reject context paths through escaping parent symlinks -> tasks/done/371-reject-context-paths-through-escaping-parent-symlinks.md
 - [x] 370 Preserve prerelease precedence in harness compatibility -> tasks/done/370-preserve-prerelease-precedence-in-harness-compatibility.md

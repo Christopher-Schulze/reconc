@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -94,6 +95,51 @@ func TestMCPGatewayHelpDoesNotStartGateway(t *testing.T) {
 	}
 	if !strings.HasPrefix(stdout.String(), "Usage: reconc mcp gateway") {
 		t.Fatalf("gateway help = %q", stdout.String())
+	}
+}
+
+func TestMCPGatewayRunErrorPreservesCleanupFailures(t *testing.T) {
+	failures := []struct {
+		name string
+		err  error
+	}{
+		{name: "gateway close", err: errors.New("close gateway transport failed")},
+		{name: "evidence finalize", err: errors.New("finalize evidence failed")},
+		{name: "child process", err: errors.New("close child process failed")},
+		{name: "lease release", err: errors.New("release gateway lease failed")},
+	}
+	for _, test := range failures {
+		t.Run(test.name+" alone", func(t *testing.T) {
+			err := mcpGatewayRunError(test.err)
+			if err == nil || ExitCode(err) != 1 || !strings.Contains(err.Error(), test.err.Error()) {
+				t.Fatalf("cleanup error = %v", err)
+			}
+		})
+		t.Run(test.name+" joined with cancellation", func(t *testing.T) {
+			joined := errors.Join(context.Canceled, test.err)
+			err := mcpGatewayRunError(joined)
+			if err == nil || ExitCode(err) != 1 ||
+				!strings.Contains(err.Error(), context.Canceled.Error()) ||
+				!strings.Contains(err.Error(), test.err.Error()) {
+				t.Fatalf("joined cleanup error = %v", err)
+			}
+		})
+	}
+}
+
+func TestMCPGatewayRunErrorTreatsPureCancellationAsClean(t *testing.T) {
+	cases := []error{
+		context.Canceled,
+		fmt.Errorf("serve stopped: %w", context.Canceled),
+		errors.Join(context.Canceled, fmt.Errorf("wrapped cancellation: %w", context.Canceled)),
+	}
+	for _, test := range cases {
+		if err := mcpGatewayRunError(test); err != nil {
+			t.Fatalf("pure cancellation = %v", err)
+		}
+	}
+	if err := mcpGatewayRunError(errors.Join(context.Canceled, context.DeadlineExceeded)); err == nil {
+		t.Fatal("mixed cancellation and deadline was treated as clean")
 	}
 }
 

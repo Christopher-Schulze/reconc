@@ -70,10 +70,44 @@ func runMCPGateway(args []string, version string, stdout, stderr io.Writer) erro
 	config := gatewayConfig(options, version, stdout, stderr)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := mcpgateway.Run(ctx, config); err != nil && !errors.Is(err, context.Canceled) {
-		return &CLIError{ExitCode: 1, Message: "reconc mcp gateway: " + err.Error()}
+	if err := mcpGatewayRunError(mcpgateway.Run(ctx, config)); err != nil {
+		return err
 	}
 	return nil
+}
+
+func mcpGatewayRunError(err error) error {
+	if err == nil || isPureContextCancellation(err) {
+		return nil
+	}
+	return &CLIError{ExitCode: 1, Message: "reconc mcp gateway: " + err.Error()}
+}
+
+func isPureContextCancellation(err error) bool {
+	if err == nil {
+		return false
+	}
+	switch unwrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		children := unwrapped.Unwrap()
+		if len(children) == 0 {
+			return errors.Is(err, context.Canceled)
+		}
+		for _, child := range children {
+			if child == nil || !isPureContextCancellation(child) {
+				return false
+			}
+		}
+		return true
+	case interface{ Unwrap() error }:
+		child := unwrapped.Unwrap()
+		if child == nil {
+			return errors.Is(err, context.Canceled)
+		}
+		return isPureContextCancellation(child)
+	default:
+		return errors.Is(err, context.Canceled)
+	}
 }
 
 func gatewayConfig(
