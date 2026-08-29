@@ -137,6 +137,20 @@ func TestPreDecisionReusesGitAliasSnapshotForShellAnalysis(t *testing.T) {
 	}
 	counterPath := filepath.Join(t.TempDir(), "git-config-count")
 	installCountingGit(t, counterPath)
+	baselineSnapshot := captureGitAliasSnapshot(repo)
+	if !baselineSnapshot.complete {
+		t.Fatal("baseline repository alias snapshot was not complete")
+	}
+	baselineBody, err := os.ReadFile(counterPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(baselineBody) == 0 {
+		t.Fatal("counting Git wrapper did not observe the baseline config snapshot")
+	}
+	if err := os.WriteFile(counterPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	payload := []byte(`{"session_id":"alias-process-count","tool_use_id":"call-unknown","tool_name":"Bash","tool_input":{"command":"git reconc-unknown-subcommand"}}`)
 	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
 	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "unknown git subcommand") {
@@ -146,8 +160,8 @@ func TestPreDecisionReusesGitAliasSnapshotForShellAnalysis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := len(body), 2; got != want {
-		t.Fatalf("Git config process count = %d, want %d for initial and post-evaluation snapshots", got, want)
+	if got, want := len(body), len(baselineBody)*2; got != want {
+		t.Fatalf("Git config process count = %d, want %d for initial and post-evaluation snapshots (baseline=%d)", got, want, len(baselineBody))
 	}
 }
 
