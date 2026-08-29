@@ -16,7 +16,7 @@ The Windows durability contract says replacements use write-through publication,
 - [x] Select and verify the exact rooted Win32 replacement primitive
 - [x] Implement write-through replacement with precise error mapping
 - [x] Add native durability and identity regressions
-- [~] Reconcile documentation and run platform gates
+- [x] Reconcile documentation and run platform gates
 
 ## Notes
 
@@ -34,10 +34,12 @@ The Windows durability contract says replacements use write-through publication,
   values before the existing cleanup and rollback path receives them.
 - Local verification passes: `make test`, `make vet`, `make lint`, Windows
   amd64/arm64 test cross-compilation, Windows amd64 `go vet`, and Windows amd64
-  Staticcheck. The mandatory native fault-injection tests are included in the
-  always-on `windows-2025` preflight, but no local Windows runtime exists and
-  repository rules prohibit pushing the uncommitted task without explicit user
-  authorization. Native CI is the only remaining acceptance gate.
+  Staticcheck. Main CI run `33250381671` at
+  `02f397303ab5bdfdaa1858cf9d5b93b9bd1f39bc` passed every required job,
+  including the Windows runtime preflight, full Windows suite, CLI smoke, and
+  native Windows installer (`99094938700`), plus Ubuntu, macOS, release trust,
+  and LangChain interoperability (`99094938617`, `99094938669`,
+  `99094938675`, `99094938702`). No version, tag, or release was changed.
 
 ## Deviations
 

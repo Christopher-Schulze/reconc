@@ -8,11 +8,11 @@
 
 ## Blocked
 
-- [!] 293 Make Windows atomic replacement genuinely write-through -> tasks/293-make-windows-atomic-replacement-genuinely-write-through.md
 
 ## Done
 
 - [x] 300 Apply Windows private ACLs through opened handles -> tasks/done/300-apply-windows-private-acls-through-opened-handles.md
+- [x] 293 Make Windows atomic replacement genuinely write-through -> tasks/done/293-make-windows-atomic-replacement-genuinely-write-through.md
 - [x] 343 Remove dead private symbols exposed by staticcheck -> tasks/done/343-remove-dead-private-symbols-exposed-by-staticcheck.md
 - [x] 342 Stabilize concurrent JSONL archive discovery -> tasks/done/342-stabilize-concurrent-jsonl-archive-discovery.md
 - [x] 341 Remove duplicate JSONL lock validation -> tasks/done/341-remove-duplicate-jsonl-lock-validation.md
