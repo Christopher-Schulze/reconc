@@ -1576,9 +1576,12 @@ Guards the auto-loaded session-file token budget (default 20000 tokens).
 Without `--files`, it measures `AGENTS.md`, `CLAUDE.md`, `start.md`,
 `docs/tasks.md`, and the active TASK detail when present. Custom paths replace
 that default. Paths are normalized and deduplicated; lexical and symlink
-escapes outside the repository fail closed. Non-empty files round up to at
-least one approximate token. JSON includes `format_version`; exit 1 over limit
-so CI gates can block budget-growing PRs.
+escapes outside the repository fail closed. The repository root is anchored for
+the complete snapshot: intermediate directory symlinks may resolve only back
+inside that root, while final symlinks are rejected. Replacement during the
+snapshot also fails closed. Non-empty files round up to at least one approximate
+token. JSON includes `format_version`; exit 1 over limit so CI gates can block
+budget-growing PRs.
 
 ### `reconc start [repo] [--json | --minimal]`
 Renders canonical onboarding and reentry context to stdout without mutating

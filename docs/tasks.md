@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 371 Reject context paths through escaping parent symlinks -> tasks/371-reject-context-paths-through-escaping-parent-symlinks.md
 - [ ] 372 Match go:embed hidden-file semantics in provenance -> tasks/372-match-go-embed-hidden-file-semantics-in-provenance.md
 - [ ] 373 Preserve MCP cleanup failures during cancellation -> tasks/373-preserve-mcp-cleanup-failures-during-cancellation.md
 
@@ -12,6 +11,7 @@
 
 ## Done
 
+- [x] 371 Reject context paths through escaping parent symlinks -> tasks/done/371-reject-context-paths-through-escaping-parent-symlinks.md
 - [x] 370 Preserve prerelease precedence in harness compatibility -> tasks/done/370-preserve-prerelease-precedence-in-harness-compatibility.md
 - [x] 369 Prove named WaitGroup worker completion -> tasks/done/369-prove-named-waitgroup-worker-completion.md
 - [x] 368 Enforce package-script runner ownership -> tasks/done/368-enforce-package-script-runner-ownership.md

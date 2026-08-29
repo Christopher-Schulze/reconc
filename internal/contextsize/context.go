@@ -8,6 +8,7 @@
 package contextsize
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +16,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/pathidentity"
 )
 
@@ -28,7 +28,6 @@ const (
 	MaxContextFiles     = 4096
 	MaxContextPathBytes = 1024
 	maxInt64Value       = int64(1<<63 - 1)
-	maxContextFileBytes = maxInt64Value - 1
 )
 
 // BytesPerTokenEstimate is a conservative heuristic for approximate
@@ -70,9 +69,11 @@ type ScanReport struct {
 
 // Scan inspects the given files under repoRoot and returns a report.
 // Missing files are listed with Exists=false and zero size; they don't
-// contribute to the total. Paths and symlink targets outside repoRoot fail
-// closed instead of exposing external file metadata through the report.
-func Scan(repoRoot string, files []string, tokenBudget int) (ScanReport, error) {
+// contribute to the total. The repository root is opened once as an os.Root:
+// intermediate symlinks are followed only when they remain beneath that root,
+// while a final symlink is rejected. Paths that escape fail closed instead of
+// exposing external file metadata through the report.
+func Scan(repoRoot string, files []string, tokenBudget int) (report ScanReport, resultErr error) {
 	if len(files) == 0 {
 		files = append([]string(nil), DefaultFiles...)
 	}
@@ -87,6 +88,16 @@ func Scan(repoRoot string, files []string, tokenBudget int) (ScanReport, error) 
 	if err != nil {
 		return ScanReport{}, fmt.Errorf("resolve repository root filesystem identity: %w", err)
 	}
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		return ScanReport{}, fmt.Errorf("open repository root: %w", err)
+	}
+	defer func() {
+		if closeErr := rootHandle.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("close repository root: %w", closeErr))
+			report = ScanReport{}
+		}
+	}()
 	out := ScanReport{
 		FormatVersion: "1",
 		RepoRoot:      root,
@@ -105,7 +116,7 @@ func Scan(repoRoot string, files []string, tokenBudget int) (ScanReport, error) 
 		}
 		seen[rel] = struct{}{}
 		fr := FileReport{Path: rel}
-		info, exists, err := contextFileInfo(root, rel)
+		info, exists, err := contextFileInfoRoot(rootHandle, rel, rootHandle.Open)
 		if err != nil {
 			return ScanReport{}, err
 		}
@@ -144,12 +155,36 @@ func normalizeContextPath(raw string) (string, error) {
 	return filepath.ToSlash(cleaned), nil
 }
 
-func contextFileInfo(root, relative string) (os.FileInfo, bool, error) {
-	full := filepath.Join(root, filepath.FromSlash(relative))
-	lstat, err := os.Lstat(full)
+func contextFileInfo(root, relative string) (info os.FileInfo, exists bool, resultErr error) {
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, false, fmt.Errorf("open repository root: %w", err)
+	}
+	defer func() {
+		if closeErr := rootHandle.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("close repository root: %w", closeErr))
+			info = nil
+			exists = false
+		}
+	}()
+	return contextFileInfoRoot(rootHandle, relative, rootHandle.Open)
+}
+
+// contextFileInfoRoot keeps the open operation injectable so replacement
+// windows can be exercised deterministically without weakening the os.Root
+// containment boundary.
+func contextFileInfoRoot(root *os.Root, relative string, open func(string) (*os.File, error)) (os.FileInfo, bool, error) {
+	if root == nil || open == nil {
+		return nil, false, errors.New("context repository root is unavailable")
+	}
+	name := filepath.FromSlash(relative)
+	lstat, err := root.Lstat(name)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, false, nil
+		}
+		if contextPathEscapesRoot(err) {
+			return nil, false, fmt.Errorf("context file %s resolves outside the repository", relative)
 		}
 		return nil, false, fmt.Errorf("inspect context file %s: %w", relative, err)
 	}
@@ -157,24 +192,41 @@ func contextFileInfo(root, relative string) (os.FileInfo, bool, error) {
 		return lstat, false, nil
 	}
 	if lstat.Mode()&os.ModeSymlink != 0 {
-		resolved, resolveErr := pathidentity.ResolveExisting(full)
-		if resolveErr != nil {
-			return nil, false, fmt.Errorf("resolve context file identity %s: %w", relative, resolveErr)
-		}
-		rel, relErr := filepath.Rel(root, resolved)
-		if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if _, statErr := root.Stat(name); contextPathEscapesRoot(statErr) {
 			return nil, false, fmt.Errorf("context file %s resolves outside the repository", relative)
 		}
 		return nil, false, fmt.Errorf("context file %s must be a non-symlink regular file", relative)
 	}
-	var opened os.FileInfo
-	if err := boundedio.WithRegularFileSnapshot(full, maxContextFileBytes, func(_ *os.File, info os.FileInfo) error {
-		opened = info
-		return nil
-	}); err != nil {
+	if !lstat.Mode().IsRegular() {
+		return nil, false, fmt.Errorf("context file %s must be a regular file", relative)
+	}
+	file, err := open(name)
+	if err != nil {
+		if contextPathEscapesRoot(err) {
+			return nil, false, fmt.Errorf("context file %s resolves outside the repository", relative)
+		}
+		return nil, false, fmt.Errorf("open context file %s: %w", relative, err)
+	}
+	opened, statErr := file.Stat()
+	afterPath, pathErr := root.Lstat(name)
+	closeErr := file.Close()
+	if err := errors.Join(statErr, pathErr, closeErr); err != nil {
 		return nil, false, fmt.Errorf("inspect stable context file %s: %w", relative, err)
 	}
+	if !sameContextFileSnapshot(lstat, opened) || !sameContextFileSnapshot(opened, afterPath) {
+		return nil, false, fmt.Errorf("inspect stable context file %s: file changed while opening", relative)
+	}
 	return opened, true, nil
+}
+
+func contextPathEscapesRoot(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "path escapes from parent")
+}
+
+func sameContextFileSnapshot(left, right os.FileInfo) bool {
+	return left != nil && right != nil && left.Mode().IsRegular() && right.Mode().IsRegular() &&
+		left.Mode() == right.Mode() && left.Size() == right.Size() &&
+		left.ModTime().Equal(right.ModTime()) && os.SameFile(left, right)
 }
 
 // approxTokens converts a byte count to an estimated token count using
