@@ -1530,8 +1530,11 @@ plan. Public schema ownership is per artifact: all 36 contract versions are
 registered with exact local bytes, digest, release asset, immutable URL,
 enterprise path, and compatibility aliases. Policy config uses v4;
 repository-sync plan/report and custom-runtime manifest use v2. Existing
-supported legacy inputs remain accepted. New output emits only the current
-registered identity, and runtime validation stays offline.
+supported legacy inputs remain accepted. The registry builds its ordered
+contract and observation storage once, indexes artifact/version/identity/
+enterprise-path/format lookups directly, and returns detached nested snapshots
+to callers. New output emits only the current registered identity, and runtime
+validation stays offline.
 
 `reconc diff LOCK-A LOCK-B` compares the migrated current envelopes rather than
 raw JSON text. Its typed JSON and text reports classify every top-level field as

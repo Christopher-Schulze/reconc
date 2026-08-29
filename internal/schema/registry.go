@@ -76,101 +76,151 @@ type Contract struct {
 	Aliases         []Alias  `json:"aliases,omitempty"`
 }
 
+type registryVersionKey struct {
+	artifact      Artifact
+	schemaVersion string
+}
+
+type registryFormatKey struct {
+	artifact      Artifact
+	schemaVersion string
+	formatVersion string
+}
+
+type immutableRegistry struct {
+	contracts         []Contract
+	observations      []Observation
+	byArtifact        map[Artifact][]int
+	currentByArtifact map[Artifact]int
+	byVersion         map[registryVersionKey]int
+	byIdentity        map[string]int
+	byEnterprisePath  map[string]int
+	byFormat          map[registryFormatKey]struct{}
+}
+
+var staticRegistry = buildRegistry()
+
+func buildRegistry() immutableRegistry {
+	values := contracts()
+	result := immutableRegistry{
+		contracts:         values,
+		observations:      observations(),
+		byArtifact:        make(map[Artifact][]int),
+		currentByArtifact: make(map[Artifact]int),
+		byVersion:         make(map[registryVersionKey]int, len(values)),
+		byIdentity:        make(map[string]int, len(values)),
+		byEnterprisePath:  make(map[string]int, len(values)),
+		byFormat:          make(map[registryFormatKey]struct{}),
+	}
+	for index, contract := range values {
+		result.byArtifact[contract.Artifact] = append(result.byArtifact[contract.Artifact], index)
+		result.byVersion[registryVersionKey{artifact: contract.Artifact, schemaVersion: contract.SchemaVersion}] = index
+		if contract.State == StateCurrent {
+			result.currentByArtifact[contract.Artifact] = index
+		}
+		result.byIdentity[contract.DefaultURL] = index
+		for _, alias := range contract.Aliases {
+			result.byIdentity[alias.URL] = index
+		}
+		result.byEnterprisePath[contract.EnterprisePath] = index
+		for _, formatVersion := range contract.FormatVersions {
+			result.byFormat[registryFormatKey{
+				artifact: contract.Artifact, schemaVersion: contract.SchemaVersion,
+				formatVersion: formatVersion,
+			}] = struct{}{}
+		}
+	}
+	return result
+}
+
 // Contracts returns a detached, deterministically ordered registry snapshot.
 func Contracts() []Contract {
-	contracts := contracts()
-	for index := range contracts {
-		contracts[index].FormatVersions = append([]string(nil), contracts[index].FormatVersions...)
-		contracts[index].Aliases = append([]Alias(nil), contracts[index].Aliases...)
+	contracts := make([]Contract, len(staticRegistry.contracts))
+	for index, contract := range staticRegistry.contracts {
+		contracts[index] = cloneContract(contract)
 	}
 	return contracts
 }
 
 // CurrentContract returns the one schema currently emitted for an artifact.
 func CurrentContract(artifact Artifact) (Contract, bool) {
-	for _, contract := range contracts() {
-		if contract.Artifact == artifact && contract.State == StateCurrent {
-			contract.FormatVersions = append([]string(nil), contract.FormatVersions...)
-			contract.Aliases = append([]Alias(nil), contract.Aliases...)
-			return contract, true
-		}
+	index, ok := staticRegistry.currentByArtifact[artifact]
+	if !ok {
+		return Contract{}, false
 	}
-	return Contract{}, false
+	return cloneContract(staticRegistry.contracts[index]), true
 }
 
 // ContractVersion returns one exact artifact schema version.
 func ContractVersion(artifact Artifact, schemaVersion string) (Contract, bool) {
-	for _, contract := range contracts() {
-		if contract.Artifact == artifact && contract.SchemaVersion == schemaVersion {
-			contract.FormatVersions = append([]string(nil), contract.FormatVersions...)
-			contract.Aliases = append([]Alias(nil), contract.Aliases...)
-			return contract, true
-		}
+	index, ok := staticRegistry.byVersion[registryVersionKey{artifact: artifact, schemaVersion: schemaVersion}]
+	if !ok {
+		return Contract{}, false
 	}
-	return Contract{}, false
+	return cloneContract(staticRegistry.contracts[index]), true
 }
 
 // Observations returns the detached, path-ordered inherited-schema inventory.
 func Observations() []Observation {
-	return append([]Observation(nil), observations()...)
+	return append([]Observation(nil), staticRegistry.observations...)
 }
 
 // ResolveVersion returns the default or enterprise URL for one exact schema
 // version. Unknown artifact/version pairs resolve to an empty string.
 func ResolveVersion(artifact Artifact, schemaVersion string) string {
-	contract, ok := ContractVersion(artifact, schemaVersion)
+	index, ok := staticRegistry.byVersion[registryVersionKey{artifact: artifact, schemaVersion: schemaVersion}]
 	if !ok {
 		return ""
 	}
-	return resolveContract(contract)
+	return resolveContract(staticRegistry.contracts[index])
 }
 
 // AcceptsVersion reports whether a URL is a registered default, compatibility
 // alias, or configured enterprise identity for one exact schema version.
 func AcceptsVersion(artifact Artifact, schemaVersion string, value string) bool {
-	contract, ok := ContractVersion(artifact, schemaVersion)
+	index, ok := staticRegistry.byVersion[registryVersionKey{artifact: artifact, schemaVersion: schemaVersion}]
 	if !ok {
 		return false
 	}
-	return acceptsContract(contract, value)
+	return acceptsContractIndex(index, value)
 }
 
 // Accepts reports whether a URL belongs to any registered version of an
 // artifact. Use AcceptsVersion when a decoder already knows the exact version.
 func Accepts(artifact Artifact, value string) bool {
-	for _, contract := range contracts() {
-		if contract.Artifact == artifact && acceptsContract(contract, value) {
-			return true
-		}
-	}
-	return false
+	_, ok := lookupContractIndex(artifact, value)
+	return ok
 }
 
 // AcceptsFormat reports whether a URL and format-version pair belongs to one
 // registered schema contract. It prevents a known URL from being combined
 // with a format version owned by a different schema version.
 func AcceptsFormat(artifact Artifact, value string, formatVersion string) bool {
-	for _, contract := range contracts() {
-		if contract.Artifact != artifact || !acceptsContract(contract, value) {
-			continue
-		}
-		for _, registered := range contract.FormatVersions {
-			if registered == formatVersion {
-				return true
-			}
-		}
+	index, ok := lookupContractIndex(artifact, value)
+	if !ok {
 		return false
 	}
-	return false
+	contract := staticRegistry.contracts[index]
+	_, ok = staticRegistry.byFormat[registryFormatKey{
+		artifact: contract.Artifact, schemaVersion: contract.SchemaVersion,
+		formatVersion: formatVersion,
+	}]
+	return ok
 }
 
 // ValidateRegistry verifies the complete static registry before release tools
 // expose it as an asset inventory.
 func ValidateRegistry() error {
-	if err := validateContracts(contracts()); err != nil {
+	if err := validateContracts(staticRegistry.contracts); err != nil {
 		return err
 	}
-	return validateObservations(observations())
+	return validateObservations(staticRegistry.observations)
+}
+
+func cloneContract(contract Contract) Contract {
+	contract.FormatVersions = append([]string(nil), contract.FormatVersions...)
+	contract.Aliases = append([]Alias(nil), contract.Aliases...)
+	return contract
 }
 
 func validateContracts(values []Contract) error {
@@ -401,6 +451,33 @@ func containsDuplicate(values []string) bool {
 		}
 	}
 	return false
+}
+
+func acceptsContractIndex(index int, value string) bool {
+	if index < 0 || index >= len(staticRegistry.contracts) {
+		return false
+	}
+	matched, ok := lookupContractIndex(staticRegistry.contracts[index].Artifact, value)
+	return ok && matched == index
+}
+
+func lookupContractIndex(artifact Artifact, value string) (int, bool) {
+	if value == "" {
+		return 0, false
+	}
+	if index, ok := staticRegistry.byIdentity[value]; ok && staticRegistry.contracts[index].Artifact == artifact {
+		return index, true
+	}
+	base := strings.TrimRight(os.Getenv("RECONC_SCHEMA_BASE_URL"), "/")
+	if base == "" || !strings.HasPrefix(value, base) {
+		return 0, false
+	}
+	enterprisePath := strings.TrimPrefix(value, base)
+	index, ok := staticRegistry.byEnterprisePath[enterprisePath]
+	if !ok || base+enterprisePath != value || staticRegistry.contracts[index].Artifact != artifact {
+		return 0, false
+	}
+	return index, true
 }
 
 func acceptsContract(contract Contract, value string) bool {
