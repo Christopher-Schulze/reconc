@@ -29,6 +29,20 @@ func captureDirectoryIdentity(path string) (*directoryIdentity, error) {
 	return &directoryIdentity{info: after}, nil
 }
 
+func captureDirectoryIdentityFromRoot(root *os.Root, path string) (*directoryIdentity, error) {
+	if root == nil {
+		return nil, fmt.Errorf("created directory root is unavailable: %s", path)
+	}
+	info, err := root.Stat(".")
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("created path is not a real directory: %s", path)
+	}
+	return &directoryIdentity{info: info}, nil
+}
+
 func sameDirectoryIdentity(identity *directoryIdentity, current os.FileInfo) bool {
 	return identity != nil && identity.info != nil && current != nil && os.SameFile(current, identity.info)
 }

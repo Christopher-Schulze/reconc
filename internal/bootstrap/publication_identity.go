@@ -143,10 +143,13 @@ func (record *createdRecord) close() error {
 		err = errors.Join(err, record.file.Close())
 		record.file = nil
 	}
-	if record.parent != nil {
+	if record.parentRef != nil {
+		err = errors.Join(err, closeBootstrapRootRef(record.parentRef))
+	} else if record.parent != nil {
 		err = errors.Join(err, record.parent.Close())
-		record.parent = nil
 	}
+	record.parent = nil
+	record.parentRef = nil
 	return err
 }
 

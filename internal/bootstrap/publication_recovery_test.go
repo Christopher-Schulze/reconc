@@ -205,6 +205,81 @@ func TestPublishArtifactReturnsRollbackCapableRecordAfterParentReplacement(t *te
 	}
 }
 
+func TestPublishArtifactRejectsAncestorReplacementWithoutTouchingReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not permit deterministic replacement of this open directory handle")
+	}
+	root := t.TempDir()
+	oldRoot := root + "-old"
+	artifact := desiredArtifact{
+		component: "recovery-test",
+		path:      "one/two/owned.txt",
+		mode:      0o644,
+		content:   []byte("owned\n"),
+	}
+	hooks := publicationHooks{beforeParentValidation: func(target string) error {
+		if err := os.Rename(root, oldRoot); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, []byte("external\n"), 0o644)
+	}}
+	record, directories, err := publishArtifactWithHooks(
+		root, artifact, artifact.path, bytesSHA256(artifact.content), strings.Repeat("f", 64), hooks,
+	)
+	defer closeCreatedDirectoryIdentities(directories)
+	if err == nil || record.path == "" || record.parentRef == nil {
+		t.Fatalf("ancestor replacement result: record=%+v err=%v", record, err)
+	}
+	if body, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(artifact.path))); readErr != nil || string(body) != "external\n" {
+		t.Fatalf("replacement target changed: body=%q err=%v", body, readErr)
+	}
+	if err := os.RemoveAll(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(oldRoot, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeCreatedRecord(&record); err != nil {
+		t.Fatalf("remove ancestor-replacement record: %v", err)
+	}
+	if _, err := rollbackCreated(root, nil, directories); err != nil {
+		t.Fatalf("rollback ancestor-created directories: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "one")); !os.IsNotExist(err) {
+		t.Fatalf("ancestor-created directory remains: %v", err)
+	}
+}
+
+func TestRollbackCreatedDirectoriesUsesBoundRootAfterRepositoryReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not permit deterministic replacement of this open directory handle")
+	}
+	root := t.TempDir()
+	oldRoot := root + "-old"
+	directories, err := createSafeParents(root, filepath.Join(root, "nested", "deep"))
+	if err != nil || len(directories) != 2 {
+		t.Fatalf("createSafeParents = %+v, %v", directories, err)
+	}
+	if err := os.Rename(root, oldRoot); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rollbackCreated(root, nil, directories); err != nil {
+		t.Fatalf("bound rollback = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(oldRoot, "nested")); !os.IsNotExist(err) {
+		t.Fatalf("old repository directories remain: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "nested")); !os.IsNotExist(err) {
+		t.Fatalf("replacement repository was mutated: %v", err)
+	}
+}
+
 type swappingJSONTarget struct {
 	path           string
 	replacementErr error

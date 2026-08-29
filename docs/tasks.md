@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 336 Root bootstrap publication against path replacement -> tasks/336-root-bootstrap-publication-against-path-replacement.md
+- [~] 337 Report atomic-file post-publication outcomes truthfully -> tasks/337-report-atomic-file-post-publication-outcomes-truthfully.md
 
 ## Queue
 
-- [ ] 337 Report atomic-file post-publication outcomes truthfully -> tasks/337-report-atomic-file-post-publication-outcomes-truthfully.md
 - [ ] 338 Parse custom-runtime manifests once -> tasks/338-parse-custom-runtime-manifests-once.md
 - [ ] 339 Reuse canonical bytes across proof serialization -> tasks/339-reuse-canonical-bytes-across-proof-serialization.md
 - [ ] 340 Centralize archive-ring bounds and symlink accounting -> tasks/340-centralize-archive-ring-bounds-and-symlink-accounting.md
@@ -19,6 +18,7 @@
 
 ## Done
 
+- [x] 336 Root bootstrap publication against path replacement -> tasks/done/336-root-bootstrap-publication-against-path-replacement.md
 - [x] 335 Pin JSONL backup source identity before linking -> tasks/done/335-pin-jsonl-backup-source-identity-before-linking.md
 - [x] 334 Propagate protocol and identity serialization failures -> tasks/done/334-propagate-protocol-and-identity-serialization-failures.md
 - [x] 333 Index immutable schema contracts for direct lookup -> tasks/done/333-index-immutable-schema-contracts-for-direct-lookup.md

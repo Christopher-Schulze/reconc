@@ -26,6 +26,7 @@ type createdRecord struct {
 	file       *os.File
 	info       os.FileInfo
 	parent     *os.Root
+	parentRef  *bootstrapRootRef
 	parentInfo os.FileInfo
 	name       string
 }
@@ -35,7 +36,11 @@ type createdDirectory struct {
 	// identity is a pointer so closeDirectoryIdentity can nil the handle
 	// after the first close, making repeated closes (the rollback path and
 	// the caller defers share the same slice backing array) a safe no-op.
-	identity *directoryIdentity
+	identity   *directoryIdentity
+	parent     *os.Root
+	parentRef  *bootstrapRootRef
+	parentInfo os.FileInfo
+	name       string
 }
 
 func Apply(plan *Plan, productVersion string) (*Report, error) {
@@ -485,19 +490,28 @@ func publishArtifactWithHooks(root string, artifact desiredArtifact, relative, e
 	if err != nil {
 		return createdRecord{}, nil, err
 	}
-	createdDirs, err := createSafeParents(root, filepath.Dir(target))
+	rootRef, _, err := openBootstrapRoot(root)
 	if err != nil {
+		return createdRecord{}, nil, err
+	}
+	parentRef, parentInfo, createdDirs, err := createSafeParentsWithRoot(root, rootRef, filepath.Dir(target))
+	if err != nil {
+		_ = closeUnretainedBootstrapRootRefs(nil, createdDirs, parentRef, rootRef)
 		return createdRecord{}, createdDirs, err
 	}
-	parent, parentInfo, name, err := openCreatedParent(target)
-	if err != nil {
-		return createdRecord{}, createdDirs, err
+	if parentRef == nil || parentRef.root == nil {
+		_ = closeUnretainedBootstrapRootRefs(nil, createdDirs, parentRef, rootRef)
+		return createdRecord{}, createdDirs, errors.New("bootstrap artifact parent handle is unavailable")
 	}
-	closeParent := true
+	parent := parentRef.root
+	name := filepath.Base(target)
+	transferred := false
 	defer func() {
-		if closeParent {
-			_ = parent.Close()
+		if transferred {
+			_ = closeUnretainedBootstrapRootRefs(parentRef, createdDirs, rootRef)
+			return
 		}
+		_ = closeUnretainedBootstrapRootRefs(nil, createdDirs, parentRef, rootRef)
 	}()
 	stageName := "." + name + ".reconc-bootstrap-" + planDigest[:12] + ".tmp"
 	stagePath := filepath.Join(filepath.Dir(target), stageName)
@@ -506,7 +520,8 @@ func publishArtifactWithHooks(root string, artifact desiredArtifact, relative, e
 		return createdRecord{}, createdDirs, fmt.Errorf("create bootstrap staging file for %s: %w", relative, err)
 	}
 	if recovered != nil {
-		closeParent = false
+		recovered.parentRef = parentRef
+		transferred = true
 		return *recovered, createdDirs, nil
 	}
 	stageOpen := true
@@ -588,9 +603,9 @@ func publishArtifactWithHooks(root string, artifact desiredArtifact, relative, e
 	}
 	record := createdRecord{
 		path: target, sha256: expectedSHA, file: published, info: publishedInfo,
-		parent: parent, parentInfo: parentInfo, name: name,
+		parent: parent, parentRef: parentRef, parentInfo: parentInfo, name: name,
 	}
-	closeParent = false
+	transferred = true
 	if err := syncMutatedBootstrapParent(parent, parentInfo, target); err != nil {
 		removeStageErr := cleanupStage()
 		removeTargetErr := removeCreatedRecord(&record)
@@ -896,54 +911,75 @@ func safeBootstrapTarget(root, relative string) (string, error) {
 }
 
 func createSafeParents(root, parent string) ([]createdDirectory, error) {
-	relative, err := filepath.Rel(root, parent)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("bootstrap parent escapes repository: %s", parent)
+	rootPath := filepath.Clean(root)
+	rootRef, _, err := openBootstrapRoot(rootPath)
+	if err != nil {
+		return nil, err
 	}
-	if relative == "." {
-		return []createdDirectory{}, nil
+	finalRef, _, created, err := createSafeParentsWithRoot(rootPath, rootRef, filepath.Clean(parent))
+	if err != nil {
+		_ = closeUnretainedBootstrapRootRefs(nil, created, finalRef, rootRef)
+		return created, err
 	}
-	created := []createdDirectory{}
-	current := root
-	for _, part := range strings.Split(relative, string(filepath.Separator)) {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
-		if os.IsNotExist(err) {
-			parent, parentInfo, name, openErr := openCreatedParent(current)
-			if openErr != nil {
-				return created, fmt.Errorf("open bootstrap parent for %s: %w", current, openErr)
-			}
-			if err := parent.Mkdir(name, 0o755); err != nil {
-				return created, errors.Join(
-					fmt.Errorf("create bootstrap parent %s: %w", current, err),
-					parent.Close(),
-				)
-			}
-			directory, err := captureCreatedDirectory(current)
-			if err != nil {
-				removeErr := removeBoundBootstrapEntry(parent, parentInfo, name, current)
-				return created, combineWriteFailure(
-					"inspect created bootstrap parent "+current,
-					err,
-					parent.Close(),
-					removeErr,
-				)
-			}
-			created = append(created, directory)
-			commitErr := errors.Join(syncMutatedBootstrapParent(parent, parentInfo, current), parent.Close())
-			if commitErr != nil {
-				return created, fmt.Errorf("commit created bootstrap parent %s: %w", current, commitErr)
-			}
-			continue
-		}
-		if err != nil {
-			return created, fmt.Errorf("inspect bootstrap parent %s: %w", current, err)
-		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-			return created, fmt.Errorf("bootstrap parent is not a real directory: %s", current)
-		}
-	}
+	_ = closeUnretainedBootstrapRootRefs(nil, created, finalRef, rootRef)
 	return created, nil
+}
+
+func rollbackCreatedDirectoryBound(directory createdDirectory) error {
+	if directory.parentRef == nil || directory.parentRef.root == nil {
+		return errors.New("rollback directory parent handle is unavailable")
+	}
+	parent := directory.parentRef.root
+	if err := validateBoundBootstrapParent(parent, directory.parentInfo); err != nil {
+		return err
+	}
+	boundInfo, err := parent.Lstat(directory.name)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if boundInfo.Mode()&os.ModeSymlink != 0 || !boundInfo.IsDir() || !sameDirectoryIdentity(directory.identity, boundInfo) {
+		return errors.New("refuse rollback of externally replaced directory")
+	}
+	opened, err := parent.Open(directory.name)
+	if err != nil {
+		return err
+	}
+	openedInfo, statErr := opened.Stat()
+	entries, readErr := opened.ReadDir(maxBootstrapDirectoryEntries + 1)
+	afterInfo, afterErr := opened.Stat()
+	closeErr := opened.Close()
+	if errors.Is(readErr, io.EOF) {
+		readErr = nil
+	}
+	if err := errors.Join(statErr, readErr, afterErr, closeErr); err != nil {
+		return err
+	}
+	if !sameDirectoryIdentity(directory.identity, openedInfo) || !sameDirectoryIdentity(directory.identity, afterInfo) {
+		return errors.New("refuse rollback of externally replaced directory")
+	}
+	if len(entries) > maxBootstrapDirectoryEntries {
+		return fmt.Errorf("refuse rollback of transaction directory with more than %d entries", maxBootstrapDirectoryEntries)
+	}
+	if len(entries) > 0 {
+		return errors.New("refuse rollback of non-empty transaction directory")
+	}
+	if err := validateBoundBootstrapParent(parent, directory.parentInfo); err != nil {
+		return err
+	}
+	current, err := parent.Lstat(directory.name)
+	if err != nil {
+		return err
+	}
+	if !sameDirectoryIdentity(directory.identity, current) {
+		return errors.New("refuse rollback of externally replaced directory")
+	}
+	if err := parent.Remove(directory.name); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return syncBoundBootstrapParent(parent, directory.parentInfo)
 }
 
 func rollbackCreated(root string, created []createdRecord, dirs []createdDirectory) ([]string, error) {
@@ -963,6 +999,12 @@ func rollbackCreated(root string, created []createdRecord, dirs []createdDirecto
 		rolledBack = append(rolledBack, filepath.ToSlash(relative))
 	}
 	for _, directory := range deepestDirectoriesFirst(dirs) {
+		if directory.parentRef != nil {
+			if err := rollbackCreatedDirectoryBound(directory); err != nil {
+				problems = append(problems, "remove rollback directory "+directory.path+": "+err.Error())
+			}
+			continue
+		}
 		info, err := os.Lstat(directory.path)
 		if os.IsNotExist(err) {
 			continue
@@ -1098,20 +1140,32 @@ func appendUniqueDirectories(directories []createdDirectory, additions ...create
 	for _, directory := range directories {
 		seen[directory.path] = true
 	}
+	duplicates := []createdDirectory{}
 	for _, directory := range additions {
 		if !seen[directory.path] {
 			seen[directory.path] = true
 			directories = append(directories, directory)
 			continue
 		}
+		duplicates = append(duplicates, directory)
+	}
+	for _, directory := range duplicates {
 		closeDirectoryIdentity(directory.identity)
+		if directory.parentRef != nil && !bootstrapRootRefReferenced(directories, directory.parentRef) {
+			_ = closeBootstrapRootRef(directory.parentRef)
+		}
 	}
 	return directories
 }
 
 func closeCreatedDirectoryIdentities(directories []createdDirectory) {
+	refs := map[*bootstrapRootRef]bool{}
 	for _, directory := range directories {
 		closeDirectoryIdentity(directory.identity)
+		if directory.parentRef != nil && !refs[directory.parentRef] {
+			refs[directory.parentRef] = true
+			_ = closeBootstrapRootRef(directory.parentRef)
+		}
 	}
 }
 

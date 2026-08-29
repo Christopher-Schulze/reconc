@@ -641,10 +641,12 @@ and each nested parent-directory creation. These barriers follow the
 corresponding payload or directory-entry mutation. Windows syncs every payload
 and preserves the rooted create-only boundary without reporting a directory
 fsync that Win32 does not support through the read-only root handle. Publication
-retains an open descriptor for the exact created inode through mode setting,
-checksum verification, and transaction ownership capture. Rollback reuses
-that descriptor and an opened parent identity, revalidates both before rooted
-removal, and preserves any externally replaced target. Hard-link publication
+opens and verifies one repository `os.Root` for each transactional artifact,
+traverses every parent through nested rooted handles, and retains the final
+parent handle through mode setting, checksum verification, and transaction
+ownership capture. Rollback reuses those bound handles plus the exact created
+directory identities, revalidates both before rooted removal, and remains bound
+to the original repository if an ancestor path is replaced. Hard-link publication
 and the exclusive-copy fallback share the same descriptor and cleanup
 contract. A retry under the same repository transaction lock recovers only the
 exact reserved stage for the same plan and target when its regular-file
