@@ -559,11 +559,15 @@ generation; the diagnostic operation itself executes exactly once.
 Private state directories and locks are created through the shared
 `internal/privatefs` boundary. It rejects symlink, irregular, wrong-owner, and
 unexpected hard-link objects. Unix applies and validates private modes through
-opened descriptors. Windows first binds a no-follow descriptor, reopens that
-same object with only `WRITE_DAC|WRITE_OWNER`, applies owner and protected
-current-user-only DACL through `SetSecurityInfo`, then validates through the
-opened handle and revalidates path identity before returning. No private-state
-ACL mutation resolves the object again by path. Create-capable lock opens are
+opened descriptors. Windows first binds a no-follow descriptor and obtains a
+security handle with only `WRITE_DAC|WRITE_OWNER`: `ReOpenFile` is used when the
+source supports it, while Go `os.Root` handles use a no-follow path reopen whose
+volume/file identity is compared with the bound descriptor before mutation.
+Owner and protected current-user-only DACL are applied through
+`SetSecurityInfo`, then validated through the opened handle and revalidated
+against path identity before returning. No private-state ACL mutation calls a
+path-based security API; a fallback path is only used to obtain a handle and is
+identity-checked before mutation. Create-capable lock opens are
 rooted at the validated parent and split absence from existence: exclusive creation
 cannot follow a dangling link, and an existing-path race is reopened only after
 regular-file, identity, security, and single-link checks. Parent replacement

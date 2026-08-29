@@ -1225,10 +1225,11 @@ existing paths are separate rooted operations: absence uses exclusive creation,
 while an `ErrExist` race is reopened only after non-symlink, regular-file,
 identity, and link-count validation. Rejected leaf or parent replacement is
 never followed, and a newly created file is removed through the still-bound
-parent if parent validation fails. On Windows, ACL publication reopens the
-bound object with only `WRITE_DAC|WRITE_OWNER` and calls handle-based
-`SetSecurityInfo`; replacement paths and reparse targets cannot receive the
-security mutation. Action state, installation receipts, retention, command
+parent if parent validation fails. On Windows, ACL publication obtains a
+no-follow security handle with only `WRITE_DAC|WRITE_OWNER`, using `ReOpenFile`
+where supported and an identity-checked path reopen for Go `os.Root` handles,
+then calls handle-based `SetSecurityInfo`; replacement paths and reparse targets
+cannot receive the security mutation. Action state, installation receipts, retention, command
 proofs, and unresolved policy proofs
 use this boundary; their paths, filenames, retention policy, and public JSON
 contracts are unchanged.
@@ -1237,7 +1238,7 @@ Same-directory binary transaction files use the file-only form of this
 boundary. It secures and revalidates the already opened temporary identity
 without changing or requiring a private parent directory: Unix enforces mode,
 owner, and link count, while Windows persists and validates a protected
-current-user-only DACL through a handle reopened from that identity.
+current-user-only DACL through a security handle bound to that identity.
 Replacement tests accept only two safe outcomes: the opened identity detects
 the replacement, or the operating system refuses the
 replacement while that identity is open.

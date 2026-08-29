@@ -102,7 +102,8 @@ func TestSecureWindowsHandleTargetsOpenedIdentityAfterReplacement(t *testing.T) 
 	defer file.Close()
 
 	err = secureWindowsHandleWithHooks(file, false, windowsSecurityHooks{
-		reopen: reopenWindowsSecurityHandle,
+		reopen:     reopenWindowsSecurityHandle,
+		reopenPath: openWindowsSecurityHandleByPath,
 		afterReopen: func() error {
 			if err := os.Rename(openedPath, movedPath); err != nil {
 				return err

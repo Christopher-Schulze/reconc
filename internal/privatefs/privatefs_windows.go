@@ -16,6 +16,7 @@ var reopenFileProcedure = windows.NewLazySystemDLL("kernel32.dll").NewProc("ReOp
 
 type windowsSecurityHooks struct {
 	reopen      func(windows.Handle, uint32, uint32, uint32) (windows.Handle, error)
+	reopenPath  func(string, uint32, uint32, uint32) (windows.Handle, error)
 	afterReopen func() error
 }
 
@@ -56,7 +57,8 @@ func validateDirectorySecurity(file *os.File, info os.FileInfo) error {
 
 func secureWindowsHandle(file *os.File, directory bool) error {
 	return secureWindowsHandleWithHooks(file, directory, windowsSecurityHooks{
-		reopen: reopenWindowsSecurityHandle,
+		reopen:     reopenWindowsSecurityHandle,
+		reopenPath: openWindowsSecurityHandleByPath,
 	})
 }
 
@@ -74,7 +76,31 @@ func secureWindowsHandleWithHooks(file *os.File, directory bool, hooks windowsSe
 		windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS,
 	)
 	if err != nil {
-		return fmt.Errorf("reopen private Windows security handle: %w", err)
+		if securityHandle != windows.InvalidHandle {
+			_ = windows.CloseHandle(securityHandle)
+			securityHandle = windows.InvalidHandle
+		}
+		if hooks.reopenPath == nil {
+			return fmt.Errorf("reopen private Windows security handle: %w", err)
+		}
+		securityHandle, err = hooks.reopenPath(
+			file.Name(),
+			windows.WRITE_DAC|windows.WRITE_OWNER,
+			windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+			windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS,
+		)
+		if err != nil {
+			if securityHandle != windows.InvalidHandle {
+				_ = windows.CloseHandle(securityHandle)
+			}
+			return fmt.Errorf("reopen private Windows security handle: %w", err)
+		}
+		if securityHandle == windows.InvalidHandle {
+			return fmt.Errorf("reopen private Windows security handle returned an invalid handle")
+		}
+		if err := validateWindowsSecurityHandleIdentity(file, securityHandle); err != nil {
+			return errors.Join(err, windows.CloseHandle(securityHandle))
+		}
 	}
 	if hooks.afterReopen != nil {
 		if err := hooks.afterReopen(); err != nil {
@@ -130,6 +156,66 @@ func reopenWindowsSecurityHandle(
 		return windows.InvalidHandle, callErr
 	}
 	return reopened, nil
+}
+
+func openWindowsSecurityHandleByPath(
+	path string,
+	desiredAccess, shareMode, flags uint32,
+) (windows.Handle, error) {
+	// Go's os.Root handles are opened with NtCreateFile and cannot be passed to
+	// ReOpenFile. Open a no-follow security handle by the recorded name as a
+	// compatibility fallback; the caller compares its volume/file identity to
+	// the source handle before applying any security mutation.
+	pathPointer, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return windows.InvalidHandle, fmt.Errorf("encode private Windows security path: %w", err)
+	}
+	securityHandle, err := windows.CreateFile(
+		pathPointer,
+		desiredAccess,
+		shareMode,
+		nil,
+		windows.OPEN_EXISTING,
+		flags,
+		0,
+	)
+	if err == nil {
+		return securityHandle, nil
+	}
+	if shareMode&windows.FILE_SHARE_DELETE == 0 || !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+		return windows.InvalidHandle, err
+	}
+	securityHandle, retryErr := windows.CreateFile(
+		pathPointer,
+		desiredAccess,
+		shareMode&^uint32(windows.FILE_SHARE_DELETE),
+		nil,
+		windows.OPEN_EXISTING,
+		flags,
+		0,
+	)
+	if retryErr != nil {
+		return windows.InvalidHandle, errors.Join(err, retryErr)
+	}
+	return securityHandle, nil
+}
+
+func validateWindowsSecurityHandleIdentity(file *os.File, securityHandle windows.Handle) error {
+	if file == nil {
+		return fmt.Errorf("private Windows security source handle is unavailable")
+	}
+	var source, reopened windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(windows.Handle(file.Fd()), &source); err != nil {
+		return fmt.Errorf("inspect private Windows security source identity: %w", err)
+	}
+	if err := windows.GetFileInformationByHandle(securityHandle, &reopened); err != nil {
+		return fmt.Errorf("inspect private Windows security handle identity: %w", err)
+	}
+	if source.VolumeSerialNumber != reopened.VolumeSerialNumber ||
+		source.FileIndexHigh != reopened.FileIndexHigh || source.FileIndexLow != reopened.FileIndexLow {
+		return fmt.Errorf("private Windows security handle changed identity")
+	}
+	return nil
 }
 
 func secureDirectoryDescriptor(file *os.File) error { return secureWindowsHandle(file, true) }

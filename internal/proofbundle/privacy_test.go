@@ -134,6 +134,7 @@ func TestCommandIdentityNeverCommitsArguments(t *testing.T) {
 }
 
 func TestCommandDescriptionUsesEffectiveShellExecutable(t *testing.T) {
+	t.Setenv("USER", "fixture-user")
 	deep := "go test"
 	for range commandAnalysisDepth + 2 {
 		deep = "echo $(" + deep + ")"
