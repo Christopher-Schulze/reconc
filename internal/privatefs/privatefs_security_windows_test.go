@@ -42,7 +42,7 @@ func TestSecureWindowsDescriptorPersistsProtectedDACL(t *testing.T) {
 	}
 }
 
-func TestSecureWindowsHandleRequestsOnlyACLAndOwnerRights(t *testing.T) {
+func TestSecureWindowsHandleRequestsSecurityMutationRights(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "private.json")
 	if err := os.WriteFile(path, []byte("{}\n"), PrivateFileMode); err != nil {
 		t.Fatal(err)
@@ -67,8 +67,8 @@ func TestSecureWindowsHandleRequestsOnlyACLAndOwnerRights(t *testing.T) {
 	if source != windows.Handle(file.Fd()) {
 		t.Fatal("security writer did not reopen the supplied file handle")
 	}
-	if access != windows.WRITE_DAC|windows.WRITE_OWNER {
-		t.Fatalf("security-handle access = %#x, want WRITE_DAC|WRITE_OWNER", access)
+	if access != windowsSecurityMutationAccess {
+		t.Fatalf("security-handle access = %#x, want READ_CONTROL|WRITE_DAC|WRITE_OWNER", access)
 	}
 	if share != windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE {
 		t.Fatalf("security-handle share mode = %#x", share)

@@ -14,6 +14,8 @@ import (
 
 var reopenFileProcedure = windows.NewLazySystemDLL("kernel32.dll").NewProc("ReOpenFile")
 
+const windowsSecurityMutationAccess = windows.READ_CONTROL | windows.WRITE_DAC | windows.WRITE_OWNER
+
 type windowsSecurityHooks struct {
 	reopen      func(windows.Handle, uint32, uint32, uint32) (windows.Handle, error)
 	reopenPath  func(string, uint32, uint32, uint32) (windows.Handle, error)
@@ -71,7 +73,7 @@ func secureWindowsHandleWithHooks(file *os.File, directory bool, hooks windowsSe
 	}
 	securityHandle, err := hooks.reopen(
 		windows.Handle(file.Fd()),
-		windows.WRITE_DAC|windows.WRITE_OWNER,
+		windowsSecurityMutationAccess,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
 		windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS,
 	)
@@ -85,7 +87,7 @@ func secureWindowsHandleWithHooks(file *os.File, directory bool, hooks windowsSe
 		}
 		securityHandle, err = hooks.reopenPath(
 			file.Name(),
-			windows.WRITE_DAC|windows.WRITE_OWNER,
+			windowsSecurityMutationAccess,
 			windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
 			windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS,
 		)
@@ -125,7 +127,9 @@ func secureWindowsHandleWithHooks(file *os.File, directory bool, hooks windowsSe
 	// Assigning the owner explicitly also covers elevated Windows tokens whose
 	// default object owner is the Administrators group rather than the token
 	// user. SetSecurityInfo binds the mutation to the reopened object handle;
-	// WRITE_DAC and WRITE_OWNER are the only additional rights requested.
+	// SetSecurityInfo also reads unspecified descriptor fields while applying
+	// the requested owner and DACL, so READ_CONTROL is required alongside the
+	// two mutation rights.
 	securityInformation := windows.SECURITY_INFORMATION(windows.OWNER_SECURITY_INFORMATION |
 		windows.DACL_SECURITY_INFORMATION |
 		windows.PROTECTED_DACL_SECURITY_INFORMATION)

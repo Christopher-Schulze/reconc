@@ -560,7 +560,7 @@ Private state directories and locks are created through the shared
 `internal/privatefs` boundary. It rejects symlink, irregular, wrong-owner, and
 unexpected hard-link objects. Unix applies and validates private modes through
 opened descriptors. Windows first binds a no-follow descriptor and obtains a
-security handle with only `WRITE_DAC|WRITE_OWNER`: `ReOpenFile` is used when the
+security handle with `READ_CONTROL|WRITE_DAC|WRITE_OWNER`: `ReOpenFile` is used when the
 source supports it, while Go `os.Root` handles use a no-follow path reopen whose
 volume/file identity is compared with the bound descriptor before mutation.
 Owner and protected current-user-only DACL are applied through

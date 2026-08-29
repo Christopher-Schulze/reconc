@@ -1226,7 +1226,7 @@ while an `ErrExist` race is reopened only after non-symlink, regular-file,
 identity, and link-count validation. Rejected leaf or parent replacement is
 never followed, and a newly created file is removed through the still-bound
 parent if parent validation fails. On Windows, ACL publication obtains a
-no-follow security handle with only `WRITE_DAC|WRITE_OWNER`, using `ReOpenFile`
+no-follow security handle with `READ_CONTROL|WRITE_DAC|WRITE_OWNER`, using `ReOpenFile`
 where supported and an identity-checked path reopen for Go `os.Root` handles,
 then calls handle-based `SetSecurityInfo`; replacement paths and reparse targets
 cannot receive the security mutation. Action state, installation receipts, retention, command
