@@ -22,6 +22,10 @@ const (
 	appendStateCommitting = "committing"
 	appendStateResolved   = "resolved"
 	maxAppendJournalBytes = 64 * 1024
+	// MaxArchiveFiles is the largest archive ring accepted by the JSONL
+	// writer. Callers that inspect a ring use this bound for historical files
+	// even when their current policy retains fewer archives.
+	MaxArchiveFiles = 32
 )
 
 // ErrTransactionCommitRequired means recovery reached a transaction whose
@@ -195,11 +199,14 @@ func Inspect(path string, policy Policy) (EnforceResult, error) {
 		if candidate.index <= policy.MaxArchives {
 			continue
 		}
-		info, err := os.Stat(candidate.path)
+		info, err := os.Lstat(candidate.path)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return result, err
 		}
 		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+				return result, fmt.Errorf("JSONL archive must be a non-symlink regular file: %s", candidate.path)
+			}
 			result.BytesFreed += info.Size()
 			result.FilesRemoved++
 		}

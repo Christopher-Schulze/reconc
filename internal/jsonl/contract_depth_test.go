@@ -2,6 +2,7 @@ package jsonl
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -82,6 +83,65 @@ func TestPathsOldestFirstPreservesChronology(t *testing.T) {
 	want := []string{path + ".3", path + ".1", path}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("paths = %v, want %v", got, want)
+	}
+}
+
+func TestRingSizeRejectsSymlinkWithoutCountingTargetBytes(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "events.jsonl")
+	if err := os.WriteFile(path, []byte("live\n"), 0o600); err != nil {
+		t.Fatalf("write live file: %v", err)
+	}
+	if err := os.WriteFile(path+".1", []byte("archive\n"), 0o600); err != nil {
+		t.Fatalf("write archive file: %v", err)
+	}
+	target := filepath.Join(root, "foreign-target.jsonl")
+	if err := os.WriteFile(target, make([]byte, 1<<20), 0o600); err != nil {
+		t.Fatalf("write target file: %v", err)
+	}
+	if err := os.Symlink(target, path+".2"); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	bytes, files, err := RingSize(path, 2)
+	if err == nil || !strings.Contains(err.Error(), "non-symlink regular") {
+		t.Fatalf("RingSize accepted linked archive: bytes=%d files=%d err=%v", bytes, files, err)
+	}
+	if bytes != 0 || files != 0 {
+		t.Fatalf("RingSize published partial or target bytes after rejection: bytes=%d files=%d", bytes, files)
+	}
+	if _, err := Inspect(path, Policy{MaxBytes: 1024, MaxArchives: 1}); err == nil {
+		t.Fatal("Inspect accepted linked archive")
+	}
+	if _, err := Enforce(path, Policy{MaxBytes: 1024, MaxArchives: 1}); err == nil {
+		t.Fatal("Enforce accepted linked archive")
+	}
+	if _, err := os.Lstat(path + ".2"); err != nil {
+		t.Fatalf("linked archive was removed after rejection: %v", err)
+	}
+}
+
+func TestRingSizeAcceptsSparseRingAtContractLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	if err := os.WriteFile(path+fmt.Sprintf(".%d", MaxArchiveFiles), []byte("last\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bytes, files, err := RingSize(path, MaxArchiveFiles)
+	if err != nil || bytes != int64(len("last\n")) || files != 1 {
+		t.Fatalf("sparse ring = bytes %d files %d err %v", bytes, files, err)
+	}
+	if _, _, err := RingSize(path, MaxArchiveFiles+1); err == nil {
+		t.Fatal("RingSize accepted a bound outside the JSONL contract")
+	}
+}
+
+func TestPathsOldestFirstRejectsArchiveOutsideContract(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	extra := fmt.Sprintf("%s.%d", path, MaxArchiveFiles+1)
+	if err := os.WriteFile(extra, []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PathsOldestFirst(path, MaxArchiveFiles); err == nil || !strings.Contains(err.Error(), "exceeds bound") {
+		t.Fatalf("out-of-contract archive was accepted: %v", err)
 	}
 }
 

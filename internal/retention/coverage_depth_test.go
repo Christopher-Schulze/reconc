@@ -66,6 +66,31 @@ func TestRepositoryRuntimeBudgetRemovesOldestInactiveOwnedArtifacts(t *testing.T
 	}
 }
 
+func TestRepositoryRuntimeBudgetNeverRemovesAuditArchives(t *testing.T) {
+	repo := t.TempDir()
+	now := time.Now().UTC()
+	auditArchive := filepath.Join(repo, ".reconc", "audit.jsonl.1")
+	decisionArchive := filepath.Join(repo, ".reconc", "run", "decisions.jsonl.1")
+	writeTimed(t, auditArchive, []byte("audit-archive"), now.Add(-4*time.Hour))
+	writeTimed(t, decisionArchive, []byte("decision-archive"), now.Add(-3*time.Hour))
+	policy := DefaultPolicy()
+	policy.RepoRuntimeBytes = 0
+	report := Report{}
+	class := enforceRepoTotal(Options{RepoRoot: repo, Policy: policy, Now: now}, &report)
+	if len(report.Errors) != 0 {
+		t.Fatalf("runtime budget errors = %v", report.Errors)
+	}
+	if class.FilesDeleted != 1 || class.BytesFreed != int64(len("decision-archive")) {
+		t.Fatalf("runtime budget removed the wrong artifacts: %+v", class)
+	}
+	if _, err := os.Stat(auditArchive); err != nil {
+		t.Fatalf("audit archive was removed by generic retention: %v", err)
+	}
+	if _, err := os.Stat(decisionArchive); !os.IsNotExist(err) {
+		t.Fatalf("run-decision archive survived: %v", err)
+	}
+}
+
 func TestAbandonedTempContractsCoverFilesBuildLocksAndOwnedRoots(t *testing.T) {
 	repo := t.TempDir()
 	tempRoot := t.TempDir()

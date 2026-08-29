@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 340 Centralize archive-ring bounds and symlink accounting -> tasks/340-centralize-archive-ring-bounds-and-symlink-accounting.md
+- [~] 341 Remove duplicate JSONL lock validation -> tasks/341-remove-duplicate-jsonl-lock-validation.md
 
 ## Queue
 
-- [ ] 341 Remove duplicate JSONL lock validation -> tasks/341-remove-duplicate-jsonl-lock-validation.md
 
 ## Blocked
 
@@ -15,6 +14,7 @@
 
 ## Done
 
+- [x] 340 Centralize archive-ring bounds and symlink accounting -> tasks/done/340-centralize-archive-ring-bounds-and-symlink-accounting.md
 - [x] 339 Reuse canonical bytes across proof serialization -> tasks/done/339-reuse-canonical-bytes-across-proof-serialization.md
 - [x] 338 Parse custom-runtime manifests once -> tasks/done/338-parse-custom-runtime-manifests-once.md
 - [x] 337 Report atomic-file post-publication outcomes truthfully -> tasks/done/337-report-atomic-file-post-publication-outcomes-truthfully.md

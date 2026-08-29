@@ -1250,7 +1250,9 @@ Legacy `0755`/`0644` audit state is migrated in place only after identity and
 regular-file checks; a symlink, special file, wrong owner, or invalid hard-link
 state is rejected without deleting evidence. JSONL hash-chain, archive count,
 size bounds, and public CLI output remain unchanged. Retention inspects the
-validated ring under the same audit lock before reporting any cleanup. Same-
+validated ring through the JSONL-owned bounded ring inspector under the same
+audit lock before reporting any cleanup; non-regular members and archive
+indices outside the contract fail closed without target-byte accounting. Same-
 process append bursts pass through a per-audit-directory mutex before the
 bounded cross-process lock, avoiding lock-polling storms while preserving the
 file lock as the inter-process authority.

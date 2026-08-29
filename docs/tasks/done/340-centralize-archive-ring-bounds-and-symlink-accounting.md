@@ -13,14 +13,16 @@ Retention and diagnostic loops use duplicated numeric archive bounds, including 
 
 ## Sub-Tasks
 
-- [ ] Inventory archive constants and `Stat` probes
-- [ ] Expose one read-only ring-bound contract per owner
-- [ ] Correct symlink byte and cleanup accounting
-- [ ] Add sparse, linked, broken, and maximum-ring tests
+- [x] Inventory archive constants and `Stat` probes
+- [x] Expose one read-only ring-bound contract per owner
+- [x] Correct symlink byte and cleanup accounting
+- [x] Add sparse, linked, broken, and maximum-ring tests
 
 ## Notes
 
 - Evidence includes `internal/retention/temp.go`, `retention/prune.go`, `internal/jsonl/enforce.go`, and `internal/cli/doctor_deep.go` archive loops.
+- `jsonl.MaxArchiveFiles` and `jsonl.RingSize` now own the bounded archive contract. Ring inspection rejects links, special files, and archive indices outside the bound using non-following metadata. Generic repo-budget cleanup enumerates only the run-decision ring and preserves audit-chain archives.
+- Verified with `go test ./internal/jsonl ./internal/retention ./internal/audit ./internal/cli -count=1`.
 
 ## Deviations
 

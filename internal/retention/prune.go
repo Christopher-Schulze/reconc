@@ -563,7 +563,7 @@ func liveActiveSession(project, requested string, now time.Time, maxAge time.Dur
 func enforceJSONL(name, path string, maxBytes int64, archives int, dryRun bool, report *Report) ClassReport {
 	class := ClassReport{Name: name, InspectionStatus: InspectionUnknown}
 	var err error
-	class.BytesBefore, class.FilesKept, err = jsonlRingSize(path, archives+32)
+	class.BytesBefore, class.FilesKept, err = jsonl.RingSize(path, jsonl.MaxArchiveFiles)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("inspect %s ring: %v", name, err))
 		return class
@@ -587,7 +587,7 @@ func enforceJSONL(name, path string, maxBytes int64, archives int, dryRun bool, 
 	}
 	class.BytesFreed = result.BytesFreed
 	class.FilesDeleted = result.FilesRemoved
-	class.BytesAfter, class.FilesKept, err = jsonlRingSize(path, archives)
+	class.BytesAfter, class.FilesKept, err = jsonl.RingSize(path, archives)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("inspect enforced %s ring: %v", name, err))
 	} else if enforceErr == nil {
@@ -600,7 +600,7 @@ func inspectChainedAudit(name, repoRoot string, maxBytes int64, archives int, re
 	path := filepath.Join(repoRoot, audit.AuditFileRelative)
 	class := ClassReport{Name: name}
 	var err error
-	class.BytesBefore, class.FilesKept, err = jsonlRingSize(path, audit.MaxArchiveFiles+32)
+	class.BytesBefore, class.FilesKept, err = jsonl.RingSize(path, audit.MaxArchiveFiles)
 	class.BytesAfter = class.BytesBefore
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("inspect %s ring: %v", name, err))
@@ -626,29 +626,6 @@ func inspectChainedAudit(name, repoRoot string, maxBytes int64, archives int, re
 		return class
 	}
 	return class
-}
-
-func jsonlRingSize(path string, maxArchives int) (int64, int, error) {
-	var bytes int64
-	files := 0
-	for index := 0; index <= maxArchives; index++ {
-		candidate := path
-		if index > 0 {
-			candidate = fmt.Sprintf("%s.%d", path, index)
-		}
-		info, err := os.Stat(candidate)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return bytes, files, err
-		}
-		if info.Mode().IsRegular() {
-			bytes += info.Size()
-			files++
-		}
-	}
-	return bytes, files, nil
 }
 
 func isGeneratedBinary(entry os.DirEntry) bool {

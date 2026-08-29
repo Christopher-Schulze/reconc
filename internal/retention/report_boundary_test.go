@@ -56,3 +56,29 @@ func TestClassReportInspectionStatusIsBackwardCompatible(t *testing.T) {
 		t.Fatalf("legacy status must remain explicitly absent, got %q", current.InspectionStatus)
 	}
 }
+
+func TestJSONLRetentionRejectsSymlinkWithoutTargetAccounting(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "decisions.jsonl")
+	if err := os.WriteFile(path, []byte("live\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "foreign-target.jsonl")
+	if err := os.WriteFile(target, make([]byte, 1<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path+".1"); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	report := Report{}
+	class := enforceJSONL("run-decisions", path, 1024, 0, true, &report)
+	if class.BytesBefore != 0 || class.FilesKept != 0 || class.InspectionStatus != InspectionUnknown {
+		t.Fatalf("linked target changed retention accounting: %+v", class)
+	}
+	if len(report.Errors) != 1 || !strings.Contains(report.Errors[0], "non-symlink regular") {
+		t.Fatalf("linked archive error = %v", report.Errors)
+	}
+	if _, err := os.Lstat(path + ".1"); err != nil {
+		t.Fatalf("linked archive was removed after rejection: %v", err)
+	}
+}

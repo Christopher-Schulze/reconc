@@ -298,6 +298,29 @@ func TestRunDoctorDeepChecks(t *testing.T) {
 		}
 	})
 
+	t.Run("linked audit member warns without following target", func(t *testing.T) {
+		repo := makeCheckRepo(t,
+			"rules:\n  - id: deny-generated\n    kind: deny_write\n    paths: ['generated/**']\n    mode: warn\n    message: generated files are read-only\n")
+		auditPath := filepath.Join(repo, ".reconc", "audit.jsonl")
+		if err := os.MkdirAll(filepath.Dir(auditPath), 0o755); err != nil {
+			t.Fatalf("mkdir .reconc: %v", err)
+		}
+		target := filepath.Join(repo, "foreign-audit.jsonl")
+		if err := os.WriteFile(target, bytes.Repeat([]byte("x"), 1<<20), 0o644); err != nil {
+			t.Fatalf("write target: %v", err)
+		}
+		if err := os.Symlink(target, auditPath+".1"); err != nil {
+			t.Skipf("symlink creation unavailable: %v", err)
+		}
+		report, err := runDoctorDeepJSON(t, repo)
+		if err != nil {
+			t.Fatalf("doctor --deep --json: %v", err)
+		}
+		if status := doctorCheckStatus(t, report, "audit log size"); status != doctorStatusWarn {
+			t.Fatalf("expected linked audit WARN, got %s", status)
+		}
+	})
+
 	t.Run("unknown preset and template fail", func(t *testing.T) {
 		t.Setenv("RECONC_HOME", t.TempDir())
 		repo := t.TempDir()

@@ -92,3 +92,24 @@ func TestRepoRuntimeRetentionRejectsNonDirectoryCacheWithoutDeletingIt(t *testin
 		t.Fatalf("invalid cache path was modified: content=%q err=%v", content, err)
 	}
 }
+
+func TestRepoRuntimeByteAccountingRejectsLinkedArchive(t *testing.T) {
+	repo := t.TempDir()
+	target := filepath.Join(repo, "foreign.jsonl")
+	archive := filepath.Join(repo, ".reconc", "run", "decisions.jsonl.1")
+	if err := os.MkdirAll(filepath.Dir(archive), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, make([]byte, 1<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, archive); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	if _, err := ownedRepoRuntimeBytes(repo); err == nil || !strings.Contains(err.Error(), "non-symlink regular") {
+		t.Fatalf("linked archive was accepted: %v", err)
+	}
+	if _, err := os.Lstat(archive); err != nil {
+		t.Fatalf("linked archive changed after rejection: %v", err)
+	}
+}

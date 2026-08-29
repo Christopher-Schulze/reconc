@@ -17,6 +17,7 @@ import (
 	"reconc.dev/reconc/internal/grokacp"
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/ingest"
+	"reconc.dev/reconc/internal/jsonl"
 	"reconc.dev/reconc/internal/parser"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/presets"
@@ -394,36 +395,16 @@ func doctorCheckAuditSize(discovery ingest.DiscoveryResult) doctorCheck {
 	}
 
 	path := filepath.Join(discovery.RepoRoot, audit.AuditFileRelative)
-	info, err := os.Lstat(path)
+	// Measure the whole writer-owned ring through the JSONL contract: live
+	// file plus the bounded archive set, with non-following metadata.
+	total, files, err := jsonl.RingSize(path, audit.MaxArchiveFiles)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return check
-		}
 		check.Status = doctorStatusWarn
-		check.Detail = "cannot stat audit log: " + err.Error()
+		check.Detail = "cannot inspect audit ring: " + err.Error()
 		return check
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		check.Status = doctorStatusWarn
-		check.Detail = "audit log must be a non-symlink regular file"
+	if files == 0 {
 		return check
-	}
-	// Measure the whole ring: live file plus rotation archives.
-	total := info.Size()
-	for index := 1; index <= audit.MaxArchiveFiles; index++ {
-		archivePath := fmt.Sprintf("%s.%d", path, index)
-		if archiveInfo, archiveErr := os.Lstat(archivePath); archiveErr == nil {
-			if archiveInfo.Mode()&os.ModeSymlink != 0 || !archiveInfo.Mode().IsRegular() {
-				check.Status = doctorStatusWarn
-				check.Detail = fmt.Sprintf("audit archive %s must be a non-symlink regular file", filepath.Base(archivePath))
-				return check
-			}
-			total += archiveInfo.Size()
-		} else if !os.IsNotExist(archiveErr) {
-			check.Status = doctorStatusWarn
-			check.Detail = "cannot inspect audit archive: " + archiveErr.Error()
-			return check
-		}
 	}
 	if total > doctorAuditWarnBytes {
 		check.Status = doctorStatusWarn

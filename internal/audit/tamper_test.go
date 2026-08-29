@@ -42,6 +42,25 @@ func writeAuditLines(t *testing.T, repo string, lines []string) {
 	}
 }
 
+func TestAppendRequiresRotationRejectsSymlinkWithoutFollowingTarget(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "audit.jsonl")
+	target := filepath.Join(root, "foreign.jsonl")
+	if err := os.WriteFile(target, make([]byte, 1<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	rotates, err := appendRequiresRotation(path, 1, 2<<20)
+	if err == nil || !strings.Contains(err.Error(), "non-symlink regular") {
+		t.Fatalf("linked audit log was accepted: rotates=%t err=%v", rotates, err)
+	}
+	if _, err := os.Lstat(path); err != nil {
+		t.Fatalf("linked audit log changed after rejection: %v", err)
+	}
+}
+
 // TestVerifyDetectsEveryTamperShape is the property the audit log exists for.
 // A decision record that can be edited, dropped, reordered, replayed, or
 // removed without detection is not evidence, so each of those shapes must make

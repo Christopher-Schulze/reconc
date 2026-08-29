@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/boundedio"
+	"reconc.dev/reconc/internal/jsonl"
 )
 
 func enforceStateTotal(options Options, project, activeID string, hasActive bool, report *Report) ClassReport {
@@ -208,23 +209,28 @@ func enforceRepoTotal(options Options, report *Report) ClassReport {
 		}
 		removable = append(removable, candidate{path: filepath.Join(cache, entry.Name()), name: entry.Name(), size: info.Size(), mtime: info.ModTime()})
 	}
-	// Only the plain run-decision ring is eligible for the repo-total
-	// budget. The audit ring is a SHA-256 hash chain with a detached
-	// head that pins the retained entry count and first/last digests;
-	// deleting any audit archive would break verifyChainHead and the
-	// sequence-contiguity check, permanently failing every audit
-	// operation. Audit retention is writer-owned (see
-	// inspectChainedAudit and audit.EnforceRetention) and must never be
-	// compacted by this generic budget.
+	// Only the plain run-decision ring is eligible for the repo-total budget.
+	// The audit ring is a SHA-256 hash chain with a detached head that pins the
+	// retained entry count and first/last digests; deleting any audit archive
+	// would break verifyChainHead and sequence contiguity. Audit retention is
+	// writer-owned and must never be compacted by this generic budget.
 	base := filepath.Join(options.RepoRoot, ".reconc", "run", "decisions.jsonl")
-	for index := 1; index <= 32; index++ {
-		path := fmt.Sprintf("%s.%d", base, index)
-		info, err := os.Stat(path)
-		if errors.Is(err, os.ErrNotExist) {
+	paths, err := jsonl.PathsOldestFirst(base, jsonl.MaxArchiveFiles)
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("inspect runtime archive ring: %v", err))
+		return class
+	}
+	for _, path := range paths {
+		if path == base {
 			continue
 		}
+		info, err := os.Lstat(path)
 		if err != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("stat runtime archive %s: %v", path, err))
+			return class
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			report.Errors = append(report.Errors, fmt.Sprintf("runtime archive must be a non-symlink regular file: %s", path))
 			return class
 		}
 		removable = append(removable, candidate{path: path, name: filepath.Base(path), size: info.Size(), mtime: info.ModTime()})
@@ -301,22 +307,11 @@ func ownedRepoRuntimeBytes(repoRoot string) (int64, error) {
 		filepath.Join(repoRoot, ".reconc", "audit.jsonl"),
 		filepath.Join(repoRoot, ".reconc", "run", "decisions.jsonl"),
 	} {
-		for index := 0; index <= 32; index++ {
-			path := base
-			if index > 0 {
-				path = fmt.Sprintf("%s.%d", base, index)
-			}
-			info, err := os.Stat(path)
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			if err != nil {
-				return total, fmt.Errorf("stat runtime JSONL %s: %w", path, err)
-			}
-			if info.Mode().IsRegular() {
-				total += info.Size()
-			}
+		ringBytes, _, err := jsonl.RingSize(base, jsonl.MaxArchiveFiles)
+		if err != nil {
+			return total, fmt.Errorf("inspect runtime JSONL %s: %w", base, err)
 		}
+		total += ringBytes
 	}
 	cacheDir := filepath.Join(repoRoot, ".reconc", "cache")
 	entries, err := readOwnedDirectory(cacheDir)

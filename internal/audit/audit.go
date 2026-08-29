@@ -565,12 +565,15 @@ func verifyAppendCheckpoint(last Entry, head *chainHead) error {
 }
 
 func appendRequiresRotation(path string, recordBytes int, maxSizeBytes int64) (bool, error) {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return false, fmt.Errorf("audit log must be a non-symlink regular file: %s", path)
 	}
 	return info.Size()+int64(recordBytes) > maxSizeBytes, nil
 }
