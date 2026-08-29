@@ -14,15 +14,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"reconc.dev/reconc/buildprovenance"
 	"reconc.dev/reconc/internal/boundedio"
+	"reconc.dev/reconc/internal/semver"
 )
 
 const (
@@ -39,8 +38,7 @@ const (
 )
 
 var (
-	semanticVersionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$`)
-	lifecycleHTTPClient    = &http.Client{
+	lifecycleHTTPClient = &http.Client{
 		Timeout: 2 * time.Minute,
 		CheckRedirect: func(request *http.Request, via []*http.Request) error {
 			if len(via) > 5 {
@@ -90,13 +88,7 @@ type githubRelease struct {
 	Assets     []githubAsset `json:"assets"`
 }
 
-type semanticVersion struct {
-	major      uint64
-	minor      uint64
-	patch      uint64
-	prerelease []string
-	original   string
-}
+type semanticVersion = semver.Version
 
 func selectRelease(ctx context.Context, request UpdateRequest) (selectedRelease, error) {
 	channel, err := selectedChannel(request)
@@ -717,7 +709,7 @@ func validateReleaseClass(version string, draft bool, prerelease bool, channel C
 	if draft {
 		return errors.New("draft releases cannot be selected")
 	}
-	actualPrerelease := len(parsed.prerelease) > 0
+	actualPrerelease := len(parsed.Prerelease) > 0
 	if actualPrerelease != prerelease {
 		return errors.New("release prerelease flag and semantic version disagree")
 	}
@@ -742,97 +734,22 @@ func versionFromTag(tag string) (string, error) {
 }
 
 func parseSemanticVersion(value string) (semanticVersion, error) {
-	match := semanticVersionPattern.FindStringSubmatch(strings.TrimSpace(value))
-	if len(match) != 5 {
+	parsed, err := semver.Parse(value)
+	if err != nil {
+		return semanticVersion{}, err
+	}
+	if len(parsed.Build) != 0 {
 		return semanticVersion{}, fmt.Errorf("version %q is not supported semantic versioning", value)
 	}
-	parts := make([]uint64, 3)
-	for index := range parts {
-		number, err := strconv.ParseUint(match[index+1], 10, 64)
-		if err != nil {
-			return semanticVersion{}, fmt.Errorf("version component overflows: %q", value)
-		}
-		parts[index] = number
-	}
-	prerelease := []string{}
-	if match[4] != "" {
-		prerelease = strings.Split(match[4], ".")
-		for _, identifier := range prerelease {
-			if identifier == "" || allDigits(identifier) && len(identifier) > 1 && identifier[0] == '0' {
-				return semanticVersion{}, fmt.Errorf("invalid prerelease identifier in %q", value)
-			}
-		}
-	}
-	return semanticVersion{
-		major: parts[0], minor: parts[1], patch: parts[2],
-		prerelease: prerelease, original: strings.TrimSpace(value),
-	}, nil
+	return parsed, nil
 }
 
 func compareSemanticVersions(left semanticVersion, right semanticVersion) int {
-	for _, pair := range [][2]uint64{{left.major, right.major}, {left.minor, right.minor}, {left.patch, right.patch}} {
-		if pair[0] < pair[1] {
-			return -1
-		}
-		if pair[0] > pair[1] {
-			return 1
-		}
-	}
-	if len(left.prerelease) == 0 && len(right.prerelease) == 0 {
-		return 0
-	}
-	if len(left.prerelease) == 0 {
-		return 1
-	}
-	if len(right.prerelease) == 0 {
-		return -1
-	}
-	for index := 0; index < len(left.prerelease) && index < len(right.prerelease); index++ {
-		comparison := comparePrereleaseIdentifier(left.prerelease[index], right.prerelease[index])
-		if comparison != 0 {
-			return comparison
-		}
-	}
-	if len(left.prerelease) < len(right.prerelease) {
-		return -1
-	}
-	if len(left.prerelease) > len(right.prerelease) {
-		return 1
-	}
-	return 0
-}
-
-func comparePrereleaseIdentifier(left string, right string) int {
-	leftNumeric := allDigits(left)
-	rightNumeric := allDigits(right)
-	if leftNumeric && rightNumeric {
-		if len(left) < len(right) {
-			return -1
-		}
-		if len(left) > len(right) {
-			return 1
-		}
-		return strings.Compare(left, right)
-	}
-	if leftNumeric {
-		return -1
-	}
-	if rightNumeric {
-		return 1
-	}
-	return strings.Compare(left, right)
+	return semver.Compare(left, right)
 }
 
 func allDigits(value string) bool {
-	if value == "" {
-		return false
-	}
-	for _, character := range value {
-		if character < '0' || character > '9' {
-			return false
-		}
-	}
-	return true
+	return semver.IsNumericIdentifier(value)
 }
 
 func sortedReleaseAssets(assets []ReleaseAsset) []ReleaseAsset {

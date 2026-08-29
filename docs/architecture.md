@@ -146,6 +146,7 @@ internal/
                   hook-runtime threat model below describes)
   safename/       strict lower-kebab identifiers for user-selected assets
   schema/         canonical public JSON contract URLs + enterprise override
+  semver/         strict Semantic Versioning parsing and precedence comparison
   shellcommand/   bounded shell parsing and executable-command discovery
   stackdetect/    shared bounded manifest/source stack discovery
   tasklifecycle/  typed TASK profiles + recoverable state transactions

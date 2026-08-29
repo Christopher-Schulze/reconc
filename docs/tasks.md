@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 370 Preserve prerelease precedence in harness compatibility -> tasks/370-preserve-prerelease-precedence-in-harness-compatibility.md
 - [ ] 371 Reject context paths through escaping parent symlinks -> tasks/371-reject-context-paths-through-escaping-parent-symlinks.md
 - [ ] 372 Match go:embed hidden-file semantics in provenance -> tasks/372-match-go-embed-hidden-file-semantics-in-provenance.md
 - [ ] 373 Preserve MCP cleanup failures during cancellation -> tasks/373-preserve-mcp-cleanup-failures-during-cancellation.md
@@ -13,6 +12,7 @@
 
 ## Done
 
+- [x] 370 Preserve prerelease precedence in harness compatibility -> tasks/done/370-preserve-prerelease-precedence-in-harness-compatibility.md
 - [x] 369 Prove named WaitGroup worker completion -> tasks/done/369-prove-named-waitgroup-worker-completion.md
 - [x] 368 Enforce package-script runner ownership -> tasks/done/368-enforce-package-script-runner-ownership.md
 - [x] 367 Bind substantive proof measurements to evidence -> tasks/done/367-bind-substantive-proof-measurements-to-evidence.md

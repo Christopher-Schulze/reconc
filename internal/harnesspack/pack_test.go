@@ -273,6 +273,41 @@ func TestSemanticVersionStrictness(t *testing.T) {
 	}
 }
 
+func TestProductCompatibilityUsesSemanticVersionPrecedence(t *testing.T) {
+	tests := []struct {
+		name           string
+		productVersion string
+		minimum        string
+		maximum        string
+		wantErr        bool
+	}{
+		{name: "prerelease is below stable minimum", productVersion: "0.9.0-rc.1", minimum: "0.9.0", maximum: "1.0.0", wantErr: true},
+		{name: "prerelease is below stable maximum", productVersion: "1.0.0-rc.1", minimum: "0.9.0", maximum: "1.0.0"},
+		{name: "stable equals exclusive maximum", productVersion: "1.0.0", minimum: "0.9.0", maximum: "1.0.0", wantErr: true},
+		{name: "stable is above prerelease maximum", productVersion: "1.0.0", minimum: "0.9.0", maximum: "1.0.0-rc.1", wantErr: true},
+		{name: "prerelease minimum is inclusive", productVersion: "1.0.0-rc.1", minimum: "1.0.0-rc.1", maximum: "1.0.0", wantErr: false},
+		{name: "earlier prerelease misses minimum", productVersion: "1.0.0-rc.0", minimum: "1.0.0-rc.1", maximum: "1.0.0", wantErr: true},
+		{name: "build metadata does not affect precedence", productVersion: "1.0.0+build.9", minimum: "1.0.0+build.1", maximum: "2.0.0", wantErr: false},
+		{name: "malformed product version", productVersion: "1.0.0-01", minimum: "0.9.0", maximum: "2.0.0", wantErr: true},
+		{name: "malformed minimum", productVersion: "1.0.0", minimum: "0.9", maximum: "2.0.0", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manifest := canonicalTestManifest(t)
+			manifest.ProductCompatibility = Compatibility{Minimum: test.minimum, MaximumExclusive: test.maximum}
+			digest, err := Digest(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest.Digest = digest
+			err = ValidateProductCompatibility(manifest, test.productVersion)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("ValidateProductCompatibility(%q, %q, %q) error = %v, wantErr %v", test.productVersion, test.minimum, test.maximum, err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestPublicLoadersFailClosed(t *testing.T) {
 	if _, err := Encode(nil); err == nil {
 		t.Fatal("nil manifest was encoded")

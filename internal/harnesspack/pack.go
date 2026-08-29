@@ -14,10 +14,10 @@ import (
 	"path"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"reconc.dev/reconc/internal/schema"
+	"reconc.dev/reconc/internal/semver"
 )
 
 const (
@@ -542,49 +542,17 @@ func minInt64(left, right int64) int64 {
 	return right
 }
 
-type semanticVersion struct {
-	major int
-	minor int
-	patch int
-}
+type semanticVersion = semver.Version
 
 func parseVersion(value string) (semanticVersion, error) {
 	clean := strings.TrimSpace(value)
 	clean = strings.TrimPrefix(clean, "reconc-v")
 	clean = strings.TrimPrefix(clean, "v")
-	if prerelease := strings.IndexAny(clean, "-+"); prerelease >= 0 {
-		clean = clean[:prerelease]
-	}
-	parts := strings.Split(clean, ".")
-	if len(parts) != 3 {
-		return semanticVersion{}, fmt.Errorf("version must be MAJOR.MINOR.PATCH")
-	}
-	numbers := [3]int{}
-	for index, part := range parts {
-		if part == "" || (len(part) > 1 && part[0] == '0') {
-			return semanticVersion{}, fmt.Errorf("version component %q is invalid", part)
-		}
-		number, err := strconv.Atoi(part)
-		if err != nil || number < 0 {
-			return semanticVersion{}, fmt.Errorf("version component %q is invalid", part)
-		}
-		numbers[index] = number
-	}
-	return semanticVersion{major: numbers[0], minor: numbers[1], patch: numbers[2]}, nil
+	return semver.Parse(clean)
 }
 
 func compareVersion(left, right semanticVersion) int {
-	leftParts := [3]int{left.major, left.minor, left.patch}
-	rightParts := [3]int{right.major, right.minor, right.patch}
-	for index := range leftParts {
-		if leftParts[index] < rightParts[index] {
-			return -1
-		}
-		if leftParts[index] > rightParts[index] {
-			return 1
-		}
-	}
-	return 0
+	return semver.Compare(left, right)
 }
 
 func validSHA256(value string) bool {

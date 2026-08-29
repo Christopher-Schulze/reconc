@@ -527,7 +527,10 @@ literals.
 Loading rejects unknown fields, incompatible versions, traversal,
 absolute or duplicate paths, links, unsupported modes, oversized input,
 unmanifested files, and checksum or digest drift. Daily init performs no
-network request and requires no standalone source checkout.
+network request and requires no standalone source checkout. Product compatibility
+uses full Semantic Versioning precedence: prereleases sort before their stable
+release, inclusive minimums and exclusive maximums use that ordering, and build
+metadata is accepted but ignored for precedence.
 
 A release installer establishes the stable user CLI. A portable source build
 or copied toolkit establishes the same contract without a download:
