@@ -188,13 +188,14 @@ func evaluateGuardBoundary(root string, gate policy.AssuranceGate, state *evalua
 		if err != nil {
 			return nil, err
 		}
+		codeLines := guardCodeLines(filepath.Ext(file.relative), lines)
 		commentOnly := guardCommentOnlyLines(filepath.Ext(file.relative), lines)
-		for index, line := range lines {
+		for index, line := range codeLines {
 			if commentOnly[index] {
 				continue
 			}
 			for _, site := range gate.SitePatterns {
-				if !strings.Contains(line, site) || markerNear(lines, commentOnly, index, gate.MarkerWindowLines, gate.GuardMarkers) {
+				if !strings.Contains(line, site) || markerNear(codeLines, commentOnly, index, gate.MarkerWindowLines, gate.GuardMarkers) {
 					continue
 				}
 				findings = append(findings, Finding{

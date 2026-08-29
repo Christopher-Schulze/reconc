@@ -123,3 +123,65 @@ func TestGuardBoundaryRetainsBlockCommentBehavior(t *testing.T) {
 		t.Fatalf("block comment site handling changed: %+v", findings)
 	}
 }
+
+func TestGuardBoundaryIgnoresInlineCommentsAndStrings(t *testing.T) {
+	tests := []struct {
+		name         string
+		source       string
+		wantFindings bool
+	}{
+		{
+			name:         "line comment marker",
+			source:       "package x\nvar _ = http.Get(\"https://example.test\") // GuardedClient\n",
+			wantFindings: true,
+		},
+		{
+			name:         "inline block comment marker",
+			source:       "package x\nvar _ = http.Get(\"https://example.test\") /* GuardedClient */\n",
+			wantFindings: true,
+		},
+		{
+			name:         "multiline block comment marker",
+			source:       "package x\n/*\n GuardedClient\n*/\nvar _ = http.Get(\"https://example.test\")\n",
+			wantFindings: true,
+		},
+		{
+			name:         "interpreted string marker",
+			source:       "package x\nvar marker = \"GuardedClient\"\nvar _ = http.Get(\"https://example.test\")\n",
+			wantFindings: true,
+		},
+		{
+			name:         "multiline raw string marker",
+			source:       "package x\nvar marker = `Guarded\nClient`\nvar _ = http.Get(\"https://example.test\")\n",
+			wantFindings: true,
+		},
+		{
+			name:         "site and marker in strings",
+			source:       "package x\nvar example = \"http.Get( GuardedClient\"\n",
+			wantFindings: false,
+		},
+		{
+			name:         "qualified executable call",
+			source:       "package x\nfunc run() { security.GuardedClient(); http.Get(\"https://example.test\") }\n",
+			wantFindings: false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeAssuranceFile(t, root, "src/x.go", test.source)
+			gate := policy.AssuranceGate{
+				ID: "network", Type: policy.AssuranceNetworkBoundary,
+				ScanPaths: []string{"src/**"}, SitePatterns: []string{"http.Get("},
+				GuardMarkers: []string{"GuardedClient"}, MarkerWindowLines: 3,
+			}
+			findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{ChangedPaths: []string{"src/x.go"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (len(findings) > 0) != test.wantFindings {
+				t.Fatalf("findings = %+v, wantFindings=%t", findings, test.wantFindings)
+			}
+		})
+	}
+}

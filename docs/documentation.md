@@ -2516,20 +2516,21 @@ one pattern matches, so an earlier match cannot hide a malformed later pattern.
 | `language_boundary` | Changed files use configured extensions inside configured zones | Matching changed files |
 | `dependency_pins` | Changed package JSON dependency manifests use exact semantic versions or explicit protocol prefixes | Matching changed manifests |
 | `package_scripts` | Every configured script that is actually declared and non-empty has current successful manager-scoped evidence; a configured manager must be the sole detected manager, while absent scripts stay optional | Matching package manifests, including inherited workspace manager evidence |
-| `network_boundary` | Changed source sites have a nearby non-comment guard marker or reasoned path exemption | Matching changed files |
-| `process_boundary` | Changed process-spawn sites have a nearby non-comment hardening marker or reasoned path exemption | Matching changed files |
+| `network_boundary` | Changed source sites have a nearby executable guard marker or reasoned path exemption; comments and interpreted or raw strings do not count | Matching changed files |
+| `process_boundary` | Changed process-spawn sites have a nearby executable hardening marker or reasoned path exemption; comments and interpreted or raw strings do not count | Matching changed files |
 | `substantive_proof` | Fresh measured samples, computed aggregate, threshold result, live command, and byte-matched evidence agree | Full configured proof manifest |
 | `live_verification` | Every or any configured command has current successful evidence | Current session |
 | `go_concurrency_boundary` | Changed production Go files contain no unowned bare `go` statements | Matching changed Go files, parsed with the Go AST |
 | `go_format` | Changed Go files are byte-identical to Go standard-library canonical formatting | Matching changed Go files |
 | `source_hygiene` | Changed shipped source contains no leading implementation-debt markers or language-specific unimplemented sentinels; quote/comment state and case-folded sentinel comparison share one forward scan per line | Matching changed source files |
 
-Network and process guard scans recognize hash comments only for languages
-that own that syntax and track slash, HTML, HEEx, and PowerShell block comments
-across lines. A leading `*` is ignored only inside an actual open block comment,
-so dereference and multiplication code at the first non-whitespace character
-still triggers configured site checks. Comment-only sites and markers remain
-non-executable.
+Network and process guard scans use one forward lexical pass per file. They
+recognize hash comments only for languages that own that syntax and track slash,
+HTML, HEEx, and PowerShell block comments across lines. Interpreted, raw, and
+multiline strings are masked across lines as well, so neither sites nor markers
+inside non-executable text can satisfy a guard. A leading `*` is ignored only
+inside an actual open block comment, so dereference and multiplication code at
+the first non-whitespace character still triggers configured site checks.
 
 Example:
 
