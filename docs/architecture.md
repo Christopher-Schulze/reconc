@@ -1266,6 +1266,11 @@ before record bytes are written or an out-of-tree target can be created. After
 the cross-process lock is acquired, its opened descriptor is identity-checked
 once at the validation boundary; layout-security validation remains a separate
 check and no redundant post-validation stat is performed.
+Archive discovery keeps the parent-directory snapshot strict, but retries only
+the bounded `directory snapshot changed` result for two seconds so a competing
+secured lock publisher can finish removing a losing candidate. Failure to reach
+a stable snapshot still fails closed; archive-index, symlink, regular-file, and
+identity validation remain unchanged.
 
 The action ledger retains full-chain verification as the startup, recovery,
 external-writer, and explicit-read authority. After one successful verification,

@@ -13,6 +13,7 @@
 
 ## Done
 
+- [x] 342 Stabilize concurrent JSONL archive discovery -> tasks/done/342-stabilize-concurrent-jsonl-archive-discovery.md
 - [x] 341 Remove duplicate JSONL lock validation -> tasks/done/341-remove-duplicate-jsonl-lock-validation.md
 - [x] 340 Centralize archive-ring bounds and symlink accounting -> tasks/done/340-centralize-archive-ring-bounds-and-symlink-accounting.md
 - [x] 339 Reuse canonical bytes across proof serialization -> tasks/done/339-reuse-canonical-bytes-across-proof-serialization.md

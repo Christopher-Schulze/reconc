@@ -9,9 +9,19 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
+)
+
+const (
+	// Secured lock publication may leave a losing candidate in the parent
+	// directory briefly after another writer has acquired the final lock.
+	// Keep archive discovery bounded while waiting for that transient churn to
+	// settle, then preserve the strict snapshot error.
+	archiveDirectoryReadTries  = 400
+	archiveDirectoryRetryDelay = 5 * time.Millisecond
 )
 
 func trimTailWithLayout(path string, maxBytes int64, layout Layout) (int64, error) {
@@ -87,7 +97,7 @@ type archiveCandidate struct {
 
 func archiveCandidates(path string) ([]archiveCandidate, error) {
 	directory := filepath.Dir(path)
-	entries, err := boundedio.ReadDir(directory, 4096)
+	entries, err := readArchiveDirectory(directory)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -107,4 +117,26 @@ func archiveCandidates(path string) ([]archiveCandidate, error) {
 		}
 	}
 	return out, nil
+}
+
+func readArchiveDirectory(directory string) ([]os.DirEntry, error) {
+	return readArchiveDirectoryWith(directory, boundedio.ReadDir)
+}
+
+func readArchiveDirectoryWith(
+	directory string,
+	read func(string, int) ([]os.DirEntry, error),
+) ([]os.DirEntry, error) {
+	var err error
+	for attempt := 0; attempt < archiveDirectoryReadTries; attempt++ {
+		var entries []os.DirEntry
+		entries, err = read(directory, 4096)
+		if err == nil || !errors.Is(err, boundedio.ErrDirectorySnapshotChanged) {
+			return entries, err
+		}
+		if attempt+1 < archiveDirectoryReadTries {
+			time.Sleep(archiveDirectoryRetryDelay)
+		}
+	}
+	return nil, err
 }

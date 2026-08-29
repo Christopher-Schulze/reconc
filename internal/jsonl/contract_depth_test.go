@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/internal/boundedio"
 )
 
 func TestPolicyValidationAcrossPublicOperations(t *testing.T) {
@@ -163,6 +165,25 @@ func TestArchiveCandidatesIgnoreUnrelatedAndInvalidSuffixes(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].index != 1 || got[0].path != path+".1" {
 		t.Fatalf("unexpected archive candidates: %+v", got)
+	}
+}
+
+func TestReadArchiveDirectoryRetriesTransientSnapshotChange(t *testing.T) {
+	directory := t.TempDir()
+	const transientFailures = 3
+	calls := 0
+	entries, err := readArchiveDirectoryWith(directory, func(path string, maximum int) ([]os.DirEntry, error) {
+		calls++
+		if calls <= transientFailures {
+			return nil, fmt.Errorf("transient archive directory churn: %w", boundedio.ErrDirectorySnapshotChanged)
+		}
+		return boundedio.ReadDir(path, maximum)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entries == nil || calls != transientFailures+1 {
+		t.Fatalf("archive directory retry calls = %d, entries = %v", calls, entries)
 	}
 }
 
