@@ -2,6 +2,4 @@
 
 package actionstate
 
-func syncStateDirectory(string) error {
-	return nil
-}
+// Directory durability uses atomicfile.SyncDirectory on the bound root.

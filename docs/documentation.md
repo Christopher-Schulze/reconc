@@ -2622,6 +2622,12 @@ clock rollback, partial publication, symlinks, special files, permission drift,
 counter overflow, duplicate calls, and capacity oversubscription. This is an
 enforcement primitive used by the gateway; it does not make direct MCP or
 framework calls enforced.
+Each state transaction is read through one private regular-file snapshot and
+retains that exact file identity through recovery. Final journal cleanup opens
+the private parent as a rooted handle, revalidates the parent and journal
+identity immediately before removal, and synchronizes the same bound parent;
+replacement or symlink substitution is preserved and reported as a recovery
+failure.
 
 The action-state owner issues an approval request only after the current
 evaluator still returns `require_approval` and an exact applicable budget

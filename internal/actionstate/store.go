@@ -44,6 +44,15 @@ type Store struct {
 	publish            func(string, []byte) error
 }
 
+type transactionRecoveryHooks struct {
+	afterRead    func() error
+	beforeRemove func() error
+}
+
+type transactionCleanupHooks struct {
+	beforeRemove func() error
+}
+
 func OpenStore(options StoreOptions) (*Store, error) {
 	key, releaseKey, err := options.KeyLease.acquireUse()
 	if err != nil {
@@ -270,10 +279,14 @@ func (s *Store) writeState(previous State, previousPersisted bool, next *State) 
 	if err := s.publish(s.transactionPath, transactionBody); err != nil {
 		return stateError(action.ReasonStateUnavailable, "publish action state transaction", err)
 	}
+	_, transactionInfo, err := readPrivateRegularFileSnapshot(s.transactionPath, MaxStateTransaction)
+	if err != nil {
+		return stateError(action.ReasonStateUnavailable, "validate published action state transaction", err)
+	}
 	if err := s.publish(s.statePath, stateBody); err != nil {
 		return stateError(action.ReasonStateUnavailable, "publish action state", err)
 	}
-	if err := removeAndSync(s.transactionPath, s.directory); err != nil {
+	if err := removeAndSync(s.transactionPath, s.directory, transactionInfo); err != nil {
 		return stateError(action.ReasonStateUnavailable, "finalize action state transaction", err)
 	}
 	return nil
@@ -362,7 +375,11 @@ func (s *Store) newTransaction(previous State, persisted bool, next State) (stat
 }
 
 func (s *Store) recoverTransaction() error {
-	body, err := readPrivateRegularFile(s.transactionPath, MaxStateTransaction)
+	return s.recoverTransactionWithHooks(transactionRecoveryHooks{})
+}
+
+func (s *Store) recoverTransactionWithHooks(hooks transactionRecoveryHooks) error {
+	body, transactionInfo, err := readPrivateRegularFileSnapshot(s.transactionPath, MaxStateTransaction)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -373,12 +390,18 @@ func (s *Store) recoverTransaction() error {
 	if err != nil {
 		return err
 	}
+	if hooks.afterRead != nil {
+		if err := hooks.afterRead(); err != nil {
+			return err
+		}
+	}
 	current, persisted, err := s.loadStateWithoutRecovery()
 	if err != nil {
 		return err
 	}
 	if persisted && current.Digest == transaction.After.Digest {
-		return removeAndSync(s.transactionPath, s.directory)
+		return removeAndSyncWithHooks(s.transactionPath, s.directory, transactionInfo,
+			transactionCleanupHooks{beforeRemove: hooks.beforeRemove})
 	}
 	if persisted != transaction.BeforePersisted || current.Digest != transaction.BeforeDigest {
 		return stateError(action.ReasonStateCorrupt, "action state and recovery transaction diverged", nil)
@@ -386,7 +409,8 @@ func (s *Store) recoverTransaction() error {
 	if err := s.writeBoundedJSON(s.statePath, transaction.After, MaxStateBytes); err != nil {
 		return stateError(action.ReasonStateUnavailable, "recover action state transaction", err)
 	}
-	return removeAndSync(s.transactionPath, s.directory)
+	return removeAndSyncWithHooks(s.transactionPath, s.directory, transactionInfo,
+		transactionCleanupHooks{beforeRemove: hooks.beforeRemove})
 }
 
 func (s *Store) loadStateWithoutRecovery() (State, bool, error) {
@@ -421,24 +445,101 @@ func (s *Store) decodeTransaction(body []byte) (stateTransaction, error) {
 	return transaction, nil
 }
 
-func removeAndSync(path, directory string) error {
+func removeAndSync(path, directory string, expected os.FileInfo) error {
+	return removeAndSyncWithHooks(path, directory, expected, transactionCleanupHooks{})
+}
+
+func removeAndSyncWithHooks(
+	path, directory string,
+	expected os.FileInfo,
+	hooks transactionCleanupHooks,
+) (resultErr error) {
 	if filepath.Clean(filepath.Dir(path)) != filepath.Clean(directory) {
 		return fmt.Errorf("transaction cleanup path escapes its private directory")
+	}
+	if expected == nil || expected.Mode()&os.ModeSymlink != 0 || !expected.Mode().IsRegular() {
+		return fmt.Errorf("transaction cleanup identity must be a regular file")
 	}
 	if err := validatePrivateDirectory(directory); err != nil {
 		return err
 	}
-	info, err := os.Lstat(path)
+	parentBefore, err := os.Lstat(directory)
 	if err != nil {
 		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return fmt.Errorf("transaction cleanup target must be a non-symlink regular file")
-	}
-	if err := os.Remove(path); err != nil {
+	root, err := os.OpenRoot(directory)
+	if err != nil {
 		return err
 	}
-	return syncStateDirectory(directory)
+	defer func() {
+		resultErr = errors.Join(resultErr, root.Close())
+	}()
+	name := filepath.Base(filepath.Clean(path))
+	if err := validateTransactionCleanupParent(root, directory, parentBefore); err != nil {
+		return err
+	}
+	if err := validateTransactionCleanupTarget(root, name, expected); err != nil {
+		return err
+	}
+	if hooks.beforeRemove != nil {
+		if err := hooks.beforeRemove(); err != nil {
+			return err
+		}
+	}
+	if err := validateTransactionCleanupParent(root, directory, parentBefore); err != nil {
+		return err
+	}
+	if err := validateTransactionCleanupTarget(root, name, expected); err != nil {
+		return err
+	}
+	if err := root.Remove(name); err != nil {
+		return err
+	}
+	return atomicfile.SyncDirectory(root)
+}
+
+func validateTransactionCleanupParent(root *os.Root, directory string, expected os.FileInfo) error {
+	if err := validatePrivateDirectory(directory); err != nil {
+		return err
+	}
+	opened, statErr := root.Stat(".")
+	current, lstatErr := os.Lstat(directory)
+	if statErr != nil || lstatErr != nil || !opened.IsDir() || current.Mode()&os.ModeSymlink != 0 ||
+		!current.IsDir() || !os.SameFile(expected, opened) || !os.SameFile(opened, current) {
+		return errors.Join(
+			fmt.Errorf("transaction cleanup parent changed identity: %s", directory),
+			statErr,
+			lstatErr,
+		)
+	}
+	return nil
+}
+
+func validateTransactionCleanupTarget(root *os.Root, name string, expected os.FileInfo) error {
+	current, err := root.Lstat(name)
+	if err != nil {
+		return err
+	}
+	if current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() || !os.SameFile(expected, current) {
+		return fmt.Errorf("transaction cleanup target changed identity")
+	}
+	file, err := root.Open(name)
+	if err != nil {
+		return err
+	}
+	opened, statErr := file.Stat()
+	securityErr := error(nil)
+	if statErr == nil {
+		securityErr = validatePrivateFile(file, opened)
+	}
+	closeErr := file.Close()
+	if err := errors.Join(statErr, securityErr, closeErr); err != nil {
+		return err
+	}
+	if !os.SameFile(expected, opened) || !os.SameFile(opened, current) {
+		return fmt.Errorf("transaction cleanup target changed identity")
+	}
+	return nil
 }
 
 func (s *Store) resampleRepositoryIdentity() error {

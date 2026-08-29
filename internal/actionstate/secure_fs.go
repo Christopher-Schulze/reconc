@@ -68,11 +68,18 @@ func ensurePrivateSubdirectories(base string, names ...string) (string, error) {
 }
 
 func readPrivateRegularFile(path string, maxBytes int64) ([]byte, error) {
+	body, _, err := readPrivateRegularFileSnapshot(path, maxBytes)
+	return body, err
+}
+
+func readPrivateRegularFileSnapshot(path string, maxBytes int64) ([]byte, os.FileInfo, error) {
 	var body []byte
+	var identity os.FileInfo
 	err := boundedio.WithRegularFileSnapshot(path, maxBytes, func(file *os.File, info os.FileInfo) error {
 		if err := validatePrivateFile(file, info); err != nil {
 			return err
 		}
+		identity = info
 		var readErr error
 		body, readErr = io.ReadAll(io.LimitReader(file, maxBytes+1))
 		if readErr != nil {
@@ -87,9 +94,9 @@ func readPrivateRegularFile(path string, maxBytes int64) ([]byte, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return body, nil
+	return body, identity, nil
 }
 
 func validatePrivateRegularFile(path string, maxBytes int64) error {
