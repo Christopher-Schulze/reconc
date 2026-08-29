@@ -13,14 +13,18 @@ Bootstrap retention removes an obsolete receipt and then discards the result of 
 
 ## Sub-Tasks
 
-- [ ] Define paired retention outcomes and recovery order
-- [ ] Preserve and report partial-removal state safely
-- [ ] Add failure-at-each-boundary tests
-- [ ] Run bootstrap retention and recovery gates
+- [x] Define paired retention outcomes and recovery order
+- [x] Preserve and report partial-removal state safely
+- [x] Add failure-at-each-boundary tests
+- [x] Run bootstrap retention and recovery gates
 
 ## Notes
 
-- Evidence: `internal/bootstrap/receipt_retention.go:70-76`.
+- Evidence: `internal/bootstrap/receipt_retention.go` validates and snapshots both
+  pair members before mutation, reports every failed pair, and restores deleted
+  members after a later boundary failure. `internal/bootstrap/receipt_retention_test.go`
+  covers receipt-boundary failure, plan-boundary rollback, and concurrent plan
+  mutation. Apply summaries and repository-sync reports surface bounded warnings.
 
 ## Deviations
 

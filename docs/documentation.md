@@ -200,7 +200,7 @@ partial audit, run-log, checksum, release, or provenance snapshot.
 | Adoption and overlays | Root manifests are capped at 1 MiB, `.reconc.yml`, user presets, and user templates at 8 MiB; workflow, preset, and template directories stop at 4,096 entries and report incomplete inspection. Manifest marker detection searches the already validated byte snapshots directly without copying each complete input into a string. |
 | Run decisions | Each live or archived JSONL file is capped at 2 MiB and each record at 32 KiB. Two archives are retained. `run log --limit N` validates the full retained chain while keeping only the requested tail in memory. |
 | Audit evidence | Each live or archived JSONL file is capped at 2 MiB, each record at 32 KiB, the detached head at 16 KiB, and the ring at two archives. Audit parent directories use `0700`; live/archive/head/lock/journal/backup members use `0600` and are identity- and security-validated before reads or writes. Existing legacy modes are migrated in place only after regular-file checks; symlinks, special files, wrong owners, and invalid lock aliases are rejected without discarding evidence. Same-process append bursts serialize per audit directory before the bounded cross-process lock; the file lock remains authoritative across processes. Snapshot readers decode archives incrementally with 32 KiB line, 2 MiB file, and 6 MiB aggregate bounds; final-newline and source-line diagnostics remain deterministic. Export streams only after the complete chain verifies. Portable workflow-audit files are strict non-symlink regular reads capped at 64 MiB; directory walks stop at 100,000 entries, task schemas and legacy prune policies at 1 MiB, and legacy retention directories at 4,096 entries. |
-| Bootstrap and repository sync | Managed text is capped at 16 MiB; bootstrap plans at 4 MiB; sync plans at 8 MiB; portable receipts at 4 MiB; rollback before-images at 64 MiB aggregate; journals at 96 MiB; binary artifacts at 256 MiB. Writes remain create-only or atomic and preserve user-owned bytes. |
+| Bootstrap and repository sync | Managed text is capped at 16 MiB; bootstrap plans at 4 MiB; sync plans at 8 MiB; portable receipts at 4 MiB; rollback before-images at 64 MiB aggregate; journals at 96 MiB; binary artifacts at 256 MiB. Writes remain create-only or atomic and preserve user-owned bytes. Historical bootstrap retention validates both members before deleting a pair, rolls back a first deletion when the second boundary fails, and reports any unrecoverable pair state as a bounded warning. |
 | Build provenance | Binary marker inspection streams at most 256 MiB without executing or retaining the binary. Production source hashing accepts at most 16,384 real files, 64 MiB per file, and 512 MiB aggregate. |
 | Command proofs and owned state | Each command proof is capped at 16 KiB and its directory at 4,096 entries; unresolved-policy proofs and workflow-audit cache state are capped at 8 MiB. All are strict regular-file reads that reject links and special files. Retention directories and tree walks have explicit entry ceilings and abort without deleting from a partial inventory. |
 | Policy script execution | A `require_script` target resolves inside the repository before launch, `timeout_sec` is capped at 300 seconds, and `kill_timeout_sec` at 60 seconds. An owned caller lifecycle, including MCP request or gateway shutdown cancellation, is the parent of that configured timeout. Caller cancellation returns its context error; only the configured child deadline is reported as a policy-script timeout. On Unix, cancellation sends `SIGTERM` to the complete process group and escalates to `SIGKILL` after the bounded grace; Windows preserves its native immediate process-kill backend. Synchronous CLI and hook surfaces have no independent request lifecycle and use the same bounded configured timeout as their documented background fallback. Captured stdout and stderr stop at 64 KiB per stream. |
@@ -571,7 +571,9 @@ cannot redirect creation, and a rejected newly created identity is removed
 through the still-open parent. Legacy private directories may be repaired only
 at their intended boundary. Receipt,
 retention, command-proof, policy-proof, and action-state paths retain their
-existing locations, names, retention behavior, and JSON contracts.
+existing locations, names, and retention behavior. Repository-sync reports
+append bounded best-effort retention warnings after their primary `next_action`
+command without changing the published schema shape.
 Binary update and rollback temporaries reuse the file-only form of this
 boundary in the executable directory: the temporary identity becomes private
 without changing the directory's public traversal contract.
@@ -670,7 +672,10 @@ selection-preserving replan command with `--replace-output`.
 The private receipt directory retains the current bootstrap plan/receipt pair
 plus the two newest independently validated historical pairs. Cleanup removes
 only strict, digest-bound, non-symlink Reconc pairs and preserves foreign,
-malformed, partial, current, and linked entries. A legacy harness receipt is
+malformed, partial, current, and linked entries. Pair deletion validates both
+files at the mutation boundary and rolls back the first removal when the
+second fails; any skipped or partially recoverable pair is surfaced in the
+apply summary warnings. A legacy harness receipt is
 importable only when its recorded pack digest matches an authenticated embedded
 pack; Reconc never invents compatibility bounds for an unknown digest.
 
@@ -736,6 +741,12 @@ direct bootstrap apply, sync plan/apply/resolve/verify, and removal until:
 ```bash
 reconc repo sync recover .
 ```
+
+Successful sync retains the same bounded bootstrap receipt history as apply.
+Historical pair cleanup is best effort: both files are validated at the
+mutation boundary, a first deletion is rolled back when the second fails, and
+the JSON report appends any skipped or partially recoverable pair as warning
+lines after its primary `next_action` command.
 
 Recovery returns `clean`, `finalized`, `rolled-back`, or `refused`. A complete
 after-image is verified and finalized; an exact before-image or before/after

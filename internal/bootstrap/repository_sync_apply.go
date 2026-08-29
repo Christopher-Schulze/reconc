@@ -226,9 +226,11 @@ func applySyncPlanLocked(plan *SyncPlan, report *SyncReport, productVersion stri
 		report.NextAction = "reconc repo sync recover " + quoteBootstrapArgument(plan.RepoRoot)
 		return err
 	}
-	pruneObsoleteBootstrapReceipts(plan.RepoRoot, plan.PlanDigest)
+	retentionWarnings := pruneObsoleteBootstrapReceipts(plan.RepoRoot, plan.PlanDigest)
 	report.Status = SyncComplete
-	report.NextAction = "reconc check " + quoteBootstrapArgument(plan.RepoRoot)
+	report.NextAction = appendBootstrapRetentionWarnings(
+		"reconc check "+quoteBootstrapArgument(plan.RepoRoot), retentionWarnings,
+	)
 	sort.Strings(report.Changed)
 	sort.Strings(report.Unchanged)
 	return nil

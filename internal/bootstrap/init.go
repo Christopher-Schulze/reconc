@@ -119,6 +119,7 @@ func initializeLocked(request InitRequest, result *InitReport, productVersion st
 		result.NextAction = err.Error()
 		return fmt.Errorf("apply init plan: %w", err)
 	}
+	result.Warnings = append(result.Warnings, applyReport.Summary.InspectionErrors...)
 	result.Changed = len(applyReport.Created) > 0
 	result.Candidates = append([]string{}, applyReport.Candidates...)
 	if applyReport.ReceiptPath != "" {
@@ -144,6 +145,7 @@ func initializeLocked(request InitRequest, result *InitReport, productVersion st
 		if err != nil {
 			return fmt.Errorf("apply accepted init plan: %w", err)
 		}
+		result.Warnings = append(result.Warnings, applyReport.Summary.InspectionErrors...)
 		result.Actions = append([]Action{}, plan.Actions...)
 		result.PlanDigest = stringPointer(plan.PlanDigest)
 		result.Candidates = append([]string{}, applyReport.Candidates...)

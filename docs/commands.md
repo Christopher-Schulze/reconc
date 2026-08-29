@@ -570,14 +570,19 @@ inspection guidance. Failures roll back only transaction-owned
 files whose identity and checksum still match. Status `drift` exits 1.
 Successful reports contain one compact created/preserved/drifted/skipped and
 installed/configured/live summary, a tamper-evident receipt path, and exactly
-one primary next command. Human output uses TTY-only ANSI color for decisions,
+one primary next command. Retention warnings identify a skipped or rolled-back
+historical plan/receipt pair without changing the completed apply status. Human
+output uses TTY-only ANSI color for decisions,
 rule IDs, and OK/WARN/FAIL tags; JSON and redirected output never contain ANSI.
 All copy-paste shell commands render each argument for the current shell family
 and preserve quotes, backslashes, dollars, command substitutions, whitespace,
 newlines, and trailing separators as literal argv. Successful apply retains
 the current private plan/receipt pair and the two newest fully validated
 historical pairs; unknown, malformed, partial, current, or symlinked entries
-are never cleanup authority.
+are never cleanup authority. Pair-removal failures are returned as bounded
+warnings, and a first removal is rolled back when the second boundary fails.
+Repository-sync reports keep the exact command as the first `next_action` line
+and append one `Warning:` line per retention warning in both JSON and text.
 
 ### `reconc bootstrap remove --plan PATH [--json]`
 Reverse one applied plan using the portable repository receipt as the maximum
@@ -630,6 +635,11 @@ is removed. A normal failure rolls back exact after-images immediately.
 Process interruption leaves the journal for explicit recovery.
 `user-drift`, `orphaned-legacy`, `incompatible`, and `manual-review` are
 non-mutating blockers.
+After a successful sync, historical bootstrap receipt/plan retention remains
+best effort. Pair members are validated again at the deletion boundary; a
+first deletion is rolled back when the second fails. JSON includes any skipped
+or partially recoverable pair as `Warning:` lines after the command in
+`next_action`, and text output prints the same lines.
 
 ### `reconc repo sync resolve --plan PATH --digest SHA256 --path RELATIVE --strategy keep-current|use-target|use-binary [--binary PATH --checksum SHA256 --platform OS/ARCH] [--json]`
 Resolve exactly one non-mutable action from the reviewed plan. Resolution

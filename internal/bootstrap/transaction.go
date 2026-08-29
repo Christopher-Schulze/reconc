@@ -251,11 +251,12 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 		report.Created = append(report.Created, RepositoryReceiptRelativePath)
 	}
 	report.ReceiptPath = receiptPath
-	pruneObsoleteBootstrapReceipts(plan.RepoRoot, plan.PlanDigest)
+	retentionWarnings := pruneObsoleteBootstrapReceipts(plan.RepoRoot, plan.PlanDigest)
 	report.Status = ApplyComplete
 	sort.Strings(report.Created)
 	sort.Strings(report.Unchanged)
 	report.Summary = summarizeApply(plan, report)
+	report.Summary.InspectionErrors = append(report.Summary.InspectionErrors, retentionWarnings...)
 	report.NextAction = "reconc check " + quoteBootstrapArgument(plan.RepoRoot)
 	return report, nil
 }
