@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 365 Reject duplicate keys in audit evidence -> tasks/365-reject-duplicate-keys-in-audit-evidence.md
 - [ ] 366 Parse assurance guard markers outside comments and strings -> tasks/366-parse-assurance-guard-markers-outside-comments-and-strings.md
 - [ ] 367 Bind substantive proof measurements to evidence -> tasks/367-bind-substantive-proof-measurements-to-evidence.md
 - [ ] 368 Enforce package-script runner ownership -> tasks/368-enforce-package-script-runner-ownership.md
@@ -18,6 +17,7 @@
 
 ## Done
 
+- [x] 365 Reject duplicate keys in audit evidence -> tasks/done/365-reject-duplicate-keys-in-audit-evidence.md
 - [x] 364 Precompile forbidden-term inspection matching -> tasks/done/364-precompile-forbidden-term-inspection-matching.md
 - [x] 363 Read conformance inputs through strict snapshots -> tasks/done/363-read-conformance-inputs-through-strict-snapshots.md
 - [x] 362 Preserve signal exit status in reconc exec -> tasks/done/362-preserve-signal-exit-status-in-reconc-exec.md

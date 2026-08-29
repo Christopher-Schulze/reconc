@@ -1430,7 +1430,9 @@ fails instead of producing partial statistics.
 ### `reconc audit export [repo]`
 Raw JSONL dump on stdout for external tooling. Audit tail, stats, and export
 verify and read the two bounded archives plus the live file in chronological
-order.
+order. Strict decoding rejects malformed records, unknown fields, and duplicate
+object keys at every nesting level before export; valid records retain their
+original JSONL bytes.
 
 ### `reconc audit verify [repo] [--json]`
 Verify every retained decision record and `.reconc/audit.head.json` without

@@ -332,6 +332,95 @@ func TestExportJSONL(t *testing.T) {
 	}
 }
 
+func TestDecodeStrictJSONRejectsDuplicateObjectKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "top-level known key",
+			body: `{"event":"check","event":"ci"}`,
+		},
+		{
+			name: "nested object",
+			body: `{"metadata":{"decision":"pass","decision":"block"}}`,
+		},
+		{
+			name: "object inside array",
+			body: `{"items":[{"value":1,"value":2}]}`,
+		},
+		{
+			name: "escaped equivalent key",
+			body: `{"event":"check","\u0065vent":"ci"}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var target interface{}
+			err := decodeStrictJSON([]byte(test.body), &target)
+			if err == nil || !strings.Contains(err.Error(), "duplicate JSON object key") {
+				t.Fatalf("duplicate key accepted: %v", err)
+			}
+		})
+	}
+}
+
+func TestAuditRejectsDuplicateRecordBeforeVerificationAndExport(t *testing.T) {
+	repo := t.TempDir()
+	if err := Append(repo, Entry{Event: "check", Decision: "pass"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repo, AuditFileRelative)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.Replace(body, []byte(`"event":"check"`), []byte(`"event":"check","event":"ci"`), 1)
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Verify(repo); err == nil || !strings.Contains(err.Error(), "duplicate JSON object key") {
+		t.Fatalf("duplicate audit record verification result = %v", err)
+	}
+	var exported bytes.Buffer
+	if err := ExportJSONL(repo, &exported); err == nil || !strings.Contains(err.Error(), "duplicate JSON object key") {
+		t.Fatalf("duplicate audit record export result = %v", err)
+	}
+	if exported.Len() != 0 {
+		t.Fatalf("export wrote ambiguous evidence before rejecting it: %d bytes", exported.Len())
+	}
+}
+
+func TestExportJSONLPreservesValidArchives(t *testing.T) {
+	repo := t.TempDir()
+	for index := 0; index < 8; index++ {
+		if err := Append(repo, Entry{Event: fmt.Sprintf("event-%d", index), Decision: "pass"}, 400); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(repo, AuditFileRelative)
+	sources, err := jsonl.PathsOldestFirst(path, MaxArchiveFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want bytes.Buffer
+	for _, source := range sources {
+		body, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = want.Write(body)
+	}
+	var got bytes.Buffer
+	if err := ExportJSONL(repo, &got); err != nil {
+		t.Fatalf("ExportJSONL: %v", err)
+	}
+	if !bytes.Equal(got.Bytes(), want.Bytes()) {
+		t.Fatalf("valid archive export changed source bytes")
+	}
+}
+
 func TestExportJSONLMissingFile(t *testing.T) {
 	repo := t.TempDir()
 	var buf bytes.Buffer

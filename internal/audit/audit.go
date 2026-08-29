@@ -828,6 +828,9 @@ func readChainHead(repoRoot string) (*chainHead, error) {
 }
 
 func decodeStrictJSON(data []byte, target interface{}) error {
+	if err := rejectDuplicateJSONKeys(data); err != nil {
+		return err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
@@ -839,6 +842,68 @@ func decodeStrictJSON(data []byte, target interface{}) error {
 			return errors.New("multiple JSON values are not allowed")
 		}
 		return err
+	}
+	return nil
+}
+
+func rejectDuplicateJSONKeys(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	return walkJSONValue(decoder, "$")
+}
+
+func walkJSONValue(decoder *json.Decoder, path string) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, isDelimiter := token.(json.Delim)
+	if !isDelimiter {
+		return nil
+	}
+
+	switch delimiter {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return errors.New("invalid JSON object key")
+			}
+			if _, exists := seen[key]; exists {
+				return fmt.Errorf("duplicate JSON object key %q at %s", key, path)
+			}
+			seen[key] = struct{}{}
+			if err := walkJSONValue(decoder, path+"."+key); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if closing != json.Delim('}') {
+			return errors.New("invalid JSON object termination")
+		}
+	case '[':
+		for index := 0; decoder.More(); index++ {
+			if err := walkJSONValue(decoder, fmt.Sprintf("%s[%d]", path, index)); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if closing != json.Delim(']') {
+			return errors.New("invalid JSON array termination")
+		}
+	default:
+		return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
 	}
 	return nil
 }
