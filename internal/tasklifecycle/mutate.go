@@ -337,7 +337,7 @@ func mutate(repoRoot, action string, build mutationBuilder) (MutationResult, err
 		return MutationResult{}, err
 	}
 	var result MutationResult
-	err = withMutationLock(root, func() error {
+	err = withMutationLockLease(root, func(lease *taskMutationLockLease) error {
 		board, loadErr := Load(root)
 		if loadErr != nil {
 			return loadErr
@@ -346,7 +346,7 @@ func mutate(repoRoot, action string, build mutationBuilder) (MutationResult, err
 		if buildErr != nil {
 			return buildErr
 		}
-		if applyErr := applyTransaction(root, action, files, moves); applyErr != nil {
+		if applyErr := applyTransactionWithLease(root, action, files, moves, lease); applyErr != nil {
 			return applyErr
 		}
 		result = built

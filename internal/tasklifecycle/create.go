@@ -27,7 +27,7 @@ func Create(repoRoot, title, requestedID string) (MutationResult, error) {
 		return MutationResult{}, err
 	}
 	var created MutationResult
-	err = withMutationLock(root, func() error {
+	err = withMutationLockLease(root, func(lease *taskMutationLockLease) error {
 		board, err := Load(root)
 		if err != nil {
 			return err
@@ -69,7 +69,7 @@ func Create(repoRoot, title, requestedID string) (MutationResult, error) {
 			{Path: board.Config.OverviewPath, After: overview},
 			{Path: detailRel, After: detail, Create: true},
 		}
-		if err := applyTransaction(root, "new", files, nil); err != nil {
+		if err := applyTransactionWithLease(root, "new", files, nil, lease); err != nil {
 			return err
 		}
 		verified, err := Load(root)

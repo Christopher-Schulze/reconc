@@ -301,10 +301,15 @@ candidate insertion and digest ordering.
    recovery finalizes a verified complete after-image or rolls back exact
    transaction images; any external edit is preserved and refused. Directory
    identity is not guessed after a crash, so empty created parents may remain.
-   TASK lifecycle transactions independently bind every touched regular file
-   and moved source to exact bytes and mode, revalidate the full precondition
-   set and each operation, and publish moves through an atomic no-clobber
-   hard-link transition whose intermediate state is recoverable. Prepared and
+   TASK lifecycle transactions acquire `.reconc/locks/task-lifecycle.lock`
+   through rooted, no-follow directory handles and retain the lock descriptor
+   and parent identities as a lease through every protected mutation and
+   release. A replacement, unlink, symlink, or parent identity change fails
+   closed before publication. They independently bind every touched regular
+   file and moved source to exact bytes and mode, revalidate the full
+   precondition set and each operation, and publish moves through an atomic
+   no-clobber hard-link transition whose intermediate state is recoverable.
+   Prepared and
    committed journal phases plus private random markers bind newly created
    parent directories to safe rollback or commit finalization; unproven or
    non-empty directories are never removed.

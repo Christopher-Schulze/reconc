@@ -51,6 +51,14 @@ type transaction struct {
 	Files              []transactionFile      `json:"files"`
 	Moves              []transactionMove      `json:"moves,omitempty"`
 	CreatedDirectories []transactionDirectory `json:"created_directories,omitempty"`
+	lockLease          *taskMutationLockLease
+}
+
+func (journal transaction) validateLockLease() error {
+	if journal.lockLease == nil {
+		return nil
+	}
+	return journal.lockLease.validate()
 }
 
 type transactionFile struct {
@@ -79,6 +87,22 @@ var (
 	closeMutationLock   = func(file *os.File) error { return file.Close() }
 )
 
+type taskMutationLockLease struct {
+	repoRoot            string
+	reconcPath          string
+	lockDirectoryPath   string
+	lockPath            string
+	lockName            string
+	repository          *os.Root
+	reconcDirectory     *os.Root
+	lockDirectory       *os.Root
+	repositoryInfo      os.FileInfo
+	reconcDirectoryInfo os.FileInfo
+	lockDirectoryInfo   os.FileInfo
+	lockInfo            os.FileInfo
+	file                *os.File
+}
+
 func transactionExists(repoRoot string) (bool, error) {
 	_, path, err := safeTransactionPath(repoRoot, transactionRel)
 	if err != nil {
@@ -97,27 +121,227 @@ func transactionExists(repoRoot string) (bool, error) {
 }
 
 func withMutationLock(repoRoot string, fn func() error) (resultErr error) {
-	path := filepath.Join(repoRoot, filepath.FromSlash(taskLockRel))
-	if err := rejectSymlinkComponents(repoRoot, path); err != nil {
-		return fmt.Errorf("unsafe TASK lock path: %w", err)
+	if fn == nil {
+		return errors.New("TASK mutation lock callback is required")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create TASK lock directory: %w", err)
+	return withMutationLockLease(repoRoot, func(*taskMutationLockLease) error {
+		return fn()
+	})
+}
+
+func withMutationLockLease(repoRoot string, fn func(*taskMutationLockLease) error) (resultErr error) {
+	if fn == nil {
+		return errors.New("TASK mutation lock callback is required")
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	lease, err := openTaskMutationLock(repoRoot)
 	if err != nil {
-		return fmt.Errorf("open TASK lock: %w", err)
+		return err
 	}
-	defer func() { resultErr = errors.Join(resultErr, closeMutationLock(file)) }()
-	unlock, err := acquireMutationLock(context.Background(), file, filelock.DefaultTimeout)
+	closeRoots := func(cause error) error {
+		return errors.Join(cause, lease.closeRoots())
+	}
+	unlock, err := acquireMutationLock(context.Background(), lease.file, filelock.DefaultTimeout)
 	if err != nil {
-		return fmt.Errorf("lock TASK lifecycle: %w", err)
+		return closeRoots(errors.Join(fmt.Errorf("lock TASK lifecycle: %w", err), closeMutationLock(lease.file)))
 	}
-	defer func() { resultErr = errors.Join(resultErr, unlock()) }()
-	return fn()
+	if err := lease.validate(); err != nil {
+		return closeRoots(errors.Join(err, unlock(), closeMutationLock(lease.file)))
+	}
+	operationErr := fn(lease)
+	leaseErr := lease.validate()
+	unlockErr := unlock()
+	closeErr := closeMutationLock(lease.file)
+	if leaseErr != nil {
+		operationErr = errors.Join(operationErr, fmt.Errorf("TASK lock lease changed: %w", leaseErr))
+	}
+	return errors.Join(operationErr, unlockErr, closeErr, lease.closeRoots())
+}
+
+func openTaskMutationLock(repoRoot string) (*taskMutationLockLease, error) {
+	repository, err := os.OpenRoot(repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("open TASK repository root: %w", err)
+	}
+	lease := &taskMutationLockLease{
+		repoRoot:          repoRoot,
+		reconcPath:        filepath.Join(repoRoot, ".reconc"),
+		lockDirectoryPath: filepath.Join(repoRoot, filepath.FromSlash(filepath.Dir(taskLockRel))),
+		lockPath:          filepath.Join(repoRoot, filepath.FromSlash(taskLockRel)),
+		lockName:          filepath.Base(taskLockRel),
+		repository:        repository,
+	}
+	closeOnError := func(cause error) (*taskMutationLockLease, error) {
+		return nil, errors.Join(cause, lease.closeRoots())
+	}
+	if err := captureTaskMutationRootIdentity(lease); err != nil {
+		return closeOnError(err)
+	}
+	if err := repository.Mkdir(".reconc", 0o755); err != nil && !errors.Is(err, os.ErrExist) {
+		return closeOnError(fmt.Errorf("create TASK lock root directory: %w", err))
+	}
+	reconcInfo, err := repository.Lstat(".reconc")
+	if err != nil || reconcInfo.Mode()&os.ModeSymlink != 0 || !reconcInfo.IsDir() {
+		return closeOnError(errors.Join(fmt.Errorf("TASK lock parent must be a non-symlink directory"), err))
+	}
+	reconcDirectory, err := repository.OpenRoot(".reconc")
+	if err != nil {
+		return closeOnError(fmt.Errorf("open TASK lock root directory: %w", err))
+	}
+	lease.reconcDirectory = reconcDirectory
+	lease.reconcDirectoryInfo = reconcInfo
+	if err := validateTaskMutationDirectory(lease.reconcPath, reconcDirectory, reconcInfo); err != nil {
+		return closeOnError(err)
+	}
+	if err := reconcDirectory.Mkdir("locks", 0o755); err != nil && !errors.Is(err, os.ErrExist) {
+		return closeOnError(fmt.Errorf("create TASK lock directory: %w", err))
+	}
+	lockDirectoryInfo, err := reconcDirectory.Lstat("locks")
+	if err != nil || lockDirectoryInfo.Mode()&os.ModeSymlink != 0 || !lockDirectoryInfo.IsDir() {
+		return closeOnError(errors.Join(fmt.Errorf("TASK lock directory must be a non-symlink directory"), err))
+	}
+	lockDirectory, err := reconcDirectory.OpenRoot("locks")
+	if err != nil {
+		return closeOnError(fmt.Errorf("open TASK lock directory: %w", err))
+	}
+	lease.lockDirectory = lockDirectory
+	lease.lockDirectoryInfo = lockDirectoryInfo
+	if err := validateTaskMutationDirectory(lease.lockDirectoryPath, lockDirectory, lockDirectoryInfo); err != nil {
+		return closeOnError(err)
+	}
+	before, err := lockDirectory.Lstat(lease.lockName)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return closeOnError(fmt.Errorf("inspect TASK lock: %w", err))
+	}
+	if err == nil && (before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular()) {
+		return closeOnError(fmt.Errorf("TASK lock must be a non-symlink regular file"))
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		before = nil
+	}
+	file, err := openTaskMutationLockFile(lockDirectory, lease.lockName, before)
+	if err != nil {
+		return closeOnError(err)
+	}
+	lease.file = file
+	lockInfo, err := file.Stat()
+	if err != nil {
+		return closeOnError(errors.Join(fmt.Errorf("inspect opened TASK lock: %w", err), closeMutationLock(file)))
+	}
+	lease.lockInfo = lockInfo
+	if err := lease.validate(); err != nil {
+		return closeOnError(errors.Join(err, closeMutationLock(file)))
+	}
+	return lease, nil
+}
+
+func (lease *taskMutationLockLease) closeRoots() error {
+	if lease == nil {
+		return nil
+	}
+	return errors.Join(closeTaskRoot(lease.lockDirectory), closeTaskRoot(lease.reconcDirectory), closeTaskRoot(lease.repository))
+}
+
+func closeTaskRoot(root *os.Root) error {
+	if root == nil {
+		return nil
+	}
+	return root.Close()
+}
+
+func captureTaskMutationRootIdentity(lease *taskMutationLockLease) error {
+	opened, statErr := lease.repository.Stat(".")
+	current, lstatErr := os.Lstat(lease.repoRoot)
+	if statErr != nil || lstatErr != nil || !opened.IsDir() || current.Mode()&os.ModeSymlink != 0 ||
+		!current.IsDir() || !os.SameFile(opened, current) {
+		return errors.Join(fmt.Errorf("TASK repository root changed identity while opening"), statErr, lstatErr)
+	}
+	lease.repositoryInfo = opened
+	return nil
+}
+
+func validateTaskMutationDirectory(path string, root *os.Root, expected os.FileInfo) error {
+	opened, statErr := root.Stat(".")
+	current, lstatErr := os.Lstat(path)
+	if statErr != nil || lstatErr != nil || expected == nil || !opened.IsDir() || current.Mode()&os.ModeSymlink != 0 ||
+		!current.IsDir() || !os.SameFile(expected, opened) || !os.SameFile(opened, current) {
+		return errors.Join(fmt.Errorf("TASK lock directory changed identity: %s", path), statErr, lstatErr)
+	}
+	return nil
+}
+
+func (lease *taskMutationLockLease) validate() error {
+	if lease == nil || lease.repository == nil || lease.reconcDirectory == nil || lease.lockDirectory == nil ||
+		lease.file == nil || lease.lockInfo == nil {
+		return errors.New("TASK lock lease is unavailable")
+	}
+	if err := validateTaskMutationDirectory(lease.repoRoot, lease.repository, lease.repositoryInfo); err != nil {
+		return err
+	}
+	if err := validateTaskMutationDirectory(lease.reconcPath, lease.reconcDirectory, lease.reconcDirectoryInfo); err != nil {
+		return err
+	}
+	if err := validateTaskMutationDirectory(lease.lockDirectoryPath, lease.lockDirectory, lease.lockDirectoryInfo); err != nil {
+		return err
+	}
+	opened, statErr := lease.file.Stat()
+	current, lstatErr := lease.lockDirectory.Lstat(lease.lockName)
+	pathCurrent, pathErr := os.Lstat(lease.lockPath)
+	if statErr != nil || lstatErr != nil || pathErr != nil || !opened.Mode().IsRegular() ||
+		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() || pathCurrent.Mode()&os.ModeSymlink != 0 ||
+		!pathCurrent.Mode().IsRegular() || !os.SameFile(lease.lockInfo, opened) || !os.SameFile(opened, current) ||
+		!os.SameFile(opened, pathCurrent) {
+		return errors.Join(fmt.Errorf("TASK lock path changed identity: %s", lease.lockPath), statErr, lstatErr, pathErr)
+	}
+	return nil
+}
+
+func validateTaskMutationLease(lease *taskMutationLockLease) error {
+	if lease == nil {
+		return nil
+	}
+	return lease.validate()
+}
+
+func removeTransactionPathWithLease(path string, lease *taskMutationLockLease) error {
+	if err := validateTaskMutationLease(lease); err != nil {
+		return err
+	}
+	return os.Remove(path)
+}
+
+func openTaskMutationLockFile(directory *os.Root, name string, before os.FileInfo) (*os.File, error) {
+	flags := os.O_RDWR
+	if before == nil {
+		flags |= os.O_CREATE | os.O_EXCL
+	}
+	file, err := directory.OpenFile(name, flags, 0o644)
+	if before == nil && errors.Is(err, os.ErrExist) {
+		before, err = directory.Lstat(name)
+		if err == nil && (before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular()) {
+			return nil, fmt.Errorf("TASK lock must be a non-symlink regular file")
+		}
+		if err == nil {
+			file, err = directory.OpenFile(name, os.O_RDWR, 0)
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("open TASK lock: %w", err)
+	}
+	opened, statErr := file.Stat()
+	current, lstatErr := directory.Lstat(name)
+	if statErr != nil || lstatErr != nil || !opened.Mode().IsRegular() ||
+		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
+		!os.SameFile(opened, current) || before != nil && !os.SameFile(before, opened) {
+		return nil, errors.Join(fmt.Errorf("TASK lock changed identity while opening"), statErr, lstatErr, file.Close())
+	}
+	return file, nil
 }
 
 func applyTransaction(repoRoot, action string, files []fileMutation, moves []moveMutation) error {
+	return applyTransactionWithLease(repoRoot, action, files, moves, nil)
+}
+
+func applyTransactionWithLease(repoRoot, action string, files []fileMutation, moves []moveMutation, lease *taskMutationLockLease) error {
 	journal, err := buildTransaction(repoRoot, action, files, moves)
 	if err != nil {
 		return err
@@ -125,6 +349,7 @@ func applyTransaction(repoRoot, action string, files []fileMutation, moves []mov
 	if err := validateTransactionShape(journal); err != nil {
 		return err
 	}
+	journal.lockLease = lease
 	body, err := encodeTransaction(journal)
 	if err != nil {
 		return err
@@ -138,13 +363,19 @@ func applyTransaction(repoRoot, action string, files []fileMutation, moves []mov
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect TASK transaction: %w", err)
 	}
+	if err := journal.validateLockLease(); err != nil {
+		return err
+	}
 	if _, err := atomicfile.WritePrivateIfChanged(journalPath, body, 0o600); err != nil {
 		return fmt.Errorf("publish TASK transaction: %w", err)
 	}
-	if err := publishTransaction(repoRoot, journal, files, moves); err != nil {
-		rollbackErr := rollbackTransaction(repoRoot, journal)
+	if err := publishTransactionWithLease(repoRoot, journal, files, moves, lease); err != nil {
+		rollbackErr := rollbackTransactionWithLease(repoRoot, journal, lease)
 		if rollbackErr != nil {
 			return fmt.Errorf("publish TASK transaction: %w; automatic rollback failed: %v; run `reconc task recover %s`", err, rollbackErr, repoRoot)
+		}
+		if guardErr := journal.validateLockLease(); guardErr != nil {
+			return fmt.Errorf("publish TASK transaction: %w (rolled back); lock lease changed: %v; run `reconc task recover %s`", err, guardErr, repoRoot)
 		}
 		if removeErr := os.Remove(journalPath); removeErr != nil {
 			return fmt.Errorf("publish TASK transaction: %w (rolled back); journal cleanup failed: %v; run `reconc task recover %s`", err, removeErr, repoRoot)
@@ -155,8 +386,11 @@ func applyTransaction(repoRoot, action string, files []fileMutation, moves []mov
 	committed.Phase = transactionPhaseCommitted
 	committedBody, err := encodeTransaction(committed)
 	if err != nil {
-		rollbackErr := rollbackTransaction(repoRoot, journal)
+		rollbackErr := rollbackTransactionWithLease(repoRoot, journal, lease)
 		return errors.Join(err, rollbackErr)
+	}
+	if err := committed.validateLockLease(); err != nil {
+		return err
 	}
 	if _, err := atomicfile.WritePrivateIfChanged(journalPath, committedBody, 0o600); err != nil {
 		observed, readErr := readTransaction(repoRoot)
@@ -166,14 +400,17 @@ func applyTransaction(repoRoot, action string, files []fileMutation, moves []mov
 				readErr,
 			)
 		}
-		rollbackErr := rollbackTransaction(repoRoot, journal)
+		rollbackErr := rollbackTransactionWithLease(repoRoot, journal, lease)
 		if rollbackErr != nil {
 			return fmt.Errorf("mark TASK transaction committed: %w; automatic rollback failed: %v; run `reconc task recover %s`", err, rollbackErr, repoRoot)
 		}
 		return fmt.Errorf("mark TASK transaction committed: %w (rolled back)", err)
 	}
-	if err := cleanupCommittedDirectoryMarkers(repoRoot, committed.CreatedDirectories); err != nil {
+	if err := cleanupCommittedDirectoryMarkersWithLease(repoRoot, committed.CreatedDirectories, lease); err != nil {
 		return fmt.Errorf("TASK transaction committed but directory-marker cleanup failed: %w; run `reconc task recover %s`", err, repoRoot)
+	}
+	if err := committed.validateLockLease(); err != nil {
+		return err
 	}
 	if err := os.Remove(journalPath); err != nil {
 		return fmt.Errorf("TASK transaction committed but journal cleanup failed: %w; run `reconc task recover %s`", err, repoRoot)
@@ -356,6 +593,11 @@ func buildTransactionMove(repoRoot string, move moveMutation, afterByPath map[st
 }
 
 func publishTransaction(repoRoot string, journal transaction, files []fileMutation, moves []moveMutation) error {
+	return publishTransactionWithLease(repoRoot, journal, files, moves, journal.lockLease)
+}
+
+func publishTransactionWithLease(repoRoot string, journal transaction, files []fileMutation, moves []moveMutation, lease *taskMutationLockLease) error {
+	journal.lockLease = lease
 	if err := validateTransactionShape(journal); err != nil {
 		return err
 	}
@@ -365,7 +607,10 @@ func publishTransaction(repoRoot string, journal transaction, files []fileMutati
 	if err := validatePublishState(repoRoot, journal); err != nil {
 		return err
 	}
-	if err := prepareTransactionDirectories(repoRoot, journal.CreatedDirectories); err != nil {
+	if err := prepareTransactionDirectoriesWithLease(repoRoot, journal.CreatedDirectories, lease); err != nil {
+		return err
+	}
+	if err := journal.validateLockLease(); err != nil {
 		return err
 	}
 	filesByPath := transactionFilesByPath(journal.Files)
@@ -378,17 +623,25 @@ func publishTransaction(repoRoot string, journal transaction, files []fileMutati
 		if err := validateFilePublishPrecondition(repoRoot, recorded); err != nil {
 			return err
 		}
+		if err := journal.validateLockLease(); err != nil {
+			return err
+		}
 		mode := os.FileMode(recorded.BeforeMode)
 		if recorded.Created {
-			if err := writeNewTransactionFile(abs, change.After, mode); err != nil {
+			if err := writeNewTransactionFileWithLease(abs, change.After, mode, lease); err != nil {
 				return err
 			}
-		} else if _, err := atomicfile.WriteIfChanged(abs, change.After, mode); err != nil {
-			return err
+		} else {
+			if err := validateTaskMutationLease(lease); err != nil {
+				return err
+			}
+			if _, err := atomicfile.WriteIfChanged(abs, change.After, mode); err != nil {
+				return err
+			}
 		}
 	}
 	for index, move := range moves {
-		if err := publishTransactionMove(repoRoot, journal.Moves[index], filesByPath, move); err != nil {
+		if err := publishTransactionMoveWithLease(repoRoot, journal.Moves[index], filesByPath, move, lease); err != nil {
 			return err
 		}
 	}
@@ -396,9 +649,16 @@ func publishTransaction(repoRoot string, journal transaction, files []fileMutati
 }
 
 func prepareTransactionDirectories(repoRoot string, directories []transactionDirectory) error {
+	return prepareTransactionDirectoriesWithLease(repoRoot, directories, nil)
+}
+
+func prepareTransactionDirectoriesWithLease(repoRoot string, directories []transactionDirectory, lease *taskMutationLockLease) error {
 	for _, directory := range directories {
 		_, absolute, err := safeTransactionPath(repoRoot, directory.Path)
 		if err != nil {
+			return err
+		}
+		if err := validateTaskMutationLease(lease); err != nil {
 			return err
 		}
 		if err := os.Mkdir(absolute, 0o755); err != nil {
@@ -412,10 +672,13 @@ func prepareTransactionDirectories(repoRoot string, directories []transactionDir
 		if err != nil {
 			return err
 		}
+		if err := validateTaskMutationLease(lease); err != nil {
+			return err
+		}
 		if _, err := atomicfile.WriteNew(marker, transactionDirectoryMarkerBody(directory), 0o600); err != nil {
 			return errors.Join(
 				fmt.Errorf("publish transaction directory marker for %s: %w", directory.Path, err),
-				os.Remove(absolute),
+				removeTransactionPathWithLease(absolute, lease),
 			)
 		}
 		if err := validateTransactionDirectoryMarker(repoRoot, directory, false); err != nil {
@@ -620,12 +883,16 @@ func validateMovePublishPrecondition(repoRoot string, move transactionMove, sour
 	return validateMoveDestinationAbsent(repoRoot, move)
 }
 
-func publishTransactionMove(
+func publishTransactionMoveWithLease(
 	repoRoot string,
 	recorded transactionMove,
 	filesByPath map[string]transactionFile,
 	requested moveMutation,
+	lease *taskMutationLockLease,
 ) error {
+	if err := validateTaskMutationLease(lease); err != nil {
+		return err
+	}
 	sourceFile, ok := filesByPath[recorded.Source]
 	if !ok {
 		return fmt.Errorf("transaction move source %s has no before-image", recorded.Source)
@@ -641,14 +908,17 @@ func publishTransactionMove(
 	if err != nil {
 		return err
 	}
+	if err := validateTaskMutationLease(lease); err != nil {
+		return err
+	}
 	if err := os.Link(source, destination); err != nil {
 		return fmt.Errorf("transaction move destination precondition failed for %s: %w", recorded.Destination, err)
 	}
 	if err := validateLinkedMove(source, destination, recorded, sourceFile); err != nil {
-		removeErr := os.Remove(destination)
+		removeErr := removeTransactionPathWithLease(destination, lease)
 		return errors.Join(err, removeErr)
 	}
-	if err := os.Remove(source); err != nil {
+	if err := removeTransactionPathWithLease(source, lease); err != nil {
 		return fmt.Errorf("remove transaction move source %s: %w", recorded.Source, err)
 	}
 	return nil
@@ -693,19 +963,28 @@ func transactionFileByPath(files []transactionFile, path string) (transactionFil
 	return transactionFile{}, false
 }
 
-func writeNewTransactionFile(path string, body []byte, mode os.FileMode) error {
+func writeNewTransactionFileWithLease(path string, body []byte, mode os.FileMode, lease *taskMutationLockLease) error {
+	if err := validateTaskMutationLease(lease); err != nil {
+		return err
+	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 	if err != nil {
 		return fmt.Errorf("create transaction file %s: %w", path, err)
+	}
+	if err := validateTaskMutationLease(lease); err != nil {
+		return errors.Join(err, file.Close())
 	}
 	written, writeErr := file.Write(body)
 	if writeErr == nil && written != len(body) {
 		writeErr = io.ErrShortWrite
 	}
+	if err := validateTaskMutationLease(lease); err != nil {
+		writeErr = errors.Join(writeErr, err)
+	}
 	syncErr := file.Sync()
 	closeErr := file.Close()
 	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
-		removeErr := os.Remove(path)
+		removeErr := removeTransactionPathWithLease(path, lease)
 		return errors.Join(fmt.Errorf("publish transaction file %s: %w", path, err), removeErr)
 	}
 	return nil
@@ -783,7 +1062,7 @@ func RecoverIfNeeded(repoRoot string) (bool, error) {
 		return false, err
 	}
 	recovered := false
-	err = withMutationLock(root, func() error {
+	err = withMutationLockLease(root, func(lease *taskMutationLockLease) error {
 		journal, err := readTransaction(root)
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -791,18 +1070,22 @@ func RecoverIfNeeded(repoRoot string) (bool, error) {
 		if err != nil {
 			return err
 		}
+		journal.lockLease = lease
 		if journal.Phase == transactionPhaseCommitted {
-			if err := cleanupCommittedDirectoryMarkers(root, journal.CreatedDirectories); err != nil {
+			if err := cleanupCommittedDirectoryMarkersWithLease(root, journal.CreatedDirectories, lease); err != nil {
 				return err
 			}
 		} else {
-			if err := rollbackTransaction(root, journal); err != nil {
+			if err := rollbackTransactionWithLease(root, journal, lease); err != nil {
 				return err
 			}
 		}
 		_, journalPath, pathErr := safeTransactionPath(root, transactionRel)
 		if pathErr != nil {
 			return pathErr
+		}
+		if err := journal.validateLockLease(); err != nil {
+			return err
 		}
 		if err := os.Remove(journalPath); err != nil {
 			return fmt.Errorf("remove recovered TASK journal: %w", err)
@@ -848,6 +1131,14 @@ func readTransaction(repoRoot string) (transaction, error) {
 }
 
 func rollbackTransaction(repoRoot string, journal transaction) error {
+	return rollbackTransactionWithLease(repoRoot, journal, journal.lockLease)
+}
+
+func rollbackTransactionWithLease(repoRoot string, journal transaction, lease *taskMutationLockLease) error {
+	journal.lockLease = lease
+	if err := journal.validateLockLease(); err != nil {
+		return err
+	}
 	if journal.Phase == transactionPhaseCommitted {
 		return errors.New("committed TASK transaction cannot be rolled back; finalize recovery instead")
 	}
@@ -857,7 +1148,7 @@ func rollbackTransaction(repoRoot string, journal transaction) error {
 	filesByPath := transactionFilesByPath(journal.Files)
 	for index := len(journal.Moves) - 1; index >= 0; index-- {
 		move := journal.Moves[index]
-		if err := rollbackTransactionMove(repoRoot, move, filesByPath[move.Source]); err != nil {
+		if err := rollbackTransactionMoveWithLease(repoRoot, move, filesByPath[move.Source], lease); err != nil {
 			return err
 		}
 	}
@@ -867,7 +1158,7 @@ func rollbackTransaction(repoRoot string, journal transaction) error {
 			return err
 		}
 		if file.Created {
-			if err := os.Remove(abs); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if err := removeTransactionPathWithLease(abs, lease); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("rollback created %s: %w", file.Path, err)
 			}
 			continue
@@ -876,14 +1167,20 @@ func rollbackTransaction(repoRoot string, journal transaction) error {
 		if mode == 0 {
 			return fmt.Errorf("recovery journal has no valid before mode for %s", file.Path)
 		}
+		if err := validateTaskMutationLease(lease); err != nil {
+			return err
+		}
 		if _, err := atomicfile.WriteIfChanged(abs, file.Before, mode); err != nil {
 			return fmt.Errorf("rollback %s: %w", file.Path, err)
 		}
 	}
-	return rollbackCreatedDirectories(repoRoot, journal.CreatedDirectories)
+	return rollbackCreatedDirectoriesWithLease(repoRoot, journal.CreatedDirectories, lease)
 }
 
-func cleanupCommittedDirectoryMarkers(repoRoot string, directories []transactionDirectory) error {
+func cleanupCommittedDirectoryMarkersWithLease(repoRoot string, directories []transactionDirectory, lease *taskMutationLockLease) error {
+	if err := validateTaskMutationLease(lease); err != nil {
+		return err
+	}
 	for _, directory := range directories {
 		if err := validateTransactionDirectoryMarker(repoRoot, directory, true); err != nil {
 			return err
@@ -905,7 +1202,10 @@ func cleanupCommittedDirectoryMarkers(repoRoot string, directories []transaction
 		if err != nil {
 			return err
 		}
-		if err := os.Remove(marker); errors.Is(err, os.ErrNotExist) {
+		if err := validateTaskMutationLease(lease); err != nil {
+			return err
+		}
+		if err := removeTransactionPathWithLease(marker, lease); errors.Is(err, os.ErrNotExist) {
 			continue
 		} else if err != nil {
 			return fmt.Errorf("remove committed transaction directory marker for %s: %w", directory.Path, err)
@@ -918,7 +1218,10 @@ func cleanupCommittedDirectoryMarkers(repoRoot string, directories []transaction
 	return nil
 }
 
-func rollbackCreatedDirectories(repoRoot string, directories []transactionDirectory) error {
+func rollbackCreatedDirectoriesWithLease(repoRoot string, directories []transactionDirectory, lease *taskMutationLockLease) error {
+	if err := validateTaskMutationLease(lease); err != nil {
+		return err
+	}
 	ordered := append([]transactionDirectory(nil), directories...)
 	sort.Slice(ordered, func(left, right int) bool {
 		leftDepth := transactionPathDepth(ordered[left].Path)
@@ -951,15 +1254,18 @@ func rollbackCreatedDirectories(repoRoot string, directories []transactionDirect
 		if err != nil {
 			return err
 		}
-		if err := os.Remove(marker); err != nil {
+		if err := removeTransactionPathWithLease(marker, lease); err != nil {
 			return fmt.Errorf("remove rollback transaction directory marker for %s: %w", directory.Path, err)
 		}
 		after, err := os.Lstat(absolute)
 		if err != nil || !os.SameFile(before, after) || !after.IsDir() {
 			return errors.Join(fmt.Errorf("rollback transaction directory changed after marker removal: %s", directory.Path), err)
 		}
-		if err := os.Remove(absolute); err != nil {
-			_, restoreErr := atomicfile.WriteNew(marker, transactionDirectoryMarkerBody(directory), 0o600)
+		if err := removeTransactionPathWithLease(absolute, lease); err != nil {
+			var restoreErr error
+			if guardErr := validateTaskMutationLease(lease); guardErr == nil {
+				_, restoreErr = atomicfile.WriteNew(marker, transactionDirectoryMarkerBody(directory), 0o600)
+			}
 			return errors.Join(fmt.Errorf("remove rollback transaction directory %s: %w", directory.Path, err), restoreErr)
 		}
 	}
@@ -967,6 +1273,13 @@ func rollbackCreatedDirectories(repoRoot string, directories []transactionDirect
 }
 
 func rollbackTransactionMove(repoRoot string, move transactionMove, sourceFile transactionFile) error {
+	return rollbackTransactionMoveWithLease(repoRoot, move, sourceFile, nil)
+}
+
+func rollbackTransactionMoveWithLease(repoRoot string, move transactionMove, sourceFile transactionFile, lease *taskMutationLockLease) error {
+	if err := validateTaskMutationLease(lease); err != nil {
+		return err
+	}
 	_, source, err := safeTransactionPath(repoRoot, move.Source)
 	if err != nil {
 		return err
@@ -983,19 +1296,22 @@ func rollbackTransactionMove(repoRoot string, move transactionMove, sourceFile t
 	case destinationErr != nil:
 		return fmt.Errorf("rollback move destination %s: %w", move.Destination, destinationErr)
 	case sourceErr == nil && os.SameFile(sourceInfo, destinationInfo):
-		if err := os.Remove(destination); err != nil {
+		if err := removeTransactionPathWithLease(destination, lease); err != nil {
 			return fmt.Errorf("rollback linked move %s: %w", move.Destination, err)
 		}
 		return nil
 	case errors.Is(sourceErr, os.ErrNotExist):
+		if err := validateTaskMutationLease(lease); err != nil {
+			return err
+		}
 		if err := os.Link(destination, source); err != nil {
 			return fmt.Errorf("rollback move source precondition failed for %s: %w", move.Source, err)
 		}
 		if err := validateLinkedMove(source, destination, move, sourceFile); err != nil {
-			removeErr := os.Remove(source)
+			removeErr := removeTransactionPathWithLease(source, lease)
 			return errors.Join(err, removeErr)
 		}
-		if err := os.Remove(destination); err != nil {
+		if err := removeTransactionPathWithLease(destination, lease); err != nil {
 			return fmt.Errorf("remove rollback move destination %s: %w", move.Destination, err)
 		}
 		return nil

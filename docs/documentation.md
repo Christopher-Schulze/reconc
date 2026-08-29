@@ -1714,6 +1714,11 @@ read, every component identity, and the absent transaction journal to one
 before/after snapshot. Changed bytes, disappearance, inode replacement, a new
 symlink, or an appearing transaction fails with
 `task/read/concurrent-mutation`.
+Lifecycle mutations acquire `.reconc/locks/task-lifecycle.lock` through rooted,
+no-follow directory handles. The opened lock descriptor and repository,
+`.reconc`, and `locks` identities remain a lease through journal publication,
+file and move mutations, recovery cleanup, and release; replacement, unlink,
+symlink, or parent identity drift fails closed before the next mutation.
 The terminal gate reuses the single Git status snapshot already built for Stop;
 it adds no Git process to routine executable continuations.
 All Git evidence processes share one hermetic environment. Ambient repository,
