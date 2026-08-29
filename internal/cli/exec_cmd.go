@@ -94,20 +94,30 @@ func runExec(args []string, stdout, stderr io.Writer) error {
 	if runErr != nil {
 		outcome = "failure"
 	}
+	var postconditionErr error
+	if runErr == nil && staged {
+		postconditionErr = commandproof.VerifyStagedClean(snapshot)
+		if postconditionErr != nil {
+			outcome = "failure"
+		}
+	}
 	if recordErr := agentsession.RecordCommandOutcome(discovery.RepoRoot, commandText, outcome, exitCode); recordErr != nil {
 		message := fmt.Sprintf("reconc exec: record active-session evidence: %v", recordErr)
 		if runErr != nil {
 			message += fmt.Sprintf("; command also failed with exit code %d", exitCode)
+		}
+		if postconditionErr != nil {
+			message += "; staged postcondition also failed: " + postconditionErr.Error()
 		}
 		return &CLIError{ExitCode: 1, Message: message}
 	}
 	if runErr != nil {
 		return &CLIError{ExitCode: exitCode, Message: fmt.Sprintf("reconc exec: command failed with exit code %d", exitCode)}
 	}
+	if postconditionErr != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc exec: staged postcondition: " + postconditionErr.Error()}
+	}
 	if staged {
-		if err := commandproof.VerifyStagedClean(snapshot); err != nil {
-			return &CLIError{ExitCode: 1, Message: "reconc exec: staged postcondition: " + err.Error()}
-		}
 		proof, err := commandproof.StoreSuccess(snapshot, commandText, executionMode, startedAt, completedAt)
 		if err != nil {
 			return &CLIError{ExitCode: 1, Message: "reconc exec: store command proof: " + err.Error()}

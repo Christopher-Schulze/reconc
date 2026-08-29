@@ -26,10 +26,18 @@ func TestExecStagedProofSatisfiesCIWithoutToolHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitCommand(t, repo, "add", "src/main.go")
+	t.Setenv(agentsession.StateRootEnv, filepath.Join(t.TempDir(), "state"))
+	if _, err := agentsession.InitializeSessionState(repo, "staged-success"); err != nil {
+		t.Fatalf("session start: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"exec", repo, "--staged", "--", "go", "version"}, "0.8.5-test", &stdout, &stderr); err != nil {
 		t.Fatalf("exec staged: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	evidence, err := agentsession.ActiveEvidence(repo)
+	if err != nil || len(evidence.CommandResults) != 1 || evidence.CommandResults[0].Outcome != "success" {
+		t.Fatalf("staged success evidence = %+v, err=%v", evidence.CommandResults, err)
 	}
 	proofs, err := commandproof.LoadCurrentSuccesses(repo, time.Now())
 	if err != nil || len(proofs) != 1 {
@@ -115,10 +123,18 @@ func TestExecRejectsSuccessfulCommandThatChangesIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitCommand(t, repo, "add", "src/main.go")
+	t.Setenv(agentsession.StateRootEnv, filepath.Join(t.TempDir(), "state"))
+	if _, err := agentsession.InitializeSessionState(repo, "staged-dirty"); err != nil {
+		t.Fatalf("session start: %v", err)
+	}
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"exec", repo, "--staged", "--", "git", "reset", "HEAD", "--", "src/main.go"}, "0.8.5-test", &stdout, &stderr)
 	if ExitCode(err) != 1 || !strings.Contains(err.Error(), "staged postcondition") {
 		t.Fatalf("index-mutating command accepted: err=%v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	evidence, evidenceErr := agentsession.ActiveEvidence(repo)
+	if evidenceErr != nil || len(evidence.CommandResults) != 1 || evidence.CommandResults[0].Outcome != "failure" {
+		t.Fatalf("dirty staged command evidence = %+v, err=%v", evidence.CommandResults, evidenceErr)
 	}
 }
 
@@ -131,6 +147,10 @@ func TestExecStagedFailurePublishesNoProof(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitCommand(t, repo, "add", "candidate.txt")
+	t.Setenv(agentsession.StateRootEnv, filepath.Join(t.TempDir(), "state"))
+	if _, err := agentsession.InitializeSessionState(repo, "staged-failure"); err != nil {
+		t.Fatalf("session start: %v", err)
+	}
 
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"exec", repo, "--staged", "--shell", "--", "exit 7"}, "0.8.5-test", &stdout, &stderr)
@@ -140,6 +160,38 @@ func TestExecStagedFailurePublishesNoProof(t *testing.T) {
 	proofs, loadErr := commandproof.LoadCurrentSuccesses(repo, time.Now())
 	if loadErr != nil || len(proofs) != 0 {
 		t.Fatalf("failed command published proofs = %+v, err=%v", proofs, loadErr)
+	}
+	evidence, evidenceErr := agentsession.ActiveEvidence(repo)
+	if evidenceErr != nil || len(evidence.CommandResults) != 1 || evidence.CommandResults[0].Outcome != "failure" {
+		t.Fatalf("failed staged command evidence = %+v, err=%v", evidence.CommandResults, evidenceErr)
+	}
+}
+
+func TestExecStagedFailsWhenActiveSessionEvidenceCannotBeRecorded(t *testing.T) {
+	repo := makeCheckRepo(t, "rules: []\n")
+	initGitRepo(t, repo)
+	gitCommand(t, repo, "add", "AGENTS.md", "policies", ".reconc")
+	gitCommand(t, repo, "commit", "-m", "initial")
+	t.Setenv(agentsession.StateRootEnv, filepath.Join(t.TempDir(), "state"))
+	state, err := agentsession.InitializeSessionState(repo, "staged-overflow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.EvidenceOverflow = true
+	state.EvidenceOverflowReason = "commands"
+	state.EvidenceOverflowLimit = "byte_budget"
+	if err := agentsession.SaveSessionState(state); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err = Run([]string{"exec", repo, "--staged", "--", "go", "version"}, "0.9.1-test", &stdout, &stderr)
+	if ExitCode(err) != 1 || !strings.Contains(err.Error(), "record active-session evidence") {
+		t.Fatalf("unrecorded staged success must fail closed: %v", err)
+	}
+	proofs, proofErr := commandproof.LoadCurrentSuccesses(repo, time.Now())
+	if proofErr != nil || len(proofs) != 0 {
+		t.Fatalf("unrecorded staged success published proof = %+v, err=%v", proofs, proofErr)
 	}
 }
 

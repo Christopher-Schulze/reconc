@@ -1527,6 +1527,9 @@ same Git candidate and ignores mutable agent-session command outcomes. Parallel
 snapshot capture is cross-process serialized and transient Git index locks are
 retried for two seconds. When an active session exists, `reconc exec` records
 the outcome at the current causal evidence epoch with `reconc-exec` provenance.
+For `--staged`, the clean postcondition is verified before a zero-exit success
+is recorded; a dirty zero-exit command records a failure instead. Non-staged
+execution retains its immediate process-outcome recording boundary.
 
 Ordered JSON `events` derive the same epochs during ingestion. Check reports
 publish optional `write_epochs` and `evidence_epoch` fields so the decision is

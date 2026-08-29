@@ -105,6 +105,10 @@ staged-candidate fingerprint still matches the state being judged. A later
 relevant write invalidates the earlier result. A self-reported claim can be an
 input to policy, but it is not equivalent to a command receipt, Git identity,
 typed TASK state, or completion proof.
+In `reconc exec --staged`, the clean postcondition is checked before a zero-exit
+success is recorded; a command that dirties the candidate records failure and
+does not publish a success proof. Non-staged execution retains its immediate
+process-outcome recording boundary.
 
 Public verbs have fixed meanings:
 
