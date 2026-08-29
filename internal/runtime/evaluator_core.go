@@ -450,21 +450,26 @@ func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root 
 		contextMemo:      newMatchContextMemo(),
 	}
 	ruleIndexes := plan.indexesFor(allowedKinds, preCommand)
-	rules := make([]*policy.Rule, 0, len(ruleIndexes))
-	for _, ruleIndex := range ruleIndexes {
-		rules = append(rules, &plan.rules[ruleIndex])
+	ruleCount := len(ruleIndexes)
+	if ruleIndexes == nil {
+		ruleCount = len(plan.rules)
 	}
 
-	batchedScripts, err := evaluateBatchedRequireScripts(ctx, rules, plan.defaultMode, normalized.inputs)
+	batchedScripts, err := evaluateBatchedRequireScripts(ctx, plan.rules, ruleIndexes, plan.defaultMode, normalized.inputs)
 	if err != nil {
 		return nil, err
 	}
-	for i, rule := range rules {
+	for index := range ruleCount {
+		ruleIndex := index
+		if ruleIndexes != nil {
+			ruleIndex = ruleIndexes[index]
+		}
+		rule := &plan.rules[ruleIndex]
 		if err := ctx.lifecycleContext().Err(); err != nil {
 			return nil, err
 		}
-		if batchedScripts.handled[i] {
-			if v := batchedScripts.violations[i]; v != nil {
+		if batchedScripts.handled[index] {
+			if v := batchedScripts.violations[index]; v != nil {
 				report.Violations = append(report.Violations, *v)
 			}
 			continue
@@ -491,11 +496,7 @@ func (plan *runtimePlan) indexesFor(allowedKinds map[policy.Kind]struct{}, preCo
 		return plan.preCommandRules
 	}
 	if allowedKinds == nil {
-		indexes := make([]int, len(plan.rules))
-		for index := range indexes {
-			indexes[index] = index
-		}
-		return indexes
+		return nil
 	}
 	selected := make([]bool, len(plan.rules))
 	for kind := range allowedKinds {

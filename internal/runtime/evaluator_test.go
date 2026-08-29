@@ -259,10 +259,10 @@ func BenchmarkEvaluateBatchedRequireScriptsSingleton(b *testing.B) {
 		templateMatchers: &runtimeTemplateMatchers{},
 	}
 	inputs := ExecutionInputs{WritePaths: []string{"src/main.go"}}
-	rules := []*policy.Rule{rule}
+	rules := []policy.Rule{*rule}
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		if _, err := evaluateBatchedRequireScripts(ctx, rules, policy.ModeBlock, inputs); err != nil {
+		if _, err := evaluateBatchedRequireScripts(ctx, rules, nil, policy.ModeBlock, inputs); err != nil {
 			b.Fatal(err)
 		}
 	}

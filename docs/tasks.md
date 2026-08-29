@@ -5,7 +5,6 @@
 
 ## Queue
 
-- [ ] 345 Eliminate redundant full-evaluation rule slices -> tasks/345-eliminate-redundant-full-evaluation-rule-slices.md
 - [ ] 346 Publish MCP tool refreshes atomically -> tasks/346-publish-mcp-tool-refreshes-atomically.md
 - [ ] 347 Remove duplicate create-only parent validation -> tasks/347-remove-duplicate-create-only-parent-validation.md
 - [ ] 348 Bind private parent security to opened descriptors -> tasks/348-bind-private-parent-security-to-opened-descriptors.md
@@ -40,6 +39,7 @@
 
 ## Done
 
+- [x] 345 Eliminate redundant full-evaluation rule slices -> tasks/done/345-eliminate-redundant-full-evaluation-rule-slices.md
 - [x] 344 Cache immutable command expectations in runtime plans -> tasks/done/344-cache-immutable-command-expectations.md
 - [x] 300 Apply Windows private ACLs through opened handles -> tasks/done/300-apply-windows-private-acls-through-opened-handles.md
 - [x] 293 Make Windows atomic replacement genuinely write-through -> tasks/done/293-make-windows-atomic-replacement-genuinely-write-through.md
@@ -49,4 +49,3 @@
 - [x] 340 Centralize archive-ring bounds and symlink accounting -> tasks/done/340-centralize-archive-ring-bounds-and-symlink-accounting.md
 - [x] 339 Reuse canonical bytes across proof serialization -> tasks/done/339-reuse-canonical-bytes-across-proof-serialization.md
 - [x] 338 Parse custom-runtime manifests once -> tasks/done/338-parse-custom-runtime-manifests-once.md
-- [x] 337 Report atomic-file post-publication outcomes truthfully -> tasks/done/337-report-atomic-file-post-publication-outcomes-truthfully.md

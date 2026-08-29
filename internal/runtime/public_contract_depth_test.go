@@ -3,6 +3,7 @@ package runtime
 import (
 	"encoding/json"
 	"math"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -65,6 +66,20 @@ func TestCheckRepoPolicyForKindsFiltersWithoutWeakeningEvaluation(t *testing.T) 
 `)
 	inputs := Empty()
 	inputs.WritePaths = []string{"generated/out.go", "src/main.go"}
+	full, err := CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatalf("CheckRepoPolicy: %v", err)
+	}
+	allKinds, err := CheckRepoPolicyForKinds(repo, inputs, map[policy.Kind]struct{}{
+		policy.KindDenyWrite:    {},
+		policy.KindRequireClaim: {},
+	})
+	if err != nil {
+		t.Fatalf("CheckRepoPolicyForKinds(all): %v", err)
+	}
+	if !reflect.DeepEqual(allKinds, full) {
+		t.Fatalf("full and all-kind filtered reports differ:\nfull=%+v\nfiltered=%+v", full, allKinds)
+	}
 
 	report, err := CheckRepoPolicyForKinds(repo, inputs, map[policy.Kind]struct{}{
 		policy.KindRequireClaim: {},

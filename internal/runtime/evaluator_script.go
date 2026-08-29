@@ -37,7 +37,7 @@ type workflowAuditBatchResult struct {
 	Failures []string `json:"failures"`
 }
 
-func evaluateBatchedRequireScripts(ctx *evalContext, rules []*policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (batchedScriptEvaluations, error) {
+func evaluateBatchedRequireScripts(ctx *evalContext, rules []policy.Rule, ruleIndexes []int, defaultMode policy.Mode, inputs ExecutionInputs) (batchedScriptEvaluations, error) {
 	results := batchedScriptEvaluations{
 		handled:    map[int]bool{},
 		violations: map[int]*Violation{},
@@ -48,7 +48,16 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []*policy.Rule, defau
 	// preparation cost and then immediately fall back to evaluateRule.
 	groups := map[workflowAuditBatchKey][]workflowAuditBatchItem{}
 	groupOrder := []workflowAuditBatchKey{}
-	for i, rule := range rules {
+	ruleCount := len(ruleIndexes)
+	if ruleIndexes == nil {
+		ruleCount = len(rules)
+	}
+	for index := range ruleCount {
+		ruleIndex := index
+		if ruleIndexes != nil {
+			ruleIndex = ruleIndexes[index]
+		}
+		rule := &rules[ruleIndex]
 		scriptPath, mode, timeoutSec, killTimeoutSec, ok := workflowAuditBatchCandidate(rule)
 		if !ok {
 			continue
@@ -58,7 +67,7 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []*policy.Rule, defau
 			groupOrder = append(groupOrder, key)
 		}
 		groups[key] = append(groups[key], workflowAuditBatchItem{
-			index: i,
+			index: index,
 			rule:  rule,
 			mode:  mode,
 		})
