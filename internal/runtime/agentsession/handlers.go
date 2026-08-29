@@ -703,7 +703,8 @@ func materialEventSignature(payload *HookPayload, outcome string) (string, error
 		ToolName  string                 `json:"tool_name"`
 		ToolInput map[string]interface{} `json:"tool_input"`
 		Outcome   string                 `json:"outcome"`
-	}{ToolName: toolName, ToolInput: input, Outcome: outcome})
+		ToolUseID string                 `json:"tool_use_id,omitempty"`
+	}{ToolName: toolName, ToolInput: input, Outcome: outcome, ToolUseID: strings.TrimSpace(payload.ToolUseID)})
 	if err != nil {
 		return "", fmt.Errorf("marshal material event identity: %w", err)
 	}

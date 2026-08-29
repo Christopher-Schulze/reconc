@@ -51,3 +51,61 @@ func TestMaterialProgressDeduplicatesIdenticalToolOutcomes(t *testing.T) {
 		t.Fatalf("different command outcome must advance progress, got %d", state.MaterialEvents)
 	}
 }
+
+func TestMaterialEventIdentityPreservesToolUseIDs(t *testing.T) {
+	base := &HookPayload{
+		ToolName:  "Bash",
+		ToolInput: map[string]interface{}{"command": "go test ./..."},
+	}
+	withoutID, err := materialEventSignature(base, "success")
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutIDAgain, err := materialEventSignature(&HookPayload{
+		ToolName:  base.ToolName,
+		ToolInput: map[string]interface{}{"command": "go test ./..."},
+	}, "success")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withoutID != withoutIDAgain {
+		t.Fatalf("legacy material identity changed between equivalent payloads: %q != %q", withoutID, withoutIDAgain)
+	}
+
+	withID, err := materialEventSignature(&HookPayload{
+		ToolName:  base.ToolName,
+		ToolInput: base.ToolInput,
+		ToolUseID: "call-1",
+	}, "success")
+	if err != nil {
+		t.Fatal(err)
+	}
+	differentID, err := materialEventSignature(&HookPayload{
+		ToolName:  base.ToolName,
+		ToolInput: base.ToolInput,
+		ToolUseID: "call-2",
+	}, "success")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withID == differentID || withID == withoutID {
+		t.Fatalf("tool-use identity did not affect material signature: no-id=%q id-1=%q id-2=%q", withoutID, withID, differentID)
+	}
+
+	state := emptyState(t.TempDir(), "material-identities")
+	for _, payload := range []*HookPayload{
+		{ToolName: base.ToolName, ToolInput: map[string]interface{}{"command": "go test ./..."}, ToolUseID: "call-1"},
+		{ToolName: base.ToolName, ToolInput: map[string]interface{}{"command": "go test ./..."}, ToolUseID: "call-1"},
+		{ToolName: base.ToolName, ToolInput: map[string]interface{}{"command": "go test ./..."}, ToolUseID: "call-2"},
+		{ToolName: base.ToolName, ToolInput: map[string]interface{}{"command": "go test ./..."}},
+		{ToolName: base.ToolName, ToolInput: map[string]interface{}{"command": "go test ./..."}},
+	} {
+		state, err = recordToolUse(state, payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if state.MaterialEvents != 3 {
+		t.Fatalf("material event count = %d, want same-ID retries deduped, distinct IDs counted, and legacy retries deduped", state.MaterialEvents)
+	}
+}

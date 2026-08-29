@@ -5,7 +5,6 @@
 
 ## Queue
 
-- [ ] 349 Preserve distinct tool-use event identities -> tasks/349-preserve-distinct-tool-use-event-identities.md
 - [ ] 350 Fail closed on dynamic find launcher arguments -> tasks/350-fail-closed-on-dynamic-find-launcher-arguments.md
 - [ ] 351 Bind JSONL layout security to opened files -> tasks/351-bind-jsonl-layout-security-to-opened-files.md
 - [ ] 352 Revalidate retention candidates before deletion -> tasks/352-revalidate-retention-candidates-before-deletion.md
@@ -35,6 +34,7 @@
 
 ## Done
 
+- [x] 349 Preserve distinct tool-use event identities -> tasks/done/349-preserve-distinct-tool-use-event-identities.md
 - [x] 348 Bind private parent security to opened descriptors -> tasks/done/348-bind-private-parent-security-to-opened-descriptors.md
 - [x] 347 Remove duplicate create-only parent validation -> tasks/done/347-remove-duplicate-create-only-parent-validation.md
 - [x] 346 Publish MCP tool refreshes atomically -> tasks/done/346-publish-mcp-tool-refreshes-atomically.md
@@ -44,4 +44,3 @@
 - [x] 293 Make Windows atomic replacement genuinely write-through -> tasks/done/293-make-windows-atomic-replacement-genuinely-write-through.md
 - [x] 343 Remove dead private symbols exposed by staticcheck -> tasks/done/343-remove-dead-private-symbols-exposed-by-staticcheck.md
 - [x] 342 Stabilize concurrent JSONL archive discovery -> tasks/done/342-stabilize-concurrent-jsonl-archive-discovery.md
-- [x] 341 Remove duplicate JSONL lock validation -> tasks/done/341-remove-duplicate-jsonl-lock-validation.md

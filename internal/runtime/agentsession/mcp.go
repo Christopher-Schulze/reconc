@@ -366,7 +366,7 @@ func recordClassifiedMCPAfterResolved(root string, payload *HookPayload, classif
 		if state.EvidenceOverflow {
 			return state
 		}
-		signature, err := mcpMaterialSignature(payload.MCP, classification.Effect, values, outcome)
+		signature, err := mcpMaterialSignature(payload.MCP, payload.ToolUseID, classification.Effect, values, outcome)
 		if err != nil {
 			signatureErr = err
 			return state
@@ -413,22 +413,24 @@ func recordClassifiedMCPAfterResolved(root string, payload *HookPayload, classif
 	return Result{ExitCode: 0}
 }
 
-func mcpMaterialSignature(envelope *MCPPayload, effect policy.MCPEffect, values mcpExtractedValues, outcome string) (string, error) {
+func mcpMaterialSignature(envelope *MCPPayload, toolUseID string, effect policy.MCPEffect, values mcpExtractedValues, outcome string) (string, error) {
 	if envelope == nil {
 		return "", nil
 	}
 	body, err := json.Marshal(struct {
-		Selector string           `json:"selector"`
-		Effect   policy.MCPEffect `json:"effect"`
-		Paths    []string         `json:"paths,omitempty"`
-		Commands []string         `json:"commands,omitempty"`
-		Outcome  string           `json:"outcome"`
+		Selector  string           `json:"selector"`
+		Effect    policy.MCPEffect `json:"effect"`
+		Paths     []string         `json:"paths,omitempty"`
+		Commands  []string         `json:"commands,omitempty"`
+		Outcome   string           `json:"outcome"`
+		ToolUseID string           `json:"tool_use_id,omitempty"`
 	}{
-		Selector: mcpSelectorHash(envelope),
-		Effect:   effect,
-		Paths:    values.Paths,
-		Commands: values.Commands,
-		Outcome:  outcome,
+		Selector:  mcpSelectorHash(envelope),
+		Effect:    effect,
+		Paths:     values.Paths,
+		Commands:  values.Commands,
+		Outcome:   outcome,
+		ToolUseID: strings.TrimSpace(toolUseID),
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal MCP material identity: %w", err)

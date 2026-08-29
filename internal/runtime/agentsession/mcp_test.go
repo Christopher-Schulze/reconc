@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/policy"
 )
 
 func TestMCPRuntimeEnforcesTypedEffectsAndEvidence(t *testing.T) {
@@ -109,6 +110,30 @@ func TestMCPRuntimeEnforcesTypedEffectsAndEvidence(t *testing.T) {
 		if strings.Contains(string(auditBody), secret) {
 			t.Fatalf("MCP audit leaked %q", secret)
 		}
+	}
+}
+
+func TestMCPMaterialIdentityPreservesToolUseIDs(t *testing.T) {
+	envelope := &MCPPayload{Platform: policy.MCPPlatformCursor, Tool: "write_repo"}
+	values := mcpExtractedValues{Paths: []string{"src/a.go"}}
+	withoutID, err := mcpMaterialSignature(envelope, "", policy.MCPEffectRepositoryWrite, values, "success")
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutIDAgain, err := mcpMaterialSignature(envelope, "", policy.MCPEffectRepositoryWrite, values, "success")
+	if err != nil {
+		t.Fatal(err)
+	}
+	withID, err := mcpMaterialSignature(envelope, "call-1", policy.MCPEffectRepositoryWrite, values, "success")
+	if err != nil {
+		t.Fatal(err)
+	}
+	differentID, err := mcpMaterialSignature(envelope, "call-2", policy.MCPEffectRepositoryWrite, values, "success")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withoutID != withoutIDAgain || withID == withoutID || withID == differentID {
+		t.Fatalf("MCP material identity mismatch: no-id=%q repeated=%q id-1=%q id-2=%q", withoutID, withoutIDAgain, withID, differentID)
 	}
 }
 

@@ -3779,6 +3779,8 @@ typed-TASK-plus-material-event fingerprint in external race-safe session state,
 so concurrent agents cannot reset or consume each other's budget. A bounded
 material-event counter advances only for write and command outcomes, so TASK
 changes or real tool progress reset that session without a Git dirty scan.
+Material-event identity includes a non-empty tool-use identifier, while legacy
+events without one retain their deterministic identity.
 After six no-progress Stops, repository mode releases one invocation and resets
 only that session without silently changing the durable switch. Strict Grok
 Stops bypass the six-event guard and use the separate 32-delivered-interjection
