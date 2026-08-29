@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 363 Read conformance inputs through strict snapshots -> tasks/363-read-conformance-inputs-through-strict-snapshots.md
 - [ ] 364 Precompile forbidden-term inspection matching -> tasks/364-precompile-forbidden-term-inspection-matching.md
 - [ ] 365 Reject duplicate keys in audit evidence -> tasks/365-reject-duplicate-keys-in-audit-evidence.md
 - [ ] 366 Parse assurance guard markers outside comments and strings -> tasks/366-parse-assurance-guard-markers-outside-comments-and-strings.md
@@ -20,6 +19,7 @@
 
 ## Done
 
+- [x] 363 Read conformance inputs through strict snapshots -> tasks/done/363-read-conformance-inputs-through-strict-snapshots.md
 - [x] 362 Preserve signal exit status in reconc exec -> tasks/done/362-preserve-signal-exit-status-in-reconc-exec.md
 - [x] 361 Publish CLI output without symlink truncation -> tasks/done/361-publish-cli-output-without-symlink-truncation.md
 - [x] 360 Revalidate direct-update ownership at publication -> tasks/done/360-revalidate-direct-update-ownership-at-publication.md
