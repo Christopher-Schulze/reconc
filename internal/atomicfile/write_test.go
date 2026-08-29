@@ -2,6 +2,8 @@ package atomicfile
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -143,6 +145,58 @@ func TestWriteIfCurrentRejectsConcurrentIdentityReplacement(t *testing.T) {
 	body, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(body, before) {
 		t.Fatalf("replacement changed: body=%q err=%v", body, err)
+	}
+}
+
+func TestWriteStreamIfCurrentPublishesOnlyAuthorizedExistingState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.bin")
+	before := []byte("before stream\n")
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(before)
+	result, err := WriteStreamIfCurrent(path, strings.NewReader("after stream\n"), 64, 0o755, ExpectedStream{
+		Info: info, Digest: hex.EncodeToString(digest[:]), Exists: true,
+	})
+	if err != nil || !result.Changed || result.Outcome != PublicationDurablyPublished {
+		t.Fatalf("conditional stream write: result=%v err=%v", result, err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || string(body) != "after stream\n" {
+		t.Fatalf("stream bytes = %q err=%v", body, err)
+	}
+}
+
+func TestWriteStreamIfCurrentRejectsConcurrentIdentityReplacement(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.bin")
+	before := []byte("before stream\n")
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(before)
+	if err := os.Rename(path, path+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = WriteStreamIfCurrent(path, strings.NewReader("after stream\n"), 64, 0o755, ExpectedStream{
+		Info: info, Digest: hex.EncodeToString(digest[:]), Exists: true,
+	})
+	if !errors.Is(err, ErrCurrentChanged) {
+		t.Fatalf("conditional stream replacement error = %v", err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(body, before) {
+		t.Fatalf("replacement bytes changed: %q err=%v", body, err)
 	}
 }
 

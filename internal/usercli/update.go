@@ -11,10 +11,13 @@ import (
 	"time"
 
 	"reconc.dev/reconc/buildprovenance"
+	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedexec"
 )
 
 const maxLifecycleCommandOutput = 1 << 20
+
+var beforeDirectUpdatePhase = func(string) error { return nil }
 
 func update(ctx context.Context, currentVersion string, request UpdateRequest, apply bool) (*LifecycleReport, error) {
 	operation := "update.check"
@@ -119,33 +122,58 @@ func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release sel
 	targetPath := ""
 	provenanceState := ProvenanceEmbeddedVerified
 	err = withReceiptLock(paths, func() error {
-		receipt, err := loadReceiptFile(paths.receipt)
+		receiptSnapshot, err := loadReceiptSnapshot(paths.receipt)
 		if err != nil {
 			return err
 		}
+		receipt := receiptSnapshot.receipt
 		if receipt.Manager != ManagerDirect {
 			return errors.New("direct installation ownership changed before update")
 		}
-		currentDigest, err := fileSHA256(receipt.BinaryPath)
-		if err != nil || currentDigest != receipt.ArtifactSHA256 {
-			return errors.New("direct installation changed before update")
+		backup, err := captureBinaryBackup(receipt.BinaryPath)
+		if err != nil {
+			return err
 		}
-		targetPath = receipt.BinaryPath
-		parent := filepath.Dir(targetPath)
-		return withPrivateTemporaryBinary(parent, ".reconc-update-*.candidate", func(candidatePath string) error {
-			if err := materializeCandidate(ctx, release, candidatePath); err != nil {
+		return withCapturedBinaryBackup(backup, func(backup *binaryBackup) error {
+			if !backup.exists || backup.digest != receipt.ArtifactSHA256 {
+				return errors.New("direct installation changed before update")
+			}
+			if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
 				return err
 			}
-			state, err := verifyAttestation(ctx, candidatePath, release)
-			if err != nil {
-				return err
-			}
-			provenanceState = state
-			if err := smokeCandidate(ctx, candidatePath, release.manifest.Version); err != nil {
-				return err
-			}
-			return withBinaryBackup(targetPath, func(backup *binaryBackup) error {
-				if err := publishBinaryFromFile(targetPath, candidatePath, 0o755); err != nil {
+			targetPath = receipt.BinaryPath
+			parent := filepath.Dir(targetPath)
+			return withPrivateTemporaryBinary(parent, ".reconc-update-*.candidate", func(candidatePath string) error {
+				if err := beforeDirectUpdatePhase("materialize"); err != nil {
+					return err
+				}
+				if err := materializeCandidate(ctx, release, candidatePath); err != nil {
+					return err
+				}
+				if err := beforeDirectUpdatePhase("attestation"); err != nil {
+					return err
+				}
+				state, err := verifyAttestation(ctx, candidatePath, release)
+				if err != nil {
+					return err
+				}
+				provenanceState = state
+				if err := beforeDirectUpdatePhase("smoke"); err != nil {
+					return err
+				}
+				if err := smokeCandidate(ctx, candidatePath, release.manifest.Version); err != nil {
+					return err
+				}
+				if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
+					return err
+				}
+				if err := beforeDirectUpdatePhase("publication"); err != nil {
+					return err
+				}
+				if err := publishBinaryFromFileIfCurrent(targetPath, candidatePath, 0o755, backup); err != nil {
+					if errors.Is(err, atomicfile.ErrCurrentChanged) {
+						return err
+					}
 					return rollbackInstall(targetPath, backup, true, fmt.Errorf("publish update: %w", err))
 				}
 				updatedDigest, err := fileSHA256(targetPath)
@@ -167,6 +195,9 @@ func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release sel
 				}
 				updatedReceipt, err := NewReceipt(input)
 				if err != nil {
+					return rollbackInstall(targetPath, backup, true, err)
+				}
+				if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
 					return rollbackInstall(targetPath, backup, true, err)
 				}
 				if _, err := writeReceiptUnlocked(paths.receipt, updatedReceipt); err != nil {

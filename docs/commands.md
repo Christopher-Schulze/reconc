@@ -483,7 +483,9 @@ private candidate and rollback files replace full-binary memory buffers. A
 release with the same semantic version is current only when the installed
 receipt's artifact SHA-256 matches the selected release asset; different bytes
 at the same version still take the verified replacement path. Any publication
-failure retains or restores the previous binary. A downgrade requires
+failure retains or restores the exact previously validated binary. The target's
+identity and digest are revalidated immediately before publication, so a
+replacement, symlink, or type change during preparation fails closed. A downgrade requires
 `--allow-downgrade`.
 `--from-dir` disables network access and requires a strict
 `release-manifest.json`, `SHA256SUMS`, complete regular-file inventory, the

@@ -171,8 +171,22 @@ func (backup *binaryBackup) cleanup() error {
 }
 
 func publishBinaryFromFile(target, source string, mode os.FileMode) error {
+	return publishBinaryFromFileIfCurrent(target, source, mode, nil)
+}
+
+func publishBinaryFromFileIfCurrent(target, source string, mode os.FileMode, expected *binaryBackup) error {
 	return boundedio.WithRegularFileSnapshot(source, maxBinaryBytes, func(file *os.File, _ os.FileInfo) error {
-		_, err := atomicfile.WriteStream(target, file, maxBinaryBytes, mode)
+		var err error
+		if expected == nil {
+			_, err = atomicfile.WriteStream(target, file, maxBinaryBytes, mode)
+		} else {
+			if !expected.exists || expected.identity == nil || expected.digest == "" {
+				return errors.New("conditional binary publication expectation is unavailable")
+			}
+			_, err = atomicfile.WriteStreamIfCurrent(target, file, maxBinaryBytes, mode, atomicfile.ExpectedStream{
+				Info: expected.identity, Digest: expected.digest, Exists: true,
+			})
+		}
 		return err
 	})
 }

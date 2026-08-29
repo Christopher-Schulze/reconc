@@ -605,7 +605,11 @@ global manager -> installation receipt -> installed CLI
   binds the receipt and binary to strict snapshots, revalidates each identity
   and byte digest immediately before removal, and restores a removed binary
   only into an absent path when receipt validation fails; replacements and
-  symlinks are preserved.
+  symlinks are preserved. Direct update captures the exact receipt-owned binary
+  identity, metadata, and digest before candidate preparation, retains that
+  backup through attestation and smoke testing, and conditionally publishes
+  only after the same snapshot is revalidated; rollback restores that exact
+  displaced generation.
 - `internal/bootstrap` remains the only repository transaction owner.
   Canonical `init` and repository sync compose its plan, candidate, receipt,
   verification, journal, recovery, rollback, and path-identity primitives.

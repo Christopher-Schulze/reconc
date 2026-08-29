@@ -422,6 +422,194 @@ func TestRequiredOfflineAttestationFailsWithoutChangingDirectBinary(t *testing.T
 	}
 }
 
+func TestDirectUpdateRejectsTargetReplacementAcrossPreparationPhases(t *testing.T) {
+	if !supportedDirectTarget() {
+		t.Skip("unsupported direct release target")
+	}
+	root := repositoryRoot(t)
+	currentBinary := buildReleaseBinary(t, root, "1.0.0")
+	updateBinary := buildReleaseBinary(t, root, "1.1.0")
+	tests := []struct {
+		name  string
+		phase string
+		kind  string
+	}{
+		{name: "materialize", phase: "materialize", kind: "regular"},
+		{name: "attestation", phase: "attestation", kind: "regular"},
+		{name: "smoke", phase: "smoke", kind: "regular"},
+		{name: "publication replacement", phase: "publication", kind: "regular"},
+		{name: "publication symlink", phase: "publication", kind: "symlink"},
+		{name: "publication directory", phase: "publication", kind: "directory"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.kind == "symlink" && runtime.GOOS == "windows" {
+				t.Skip("symlink fixture requires optional Windows privileges")
+			}
+			installDirectory := t.TempDir()
+			target := filepath.Join(installDirectory, executableName())
+			copyFileForTest(t, currentBinary, target, 0o755)
+			home := t.TempDir()
+			t.Setenv("RECONC_HOME", home)
+			t.Setenv("RECONC_INSTALL_DIR", installDirectory)
+			t.Setenv("PATH", installDirectory)
+			t.Setenv("RECONC_ATTESTATION_TOOL", os.Args[0])
+			writeDirectTestReceipt(t, target, "1.0.0")
+			receiptPath := filepath.Join(home, installationStateDirName, receiptFileName)
+			originalReceipt, err := os.ReadFile(receiptPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			releaseDirectory := t.TempDir()
+			manifest := writeLocalRelease(t, releaseDirectory, updateBinary, "1.1.0")
+			if err := os.WriteFile(filepath.Join(releaseDirectory, manifest.Assets[0].Name+".sigstore.jsonl"), []byte("{}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(releaseDirectory, "trusted_root.jsonl"), []byte("{}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			previousPhase := beforeDirectUpdatePhase
+			t.Cleanup(func() { beforeDirectUpdatePhase = previousPhase })
+			mutated := false
+			beforeDirectUpdatePhase = func(phase string) error {
+				if phase != test.phase || mutated {
+					return nil
+				}
+				mutated = true
+				return mutateDirectUpdateTarget(target, test.kind)
+			}
+			previousCommand := lifecycleCommand
+			t.Cleanup(func() { lifecycleCommand = previousCommand })
+			attestationCommand := lifecycleHelperCommandWithOutput("0", "verified")
+			lifecycleCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+				if name == os.Args[0] && len(args) >= 2 && args[0] == "attestation" && args[1] == "verify" {
+					return attestationCommand(ctx, name, args...)
+				}
+				return exec.CommandContext(ctx, name, args...)
+			}
+
+			report, err := ApplyUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDirectory})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.Status != LifecycleFailed || report.Changed || !mutated {
+				t.Fatalf("target replacement report = %+v mutated=%v", report, mutated)
+			}
+			assertDirectUpdateTargetMutation(t, target, test.kind)
+			if body, readErr := os.ReadFile(receiptPath); readErr != nil || !bytes.Equal(body, originalReceipt) {
+				t.Fatalf("receipt after target replacement = %q err=%v", body, readErr)
+			}
+		})
+	}
+}
+
+func TestDirectUpdateRollsBackExactBinaryWhenReceiptChangesAfterPublication(t *testing.T) {
+	if !supportedDirectTarget() {
+		t.Skip("unsupported direct release target")
+	}
+	root := repositoryRoot(t)
+	currentBinary := buildReleaseBinary(t, root, "1.0.0")
+	updateBinary := buildReleaseBinary(t, root, "1.1.0")
+	installDirectory := t.TempDir()
+	target := filepath.Join(installDirectory, executableName())
+	copyFileForTest(t, currentBinary, target, 0o755)
+	home := t.TempDir()
+	t.Setenv("RECONC_HOME", home)
+	t.Setenv("RECONC_INSTALL_DIR", installDirectory)
+	t.Setenv("PATH", installDirectory)
+	t.Setenv("RECONC_ATTESTATION_TOOL", os.Args[0])
+	writeDirectTestReceipt(t, target, "1.0.0")
+	receiptPath := filepath.Join(home, installationStateDirName, receiptFileName)
+	originalBinary, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseDirectory := t.TempDir()
+	manifest := writeLocalRelease(t, releaseDirectory, updateBinary, "1.1.0")
+	if err := os.WriteFile(filepath.Join(releaseDirectory, manifest.Assets[0].Name+".sigstore.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(releaseDirectory, "trusted_root.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	previousPhase := beforeDirectUpdatePhase
+	t.Cleanup(func() { beforeDirectUpdatePhase = previousPhase })
+	beforeDirectUpdatePhase = func(phase string) error {
+		if phase != "publication" {
+			return nil
+		}
+		preserved := receiptPath + ".owned-generation"
+		if err := os.Rename(receiptPath, preserved); err != nil {
+			return err
+		}
+		return os.WriteFile(receiptPath, []byte("foreign receipt\n"), 0o600)
+	}
+	previousCommand := lifecycleCommand
+	t.Cleanup(func() { lifecycleCommand = previousCommand })
+	attestationCommand := lifecycleHelperCommandWithOutput("0", "verified")
+	lifecycleCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if name == os.Args[0] && len(args) >= 2 && args[0] == "attestation" && args[1] == "verify" {
+			return attestationCommand(ctx, name, args...)
+		}
+		return exec.CommandContext(ctx, name, args...)
+	}
+
+	report, err := ApplyUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDirectory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != LifecycleFailed || report.Changed {
+		t.Fatalf("receipt replacement rollback report = %+v", report)
+	}
+	if body, readErr := os.ReadFile(target); readErr != nil || !bytes.Equal(body, originalBinary) {
+		t.Fatalf("rollback binary = %d bytes err=%v", len(body), readErr)
+	}
+	if body, readErr := os.ReadFile(receiptPath); readErr != nil || string(body) != "foreign receipt\n" {
+		t.Fatalf("replacement receipt = %q err=%v", body, readErr)
+	}
+	if _, err := os.Stat(receiptPath + ".owned-generation"); err != nil {
+		t.Fatalf("preserved receipt generation = %v", err)
+	}
+}
+
+func mutateDirectUpdateTarget(path, kind string) error {
+	preserved := path + ".owned-generation"
+	if err := os.Rename(path, preserved); err != nil {
+		return err
+	}
+	switch kind {
+	case "regular":
+		return os.WriteFile(path, []byte("replacement generation"), 0o755)
+	case "symlink":
+		return os.Symlink(preserved, path)
+	case "directory":
+		return os.Mkdir(path, 0o755)
+	default:
+		return fmt.Errorf("unknown direct-update target mutation %q", kind)
+	}
+}
+
+func assertDirectUpdateTargetMutation(t *testing.T, path, kind string) {
+	t.Helper()
+	switch kind {
+	case "regular":
+		body, err := os.ReadFile(path)
+		if err != nil || string(body) != "replacement generation" {
+			t.Fatalf("replacement target = %q err=%v", body, err)
+		}
+	case "symlink":
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("replacement symlink = %v err=%v", info, err)
+		}
+	case "directory":
+		info, err := os.Stat(path)
+		if err != nil || !info.IsDir() {
+			t.Fatalf("replacement directory = %v err=%v", info, err)
+		}
+	}
+}
+
 func TestPurgeStateUnknownEntryFailsBeforeUninstallMutation(t *testing.T) {
 	installDirectory := t.TempDir()
 	home := t.TempDir()

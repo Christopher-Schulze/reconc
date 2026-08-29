@@ -207,7 +207,7 @@ func validateReceiptSnapshot(path string, expected receiptSnapshot) error {
 		return fmt.Errorf("validate installation receipt snapshot: %w", err)
 	}
 	if !os.SameFile(expected.identity, current.identity) || expected.bodyDigest != current.bodyDigest {
-		return errors.New("installation receipt changed during uninstall")
+		return errors.New("installation receipt changed during mutation")
 	}
 	return nil
 }

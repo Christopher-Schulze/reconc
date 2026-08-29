@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 360 Revalidate direct-update ownership at publication -> tasks/360-revalidate-direct-update-ownership-at-publication.md
 - [ ] 361 Publish CLI output without symlink truncation -> tasks/361-publish-cli-output-without-symlink-truncation.md
 - [ ] 362 Preserve signal exit status in reconc exec -> tasks/362-preserve-signal-exit-status-in-reconc-exec.md
 - [ ] 363 Read conformance inputs through strict snapshots -> tasks/363-read-conformance-inputs-through-strict-snapshots.md
@@ -23,6 +22,7 @@
 
 ## Done
 
+- [x] 360 Revalidate direct-update ownership at publication -> tasks/done/360-revalidate-direct-update-ownership-at-publication.md
 - [x] 359 Record staged command success after postconditions -> tasks/done/359-record-staged-command-success-after-postconditions.md
 - [x] 358 Bind global uninstall to owned snapshots -> tasks/done/358-bind-global-uninstall-to-owned-snapshots.md
 - [x] 357 Bind bootstrap removal to validated file identities -> tasks/done/357-bind-bootstrap-removal-to-validated-file-identities.md

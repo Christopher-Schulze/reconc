@@ -1157,6 +1157,10 @@ Semantic-version precedence compares numeric prerelease identifiers by digit
 length and ordinal text, so valid identifiers are not bounded by machine
 integer size; the POSIX installer fixes collation to the C locale and the
 Windows installer uses ordinal comparison.
+The update retains the strict identity and digest snapshot of the receipt-owned
+binary throughout candidate preparation, attestation, and smoke testing, then
+revalidates it immediately before publication. Any replacement, symlink, or
+type change fails closed; rollback restores only the exact displaced generation.
 Offline `--from-dir` updates require the asset's Sigstore
 bundle and trusted root in addition to the strict release inventory. There is no
 separate check/apply step in the current user flow. Use `--channel preview` or
