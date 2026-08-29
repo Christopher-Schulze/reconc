@@ -56,7 +56,7 @@ func TestStopEvaluationRetriesBoundedlyWhenScriptMutatesDeclaredInput(t *testing
 	}
 	gitSnapshot := stopPolicyGitSnapshotFor(repo)
 	before := captureStopPolicyBoundarySnapshot(
-		stopCaptureBeforeEvaluation, repo, state, stopPolicyEvidenceRevision(state), taskSnapshot, gitSnapshot, scanCache,
+		stopCaptureBeforeEvaluation, repo, state, mustStopPolicyEvidenceRevision(state), taskSnapshot, gitSnapshot, scanCache,
 	)
 	input := stopPolicyFingerprintInputForSnapshotWithScan(repo, state, gitSnapshot, taskSnapshot, before.generationCapture(), scanCache)
 	if !stopPolicyFingerprintCacheableWithScan(input, scanCache) {

@@ -513,18 +513,22 @@ func stopPolicyRuntimeStateRecord(path string) bool {
 }
 
 type stopBlockRecord struct {
-	repeated   bool
-	feedbackID string
-	err        error
+	repeated    bool
+	feedbackID  string
+	err         error
+	encodingErr bool
 }
 
 func recordStopBlockAndRepeated(repoRoot, sessionID string, violations []runtime.Violation) stopBlockRecord {
-	violationHash := hashBlockingViolations(violations)
+	violationHash, err := hashBlockingViolations(violations)
+	if err != nil {
+		return stopBlockRecord{err: fmt.Errorf("hash repeated-stop violations: %w", err), encodingErr: true}
+	}
 	if violationHash == "" {
 		return stopBlockRecord{}
 	}
 	repeated := false
-	_, err := mutateSessionStateResolved(repoRoot, sessionID, func(state SessionState) SessionState {
+	_, err = mutateSessionStateResolved(repoRoot, sessionID, func(state SessionState) SessionState {
 		repeated = state.LastStopBlockViolationHash == violationHash
 		state.LastStopBlockViolationHash = violationHash
 		return state

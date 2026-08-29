@@ -522,7 +522,11 @@ func compileCustomRuntimes(bundle *ingest.SourceBundle, actions action.Plan) ([]
 			return nil, &rerrors.PolicySourceError{Message: "duplicate custom runtime identity " + manifest.Runtime()}
 		}
 		configured[manifest.Runtime()] = struct{}{}
-		summaries = append(summaries, manifest.Summary())
+		summary, err := manifest.Summary()
+		if err != nil {
+			return nil, &rerrors.PolicySourceError{Message: "encode custom runtime identity " + source.Path, Cause: err}
+		}
+		summaries = append(summaries, summary)
 	}
 	for _, tool := range actions.Tools {
 		if tool.Transport == action.TransportHostMCP {

@@ -400,7 +400,11 @@ func (a *evaluationAccumulator) result() EvaluationResult {
 		a.cacheBase, a.cacheNever, decision, a.input.Approval, result.Completeness, false,
 	)
 	if decision == DecisionRequireApproval {
-		result.RequiredApprovalIdentity = approvalRequirementIdentity(a.input, result)
+		identity, err := approvalRequirementIdentity(a.input, result)
+		if err != nil {
+			return failEvaluation(a.evaluator, a.input, ReasonInternalInvariant, "approval identity encoding failed")
+		}
+		result.RequiredApprovalIdentity = identity
 	}
 	return result
 }
@@ -930,7 +934,7 @@ func failureMessage(code ReasonCode) string {
 	}
 }
 
-func approvalRequirementIdentity(input EvaluationInput, result EvaluationResult) string {
+func approvalRequirementIdentity(input EvaluationInput, result EvaluationResult) (string, error) {
 	binding := struct {
 		CallID       string   `json:"call_id"`
 		Request      string   `json:"request"`
@@ -945,6 +949,9 @@ func approvalRequirementIdentity(input EvaluationInput, result EvaluationResult)
 		Rules: result.MatchedRuleIDs, Decision: result.Decision,
 		StateVersion: input.Request.StateVersion,
 	}
-	body, _ := json.Marshal(binding)
-	return digestBytes(body)
+	body, err := json.Marshal(binding)
+	if err != nil {
+		return "", fmt.Errorf("encode approval requirement identity: %w", err)
+	}
+	return digestBytes(body), nil
 }

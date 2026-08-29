@@ -45,8 +45,12 @@ func TestRunPostCompactionDeduplicatesExistingPacket(t *testing.T) {
 }
 
 func TestAdaptPostCompactionResultChangesNativeEvent(t *testing.T) {
+	body, err := postCompactionJSONOutput("context")
+	if err != nil {
+		t.Fatal(err)
+	}
 	result := AdaptPostCompactionResult(
-		Result{Stdout: postCompactionJSONOutput("context")},
+		Result{Stdout: body},
 		"SessionStart",
 	)
 	if !strings.Contains(result.Stdout, `"hookEventName":"SessionStart"`) {
@@ -55,7 +59,11 @@ func TestAdaptPostCompactionResultChangesNativeEvent(t *testing.T) {
 }
 
 func TestAdaptCodexCompactionResultUsesSystemMessage(t *testing.T) {
-	result := AdaptCodexCompactionResult(Result{Stdout: postCompactionJSONOutput("context")})
+	body, err := postCompactionJSONOutput("context")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := AdaptCodexCompactionResult(Result{Stdout: body})
 	if result.Stdout != `{"systemMessage":"context"}` {
 		t.Fatalf("Codex compaction output = %s", result.Stdout)
 	}

@@ -165,11 +165,17 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	payload, err := agentsession.ReadPayload(input)
 	if err != nil {
 		if route.PlatformKind == hooks.KindGitHubCopilot && (route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop) {
-			writeGitHubCopilotRuntimeBlock(stdout, "Reconc could not read the GitHub Copilot hook payload: "+err.Error())
+			if writeErr := writeGitHubCopilotRuntimeBlock(stdout, "Reconc could not read the GitHub Copilot hook payload: "+err.Error()); writeErr != nil {
+				exitCode = 2
+				return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + writeErr.Error()}
+			}
 			return nil
 		}
 		if route.PlatformKind == hooks.KindGrok && route.Event == hooks.EventPreToolUse {
-			writeGrokRuntimeDeny(stdout, "Reconc could not read the Grok hook payload: "+err.Error())
+			if writeErr := writeGrokRuntimeDeny(stdout, "Reconc could not read the Grok hook payload: "+err.Error()); writeErr != nil {
+				exitCode = 2
+				return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + writeErr.Error()}
+			}
 			return nil
 		}
 		if route.ErrorPolicy == hooks.FailureBlock {
@@ -183,11 +189,17 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	root, err := resolveRoot(repo)
 	if err != nil {
 		if route.PlatformKind == hooks.KindGitHubCopilot && (route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop) {
-			writeGitHubCopilotRuntimeBlock(stdout, "Reconc rejected the GitHub Copilot repository root: "+err.Error())
+			if writeErr := writeGitHubCopilotRuntimeBlock(stdout, "Reconc rejected the GitHub Copilot repository root: "+err.Error()); writeErr != nil {
+				exitCode = 2
+				return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + writeErr.Error()}
+			}
 			return nil
 		}
 		if route.PlatformKind == hooks.KindGrok && route.Event == hooks.EventPreToolUse {
-			writeGrokRuntimeDeny(stdout, "Reconc rejected the Grok repository root: "+err.Error())
+			if writeErr := writeGrokRuntimeDeny(stdout, "Reconc rejected the Grok repository root: "+err.Error()); writeErr != nil {
+				exitCode = 2
+				return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + writeErr.Error()}
+			}
 			return nil
 		}
 		if route.ErrorPolicy == hooks.FailureBlock {
@@ -250,11 +262,17 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	}
 	if err != nil {
 		if route.PlatformKind == hooks.KindGitHubCopilot && (route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop) {
-			writeGitHubCopilotRuntimeBlock(stdout, "Reconc rejected the GitHub Copilot hook payload: "+err.Error())
+			if writeErr := writeGitHubCopilotRuntimeBlock(stdout, "Reconc rejected the GitHub Copilot hook payload: "+err.Error()); writeErr != nil {
+				exitCode = 2
+				return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + writeErr.Error()}
+			}
 			return nil
 		}
 		if route.PlatformKind == hooks.KindGrok && route.Event == hooks.EventPreToolUse {
-			writeGrokRuntimeDeny(stdout, "Reconc rejected the Grok hook payload: "+err.Error())
+			if writeErr := writeGrokRuntimeDeny(stdout, "Reconc rejected the Grok hook payload: "+err.Error()); writeErr != nil {
+				exitCode = 2
+				return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + writeErr.Error()}
+			}
 			return nil
 		}
 		if route.ErrorPolicy == hooks.FailureBlock {
@@ -282,7 +300,18 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	}
 	result := agentsession.RunHookRequestWithEvaluatorAndStopCache(root, handler, event, payload, evaluator, stopCache)
 	timing.mark("handler")
-	if result.ExitCode != 0 && route.ErrorPolicy == hooks.FailureAllow {
+	if result.Err != nil {
+		if result.ExitCode == 0 {
+			result.ExitCode = 2
+		}
+		if !strings.Contains(result.Stderr, result.Err.Error()) {
+			if result.Stderr != "" {
+				result.Stderr += "; "
+			}
+			result.Stderr += "reconc hook encoding failure: " + result.Err.Error()
+		}
+	}
+	if result.Err == nil && result.ExitCode != 0 && route.ErrorPolicy == hooks.FailureAllow {
 		result.ExitCode = 0
 	}
 	if grokPrepareWarning != "" {
@@ -334,6 +363,17 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 		result = agentsession.AdaptKimiCodeResult(event, result)
 		timing.mark("kimi_code_adapt")
 	}
+	if result.Err != nil {
+		if !strings.Contains(result.Stderr, result.Err.Error()) {
+			if result.Stderr != "" {
+				result.Stderr += "; "
+			}
+			result.Stderr += "reconc hook encoding failure: " + result.Err.Error()
+		}
+		if result.Stdout == "" {
+			result.ExitCode = 2
+		}
+	}
 	result = boundHookResult(result, route)
 
 	if result.Stdout != "" {
@@ -349,20 +389,32 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	return nil
 }
 
-func writeGitHubCopilotRuntimeBlock(stdout io.Writer, reason string) {
-	body, _ := json.Marshal(map[string]string{
+func writeGitHubCopilotRuntimeBlock(stdout io.Writer, reason string) error {
+	body, err := json.Marshal(map[string]string{
 		"decision": "block",
 		"reason":   strings.TrimSpace(reason),
 	})
-	fmt.Fprintln(stdout, string(body))
+	if err != nil {
+		return fmt.Errorf("encode GitHub Copilot block response: %w", err)
+	}
+	if _, err := fmt.Fprintln(stdout, string(body)); err != nil {
+		return fmt.Errorf("write GitHub Copilot block response: %w", err)
+	}
+	return nil
 }
 
-func writeGrokRuntimeDeny(stdout io.Writer, reason string) {
-	body, _ := json.Marshal(map[string]string{
+func writeGrokRuntimeDeny(stdout io.Writer, reason string) error {
+	body, err := json.Marshal(map[string]string{
 		"decision": "deny",
 		"reason":   strings.TrimSpace(reason),
 	})
-	fmt.Fprintln(stdout, string(body))
+	if err != nil {
+		return fmt.Errorf("encode Grok denial response: %w", err)
+	}
+	if _, err := fmt.Fprintln(stdout, string(body)); err != nil {
+		return fmt.Errorf("write Grok denial response: %w", err)
+	}
+	return nil
 }
 
 // namespacedMCPPlatform reports the MCP policy platform for hosts that publish

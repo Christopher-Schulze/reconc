@@ -98,8 +98,14 @@ func TestAntigravityPendingKeyWithoutStepIDUsesToolFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse start read: %v", err)
 	}
-	docKey := antigravityPendingKey(docPayload)
-	startKey := antigravityPendingKey(startPayload)
+	docKey, err := antigravityPendingKey(docPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startKey, err := antigravityPendingKey(startPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if docKey == "step:unknown" || startKey == "step:unknown" {
 		t.Fatalf("missing step id must still produce deterministic tool fingerprint keys, got %q and %q", docKey, startKey)
 	}

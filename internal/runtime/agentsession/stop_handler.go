@@ -103,7 +103,7 @@ func runStopResolvedWithEvaluatorAndCache(
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", loadErr)}
 		}
 		if state.EvidenceOverflow {
-			return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON(evidenceOverflowMessage(state))}
+			return repositoryRunBlockResult(evidenceOverflowMessage(state))
 		}
 		state, loadErr = loadCompleteSessionEvidenceWithCache(root, state, stopCache)
 		if loadErr != nil {
@@ -125,7 +125,7 @@ func runStopResolvedWithEvaluatorAndCache(
 	}
 	if state.EvidenceOverflow {
 		if runApplies {
-			return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON(evidenceOverflowMessage(state))}
+			return repositoryRunBlockResult(evidenceOverflowMessage(state))
 		}
 		if _, markErr := mutateSessionStateResolved(root, payload.SessionID, func(current SessionState) SessionState {
 			current.UncertifiedTermination = true
@@ -141,7 +141,10 @@ func runStopResolvedWithEvaluatorAndCache(
 	}
 
 	if payload.StopHookActive && !payload.StrictContinuation && !checkpointDue {
-		evidenceHash := stopPolicyEvidenceHash(state)
+		evidenceHash, hashErr := stopPolicyEvidenceHash(state)
+		if hashErr != nil {
+			return resultWithEncodingError(Result{ExitCode: 2}, hashErr)
+		}
 		if _, ok := cachedCleanStopPolicyReportForEvidenceWithCache(root, state, evidenceHash, stopCache, taskSnapshot); ok {
 			currentRun, _ := loadRepositoryRunStateResolved(root)
 			var logErr error
@@ -179,12 +182,19 @@ func runStopResolvedWithEvaluatorAndCache(
 		// through: the agent has seen the report once and either cannot or was
 		// told not to resolve it. This is the Cursor-equivalent of the
 		// StopHookActive escape above.
-		if vh := hashBlockingViolations(violations); !payload.StrictContinuation && vh != "" && state.LastStopBlockViolationHash == vh {
+		vh, hashErr := hashBlockingViolations(violations)
+		if hashErr != nil {
+			return resultWithEncodingError(Result{ExitCode: 2}, hashErr)
+		}
+		if !payload.StrictContinuation && vh != "" && state.LastStopBlockViolationHash == vh {
 			logErr := logRunStopDecision(root, "policy_block_released_on_repeat", payload, runtimeName, currentRun, currentRun, true, len(violations))
 			return Result{ExitCode: 0, Stderr: bestEffortStopDecisionDiagnostic(logErr)}
 		}
 		logErr := logRunStopDecision(root, "policy_block", payload, runtimeName, currentRun, currentRun, true, len(violations))
 		blockOutput, stateErr := stopBlockJSONOutput(root, state.SessionID, report, violations)
+		if blockOutput == "" && stateErr != nil {
+			return resultWithEncodingError(Result{ExitCode: 2, Stderr: bestEffortStopDecisionDiagnostic(logErr)}, stateErr)
+		}
 		return Result{ExitCode: 0, Stdout: blockOutput, Stderr: joinStderr(bestEffortStopDecisionDiagnostic(logErr), stopBlockStateDiagnostic(stateErr))}
 	}
 
@@ -254,13 +264,13 @@ func taskCompletionCommitGate(taskSnapshot stopTaskSnapshot, snapshot stopPolicy
 		return Result{}, false, nil
 	}
 	if !snapshot.StatusOK {
-		return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON("reconc blocked terminal TASK completion because Git status could not be verified. Restore Git status visibility or interrupt explicitly.")}, true, nil
+		return repositoryRunBlockResult("reconc blocked terminal TASK completion because Git status could not be verified. Restore Git status visibility or interrupt explicitly."), true, nil
 	}
 	dirty := tasklifecycle.DirtyCompletionPaths(cfg, dirtyPathsFromStatus(snapshot.Status))
 	if len(dirty) == 0 {
 		return Result{}, false, nil
 	}
-	return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON("reconc blocked terminal TASK completion because the TASK control plane is not committed: " + strings.Join(dirty, ", ") + ". Commit the completed TASK or interrupt explicitly.")}, true, nil
+	return repositoryRunBlockResult("reconc blocked terminal TASK completion because the TASK control plane is not committed: " + strings.Join(dirty, ", ") + ". Commit the completed TASK or interrupt explicitly."), true, nil
 }
 
 // runRepositoryContinuation emits the autonomous continuation prompt. Callers
@@ -357,7 +367,7 @@ func runRepositoryContinuation(root string, runFile *os.File, payload *HookPaylo
 			CheckpointMaterial:   current.CheckpointMaterial,
 		}
 		decisionBranch = "run_followup"
-		contResult = Result{ExitCode: 0, Stdout: repositoryRunBlockJSON(prompt)}
+		contResult = repositoryRunBlockResult(prompt)
 		contHandled = true
 		return after
 	})

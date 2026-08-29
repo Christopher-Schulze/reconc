@@ -30,8 +30,16 @@ func validProofBundle() *Bundle {
 		SupersededBlocks: []SupersededBlock{},
 		CompletionDigest: strings.Repeat("c", 64),
 	}
-	value.Digest = digest(value)
+	value.Digest = mustDigest(value)
 	return value
+}
+
+func mustDigest(bundle *Bundle) string {
+	digestValue, err := digest(bundle)
+	if err != nil {
+		panic(err)
+	}
+	return digestValue
 }
 
 func TestVerifyRejectsInvalidPublicContractFields(t *testing.T) {
@@ -120,7 +128,7 @@ func TestRenderMarkdownIncludesRichEvidenceContract(t *testing.T) {
 		}},
 	}}
 	bundle.NextAction = "Resolve the warning."
-	bundle.Digest = digest(bundle)
+	bundle.Digest = mustDigest(bundle)
 
 	var output bytes.Buffer
 	if err := RenderMarkdown(&output, bundle); err != nil {
@@ -144,7 +152,7 @@ func TestVerifyRejectsCommandHashThatCommitsToArguments(t *testing.T) {
 		IndexTree: strings.Repeat("b", 40), ReceiptDigest: strings.Repeat("c", 64),
 		CandidateBound: true, Fresh: true,
 	}}
-	bundle.Digest = digest(bundle)
+	bundle.Digest = mustDigest(bundle)
 	if err := Verify(bundle); err == nil || !strings.Contains(err.Error(), "command proof identity") {
 		t.Fatalf("raw command hash was accepted: %v", err)
 	}
@@ -169,7 +177,7 @@ func TestVerifyAcceptsCanonicalShellDerivedCommandIdentities(t *testing.T) {
 				IndexTree: strings.Repeat("b", 40), ReceiptDigest: strings.Repeat("c", 64),
 				CandidateBound: true, Fresh: true,
 			}}
-			bundle.Digest = digest(bundle)
+			bundle.Digest = mustDigest(bundle)
 			if err := Verify(bundle); err != nil {
 				t.Fatalf("Verify() = %v", err)
 			}
@@ -198,7 +206,7 @@ func TestProofBundleRenderersEnforceByteBudget(t *testing.T) {
 		bundle.Checks[index] = Check{ID: id, Status: completiongate.StatusPass, Detail: strings.Repeat("x", maxTextBytes)}
 		bundle.Evidence.SatisfiedChecks[index] = id
 	}
-	bundle.Digest = digest(bundle)
+	bundle.Digest = mustDigest(bundle)
 	if _, err := MarshalJSON(bundle); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("oversized JSON bundle was accepted: %v", err)
 	}

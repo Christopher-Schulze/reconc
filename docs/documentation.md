@@ -3129,6 +3129,10 @@ validates request, response, timeout, failure, liveness, and privacy fixtures
 offline. Generic local-agent and CI-bot fixtures ship as executable contract
 tests; built-in adapters remain registry-owned.
 
+Manifest, identity, proof, and hook-control JSON encoding errors are propagated
+to their boundary. Reconc never turns an encoding failure into an empty digest,
+empty body, newline-only frame, or silently allowed hook result.
+
 ### Host Integration Truth
 
 Static configuration, documented discoverability, and live behavior are

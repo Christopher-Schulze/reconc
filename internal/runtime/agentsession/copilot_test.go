@@ -166,7 +166,11 @@ func TestAdaptGitHubCopilotResultUsesExactDecisionContracts(t *testing.T) {
 		t.Fatalf("allowed pre-tool result must fall through: %+v", allowed)
 	}
 
-	permission := AdaptGitHubCopilotResult("copilot-permission-request", Result{Stdout: permissionRequestDenyJSONOutput("policy")})
+	body, err := permissionRequestDenyJSONOutput("policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	permission := AdaptGitHubCopilotResult("copilot-permission-request", Result{Stdout: body})
 	var permissionDecision map[string]interface{}
 	if json.Unmarshal([]byte(permission.Stdout), &permissionDecision) != nil ||
 		permissionDecision["behavior"] != "deny" || permissionDecision["message"] != "policy" {

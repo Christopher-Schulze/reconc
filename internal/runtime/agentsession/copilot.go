@@ -108,15 +108,14 @@ func NormalizeGitHubCopilotPayload(event string, payloadBytes []byte, repoRoot s
 func AdaptGitHubCopilotResult(event string, result Result) Result {
 	switch event {
 	case "copilot-pre-tool-use":
-		if result.ExitCode == 0 {
+		if result.ExitCode == 0 && result.Err == nil {
 			result.Stdout = ""
 			return result
 		}
-		body, _ := json.Marshal(map[string]string{
+		return resultWithHookJSON(Result{ExitCode: 0, Err: result.Err}, map[string]string{
 			"permissionDecision":       "deny",
 			"permissionDecisionReason": githubCopilotResultReason(result),
 		})
-		return Result{ExitCode: 0, Stdout: string(body)}
 	case "copilot-permission-request":
 		return adaptGitHubCopilotPermissionResult(result)
 	case "copilot-post-tool-use-failure":
@@ -245,9 +244,8 @@ func githubCopilotError(value interface{}) string {
 }
 
 func adaptGitHubCopilotPermissionResult(result Result) Result {
-	if result.ExitCode != 0 {
-		body, _ := json.Marshal(map[string]string{"behavior": "deny", "message": githubCopilotResultReason(result)})
-		return Result{ExitCode: 0, Stdout: string(body)}
+	if result.ExitCode != 0 || result.Err != nil {
+		return resultWithHookJSON(Result{ExitCode: 0, Err: result.Err}, map[string]string{"behavior": "deny", "message": githubCopilotResultReason(result)})
 	}
 	var envelope map[string]interface{}
 	if strings.TrimSpace(result.Stdout) == "" || json.Unmarshal([]byte(result.Stdout), &envelope) != nil {
@@ -264,8 +262,7 @@ func adaptGitHubCopilotPermissionResult(result Result) Result {
 	if message == "" {
 		message = "Reconc denied this GitHub Copilot permission request."
 	}
-	body, _ := json.Marshal(map[string]string{"behavior": "deny", "message": message})
-	return Result{ExitCode: 0, Stdout: string(body), Stderr: result.Stderr}
+	return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]string{"behavior": "deny", "message": message})
 }
 
 func adaptGitHubCopilotPostFailureResult(result Result) Result {
@@ -282,13 +279,15 @@ func adaptGitHubCopilotPostFailureResult(result Result) Result {
 		result.Stdout = ""
 		return result
 	}
-	body, _ := json.Marshal(map[string]string{"additionalContext": context})
-	return Result{ExitCode: 0, Stdout: string(body), Stderr: result.Stderr}
+	return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]string{"additionalContext": context})
 }
 
 func adaptGitHubCopilotStopResult(result Result) Result {
-	if result.ExitCode != 0 {
-		return gitHubCopilotStopBlockResult("Reconc could not evaluate this GitHub Copilot stop: " + githubCopilotResultReason(result))
+	if result.ExitCode != 0 || result.Err != nil {
+		return resultWithHookJSON(Result{ExitCode: 0, Err: result.Err}, map[string]string{
+			"decision": "block",
+			"reason":   "Reconc could not evaluate this GitHub Copilot stop: " + githubCopilotResultReason(result),
+		})
 	}
 	stdout := strings.TrimSpace(result.Stdout)
 	if stdout == "" {
@@ -301,13 +300,11 @@ func adaptGitHubCopilotStopResult(result Result) Result {
 	if json.Unmarshal([]byte(stdout), &decision) != nil || decision.Decision != "block" || strings.TrimSpace(decision.Reason) == "" {
 		return gitHubCopilotStopBlockResult("Reconc produced an invalid non-empty GitHub Copilot stop decision")
 	}
-	body, _ := json.Marshal(map[string]string{"decision": "block", "reason": strings.TrimSpace(decision.Reason)})
-	return Result{ExitCode: 0, Stdout: string(body), Stderr: result.Stderr}
+	return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]string{"decision": "block", "reason": strings.TrimSpace(decision.Reason)})
 }
 
 func gitHubCopilotStopBlockResult(reason string) Result {
-	body, _ := json.Marshal(map[string]string{"decision": "block", "reason": strings.TrimSpace(reason)})
-	return Result{ExitCode: 0, Stdout: string(body)}
+	return resultWithHookJSON(Result{ExitCode: 0}, map[string]string{"decision": "block", "reason": strings.TrimSpace(reason)})
 }
 
 func githubCopilotResultReason(result Result) string {

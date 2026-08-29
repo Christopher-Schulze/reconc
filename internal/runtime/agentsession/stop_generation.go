@@ -346,15 +346,19 @@ func (cache *StopDecisionCache) entry(root, sessionID string) (stopDecisionCache
 	return entry, ok
 }
 
-func (cache *StopDecisionCache) store(root string, state SessionState, generation string) {
+func (cache *StopDecisionCache) store(root string, state SessionState, generation string) error {
 	if cache == nil || generation == "" || state.StopPolicyFingerprint == "" || state.StopPolicyReportHash == "" {
-		return
+		return nil
+	}
+	evidenceHash, err := stopPolicyEvidenceHash(state)
+	if err != nil {
+		return err
 	}
 	entry := stopDecisionCacheEntry{
 		generation:   generation,
 		fingerprint:  state.StopPolicyFingerprint,
 		reportHash:   state.StopPolicyReportHash,
-		evidenceHash: stopPolicyEvidenceHash(state),
+		evidenceHash: evidenceHash,
 	}
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
@@ -371,6 +375,7 @@ func (cache *StopDecisionCache) store(root string, state SessionState, generatio
 		cache.order = cache.order[1:]
 		delete(cache.entries, oldest)
 	}
+	return nil
 }
 
 func (cache *StopDecisionCache) invalidate(root, sessionID string) {
@@ -421,8 +426,12 @@ func (cache *StopDecisionCache) readStableReportWithSnapshot(
 	scanCache *stopPolicyScanCache,
 	beforeSnapshot *stopPolicyAttemptSnapshot,
 ) (*runtime.CheckReport, bool) {
+	evidenceHash, err := stopPolicyEvidenceHash(state)
+	if err != nil {
+		return nil, false
+	}
 	entry, ok := cache.entry(root, state.SessionID)
-	if !ok || entry.evidenceHash != stopPolicyEvidenceHash(state) ||
+	if !ok || entry.evidenceHash != evidenceHash ||
 		entry.fingerprint != state.StopPolicyFingerprint || entry.reportHash != state.StopPolicyReportHash {
 		return nil, false
 	}

@@ -30,13 +30,23 @@ func TestRepoRunPolicyCheckpointTriggersAreBounded(t *testing.T) {
 func TestMaterialProgressDeduplicatesIdenticalToolOutcomes(t *testing.T) {
 	payload := &HookPayload{ToolName: "Bash", ToolInput: map[string]interface{}{"command": "go test ./..."}}
 	state := emptyState(t.TempDir(), "material")
-	state = recordToolUse(state, payload)
-	state = recordToolUse(state, payload)
+	var err error
+	state, err = recordToolUse(state, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err = recordToolUse(state, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if state.MaterialEvents != 1 {
 		t.Fatalf("identical command outcomes must count once, got %d", state.MaterialEvents)
 	}
 	payload.ToolInput["command"] = "go vet ./..."
-	state = recordToolUse(state, payload)
+	state, err = recordToolUse(state, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if state.MaterialEvents != 2 {
 		t.Fatalf("different command outcome must advance progress, got %d", state.MaterialEvents)
 	}

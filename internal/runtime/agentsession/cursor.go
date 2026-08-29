@@ -164,67 +164,55 @@ func cursorObjectLooksLikeCursor(raw map[string]interface{}) bool {
 // stop continuations, while Reconc's internal stop result uses decision/reason.
 func AdaptCursorResult(event string, result Result) Result {
 	if event == "cursor-user-prompt-submit" {
-		if result.ExitCode != 0 {
+		if result.ExitCode != 0 || result.Err != nil {
 			reason := cursorResultReason(result)
-			return Result{
-				ExitCode: 0,
-				Stdout: cursorJSON(map[string]interface{}{
-					"continue":     false,
-					"user_message": reason,
-				}),
-			}
+			return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{
+				"continue":     false,
+				"user_message": reason,
+			})
 		}
-		return Result{ExitCode: 0, Stdout: cursorJSON(map[string]interface{}{"continue": true}), Stderr: result.Stderr}
+		return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{"continue": true})
 	}
 	if isCursorFireAndForgetEvent(event) {
-		return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr}
+		return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr, Err: result.Err}
 	}
 	if event == "cursor-post-tool-use-failure" || event == "cursor-after-shell-execution" {
-		return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr}
+		return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr, Err: result.Err}
 	}
 	if event == "cursor-stop" || event == "cursor-subagent-stop" {
-		if result.ExitCode != 0 {
+		if result.ExitCode != 0 || result.Err != nil {
 			reason := cursorResultReason(result)
-			return Result{
-				ExitCode: 0,
-				Stdout: cursorJSON(map[string]interface{}{
-					"continue":      false,
-					"user_message":  reason,
-					"agent_message": reason,
-				}),
-			}
+			return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{
+				"continue":      false,
+				"user_message":  reason,
+				"agent_message": reason,
+			})
 		}
 		if strings.TrimSpace(result.Stdout) == "" {
-			return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr}
+			return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr, Err: result.Err}
 		}
 		reason := cursorStopReason(result.Stdout)
 		if reason == "" {
-			return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr}
+			return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr, Err: result.Err}
 		}
-		return Result{
-			ExitCode: 0,
-			Stdout:   cursorJSON(map[string]interface{}{"followup_message": reason}),
-		}
+		return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{"followup_message": reason})
 	}
-	if isCursorPreDecisionEvent(event) && result.ExitCode != 0 {
+	if isCursorPreDecisionEvent(event) && (result.ExitCode != 0 || result.Err != nil) {
 		reason := cursorResultReason(result)
-		return Result{
-			ExitCode: 0,
-			Stdout: cursorJSON(map[string]interface{}{
-				"permission":    "deny",
-				"user_message":  reason,
-				"agent_message": reason,
-			}),
-		}
+		return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{
+			"permission":    "deny",
+			"user_message":  reason,
+			"agent_message": reason,
+		})
 	}
 	if isCursorPreDecisionEvent(event) && result.ExitCode == 0 {
-		return Result{ExitCode: 0, Stdout: cursorJSON(map[string]interface{}{"permission": "allow"}), Stderr: result.Stderr}
+		return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{"permission": "allow"})
 	}
 	if isCursorObservationEvent(event) && result.ExitCode == 0 {
-		return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr}
+		return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr, Err: result.Err}
 	}
 	if strings.HasPrefix(event, "cursor-") && result.ExitCode == 0 && strings.TrimSpace(result.Stdout) == "" {
-		return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr}
+		return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr, Err: result.Err}
 	}
 	return result
 }
@@ -318,11 +306,6 @@ func cursorStopReason(stdout string) string {
 		}
 	}
 	return strings.TrimSpace(stdout)
-}
-
-func cursorJSON(payload map[string]interface{}) string {
-	body, _ := json.Marshal(payload)
-	return string(body)
 }
 
 func cursorSessionID(raw map[string]interface{}) string {

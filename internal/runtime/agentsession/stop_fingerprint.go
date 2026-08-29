@@ -107,12 +107,20 @@ func stopPolicyFingerprintInputForSnapshotWithScan(
 }
 
 func hashStopPolicyFingerprintInput(input stopPolicyFingerprintInput) string {
+	fingerprint, err := hashStopPolicyFingerprintInputWithError(input)
+	if err != nil {
+		return "error:" + err.Error()
+	}
+	return fingerprint
+}
+
+func hashStopPolicyFingerprintInputWithError(input stopPolicyFingerprintInput) (string, error) {
 	body, err := json.Marshal(input)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("marshal Stop policy fingerprint: %w", err)
 	}
 	sum := sha256.Sum256(body)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // stopPolicyWritePaths is the exact set require_script rules match their
@@ -615,16 +623,16 @@ func completionPolicyGitSnapshotFor(repoRoot string) stopPolicyGitSnapshot {
 	}
 }
 
-func stopPolicyEvidenceHash(state SessionState) string {
+func stopPolicyEvidenceHash(state SessionState) (string, error) {
 	input := stopPolicyEvidenceInputFor(state)
 	body, err := json.Marshal(input)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("marshal Stop evidence identity: %w", err)
 	}
-	return hashBytes(body)
+	return hashBytes(body), nil
 }
 
-func stopPolicyEvidenceRevision(state SessionState) string {
+func stopPolicyEvidenceRevision(state SessionState) (string, error) {
 	input := stopPolicyEvidenceRevisionInput{
 		Evidence:             stopPolicyEvidenceInputFor(state),
 		EvidenceEpoch:        state.EvidenceEpoch,
@@ -635,9 +643,9 @@ func stopPolicyEvidenceRevision(state SessionState) string {
 	}
 	body, err := json.Marshal(input)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("marshal Stop evidence revision: %w", err)
 	}
-	return hashBytes(body)
+	return hashBytes(body), nil
 }
 
 func stopPolicyEvidenceInputFor(state SessionState) stopPolicyEvidenceInput {

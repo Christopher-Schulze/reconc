@@ -52,19 +52,25 @@ func runGrokPreToolGuard(args []string, stdout, stderr io.Writer) error {
 		runtimeStderr,
 	)
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		body, _ := json.Marshal(map[string]string{
+		body, err := json.Marshal(map[string]string{
 			"decision": "deny",
 			"reason":   "Reconc timed out while evaluating this Grok tool call; execution was denied.",
 		})
+		if err != nil {
+			return fmt.Errorf("encode Grok timeout denial: %w", err)
+		}
 		fmt.Fprintln(stdout, string(body))
 		fmt.Fprintf(stderr, "reconc hook grok-pre-tool-guard: runtime exceeded %s; denied before Grok's host timeout\n", grokPreToolGuardTimeout)
 		return nil
 	}
 	if runtimeStdout.Truncated() || runtimeStderr.Truncated() {
-		body, _ := json.Marshal(map[string]string{
+		body, err := json.Marshal(map[string]string{
 			"decision": "deny",
 			"reason":   "Reconc produced an oversized Grok guard response; execution was denied.",
 		})
+		if err != nil {
+			return fmt.Errorf("encode Grok oversized-output denial: %w", err)
+		}
 		fmt.Fprintln(stdout, string(body))
 		fmt.Fprintf(stderr, "reconc hook grok-pre-tool-guard: runtime output exceeded %d bytes per stream; denied\n", maxHookRuntimeCapture)
 		return nil

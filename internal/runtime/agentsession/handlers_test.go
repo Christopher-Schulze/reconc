@@ -970,7 +970,10 @@ func TestFullHappyFlow(t *testing.T) {
 
 func TestRepositoryRunBlockJSON(t *testing.T) {
 	prompt := "REPOSITORY RUN TEST PROMPT"
-	out := repositoryRunBlockJSON(prompt)
+	out, err := repositoryRunBlockJSON(prompt)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(out, `"decision":"block"`) {
 		t.Fatalf("expected decision=block, got: %s", out)
 	}

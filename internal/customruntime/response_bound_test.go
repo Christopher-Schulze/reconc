@@ -34,7 +34,11 @@ func TestBoundResponseNeverBreaksTheHostContract(t *testing.T) {
 				if err != nil {
 					metadata := response
 					metadata.Reason = ""
-					if budget >= len(MarshalResponse(metadata)) {
+					metadataBody, marshalErr := MarshalResponse(metadata)
+					if marshalErr != nil {
+						t.Fatalf("marshal metadata: %v", marshalErr)
+					}
+					if budget >= len(metadataBody) {
 						t.Fatalf("budget %d fits metadata but was rejected: %v", budget, err)
 					}
 					return

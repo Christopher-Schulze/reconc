@@ -147,7 +147,10 @@ func TestNormalizeHostPayloadBuildsMCPEnvelopeAndExitCode(t *testing.T) {
 func TestManifestSummaryAndRouteLookupRemainDeterministic(t *testing.T) {
 	t.Parallel()
 	manifest := mustManifest(t, "testdata/local-agent.json")
-	summary := manifest.Summary()
+	summary, err := manifest.Summary()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if summary.Name != "local-agent" || summary.Runtime != "custom:local-agent" || summary.RouteCount != 4 || !validSHA256Digest(summary.ManifestDigest) {
 		t.Fatalf("summary = %+v", summary)
 	}
@@ -222,10 +225,18 @@ func TestBoundResponseOmitsSuffixWhenOnlyMetadataFits(t *testing.T) {
 	route, _ := manifest.Route("before-tool")
 	response := BuildResponse(manifest, route, 2, "", strings.Repeat("ü", 100), nil, false)
 	response.Reason = ""
-	if padding := 256 - len(MarshalResponse(response)); padding > 0 {
+	metadata, err := MarshalResponse(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if padding := 256 - len(metadata); padding > 0 {
 		response.HostEvent += strings.Repeat("x", padding)
 	}
-	metadataBytes := len(MarshalResponse(response))
+	metadata, err = MarshalResponse(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadataBytes := len(metadata)
 	response.Reason = strings.Repeat("ü", 100)
 	body, err := BoundResponse(response, metadataBytes)
 	if err != nil {

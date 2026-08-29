@@ -19,7 +19,7 @@ func TestDecodeAcceptsCanonicalAndReorderedObjects(t *testing.T) {
 	}
 	crossPlatform := validProofBundle()
 	crossPlatform.Build.GOOS, crossPlatform.Build.GOARCH = "windows", "amd64"
-	crossPlatform.Digest = digest(crossPlatform)
+	crossPlatform.Digest = mustDigest(crossPlatform)
 	crossPlatformBody, err := MarshalJSON(crossPlatform)
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestVerifyRejectsRecomputedNonCanonicalAndOverBudgetContracts(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			bundle := validProofBundle()
 			test.mutate(bundle)
-			bundle.Digest = digest(bundle)
+			bundle.Digest = mustDigest(bundle)
 			if err := Verify(bundle); err == nil || !errors.Is(err, ErrInvalidContract) {
 				t.Fatalf("Verify() error = %v", err)
 			}

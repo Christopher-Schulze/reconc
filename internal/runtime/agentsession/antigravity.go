@@ -14,7 +14,7 @@ import (
 func RunAntigravityPreInvocation(repoRoot string, payloadBytes []byte) Result {
 	root, err := ResolveRepoRootRef(repoRoot)
 	if err != nil {
-		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
+		return antigravityResult(Result{ExitCode: 0, Stderr: err.Error()}, map[string]interface{}{"injectSteps": []interface{}{}})
 	}
 	return runAntigravityPreInvocationResolved(root.path, payloadBytes)
 }
@@ -22,17 +22,17 @@ func RunAntigravityPreInvocation(repoRoot string, payloadBytes []byte) Result {
 func runAntigravityPreInvocationResolved(root string, payloadBytes []byte) Result {
 	payload, err := NormalizeAntigravityPayload("antigravity-pre-invocation", payloadBytes)
 	if err != nil {
-		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
+		return antigravityResult(Result{ExitCode: 0, Stderr: err.Error()}, map[string]interface{}{"injectSteps": []interface{}{}})
 	}
 	parsed, err := ParsePayload(payload)
 	if err != nil {
-		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
+		return antigravityResult(Result{ExitCode: 0, Stderr: err.Error()}, map[string]interface{}{"injectSteps": []interface{}{}})
 	}
 	if _, err := ensureSessionStateResolved(root, parsed.SessionID); err != nil {
-		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
+		return antigravityResult(Result{ExitCode: 0, Stderr: err.Error()}, map[string]interface{}{"injectSteps": []interface{}{}})
 	}
 	retentionStderr := retentionWarning(retention.RunIfDue(retention.Options{RepoRoot: root, StateRoot: stateRoot(), ActiveSession: parsed.SessionID}))
-	return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: retentionStderr}
+	return antigravityResult(Result{ExitCode: 0, Stderr: retentionStderr}, map[string]interface{}{"injectSteps": []interface{}{}})
 }
 
 func RunAntigravityPreToolUse(repoRoot string, payloadBytes []byte) Result {
@@ -53,7 +53,7 @@ func runAntigravityPreToolUseResolvedWithEvaluator(root string, payloadBytes []b
 		return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: err.Error()})
 	}
 	result := runPreToolUseResolvedWithEvaluator(root, payload, evaluator)
-	if result.ExitCode != 0 {
+	if result.ExitCode != 0 || result.Err != nil {
 		return AdaptAntigravityResult("antigravity-pre-tool-use", result)
 	}
 	parsed, err := ParsePayload(payload)
@@ -62,8 +62,14 @@ func runAntigravityPreToolUseResolvedWithEvaluator(root string, payloadBytes []b
 	}
 	if parsed.IsReadTool() || parsed.IsWriteTool() || parsed.IsCommandTool() {
 		var updated SessionState
+		var keyErr error
 		updated, err = mutateSessionStateResolved(root, parsed.SessionID, func(state SessionState) SessionState {
-			return PutPendingToolCall(state, antigravityPendingKey(parsed), PendingToolCall{
+			key, err := antigravityPendingKey(parsed)
+			if err != nil {
+				keyErr = err
+				return state
+			}
+			return PutPendingToolCall(state, key, PendingToolCall{
 				ToolName:  parsed.ToolName,
 				ToolInput: cloneAntigravityObject(parsed.ToolInput),
 				ToolUseID: parsed.ToolUseID,
@@ -71,6 +77,9 @@ func runAntigravityPreToolUseResolvedWithEvaluator(root string, payloadBytes []b
 		})
 		if err != nil {
 			return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: err.Error()})
+		}
+		if keyErr != nil {
+			return AdaptAntigravityResult("antigravity-pre-tool-use", resultWithEncodingError(Result{ExitCode: 2}, keyErr))
 		}
 		if updated.EvidenceOverflow {
 			return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: evidenceOverflowMessage(updated)})
@@ -99,8 +108,13 @@ func runAntigravityPostToolUseResolved(root string, payloadBytes []byte) Result 
 
 	var pending PendingToolCall
 	var found bool
+	var keyErr error
 	_, err = mutateSessionStateResolved(root, parsed.SessionID, func(state SessionState) SessionState {
-		key := antigravityPendingKey(parsed)
+		key, err := antigravityPendingKey(parsed)
+		if err != nil {
+			keyErr = err
+			return state
+		}
 		if state.PendingToolCalls != nil {
 			pending, found = state.PendingToolCalls[key]
 			delete(state.PendingToolCalls, key)
@@ -112,6 +126,9 @@ func runAntigravityPostToolUseResolved(root string, payloadBytes []byte) Result 
 	})
 	if err != nil {
 		return AdaptAntigravityResult("antigravity-post-tool-use", Result{ExitCode: 0, Stderr: err.Error()})
+	}
+	if keyErr != nil {
+		return AdaptAntigravityResult("antigravity-post-tool-use", resultWithEncodingError(Result{ExitCode: 2}, keyErr))
 	}
 	if !found {
 		return AdaptAntigravityResult("antigravity-post-tool-use", Result{ExitCode: 0})
@@ -126,7 +143,7 @@ func runAntigravityPostToolUseResolved(root string, payloadBytes []byte) Result 
 	}
 	body, err := json.Marshal(out)
 	if err != nil {
-		return AdaptAntigravityResult("antigravity-post-tool-use", Result{ExitCode: 0, Stderr: err.Error()})
+		return AdaptAntigravityResult("antigravity-post-tool-use", resultWithEncodingError(Result{ExitCode: 2}, fmt.Errorf("marshal Antigravity post-tool payload: %w", err)))
 	}
 	if parsed.Error != "" && pending.ToolName == "Bash" {
 		return AdaptAntigravityResult("antigravity-post-tool-use", runPostToolUseFailureResolved(root, body))
@@ -139,7 +156,7 @@ func runAntigravityPostToolUseResolved(root string, payloadBytes []byte) Result 
 
 func RunAntigravityPostInvocation(repoRoot string, payloadBytes []byte) Result {
 	if _, err := ResolveRepoRootRef(repoRoot); err != nil {
-		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""}), Stderr: err.Error()}
+		return antigravityResult(Result{ExitCode: 0, Stderr: err.Error()}, map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""})
 	}
 	return runAntigravityPostInvocationResolved(payloadBytes)
 }
@@ -147,12 +164,12 @@ func RunAntigravityPostInvocation(repoRoot string, payloadBytes []byte) Result {
 func runAntigravityPostInvocationResolved(payloadBytes []byte) Result {
 	payload, err := NormalizeAntigravityPayload("antigravity-post-invocation", payloadBytes)
 	if err != nil {
-		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""}), Stderr: err.Error()}
+		return antigravityResult(Result{ExitCode: 0, Stderr: err.Error()}, map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""})
 	}
 	if _, err := ParsePayload(payload); err != nil {
-		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""}), Stderr: err.Error()}
+		return antigravityResult(Result{ExitCode: 0, Stderr: err.Error()}, map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""})
 	}
-	return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""})}
+	return antigravityResult(Result{ExitCode: 0}, map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""})
 }
 
 func RunAntigravityStop(repoRoot string, payloadBytes []byte) Result {
@@ -230,33 +247,33 @@ func NormalizeAntigravityPayload(event string, payloadBytes []byte) ([]byte, err
 func AdaptAntigravityResult(event string, result Result) Result {
 	switch event {
 	case "antigravity-pre-tool-use":
-		if result.ExitCode != 0 {
-			return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{
+		if result.ExitCode != 0 || result.Err != nil {
+			return antigravityResult(Result{ExitCode: 0, Err: result.Err}, map[string]interface{}{
 				"decision": "deny",
 				"reason":   antigravityResultReason(result),
-			})}
+			})
 		}
-		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"decision": "allow"}), Stderr: result.Stderr}
+		return antigravityResult(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{"decision": "allow"})
 	case "antigravity-post-tool-use":
-		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{}), Stderr: result.Stderr}
+		return antigravityResult(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{})
 	case "antigravity-stop":
-		if result.ExitCode != 0 {
-			return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{
+		if result.ExitCode != 0 || result.Err != nil {
+			return antigravityResult(Result{ExitCode: 0, Err: result.Err}, map[string]interface{}{
 				"decision": "continue",
 				"reason":   antigravityResultReason(result),
-			})}
+			})
 		}
 		reason := antigravityStopReason(result.Stdout)
 		if reason == "" {
-			return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"decision": "stop"}), Stderr: result.Stderr}
+			return antigravityResult(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{"decision": "stop"})
 		}
-		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{
+		return antigravityResult(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{
 			"decision": "continue",
 			"reason":   reason,
-		}), Stderr: result.Stderr}
+		})
 	default:
 		if result.Stdout == "" {
-			return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{})}
+			return antigravityResult(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{})
 		}
 		return result
 	}
@@ -296,22 +313,25 @@ func copyAntigravityPath(input, args map[string]interface{}, key string) {
 	}
 }
 
-func antigravityPendingKey(payload *HookPayload) string {
+func antigravityPendingKey(payload *HookPayload) (string, error) {
 	if payload == nil {
-		return "step:unknown"
+		return "step:unknown", nil
 	}
 	if payload.ToolUseID != "" {
-		return payload.ToolUseID
+		return payload.ToolUseID, nil
 	}
-	body, _ := json.Marshal(struct {
+	body, err := json.Marshal(struct {
 		ToolName  string                 `json:"tool_name"`
 		ToolInput map[string]interface{} `json:"tool_input"`
 	}{
 		ToolName:  payload.ToolName,
 		ToolInput: payload.ToolInput,
 	})
+	if err != nil {
+		return "", fmt.Errorf("marshal Antigravity pending-tool identity: %w", err)
+	}
 	sum := sha256.Sum256(body)
-	return "tool:" + hex.EncodeToString(sum[:])
+	return "tool:" + hex.EncodeToString(sum[:]), nil
 }
 
 func antigravitySessionID(raw map[string]interface{}) string {
@@ -378,7 +398,6 @@ func cloneAntigravityObject(raw map[string]interface{}) map[string]interface{} {
 	return out
 }
 
-func antigravityJSON(payload map[string]interface{}) string {
-	body, _ := json.Marshal(payload)
-	return string(body)
+func antigravityResult(result Result, payload map[string]interface{}) Result {
+	return resultWithHookJSON(result, payload)
 }

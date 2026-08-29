@@ -173,23 +173,30 @@ func (manifest Manifest) Route(hostEvent string) (Route, bool) {
 	return Route{}, false
 }
 
-func (manifest Manifest) Digest() string {
-	body, _ := json.Marshal(manifest)
+func (manifest Manifest) Digest() (string, error) {
+	body, err := json.Marshal(manifest)
+	if err != nil {
+		return "", fmt.Errorf("encode custom runtime manifest identity: %w", err)
+	}
 	digest := sha256.Sum256(body)
-	return "sha256:" + hex.EncodeToString(digest[:])
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 
-func (manifest Manifest) Summary() Summary {
+func (manifest Manifest) Summary() (Summary, error) {
 	degraded := []string{}
 	for _, route := range manifest.Routes {
 		if len(route.DegradedReasons()) > 0 {
 			degraded = append(degraded, route.HostEvent)
 		}
 	}
-	return Summary{
-		Name: manifest.Name, Runtime: manifest.Runtime(), ManifestDigest: manifest.Digest(),
-		RouteCount: len(manifest.Routes), DegradedRoutes: degraded,
+	digest, err := manifest.Digest()
+	if err != nil {
+		return Summary{}, err
 	}
+	return Summary{
+		Name: manifest.Name, Runtime: manifest.Runtime(), ManifestDigest: digest,
+		RouteCount: len(manifest.Routes), DegradedRoutes: degraded,
+	}, nil
 }
 
 func ValidateSummary(summary Summary) error {
@@ -336,11 +343,15 @@ func validateRoute(manifest Manifest, route Route) error {
 	if manifest.FormatVersion == ManifestFormatVersion {
 		minimumOutputBytes = 512
 	}
-	metadataBytes := len(MarshalResponse(NeutralResponse{
+	metadata, err := MarshalResponse(NeutralResponse{
 		Schema: schema.Resolve(schema.NeutralHookResponse), FormatVersion: ResponseFormatVersion,
 		Runtime: manifest.Runtime(), HostEvent: route.HostEvent, Event: route.Event,
 		Decision: DecisionUnsupported, ExitCode: 2,
-	}))
+	})
+	if err != nil {
+		return fmt.Errorf("encode neutral response metadata: %w", err)
+	}
+	metadataBytes := len(metadata)
 	if metadataBytes > minimumOutputBytes {
 		minimumOutputBytes = metadataBytes
 	}

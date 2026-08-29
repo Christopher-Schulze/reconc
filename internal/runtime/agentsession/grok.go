@@ -142,18 +142,19 @@ func PayloadLooksLikeGrok(payloadBytes []byte) bool {
 // error path.
 func AdaptGrokResult(event string, result Result) Result {
 	if event == "grok-pre-tool-use" {
-		if result.ExitCode != 0 {
+		if result.ExitCode != 0 || result.Err != nil {
 			reason := grokResultReason(result)
-			body, _ := json.Marshal(map[string]string{"decision": "deny", "reason": reason})
-			return Result{ExitCode: 0, Stdout: string(body)}
+			return resultWithHookJSON(Result{ExitCode: 0, Err: result.Err}, map[string]string{"decision": "deny", "reason": reason})
 		}
-		body, _ := json.Marshal(map[string]string{"decision": "allow"})
-		return Result{ExitCode: 0, Stdout: string(body), Stderr: result.Stderr}
+		return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]string{"decision": "allow"})
 	}
 
 	if event == "grok-stop" {
-		if result.ExitCode != 0 {
-			return grokStopBlockResult("Reconc could not evaluate this Grok Stop: " + grokResultReason(result))
+		if result.ExitCode != 0 || result.Err != nil {
+			return resultWithHookJSON(Result{ExitCode: 0, Err: result.Err}, map[string]string{
+				"decision": "block",
+				"reason":   "Reconc could not evaluate this Grok Stop: " + grokResultReason(result),
+			})
 		}
 		stdout := strings.TrimSpace(result.Stdout)
 		if stdout == "" {
@@ -167,11 +168,10 @@ func AdaptGrokResult(event string, result Result) Result {
 			decision.Decision != "block" || strings.TrimSpace(decision.Reason) == "" {
 			return grokStopBlockResult("Reconc produced an invalid non-empty Grok Stop decision")
 		}
-		body, _ := json.Marshal(map[string]string{
+		return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]string{
 			"decision": "block",
 			"reason":   strings.TrimSpace(decision.Reason),
 		})
-		return Result{ExitCode: 0, Stdout: string(body), Stderr: result.Stderr}
 	}
 	result.ExitCode = 0
 	result.Stdout = ""
@@ -179,8 +179,7 @@ func AdaptGrokResult(event string, result Result) Result {
 }
 
 func grokStopBlockResult(reason string) Result {
-	body, _ := json.Marshal(map[string]string{"decision": "block", "reason": strings.TrimSpace(reason)})
-	return Result{ExitCode: 0, Stdout: string(body)}
+	return resultWithHookJSON(Result{ExitCode: 0}, map[string]string{"decision": "block", "reason": strings.TrimSpace(reason)})
 }
 
 func grokResultReason(result Result) string {

@@ -64,7 +64,11 @@ func adaptPreDecision(decision Result, permission bool) Result {
 	if reason == "" {
 		reason = "reconc denied this permission request before execution."
 	}
-	return Result{ExitCode: 0, Stdout: permissionRequestDenyJSONOutput(reason)}
+	body, err := permissionRequestDenyJSONOutput(reason)
+	if err != nil {
+		return resultWithEncodingError(Result{ExitCode: 2}, err)
+	}
+	return Result{ExitCode: 0, Stdout: body}
 }
 
 func preDecisionKey(root string, payloadBytes []byte) (string, bool) {

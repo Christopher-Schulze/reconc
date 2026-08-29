@@ -30,6 +30,29 @@ type Result struct {
 	ExitCode int
 	Stdout   string
 	Stderr   string
+	// Err records an internal failure that prevented a trustworthy hook
+	// response or identity from being produced. The CLI treats it as
+	// fail-closed even when the route is configured fail-open.
+	Err error
+}
+
+func resultWithHookJSON(result Result, payload interface{}) Result {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return resultWithEncodingError(result, fmt.Errorf("marshal hook control response: %w", err))
+	}
+	result.Stdout = string(body)
+	return result
+}
+
+func resultWithEncodingError(result Result, err error) Result {
+	result.Err = err
+	result.ExitCode = 2
+	result.Stdout = ""
+	if result.Stderr == "" {
+		result.Stderr = "reconc hook encoding failure: " + err.Error()
+	}
+	return result
 }
 
 // BlockingModes are the Mode values that cause a pre-/stop-hook to
@@ -307,7 +330,11 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root string, payload *Hook
 func RunPermissionRequest(repoRoot string, payloadBytes []byte) Result {
 	root, err := ResolveRepoRootRef(repoRoot)
 	if err != nil {
-		return Result{ExitCode: 0, Stdout: permissionRequestDenyJSONOutput(fmt.Sprintf("reconc hook (pre): %s", err))}
+		body, encodeErr := permissionRequestDenyJSONOutput(fmt.Sprintf("reconc hook (pre): %s", err))
+		if encodeErr != nil {
+			return resultWithEncodingError(Result{}, encodeErr)
+		}
+		return Result{ExitCode: 0, Stdout: body}
 	}
 	return runPermissionRequestResolved(root.path, payloadBytes)
 }
@@ -321,7 +348,11 @@ func runPermissionRequestResolved(root string, payloadBytes []byte) Result {
 	if reason == "" {
 		reason = "reconc denied this permission request before execution."
 	}
-	return Result{ExitCode: 0, Stdout: permissionRequestDenyJSONOutput(reason)}
+	body, err := permissionRequestDenyJSONOutput(reason)
+	if err != nil {
+		return resultWithEncodingError(Result{}, err)
+	}
+	return Result{ExitCode: 0, Stdout: body}
 }
 
 // RunPostToolUse records the tool-use as evidence.
@@ -343,11 +374,17 @@ func runPostToolUseResolved(root string, payloadBytes []byte) Result {
 		// Fail-open on parse errors for observation-only events.
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post, warn): %s", err)}
 	}
+	var recordErr error
 	updated, err := mutateSessionStateResolved(root, payload.SessionID, func(state SessionState) SessionState {
-		return recordToolUse(state, payload)
+		updated, err := recordToolUse(state, payload)
+		recordErr = err
+		return updated
 	})
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post, warn): %s", err)}
+	}
+	if recordErr != nil {
+		return resultWithEncodingError(Result{}, recordErr)
 	}
 	if updated.EvidenceOverflow {
 		return Result{ExitCode: 0, Stderr: evidenceOverflowMessage(updated)}
@@ -369,13 +406,23 @@ func runPostToolUseFailureResolved(root string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-fail, warn): %s", err)}
 	}
+	var recordErr error
 	updated, err := mutateSessionStateResolved(root, payload.SessionID, func(state SessionState) SessionState {
-		return recordToolFailure(state, payload)
+		updated, err := recordToolFailure(state, payload)
+		recordErr = err
+		return updated
 	})
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-fail, warn): %s", err)}
 	}
-	return Result{ExitCode: 0, Stdout: postToolFailureJSONOutput(updated)}
+	if recordErr != nil {
+		return resultWithEncodingError(Result{}, recordErr)
+	}
+	body, err := postToolFailureJSONOutput(updated)
+	if err != nil {
+		return resultWithEncodingError(Result{}, err)
+	}
+	return Result{ExitCode: 0, Stdout: body}
 }
 
 // RunPostToolUseComplete records only successful tool evidence and routes an
@@ -432,9 +479,11 @@ func runPostToolUseCompleteStrictResolved(root string, payloadBytes []byte) Resu
 		}
 		toolResponse["success"] = false
 		payload.Raw["tool_response"] = toolResponse
-		if normalized, marshalErr := json.Marshal(payload.Raw); marshalErr == nil {
-			payloadBytes = normalized
+		normalized, marshalErr := json.Marshal(payload.Raw)
+		if marshalErr != nil {
+			return resultWithEncodingError(Result{ExitCode: 2}, fmt.Errorf("marshal strict command outcome: %w", marshalErr))
 		}
+		payloadBytes = normalized
 	}
 	return runPostToolUseFailureResolved(root, payloadBytes)
 }
@@ -565,70 +614,79 @@ func retentionWarning(report retention.Report) string {
 // recordToolUse inspects the payload's tool_name and appends the
 // matching evidence (read path, write path, command) to the state.
 // Returns a new SessionState; caller must save.
-func recordToolUse(state SessionState, payload *HookPayload) SessionState {
+func recordToolUse(state SessionState, payload *HookPayload) (SessionState, error) {
 	if state.EvidenceOverflow {
-		return state
+		return state, nil
 	}
 	switch {
 	case payload.IsReadTool():
 		path := payload.FilePath()
 		if !isRepoScopedReadEvidence(state.RepoRoot, path) {
-			return state
+			return state, nil
 		}
-		return AppendReadPath(state, path)
+		return AppendReadPath(state, path), nil
 	case payload.IsWriteTool():
 		// Agent memory writes are runtime state, never repo write evidence.
 		paths := withoutAgentMemoryPaths(state.RepoRoot, payload.FilePaths())
 		if len(paths) > 0 {
-			signature := materialEventSignature(payload, "success")
+			signature, signatureErr := materialEventSignature(payload, "success")
+			if signatureErr != nil {
+				return state, signatureErr
+			}
 			if signature != "" && signature == state.LastMaterialSignature {
-				return state
+				return state, nil
 			}
 			state = RecordWriteEvent(state, paths)
 			state = RecordMaterialEvent(state, signature)
 		}
-		return state
+		return state, nil
 	case payload.IsCommandTool():
 		cmd := payload.Command()
 		if cmd == "" {
-			return state
+			return state, nil
 		}
-		signature := materialEventSignature(payload, "success")
+		signature, signatureErr := materialEventSignature(payload, "success")
+		if signatureErr != nil {
+			return state, signatureErr
+		}
 		if signature != "" && signature == state.LastMaterialSignature {
-			return state
+			return state, nil
 		}
 		state = AppendCommand(state, cmd)
 		state = AppendCommandResult(state, commandResultFromPayload(state, payload, "success"))
-		return RecordMaterialEvent(state, signature)
+		return RecordMaterialEvent(state, signature), nil
 	}
-	return state
+	return state, nil
 }
 
 // recordToolFailure appends a command-result with outcome "failure"
 // if the payload describes a Bash tool failure. Non-Bash failures are
 // ignored (reads / writes don't have a success/failure binary).
-func recordToolFailure(state SessionState, payload *HookPayload) SessionState {
+func recordToolFailure(state SessionState, payload *HookPayload) (SessionState, error) {
 	if state.EvidenceOverflow {
-		return state
+		return state, nil
 	}
 	if !payload.IsCommandTool() {
-		return state
+		return state, nil
 	}
 	cmd := payload.Command()
 	if cmd == "" {
-		return state
+		return state, nil
 	}
-	signature := materialEventSignature(payload, "failure")
+	signature, signatureErr := materialEventSignature(payload, "failure")
+	if signatureErr != nil {
+		return state, signatureErr
+	}
 	if signature != "" && signature == state.LastMaterialSignature {
-		return state
+		return state, nil
 	}
 	state = AppendCommandResult(state, commandResultFromPayload(state, payload, "failure"))
-	return RecordMaterialEvent(state, signature)
+	return RecordMaterialEvent(state, signature), nil
 }
 
-func materialEventSignature(payload *HookPayload, outcome string) string {
+func materialEventSignature(payload *HookPayload, outcome string) (string, error) {
 	if payload == nil {
-		return ""
+		return "", nil
 	}
 	toolName := strings.ToLower(strings.TrimSpace(payload.ToolName))
 	input := payload.ToolInput
@@ -647,10 +705,10 @@ func materialEventSignature(payload *HookPayload, outcome string) string {
 		Outcome   string                 `json:"outcome"`
 	}{ToolName: toolName, ToolInput: input, Outcome: outcome})
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("marshal material event identity: %w", err)
 	}
 	sum := sha256.Sum256(body)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // commandResultFromPayload extracts the normalised CommandResult from
@@ -866,7 +924,7 @@ func firstLinesForViolations(violations []runtime.Violation, title string) strin
 
 // --- JSON control-response builders --------------------------------
 
-func permissionRequestDenyJSONOutput(reason string) string {
+func permissionRequestDenyJSONOutput(reason string) (string, error) {
 	payload := map[string]interface{}{
 		"hookSpecificOutput": map[string]interface{}{
 			"hookEventName": "PermissionRequest",
@@ -876,20 +934,23 @@ func permissionRequestDenyJSONOutput(reason string) string {
 			},
 		},
 	}
-	body, _ := json.Marshal(payload)
-	return string(body)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal permission-request denial: %w", err)
+	}
+	return string(body), nil
 }
 
 // postToolFailureJSONOutput returns the hookSpecificOutput for a
 // PostToolUseFailure event, or "" if the last command result isn't a
 // failure (shouldn't happen but defensive).
-func postToolFailureJSONOutput(state SessionState) string {
+func postToolFailureJSONOutput(state SessionState) (string, error) {
 	if len(state.CommandResults) == 0 {
-		return ""
+		return "", nil
 	}
 	latest := state.CommandResults[len(state.CommandResults)-1]
 	if latest.Outcome != "failure" {
-		return ""
+		return "", nil
 	}
 	var b strings.Builder
 	b.WriteString("reconc recorded failed command `")
@@ -906,8 +967,11 @@ func postToolFailureJSONOutput(state SessionState) string {
 			"additionalContext": b.String(),
 		},
 	}
-	body, _ := json.Marshal(payload)
-	return string(body)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal post-tool failure response: %w", err)
+	}
+	return string(body), nil
 }
 
 // stopBlockJSONOutput returns the Stop-hook block control-response.
@@ -916,6 +980,9 @@ func postToolFailureJSONOutput(state SessionState) string {
 // blocking violations.
 func stopBlockJSONOutput(repoRoot, sessionID string, report *runtime.CheckReport, violations []runtime.Violation) (string, error) {
 	record := recordStopBlockAndRepeated(repoRoot, sessionID, violations)
+	if record.encodingErr {
+		return "", record.err
+	}
 	reason := stopReasonForViolations(violations, reportPathForStop(repoRoot, sessionID), record.feedbackID, record.repeated, repositoryRunStatusLine(repoRoot))
 	if record.err != nil {
 		reason += "\nWarning: repeated-stop state durability is unconfirmed; this stop remains blocked until session state storage recovers."
@@ -924,7 +991,10 @@ func stopBlockJSONOutput(repoRoot, sessionID string, report *runtime.CheckReport
 		"decision": "block",
 		"reason":   reason,
 	}
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal stop block response: %w", err)
+	}
 	return string(body), record.err
 }
 
@@ -1041,7 +1111,7 @@ func firstDiagnosticLine(explanation string) string {
 // repositoryRunBlockJSON returns the Stop-hook block control-response
 // that carries the repository-run continuation prompt as the reason so the
 // agent auto-continues without a separate JS plugin.
-func repositoryRunBlockJSON(prompt string) string {
+func repositoryRunBlockJSON(prompt string) (string, error) {
 	payload := map[string]string{
 		"decision": "block",
 		"reason":   prompt,
@@ -1049,6 +1119,16 @@ func repositoryRunBlockJSON(prompt string) string {
 	var buf strings.Builder
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
-	_ = enc.Encode(payload)
-	return strings.TrimSpace(buf.String())
+	if err := enc.Encode(payload); err != nil {
+		return "", fmt.Errorf("encode repository-run block response: %w", err)
+	}
+	return strings.TrimSpace(buf.String()), nil
+}
+
+func repositoryRunBlockResult(prompt string) Result {
+	body, err := repositoryRunBlockJSON(prompt)
+	if err != nil {
+		return resultWithEncodingError(Result{}, err)
+	}
+	return Result{ExitCode: 0, Stdout: body}
 }

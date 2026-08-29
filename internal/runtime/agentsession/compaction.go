@@ -34,7 +34,11 @@ func runPostCompactionResolved(root string, payloadBytes []byte) Result {
 	}
 	summary := cursorFirstString(payload.Raw, "summary", "compact_summary", "compactSummary")
 	if strings.Contains(summary, compactionContextMarker) {
-		return Result{ExitCode: 0, Stdout: postCompactionJSONOutput("")}
+		body, err := postCompactionJSONOutput("")
+		if err != nil {
+			return resultWithEncodingError(Result{ExitCode: 2}, err)
+		}
+		return Result{ExitCode: 0, Stdout: body}
 	}
 	state, err := loadSessionStateWithLockResolved(root, payload.SessionID)
 	if err != nil {
@@ -70,7 +74,11 @@ func runPostCompactionResolved(root string, payloadBytes []byte) Result {
 	}
 	lines = append(lines, "Re-run relevant verification before claiming the task is done.")
 	context := truncateUTF8(strings.Join(dedupeContextLines(lines), "\n"), maxCompactionContextBytes)
-	return Result{ExitCode: 0, Stdout: postCompactionJSONOutput(context)}
+	body, err := postCompactionJSONOutput(context)
+	if err != nil {
+		return resultWithEncodingError(Result{ExitCode: 2}, err)
+	}
+	return Result{ExitCode: 0, Stdout: body}
 }
 
 func activeTaskLine(repoRoot string) string {
@@ -92,7 +100,7 @@ func activeTaskLine(repoRoot string) string {
 	return ""
 }
 
-func postCompactionJSONOutput(context string) string {
+func postCompactionJSONOutput(context string) (string, error) {
 	payload := map[string]interface{}{
 		"hookSpecificOutput": map[string]interface{}{
 			"hookEventName":     "PostCompaction",
@@ -101,9 +109,9 @@ func postCompactionJSONOutput(context string) string {
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("marshal post-compaction response: %w", err)
 	}
-	return string(body)
+	return string(body), nil
 }
 
 // AdaptPostCompactionResult rewrites the hook event name when a platform
@@ -122,9 +130,10 @@ func AdaptPostCompactionResult(result Result, hookEventName string) Result {
 	}
 	hookOutput["hookEventName"] = hookEventName
 	body, err := json.Marshal(payload)
-	if err == nil {
-		result.Stdout = string(body)
+	if err != nil {
+		return resultWithEncodingError(result, fmt.Errorf("marshal adapted post-compaction response: %w", err))
 	}
+	result.Stdout = string(body)
 	return result
 }
 
@@ -147,9 +156,10 @@ func AdaptCodexCompactionResult(result Result) Result {
 		return result
 	}
 	body, err := json.Marshal(map[string]interface{}{"systemMessage": context})
-	if err == nil {
-		result.Stdout = string(body)
+	if err != nil {
+		return resultWithEncodingError(result, fmt.Errorf("marshal Codex compaction response: %w", err))
 	}
+	result.Stdout = string(body)
 	return result
 }
 

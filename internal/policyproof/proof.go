@@ -150,7 +150,11 @@ func newRecord(repoRoot, event, candidateFingerprint string, report *runtime.Che
 		Report: report,
 	}
 	if report != nil {
-		record.PolicyReportHash = reportHash(report)
+		reportDigest, err := reportHash(report)
+		if err != nil {
+			return Record{}, fmt.Errorf("encode policy report identity: %w", err)
+		}
+		record.PolicyReportHash = reportDigest
 	}
 	if err := validateRecordShape(record); err != nil {
 		return Record{}, err
@@ -176,7 +180,11 @@ func validateRecord(record Record, repoRoot string) error {
 	if err := requireSameRepository(record.RepoRoot, repoRoot); err != nil {
 		return err
 	}
-	if record.PolicyReportHash != reportHash(record.Report) {
+	reportDigest, err := reportHash(record.Report)
+	if err != nil {
+		return fmt.Errorf("encode policy report identity: %w", err)
+	}
+	if record.PolicyReportHash != reportDigest {
 		return errors.New("policy decision proof report hash mismatch")
 	}
 	digest, err := recordDigest(record)
@@ -242,15 +250,15 @@ func requireSameRepository(left, right string) error {
 	return nil
 }
 
-func reportHash(report *runtime.CheckReport) string {
+func reportHash(report *runtime.CheckReport) (string, error) {
 	if report == nil {
-		return ""
+		return "", nil
 	}
 	body, err := json.Marshal(report)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("marshal policy report identity: %w", err)
 	}
-	return hash(body)
+	return hash(body), nil
 }
 
 func recordDigest(record Record) (string, error) {

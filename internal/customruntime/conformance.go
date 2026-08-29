@@ -154,7 +154,10 @@ func RunConformance(manifest Manifest, suite ConformanceSuite) (ConformanceRepor
 		if err != nil {
 			return ConformanceReport{}, fmt.Errorf("conformance case %q response: %w", testCase.Name, err)
 		}
-		requestBody, _ := json.Marshal(request)
+		requestBody, err := json.Marshal(request)
+		if err != nil {
+			return ConformanceReport{}, fmt.Errorf("conformance case %q request identity: %w", testCase.Name, err)
+		}
 		for _, marker := range testCase.PrivateMarkers {
 			if marker == "" || bytes.Contains(requestBody, []byte(marker)) || bytes.Contains(responseBody, []byte(marker)) {
 				return ConformanceReport{}, fmt.Errorf("conformance case %q leaked private marker", testCase.Name)
@@ -186,10 +189,14 @@ func validateConformanceClaim(capability ConformanceCapability, testCase Conform
 	case ConformanceRequest, ConformanceResponse:
 		return nil
 	case ConformanceLiveness:
+		digest, err := manifest.Digest()
+		if err != nil {
+			return fmt.Errorf("encode manifest identity for liveness: %w", err)
+		}
 		return ValidateLivenessRecord(LivenessRecord{
 			Schema: schema.Resolve(schema.CustomRuntimeLiveness), FormatVersion: LivenessFormatVersion,
 			Runtime: manifest.Runtime(), HostEvent: route.HostEvent,
-			ObservedAt: "2000-01-01T00:00:00Z", ManifestDigest: manifest.Digest(),
+			ObservedAt: "2000-01-01T00:00:00Z", ManifestDigest: digest,
 		})
 	case ConformanceTimeout:
 		if !testCase.Result.TimedOut {

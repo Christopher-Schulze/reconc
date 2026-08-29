@@ -145,10 +145,14 @@ func CaptureCompletionState(repoRoot string) (CompletionStateSnapshot, error) {
 	if err != nil {
 		return CompletionStateSnapshot{}, fmt.Errorf("marshal completion state identity: %w", err)
 	}
+	evidenceHash, err := stopPolicyEvidenceHash(state)
+	if err != nil {
+		return CompletionStateSnapshot{}, fmt.Errorf("marshal completion evidence identity: %w", err)
+	}
 	return CompletionStateSnapshot{
 		FormatVersion: "4", RepoRoot: root, Fingerprint: hashBytes(completionBody),
 		PolicyLockHash: fingerprintInput.PolicyLockHash,
-		SessionID:      sessionID, SessionEvidenceHash: stopPolicyEvidenceHash(state),
+		SessionID:      sessionID, SessionEvidenceHash: evidenceHash,
 		SessionReportHash: reportHash, SessionReportTrusted: reportTrusted,
 		EvidenceEpoch:    state.EvidenceEpoch,
 		EvidenceOverflow: state.EvidenceOverflow, EvidenceOverflowReason: state.EvidenceOverflowReason,
@@ -283,26 +287,30 @@ func readLatestReport(repoRoot, sessionID string) (*runtime.CheckReport, string,
 	if err := json.Unmarshal(body, &report); err != nil {
 		return nil, "", fmt.Errorf("unmarshal report %s: %w", path, err)
 	}
-	return &report, hashCheckReport(&report), nil
+	reportHash, err := hashCheckReport(&report)
+	if err != nil {
+		return nil, "", err
+	}
+	return &report, reportHash, nil
 }
 
-func hashCheckReport(report *runtime.CheckReport) string {
+func hashCheckReport(report *runtime.CheckReport) (string, error) {
 	if report == nil {
-		return ""
+		return "", nil
 	}
 	body, err := json.Marshal(report)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("marshal check report identity: %w", err)
 	}
-	return hashBytes(body)
+	return hashBytes(body), nil
 }
 
-func hashBlockingViolations(violations []runtime.Violation) string {
+func hashBlockingViolations(violations []runtime.Violation) (string, error) {
 	body, err := json.Marshal(violations)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("marshal blocking-violation identity: %w", err)
 	}
-	return hashBytes(body)
+	return hashBytes(body), nil
 }
 
 func hashBytes(body []byte) string {

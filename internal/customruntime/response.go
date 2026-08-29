@@ -88,34 +88,57 @@ func BoundResponse(response NeutralResponse, maxBytes int) ([]byte, error) {
 	if maxBytes < 256 {
 		return nil, fmt.Errorf("neutral response byte budget must be at least 256")
 	}
-	body := MarshalResponse(response)
+	body, err := MarshalResponse(response)
+	if err != nil {
+		return nil, fmt.Errorf("encode neutral response: %w", err)
+	}
 	if len(body) <= maxBytes {
 		return body, nil
 	}
 	const suffix = " [truncated]"
 	original := response.Reason
 	response.Reason = ""
-	if len(MarshalResponse(response)) > maxBytes {
+	metadata, err := MarshalResponse(response)
+	if err != nil {
+		return nil, fmt.Errorf("encode neutral response metadata: %w", err)
+	}
+	if len(metadata) > maxBytes {
 		return nil, fmt.Errorf("neutral response metadata exceeds %d bytes", maxBytes)
 	}
 	runes := []rune(original)
 	response.Reason = suffix
-	if len(MarshalResponse(response)) > maxBytes {
+	suffixBody, err := MarshalResponse(response)
+	if err != nil {
+		return nil, fmt.Errorf("encode neutral response suffix: %w", err)
+	}
+	if len(suffixBody) > maxBytes {
 		response.Reason = ""
-		return MarshalResponse(response), nil
+		body, err := MarshalResponse(response)
+		if err != nil {
+			return nil, fmt.Errorf("encode neutral response without reason: %w", err)
+		}
+		return body, nil
 	}
 	low, high := 0, len(runes)
 	for low < high {
 		middle := low + (high-low+1)/2
 		response.Reason = strings.TrimSpace(string(runes[:middle])) + suffix
-		if len(MarshalResponse(response)) <= maxBytes {
+		body, err := MarshalResponse(response)
+		if err != nil {
+			return nil, fmt.Errorf("encode neutral response while truncating reason: %w", err)
+		}
+		if len(body) <= maxBytes {
 			low = middle
 		} else {
 			high = middle - 1
 		}
 	}
 	response.Reason = strings.TrimSpace(string(runes[:low])) + suffix
-	return MarshalResponse(response), nil
+	body, err = MarshalResponse(response)
+	if err != nil {
+		return nil, fmt.Errorf("encode bounded neutral response: %w", err)
+	}
+	return body, nil
 }
 
 type LivenessRecord struct {
@@ -141,9 +164,12 @@ func ValidateLivenessRecord(record LivenessRecord) error {
 	return nil
 }
 
-func MarshalResponse(response NeutralResponse) []byte {
-	body, _ := json.Marshal(response)
-	return append(body, '\n')
+func MarshalResponse(response NeutralResponse) ([]byte, error) {
+	body, err := json.Marshal(response)
+	if err != nil {
+		return nil, fmt.Errorf("marshal neutral response: %w", err)
+	}
+	return append(body, '\n'), nil
 }
 
 func resultDecision(exitCode int, stdout, stderr string) (bool, string) {

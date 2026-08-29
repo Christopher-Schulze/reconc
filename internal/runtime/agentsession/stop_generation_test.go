@@ -234,7 +234,7 @@ func TestStopGenerationReevaluatesConcurrentEvidenceBeforeWarming(t *testing.T) 
 	if state.StopPolicyFingerprint == "" || state.StopPolicyEvidenceHash == "" || state.StopPolicyReportHash == "" {
 		t.Fatalf("reevaluated concurrent evidence was not cached: %+v", state)
 	}
-	if got := stopPolicyEvidenceHash(state); state.StopPolicyEvidenceHash != got {
+	if got := mustStopPolicyEvidenceHash(state); state.StopPolicyEvidenceHash != got {
 		t.Fatalf("cached evidence hash = %q, want current %q", state.StopPolicyEvidenceHash, got)
 	}
 	result, err := runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(repo, state, evaluator, cache, nil)

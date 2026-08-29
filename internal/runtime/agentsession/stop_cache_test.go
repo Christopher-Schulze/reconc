@@ -15,6 +15,22 @@ import (
 	"reconc.dev/reconc/internal/compiler"
 )
 
+func mustStopPolicyEvidenceHash(state SessionState) string {
+	hash, err := stopPolicyEvidenceHash(state)
+	if err != nil {
+		panic(err)
+	}
+	return hash
+}
+
+func mustStopPolicyEvidenceRevision(state SessionState) string {
+	revision, err := stopPolicyEvidenceRevision(state)
+	if err != nil {
+		panic(err)
+	}
+	return revision
+}
+
 func TestDirtyPathsFromStatusIncludesRenamePairAndSkipsRuntimeState(t *testing.T) {
 	status := " M src/a.go\x00R  src/new.go\x00src/old.go\x00?? docs/new.md\x00 M .reconc/cache/report.json\x00?? .reconc/reports/s1.json\x00?? .reconc/locks/s1.stop-policy.lock\x00"
 	got := dirtyPathsFromStatus(status)
@@ -445,7 +461,7 @@ func TestCachedCleanStopReportRequiresCurrentFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	evidenceHash := stopPolicyEvidenceHash(state)
+	evidenceHash := mustStopPolicyEvidenceHash(state)
 	if _, ok := cachedCleanStopPolicyReportForEvidence(state.RepoRoot, state, evidenceHash); !ok {
 		t.Fatal("unchanged exact report should be reusable")
 	}
@@ -476,7 +492,7 @@ func TestCachedCleanStopWorkerCacheRetainsSmallExactFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, ok := cachedCleanStopPolicyReportForEvidenceWithCache(
-		repo, state, stopPolicyEvidenceHash(state), NewStopDecisionCache(), taskSnapshot,
+		repo, state, mustStopPolicyEvidenceHash(state), NewStopDecisionCache(), taskSnapshot,
 	); !ok {
 		t.Fatal("worker cache without a costly-state generation lost the exact clean fallback")
 	}
@@ -487,7 +503,7 @@ func TestStopPolicyEvidenceHashPreservesPathIdentity(t *testing.T) {
 	plain.ReadPaths = []string{"file.go"}
 	spaced := plain
 	spaced.ReadPaths = []string{" file.go "}
-	if stopPolicyEvidenceHash(plain) == stopPolicyEvidenceHash(spaced) {
+	if mustStopPolicyEvidenceHash(plain) == mustStopPolicyEvidenceHash(spaced) {
 		t.Fatal("space-distinct paths must not share a stop-policy evidence hash")
 	}
 }
@@ -942,7 +958,7 @@ func BenchmarkStopPolicyCheck(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		evidenceHash := stopPolicyEvidenceHash(state)
+		evidenceHash := mustStopPolicyEvidenceHash(state)
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {

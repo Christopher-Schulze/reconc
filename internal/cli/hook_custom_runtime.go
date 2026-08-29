@@ -38,7 +38,8 @@ func inspectCustomRuntimeStatuses(repoRoot string) ([]hooks.PlatformStatus, erro
 		}
 		if compiledDigests != nil {
 			expectedDigest, ok := compiledDigests[manifest.Runtime()]
-			if !ok || expectedDigest != manifest.Digest() {
+			actualDigest, digestErr := manifest.Digest()
+			if digestErr != nil || !ok || expectedDigest != actualDigest {
 				freshnessError = "manifest bytes do not match the validated compiled runtime identity"
 			}
 		}
@@ -177,7 +178,11 @@ func runHookBridge(args []string, input io.Reader, stdout, stderr io.Writer) err
 		return &CLIError{ExitCode: 1, Message: "reconc hook bridge: " + err.Error()}
 	}
 	expectedDigest, ok := compiledEvaluator.CustomRuntimeManifestDigest(manifest.Runtime())
-	if !ok || expectedDigest != manifest.Digest() {
+	actualDigest, digestErr := manifest.Digest()
+	if digestErr != nil {
+		return &CLIError{ExitCode: 2, Message: "reconc hook bridge: encode custom runtime manifest identity: " + digestErr.Error()}
+	}
+	if !ok || expectedDigest != actualDigest {
 		return &CLIError{ExitCode: 2, Message: "reconc hook bridge: manifest bytes do not match the validated compiled runtime identity"}
 	}
 	route, ok := manifest.Route(hostEvent)

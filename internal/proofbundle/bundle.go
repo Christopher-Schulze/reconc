@@ -212,7 +212,10 @@ func Generate(repo, version string) (*Bundle, error) {
 		return nil, errors.New("repository, policy, or active-session state changed while exporting proof; retry")
 	}
 	sortBundle(bundle)
-	bundle.Digest = digest(bundle)
+	bundle.Digest, err = digest(bundle)
+	if err != nil {
+		return nil, fmt.Errorf("calculate proof bundle digest: %w", err)
+	}
 	body, err := MarshalJSON(bundle)
 	if err != nil {
 		return nil, err
@@ -638,14 +641,14 @@ func hashString(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func digest(bundle *Bundle) string {
+func digest(bundle *Bundle) (string, error) {
 	copyBundle := *bundle
 	copyBundle.Digest = ""
 	body, err := json.Marshal(copyBundle)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("marshal proof bundle digest: %w", err)
 	}
-	return hashString(string(body))
+	return hashString(string(body)), nil
 }
 
 // Verify checks the public contract and its self-digest.
@@ -680,7 +683,11 @@ func Verify(bundle *Bundle) error {
 	if err := verifyDecision(bundle); err != nil {
 		return err
 	}
-	if expected := digest(bundle); expected == "" || !equalDigest(expected, bundle.Digest) {
+	expected, err := digest(bundle)
+	if err != nil {
+		return invalidProof(err.Error())
+	}
+	if expected == "" || !equalDigest(expected, bundle.Digest) {
 		return invalidProof("digest mismatch")
 	}
 	return nil

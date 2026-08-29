@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -360,11 +361,16 @@ func recordClassifiedMCPAfterResolved(root string, payload *HookPayload, classif
 	if classification.Effect == policy.MCPEffectExternal || outcome != "success" && classification.Effect != policy.MCPEffectCommand {
 		return Result{ExitCode: 0}
 	}
+	var signatureErr error
 	updated, err := mutateSessionStateResolved(root, payload.SessionID, func(state SessionState) SessionState {
 		if state.EvidenceOverflow {
 			return state
 		}
-		signature := mcpMaterialSignature(payload.MCP, classification.Effect, values, outcome)
+		signature, err := mcpMaterialSignature(payload.MCP, classification.Effect, values, outcome)
+		if err != nil {
+			signatureErr = err
+			return state
+		}
 		if signature != "" && signature == state.LastMaterialSignature {
 			return state
 		}
@@ -398,15 +404,18 @@ func recordClassifiedMCPAfterResolved(root string, payload *HookPayload, classif
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): " + err.Error()}
 	}
+	if signatureErr != nil {
+		return resultWithEncodingError(Result{}, signatureErr)
+	}
 	if updated.EvidenceOverflow {
 		return Result{ExitCode: 0, Stderr: evidenceOverflowMessage(updated)}
 	}
 	return Result{ExitCode: 0}
 }
 
-func mcpMaterialSignature(envelope *MCPPayload, effect policy.MCPEffect, values mcpExtractedValues, outcome string) string {
+func mcpMaterialSignature(envelope *MCPPayload, effect policy.MCPEffect, values mcpExtractedValues, outcome string) (string, error) {
 	if envelope == nil {
-		return ""
+		return "", nil
 	}
 	body, err := json.Marshal(struct {
 		Selector string           `json:"selector"`
@@ -422,10 +431,10 @@ func mcpMaterialSignature(envelope *MCPPayload, effect policy.MCPEffect, values 
 		Outcome:  outcome,
 	})
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("marshal MCP material identity: %w", err)
 	}
 	sum := sha256.Sum256(body)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func appendMCPWarning(current string, err error) string {
