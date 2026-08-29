@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 374 Reduce runtime evaluation hot-path allocations -> tasks/374-reduce-runtime-evaluation-hot-path-allocations.md
 - [ ] 375 Prioritize runtime matcher compilation within budget -> tasks/375-prioritize-runtime-matcher-compilation-within-budget.md
 - [ ] 376 Deduplicate and reuse runtime match contexts -> tasks/376-deduplicate-and-reuse-runtime-match-contexts.md
 - [ ] 377 Align matched-rule traces with enforcement -> tasks/377-align-matched-rule-traces-with-enforcement.md
@@ -96,6 +95,7 @@
 
 ## Done
 
+- [x] 374 Reduce runtime evaluation hot-path allocations -> tasks/done/374-reduce-runtime-evaluation-hot-path-allocations.md
 - [x] 373 Preserve MCP cleanup failures during cancellation -> tasks/done/373-preserve-mcp-cleanup-failures-during-cancellation.md
 - [x] 372 Match go:embed hidden-file semantics in provenance -> tasks/done/372-match-go-embed-hidden-file-semantics-in-provenance.md
 - [x] 371 Reject context paths through escaping parent symlinks -> tasks/done/371-reject-context-paths-through-escaping-parent-symlinks.md

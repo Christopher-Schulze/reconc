@@ -53,7 +53,10 @@ type observedCommandInvocations struct {
 type commandExpectationPlan struct {
 	expected           map[string]shellcommand.CompiledExpectation
 	normalizedExpected map[string]string
-	repoRoot           string
+	// assuranceGates owns immutable, root-normalized gate copies keyed by
+	// the corresponding immutable runtime-plan rule.
+	assuranceGates map[*policy.Rule][]policy.AssuranceGate
+	repoRoot       string
 }
 
 type commandInvocationCache struct {
@@ -121,11 +124,26 @@ func compileCommandExpectationPlan(rules []policy.Rule, repoRoot string) *comman
 	for _, command := range ordered {
 		expected[command] = shellcommand.CompileExpectation(command, 8)
 	}
-	return &commandExpectationPlan{
+	plan := &commandExpectationPlan{
 		expected:           expected,
 		normalizedExpected: normalizedExpected,
 		repoRoot:           repoRoot,
 	}
+	for index := range rules {
+		rule := &rules[index]
+		if len(rule.Assurance) == 0 {
+			continue
+		}
+		gates := append([]policy.AssuranceGate(nil), rule.Assurance...)
+		for gateIndex := range gates {
+			gates[gateIndex].Commands = normalizedExpectedCommandsFromPlan(plan, gates[gateIndex].Commands, repoRoot)
+		}
+		if plan.assuranceGates == nil {
+			plan.assuranceGates = make(map[*policy.Rule][]policy.AssuranceGate)
+		}
+		plan.assuranceGates[rule] = gates
+	}
+	return plan
 }
 
 func newCommandInvocationCache(expectations *commandExpectationPlan) *commandInvocationCache {
@@ -139,9 +157,13 @@ func (c *commandInvocationCache) normalizedExpectedCommands(expected []string, r
 	if c == nil || c.commandExpectationPlan == nil {
 		return normalizeExpectedCommands(expected, repoRoot)
 	}
+	return normalizedExpectedCommandsFromPlan(c.commandExpectationPlan, expected, repoRoot)
+}
+
+func normalizedExpectedCommandsFromPlan(plan *commandExpectationPlan, expected []string, repoRoot string) []string {
 	out := make([]string, 0, len(expected))
 	for _, value := range expected {
-		normalized, ok := c.normalizedExpected[value]
+		normalized, ok := plan.normalizedExpected[value]
 		if !ok {
 			normalized = normalizeCommandSemantics(value, repoRoot)
 		}
@@ -150,6 +172,22 @@ func (c *commandInvocationCache) normalizedExpectedCommands(expected []string, r
 		}
 	}
 	return out
+}
+
+func (c *commandInvocationCache) assuranceGatesFor(rule *policy.Rule, repoRoot string) ([]policy.AssuranceGate, error) {
+	if rule == nil || len(rule.Assurance) == 0 {
+		return nil, &rerrors.LockfileError{Message: "rule " + quote(ruleIDOf(rule)) + " missing assurance field in lockfile"}
+	}
+	if c != nil && c.commandExpectationPlan != nil {
+		if gates, ok := c.assuranceGates[rule]; ok {
+			return gates, nil
+		}
+	}
+	gates := append([]policy.AssuranceGate(nil), rule.Assurance...)
+	for index := range gates {
+		gates[index].Commands = c.normalizedExpectedCommands(gates[index].Commands, repoRoot)
+	}
+	return gates, nil
 }
 
 func (c *commandInvocationCache) expectedMatcher(command string) shellcommand.CompiledExpectation {
@@ -468,6 +506,9 @@ func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root 
 		if err := ctx.lifecycleContext().Err(); err != nil {
 			return nil, err
 		}
+		if preCommand && rule.Kind.IsComposite() && !compositeForbiddenCommandMatches(ctx, rule) {
+			continue
+		}
 		if batchedScripts.handled[index] {
 			if v := batchedScripts.violations[index]; v != nil {
 				report.Violations = append(report.Violations, *v)
@@ -478,7 +519,7 @@ func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root 
 		if err != nil {
 			return nil, err
 		}
-		if v != nil && (!preCommand || !rule.Kind.IsComposite() || compositeForbiddenCommandMatches(ctx, rule)) {
+		if v != nil {
 			report.Violations = append(report.Violations, *v)
 		}
 	}
@@ -498,15 +539,28 @@ func (plan *runtimePlan) indexesFor(allowedKinds map[policy.Kind]struct{}, preCo
 	if allowedKinds == nil {
 		return nil
 	}
-	selected := make([]bool, len(plan.rules))
-	for kind := range allowedKinds {
-		for _, index := range plan.rulesByKind[kind] {
-			selected[index] = true
+	if len(allowedKinds) == 0 {
+		return []int{}
+	}
+	if len(allowedKinds) == 1 {
+		for kind := range allowedKinds {
+			indexes := plan.rulesByKind[kind]
+			if indexes == nil {
+				return []int{}
+			}
+			return indexes
 		}
 	}
-	indexes := make([]int, 0)
-	for index, include := range selected {
-		if include {
+	selectedCount := 0
+	for kind := range allowedKinds {
+		selectedCount += len(plan.rulesByKind[kind])
+	}
+	if selectedCount == len(plan.rules) {
+		return nil
+	}
+	indexes := make([]int, 0, selectedCount)
+	for index := range plan.rules {
+		if _, include := allowedKinds[plan.rules[index].Kind]; include {
 			indexes = append(indexes, index)
 		}
 	}

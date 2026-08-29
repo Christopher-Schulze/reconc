@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -94,22 +95,40 @@ func TestRequireAssuranceReportsRawSuccessfulCommandOnce(t *testing.T) {
 	}
 }
 
-func TestAssuranceGatesFromRuleDetachesCommandStorage(t *testing.T) {
-	t.Parallel()
-	rule := &policy.Rule{
+func TestPreparedAssuranceGatesReuseNormalizedCommandStorage(t *testing.T) {
+	rules := []policy.Rule{{
 		ID: "native-assurance",
 		Assurance: []policy.AssuranceGate{{
 			ID: "live", Type: policy.AssuranceLiveVerification,
-			Commands: []string{"go test ./..."},
+			Commands: []string{"cd /repo && go test ./..."},
 		}},
-	}
-	gates, err := assuranceGatesFromRule(rule)
+	}}
+	cache := newCommandInvocationCache(compileCommandExpectationPlan(rules, "/repo"))
+	first, err := cache.assuranceGatesFor(&rules[0], "/repo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	gates[0].ID = "mutated"
-	gates[0].Commands[0] = "mutated"
-	if rule.Assurance[0].ID != "live" || rule.Assurance[0].Commands[0] != "go test ./..." {
-		t.Fatalf("evaluation copy mutated runtime plan storage: %#v", rule.Assurance[0])
+	second, err := cache.assuranceGatesFor(&rules[0], "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 1 || len(first[0].Commands) != 1 || first[0].Commands[0] != "go test ./..." {
+		t.Fatalf("prepared assurance gates = %#v", first)
+	}
+	if &first[0] != &second[0] || &first[0].Commands[0] != &second[0].Commands[0] {
+		t.Fatal("prepared assurance gate storage was cloned between evaluations")
+	}
+	if rules[0].Assurance[0].Commands[0] != "cd /repo && go test ./..." {
+		t.Fatalf("preparation mutated runtime rule storage: %#v", rules[0].Assurance[0])
+	}
+	var got []policy.AssuranceGate
+	allocations := testing.AllocsPerRun(1000, func() {
+		got, err = cache.assuranceGatesFor(&rules[0], "/repo")
+	})
+	if err != nil || !reflect.DeepEqual(got, first) {
+		t.Fatalf("prepared assurance lookup = %#v, %v", got, err)
+	}
+	if allocations != 0 {
+		t.Fatalf("prepared assurance lookup allocations = %.1f, want 0", allocations)
 	}
 }

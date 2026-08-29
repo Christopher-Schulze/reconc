@@ -50,7 +50,28 @@ func TestStableStringCollectorMatchesReferenceAcrossSequences(t *testing.T) {
 	}
 }
 
+func TestStableStringCollectorDefersEmptyMembershipIndex(t *testing.T) {
+	t.Parallel()
+	collector := newStableStringCollector([]string{})
+	if collector.seen != nil {
+		t.Fatal("empty collector allocated a membership index")
+	}
+	collector.add("first")
+	if collector.seen == nil || len(collector.seen) != 1 {
+		t.Fatalf("first retained value did not initialize membership: %#v", collector.seen)
+	}
+}
+
 func BenchmarkStableStringCollector(b *testing.B) {
+	b.Run("empty", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			collector := newStableStringCollector([]string{})
+			if collector.seen != nil || len(collector.values()) != 0 {
+				b.Fatal("empty collector initialized storage")
+			}
+		}
+	})
 	for _, size := range []int{128, 512, 2048, 8192} {
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
 			values := make([]string, size)

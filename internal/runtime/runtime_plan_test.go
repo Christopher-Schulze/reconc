@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/policy"
 	contractschema "reconc.dev/reconc/internal/schema"
 )
 
@@ -579,6 +580,48 @@ func TestRuntimePlanReusesImmutableCommandExpectationsAcrossEvaluations(t *testi
 	}
 	if !reflect.DeepEqual(firstReport, secondReport) || reloaded != plan || reloaded.commandExpectations != expectations {
 		t.Fatal("repeated evaluation rebuilt command expectations or changed decisions")
+	}
+}
+
+func TestRuntimePlanIndexesForReusesSelectionsAndPreservesOrder(t *testing.T) {
+	t.Parallel()
+	plan := &runtimePlan{
+		rules: []policy.Rule{
+			{Kind: policy.KindDenyWrite},
+			{Kind: policy.KindRequireRead},
+			{Kind: policy.KindDenyWrite},
+		},
+		rulesByKind: map[policy.Kind][]int{
+			policy.KindDenyWrite:   {0, 2},
+			policy.KindRequireRead: {1},
+		},
+		preCommandRules: []int{2},
+	}
+	if got := plan.indexesFor(nil, false); got != nil {
+		t.Fatalf("unfiltered indexes = %#v, want nil", got)
+	}
+	preCommand := plan.indexesFor(nil, true)
+	if !reflect.DeepEqual(preCommand, []int{2}) || &preCommand[0] != &plan.preCommandRules[0] {
+		t.Fatalf("pre-command indexes were not reused: %#v", preCommand)
+	}
+	deny := plan.indexesFor(map[policy.Kind]struct{}{policy.KindDenyWrite: {}}, false)
+	if !reflect.DeepEqual(deny, []int{0, 2}) || &deny[0] != &plan.rulesByKind[policy.KindDenyWrite][0] {
+		t.Fatalf("single-kind indexes were not reused: %#v", deny)
+	}
+	mixed := plan.indexesFor(map[policy.Kind]struct{}{
+		policy.KindDenyWrite:   {},
+		policy.KindRequireRead: {},
+	}, false)
+	if mixed != nil {
+		t.Fatalf("all-rule selection = %#v, want nil", mixed)
+	}
+	for name, kinds := range map[string]map[policy.Kind]struct{}{
+		"empty":   {},
+		"unknown": {policy.Kind("future"): {}},
+	} {
+		if got := plan.indexesFor(kinds, false); got == nil || len(got) != 0 {
+			t.Fatalf("%s selection = %#v, want non-nil empty", name, got)
+		}
 	}
 }
 

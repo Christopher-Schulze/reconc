@@ -596,6 +596,69 @@ func BenchmarkRuntimePlanCommandExpectationReuse(b *testing.B) {
 	}
 }
 
+func BenchmarkRuntimePlanIndexesFor(b *testing.B) {
+	rules := make([]policy.Rule, 256)
+	rulesByKind := map[policy.Kind][]int{}
+	for index := range rules {
+		kind := policy.KindDenyWrite
+		if index%2 == 1 {
+			kind = policy.KindRequireRead
+		}
+		rules[index].Kind = kind
+		rulesByKind[kind] = append(rulesByKind[kind], index)
+	}
+	plan := &runtimePlan{rules: rules, rulesByKind: rulesByKind}
+	for name, kinds := range map[string]map[policy.Kind]struct{}{
+		"single-kind": {policy.KindDenyWrite: {}},
+		"mixed":       {policy.KindDenyWrite: {}, policy.KindForbidCommand: {}},
+		"all":         {policy.KindDenyWrite: {}, policy.KindRequireRead: {}},
+	} {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for range b.N {
+				indexes := plan.indexesFor(kinds, false)
+				if name == "all" && indexes != nil {
+					b.Fatal("all-rule selection did not use nil sentinel")
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkRuntimePlanAssuranceGateReuse(b *testing.B) {
+	gates := make([]policy.AssuranceGate, 128)
+	for index := range gates {
+		gates[index] = policy.AssuranceGate{
+			ID: "live-" + strconv.Itoa(index), Type: policy.AssuranceLiveVerification,
+			Commands: []string{"cd /repo && go test ./...", "go vet ./..."},
+		}
+	}
+	rules := []policy.Rule{{
+		ID:        "assurance",
+		Assurance: gates,
+	}}
+	cache := newCommandInvocationCache(compileCommandExpectationPlan(rules, "/repo"))
+	b.Run("prepared", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			prepared, err := cache.assuranceGatesFor(&rules[0], "/repo")
+			if err != nil || len(prepared) != len(gates) {
+				b.Fatalf("prepared assurance gates = %d, %v", len(prepared), err)
+			}
+		}
+	})
+	b.Run("unprepared-fallback", func(b *testing.B) {
+		unprepared := rules[0]
+		b.ReportAllocs()
+		for range b.N {
+			prepared, err := cache.assuranceGatesFor(&unprepared, "/repo")
+			if err != nil || len(prepared) != len(gates) {
+				b.Fatalf("fallback assurance gates = %d, %v", len(prepared), err)
+			}
+		}
+	})
+}
+
 func BenchmarkCommandEvidenceReparse(b *testing.B) {
 	commands := []string{"rtk go test ./...", "cd /repo && go build ./...", "echo ready"}
 	expected := []string{"go test ./...", "go build ./..."}

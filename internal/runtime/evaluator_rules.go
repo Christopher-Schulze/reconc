@@ -112,7 +112,7 @@ func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode polic
 	if len(triggered) == 0 {
 		return nil, nil
 	}
-	gates, err := assuranceGatesFromRule(rule)
+	gates, err := ctx.commandCache.assuranceGatesFor(rule, ctx.repoRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -136,9 +136,6 @@ func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode polic
 			successful.add(result.Command)
 			successful.add(normalizeCommandSemantics(result.Command, ctx.repoRoot))
 		}
-	}
-	for gateIndex := range gates {
-		gates[gateIndex].Commands = ctx.commandCache.normalizedExpectedCommands(gates[gateIndex].Commands, ctx.repoRoot)
 	}
 	findings, err := assurance.Evaluate(ctx.repoRoot, gates, assurance.Inputs{
 		ChangedPaths:       inputs.WritePaths,
@@ -436,6 +433,9 @@ func newStableStringCollector(initial []string) stableStringCollector {
 		items = make([]string, len(initial))
 		copy(items, initial)
 	}
+	if len(initial) == 0 {
+		return stableStringCollector{items: items}
+	}
 	seen := make(map[string]struct{}, len(initial))
 	for _, value := range initial {
 		seen[value] = struct{}{}
@@ -444,6 +444,12 @@ func newStableStringCollector(initial []string) stableStringCollector {
 }
 
 func (c *stableStringCollector) add(value string) {
+	if c.seen == nil {
+		c.seen = make(map[string]struct{}, len(c.items)+1)
+		for _, existing := range c.items {
+			c.seen[existing] = struct{}{}
+		}
+	}
 	if _, exists := c.seen[value]; exists {
 		return
 	}
@@ -488,21 +494,6 @@ func evidenceChecksFromRule(rule *policy.Rule) []policy.EvidenceCheck {
 		return nil
 	}
 	return rule.Evidence
-}
-
-// assuranceGatesFromRule copies gate structs out of the immutable runtime plan.
-// Commands needs its own copy because a struct copy would retain the nested
-// slice's backing array; command evaluation must never gain mutable ownership
-// of plan storage.
-func assuranceGatesFromRule(rule *policy.Rule) ([]policy.AssuranceGate, error) {
-	if rule == nil || len(rule.Assurance) == 0 {
-		return nil, &rerrors.LockfileError{Message: "rule " + quote(ruleIDOf(rule)) + " missing assurance field in lockfile"}
-	}
-	gates := append([]policy.AssuranceGate(nil), rule.Assurance...)
-	for index := range gates {
-		gates[index].Commands = append([]string(nil), gates[index].Commands...)
-	}
-	return gates, nil
 }
 
 // numAsIntDefault is like numAsInt but returns the default when nil.

@@ -1399,6 +1399,56 @@ func TestPreCommandCompositeBlocksOnlyWhenCurrentCommandHitsForbidCheck(t *testi
 	}
 }
 
+func TestPreCommandCompositeSkipsIrrelevantSideEffectingChecks(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	counter := filepath.Join(repo, "counter")
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	writeFile(t, repo, "scripts/audit.sh", "#!/bin/sh\nprintf x >> \""+counter+"\"\n")
+	if err := os.Chmod(filepath.Join(repo, "scripts/audit.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, repo, "policies/rules.yml", `rules:
+  - id: composite
+    kind: all_of
+    when_paths: ['requirements.txt']
+    checks:
+      - kind: forbid_command
+        command_match: prefix
+        commands: ['pip install']
+      - kind: require_script
+        script: scripts/audit.sh
+    mode: block
+    message: m
+`)
+	if _, err := compiler.CompileRepoPolicy(repo, "0.1.0-test"); err != nil {
+		t.Fatal(err)
+	}
+	inputs := ExecutionInputs{WritePaths: []string{"requirements.txt"}, Commands: []string{"echo safe"}}
+	report, err := CheckRepoPolicyForPreCommand(repo, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Decision != DecisionPass {
+		t.Fatalf("irrelevant command decision = %s, violations=%+v", report.Decision, report.Violations)
+	}
+	if _, err := os.Stat(counter); !os.IsNotExist(err) {
+		t.Fatalf("irrelevant composite executed its script: %v", err)
+	}
+
+	inputs.Commands = []string{"pip install requests"}
+	report, err = CheckRepoPolicyForPreCommand(repo, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Decision != DecisionBlock {
+		t.Fatalf("forbidden command decision = %s, violations=%+v", report.Decision, report.Violations)
+	}
+	if body, err := os.ReadFile(counter); err != nil || string(body) != "x" {
+		t.Fatalf("relevant composite script evidence = %q, %v", body, err)
+	}
+}
+
 func TestCommandMatchPrefixPreservesHeredocSyntaxBeforeForbidAnalysis(t *testing.T) {
 	repo := makeRepoWithFiles(t,
 		"rules:\n  - id: no-pip\n    kind: forbid_command\n    command_match: prefix\n    commands: ['pip install']\n    mode: block\n    message: m\n",
