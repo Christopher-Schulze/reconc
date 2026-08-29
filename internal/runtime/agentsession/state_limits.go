@@ -57,24 +57,16 @@ func normalizeSessionState(state SessionState) SessionState {
 	state.CommandResults = []CommandResult{}
 	state.CommandResultBytes = 0
 	state.PendingToolCalls = nil
-	for _, value := range reads {
-		state = AppendReadPath(state, value)
-	}
+	appendNormalizedExactStrings(&state, &state.ReadPaths, reads, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "read_paths")
+	appendNormalizedExactStrings(&state, &state.WritePaths, writes, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "write_paths")
 	for _, value := range writes {
-		state = AppendWritePath(state, value)
 		if epoch := writeEpochs[value]; epoch > 0 {
 			state.WriteEpochs[value] = epoch
 		}
 	}
-	for _, value := range commands {
-		state = AppendCommand(state, value)
-	}
-	for _, value := range claims {
-		state = AppendClaim(state, value)
-	}
-	for _, result := range results {
-		state = AppendCommandResult(state, result)
-	}
+	appendNormalizedExactStrings(&state, &state.Commands, commands, maxCommandEvidenceItems, maxCommandEvidenceBytes, maxCommandBytes, "commands")
+	appendNormalizedExactStrings(&state, &state.Claims, claims, maxClaimEvidenceItems, maxClaimEvidenceBytes, maxClaimBytes, "claims")
+	appendNormalizedCommandResults(&state, results)
 	keys := make([]string, 0, len(pending))
 	for key := range pending {
 		keys = append(keys, key)
@@ -93,6 +85,32 @@ func normalizeSessionState(state SessionState) SessionState {
 		}
 	}
 	return state
+}
+
+// appendNormalizedExactStrings appends an already sorted and deduplicated
+// collection in one bounded pass. The caller performs membership work while
+// building the normalized input, so this path only accounts retained bytes.
+func appendNormalizedExactStrings(state *SessionState, target *[]string, values []string, maxItems, maxBytes, maxItemBytes int, field string) {
+	retainedBytes := 0
+	for _, item := range values {
+		if item == "" {
+			continue
+		}
+		if len(item) > maxItemBytes {
+			markEvidenceOverflowWithLimit(state, field, "item_bytes")
+			continue
+		}
+		if len(*target) >= maxItems {
+			markEvidenceOverflowWithLimit(state, field, "item_count")
+			continue
+		}
+		if retainedBytes+len(item) > maxBytes {
+			markEvidenceOverflowWithLimit(state, field, "byte_budget")
+			continue
+		}
+		*target = append(*target, item)
+		retainedBytes += len(item)
+	}
 }
 
 func appendBoundedString(state *SessionState, values *[]string, item string, maxItems, maxBytes, maxItemBytes int, field string) {
@@ -149,6 +167,19 @@ func appendBoundedExactStringPrepared(
 }
 
 func appendBoundedCommandResult(state *SessionState, result CommandResult) {
+	retainedBytes := state.CommandResultBytes
+	appendBoundedCommandResultPrepared(state, result, nil, &retainedBytes)
+}
+
+func appendNormalizedCommandResults(state *SessionState, results []CommandResult) {
+	seen := make(map[commandResultKey]struct{}, len(results))
+	retainedBytes := int64(0)
+	for _, result := range results {
+		appendBoundedCommandResultPrepared(state, result, seen, &retainedBytes)
+	}
+}
+
+func appendBoundedCommandResultPrepared(state *SessionState, result CommandResult, seen map[commandResultKey]struct{}, retainedBytes *int64) {
 	result.Command = strings.TrimSpace(result.Command)
 	if result.Command == "" {
 		return
@@ -159,9 +190,16 @@ func appendBoundedCommandResult(state *SessionState, result CommandResult) {
 	}
 	result.Error = truncateBytes(result.Error, maxResultErrorBytes)
 	result.ToolUseID = truncateBytes(result.ToolUseID, maxToolUseIDBytes)
-	for _, current := range state.CommandResults {
-		if commandResultsEqual(current, result) {
+	key := commandResultIdentity(result)
+	if seen != nil {
+		if _, exists := seen[key]; exists {
 			return
+		}
+	} else {
+		for _, current := range state.CommandResults {
+			if commandResultsEqual(current, result) {
+				return
+			}
 		}
 	}
 	encoded, err := json.Marshal(result)
@@ -173,12 +211,16 @@ func appendBoundedCommandResult(state *SessionState, result CommandResult) {
 		markEvidenceOverflowWithLimit(state, "command_results", "item_count")
 		return
 	}
-	if state.CommandResultBytes+int64(len(encoded)) > maxCommandResultBytes {
+	if *retainedBytes+int64(len(encoded)) > maxCommandResultBytes {
 		markEvidenceOverflowWithLimit(state, "command_results", "byte_budget")
 		return
 	}
-	state.CommandResultBytes += int64(len(encoded))
+	*retainedBytes += int64(len(encoded))
+	state.CommandResultBytes = *retainedBytes
 	state.CommandResults = append(state.CommandResults, result)
+	if seen != nil {
+		seen[key] = struct{}{}
+	}
 }
 
 // PutPendingToolCall stores one adapter correlation record under the same

@@ -13,14 +13,17 @@ Session normalization sorts and deduplicates collections, clears them, then rebu
 
 ## Sub-Tasks
 
-- [ ] Capture normalized-state golden and scaling baselines
-- [ ] Rebuild collections with prepared seen and byte state
-- [ ] Preserve overflow and epoch semantics
-- [ ] Add maximum-state allocation and complexity tests
+- [x] Capture normalized-state golden and scaling baselines
+- [x] Rebuild collections with prepared seen and byte state
+- [x] Preserve overflow and epoch semantics
+- [x] Add maximum-state allocation and complexity tests
 
 ## Notes
 
 - Evidence: `internal/runtime/agentsession/state_limits.go:36-105`.
+- String collections now sort and deduplicate once, then rebuild with one retained-byte pass; command results use one normalized identity map and one encoded-byte accumulator.
+- Write-epoch entries retain the pre-existing normalization behavior, including entries whose over-limit write path is rejected while its epoch remains recorded.
+- Golden, overflow/epoch, concurrent, and maximum-state benchmark coverage passed. `go test ./internal/runtime/agentsession -count=1`, the package race suite, `make test-fast`, `make vet`, `make lint`, and `make self-host` are green.
 
 ## Deviations
 
