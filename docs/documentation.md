@@ -108,7 +108,9 @@ typed TASK state, or completion proof.
 In `reconc exec --staged`, the clean postcondition is checked before a zero-exit
 success is recorded; a command that dirties the candidate records failure and
 does not publish a success proof. Non-staged execution retains its immediate
-process-outcome recording boundary.
+process-outcome recording boundary. A non-zero Unix signal termination is
+recorded and returned as the conventional `128 + signal` status; normal exit
+codes and launch errors retain their existing mappings.
 
 Public verbs have fixed meanings:
 

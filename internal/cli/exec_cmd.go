@@ -140,8 +140,17 @@ func commandExitCode(err error) int {
 		return 0
 	}
 	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) && exitErr.ExitCode() > 0 {
-		return exitErr.ExitCode()
+	if !errors.As(err, &exitErr) {
+		return 1
+	}
+	if exitErr.ProcessState == nil {
+		return 1
+	}
+	if exitCode := exitErr.ExitCode(); exitCode >= 0 {
+		return exitCode
+	}
+	if exitCode, ok := signaledCommandExitCode(exitErr.ProcessState); ok {
+		return exitCode
 	}
 	return 1
 }

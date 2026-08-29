@@ -1052,7 +1052,9 @@ tracked-unstaged or untracked paths, verifies that the command leaves HEAD,
 the index, and the working tree unchanged, then atomically publishes a bounded
 SHA-256 receipt outside the repository. `--shell` accepts one literal command
 for platform-shell syntax; direct argv execution is the default. Failed
-commands propagate their child exit code and never publish a proof. Staged
+commands propagate their child exit code and never publish a proof. On Unix,
+signal termination uses the conventional `128 + signal` status in both the
+CLI result and recorded command evidence. Staged
 snapshot capture recognizes an actual Git index-lock file together with a
 typed Git command failure, retries with capped backoff under one five-second
 total deadline, and then fails explicitly; individual retries cannot each
