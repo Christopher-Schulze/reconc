@@ -1394,7 +1394,9 @@ run from being silently disabled:
   mutator, so a concurrent `run off` cannot be lost. The append-only
   `decisions.jsonl` log uses a separate cross-process
   lock and a 2 MiB plus two-archive ring, so state-lock re-entry cannot deadlock
-  decision publication.
+  decision publication. Read-only state snapshots also take a bounded shared
+  lock on `state.bin` before reading; Windows byte-range locks are mandatory,
+  so an unlocked reader would collide with an exclusive slot writer.
 - **Session-isolated guard.** Each continuation updates its external session
   state before the durable run-state mutation. No run-state lock is held while
   taking a session lock. State reads and writes serialize on that session lock,

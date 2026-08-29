@@ -55,6 +55,14 @@ func validateCreatedParent(parent *os.Root, expected os.FileInfo, path string) e
 }
 
 func openCreatedFile(parent *os.Root, name, path string) (*os.File, os.FileInfo, error) {
+	return openCreatedFileWithFlags(parent, name, path, os.O_RDONLY)
+}
+
+func openCreatedFileForMutation(parent *os.Root, name, path string) (*os.File, os.FileInfo, error) {
+	return openCreatedFileWithFlags(parent, name, path, os.O_RDWR)
+}
+
+func openCreatedFileWithFlags(parent *os.Root, name, path string, flags int) (*os.File, os.FileInfo, error) {
 	before, err := parent.Lstat(name)
 	if err != nil {
 		return nil, nil, err
@@ -62,7 +70,7 @@ func openCreatedFile(parent *os.Root, name, path string) (*os.File, os.FileInfo,
 	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
 		return nil, nil, fmt.Errorf("created artifact is not a real regular file: %s", path)
 	}
-	file, err := parent.OpenFile(name, os.O_RDONLY, 0)
+	file, err := parent.OpenFile(name, flags, 0)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -157,12 +158,19 @@ func installCountingGit(t *testing.T, counterPath string) {
 		t.Fatal(err)
 	}
 	directory := t.TempDir()
-	wrapper := filepath.Join(directory, "git")
-	script := fmt.Sprintf("#!/bin/sh\nfor arg in \"$@\"; do\n  if [ \"$arg\" = config ]; then\n    printf x >> %s\n    break\n  fi\ndone\nexec %s \"$@\"\n", shellQuote(counterPath), shellQuote(gitPath))
-	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
+	if err := os.WriteFile(counterPath, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(counterPath, nil, 0o600); err != nil {
+	var wrapper, script string
+	if runtime.GOOS == "windows" {
+		wrapper = filepath.Join(directory, "git.cmd")
+		t.Setenv("RECONC_TEST_GIT_COUNTER", counterPath)
+		script = "@echo off\r\nfor %%A in (%*) do if /I \"%%~A\"==\"config\" echo x>>\"%RECONC_TEST_GIT_COUNTER%\"\r\n\"" + gitPath + "\" %*\r\n"
+	} else {
+		wrapper = filepath.Join(directory, "git")
+		script = fmt.Sprintf("#!/bin/sh\nfor arg in \"$@\"; do\n  if [ \"$arg\" = config ]; then\n    printf x >> %s\n    break\n  fi\ndone\nexec %s \"$@\"\n", shellQuote(counterPath), shellQuote(gitPath))
+	}
+	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	path := os.Getenv("PATH")

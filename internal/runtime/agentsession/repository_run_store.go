@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"io"
 	"math"
 	"os"
+
+	"reconc.dev/reconc/internal/filelock"
 )
 
 const (
@@ -37,15 +40,25 @@ func readRepositoryRunSnapshot(path string) (repositoryRunSnapshot, error) {
 	if err != nil {
 		return repositoryRunSnapshot{}, fmt.Errorf("read repository run state: %w", err)
 	}
-	snapshot, readErr := readRepositoryRunSnapshotFile(file)
+	snapshot, readErr := readRepositoryRunSnapshotShared(file)
 	closeErr := file.Close()
 	if readErr != nil {
-		return repositoryRunSnapshot{}, readErr
+		return repositoryRunSnapshot{}, errors.Join(readErr, wrapOperationError("close repository run state", closeErr))
 	}
 	if closeErr != nil {
 		return repositoryRunSnapshot{}, fmt.Errorf("close repository run state: %w", closeErr)
 	}
 	return snapshot, nil
+}
+
+func readRepositoryRunSnapshotShared(file *os.File) (repositoryRunSnapshot, error) {
+	unlock, err := filelock.RLockContext(context.Background(), file, agentSessionLockTimeout)
+	if err != nil {
+		return repositoryRunSnapshot{}, fmt.Errorf("lock repository run state for read: %w", err)
+	}
+	snapshot, readErr := readRepositoryRunSnapshotFile(file)
+	unlockErr := unlock()
+	return snapshot, errors.Join(readErr, wrapOperationError("unlock repository run state read", unlockErr))
 }
 
 func readRepositoryRunSnapshotFile(file *os.File) (repositoryRunSnapshot, error) {

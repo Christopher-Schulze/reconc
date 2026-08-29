@@ -137,7 +137,8 @@ func TestPlanPersistenceRejectsAmbiguousOrForeignState(t *testing.T) {
 	}
 	if _, err := WritePlan(filepath.Join(blockedParent, "plan.json"), plan); err == nil ||
 		(!strings.Contains(err.Error(), "read bootstrap plan output") &&
-			!strings.Contains(err.Error(), "create bootstrap plan parent")) {
+			!strings.Contains(err.Error(), "create bootstrap plan parent") &&
+			!strings.Contains(err.Error(), "publication parent component")) {
 		t.Fatalf("blocked parent error = %v", err)
 	}
 	if body, err := os.ReadFile(blockedParent); err != nil || string(body) != "block" {

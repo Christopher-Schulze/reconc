@@ -255,7 +255,7 @@ func openRepositoryRunStateResolved(root string) (*os.File, repositoryRunSnapsho
 	if err != nil {
 		return nil, repositoryRunSnapshot{}, fmt.Errorf("read repository run state: %w", err)
 	}
-	snapshot, err := readRepositoryRunSnapshotFile(file)
+	snapshot, err := readRepositoryRunSnapshotShared(file)
 	if err != nil {
 		return nil, repositoryRunSnapshot{}, errors.Join(
 			wrapRepositoryRunRecovery(root, err),
@@ -289,8 +289,9 @@ func readRepositoryRunStateResolved(root string) (repositoryRunState, error) {
 }
 
 // withRepositoryRunFileResolved locks state.bin itself so one descriptor owns
-// lock, read, and write. CRC-protected alternating slots keep unlocked readers
-// safe while eliminating a separate lock-file open from every Stop.
+// lock, read, and write. Shared readers and exclusive writers use the same
+// file-level authority, while CRC-protected alternating slots preserve torn-
+// write recovery without a separate lock-file open from every Stop.
 func withRepositoryRunFileResolved(root string, fn func(*os.File) error) error {
 	path := repositoryRunStatePathResolved(root)
 	if err := validateRepositoryRunStatePath(root, path); err != nil {

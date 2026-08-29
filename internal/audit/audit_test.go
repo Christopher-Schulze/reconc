@@ -134,7 +134,10 @@ func TestTailRecoversPublishedAuditTransaction(t *testing.T) {
 func TestRecoverPendingAppendDoesNotFallbackForLookalikeError(t *testing.T) {
 	repo := filepath.Join(t.TempDir(), "belongs to a different layout")
 	path := filepath.Join(repo, AuditFileRelative)
-	layout := auditLayout(path)
+	layout, err := prepareAuditLayout(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	policy := jsonl.Policy{MaxBytes: DefaultMaxSizeBytes, MaxArchives: MaxArchiveFiles}
 	injected := errors.New("audit commit failed")
 	if err := jsonl.AppendTransactionWithLayout(path, policy, layout, func() ([]byte, error) {
@@ -145,7 +148,7 @@ func TestRecoverPendingAppendDoesNotFallbackForLookalikeError(t *testing.T) {
 		t.Fatalf("initial interrupted append = %v, want %v", err, injected)
 	}
 
-	err := recoverPendingAppend(repo)
+	err = recoverPendingAppend(repo)
 	if err == nil {
 		t.Fatal("lookalike recovery unexpectedly succeeded")
 	}

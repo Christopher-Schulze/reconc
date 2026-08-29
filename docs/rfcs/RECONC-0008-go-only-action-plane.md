@@ -769,8 +769,9 @@ only, no-follow, atomically replaced, payload-synced, and crash-consistent on
 Linux, macOS, and Windows. Unix also fsyncs the parent directory. Windows uses
 `FILE_WRITE_THROUGH` on the rooted temporary handle and handle-relative
 `NtSetInformationFile` replacement because Win32 cannot flush the read-only
-bound directory handle; private descriptors request `WRITE_DAC` before applying
-and verifying a protected current-user-only DACL. Unix state additionally requires
+bound directory handle; private descriptors request
+`READ_CONTROL|WRITE_DAC|WRITE_OWNER` before applying and verifying a protected
+current-user-only DACL. Unix state additionally requires
 the effective user owner and private modes, and macOS rejects extended ACLs.
 Every filesystem root is rejected as `RECONC_HOME`; an existing selected root
 must already satisfy the private ownership, mode, and ACL contract and is never

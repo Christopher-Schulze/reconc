@@ -3,6 +3,7 @@ package jsonl
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -24,7 +25,7 @@ func TestAppendDoesNotMutateCallerSlice(t *testing.T) {
 			backing := append([]byte(test.record), bytes.Repeat([]byte{0xa5}, 64)...)
 			record := backing[:len(test.record)]
 			before := bytes.Clone(backing)
-			path := t.TempDir() + "/events.jsonl"
+			path := filepath.Join(t.TempDir(), "events.jsonl")
 
 			if err := Append(path, record, Policy{MaxBytes: 2048, MaxArchives: 1}); err != nil {
 				t.Fatalf("append: %v", err)

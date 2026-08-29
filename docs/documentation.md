@@ -3754,7 +3754,9 @@ The durable switch uses `.reconc/run/state.bin` only. Its two alternating
 over both header and payload. The payload includes a SHA-256 identity of the
 canonical repository root. Copied state and older unbound formats fail closed
 with one exact `run reset` remediation. Decoding allocates no state strings,
-and a torn newest slot falls back to the previous valid slot. Every material
+and a torn newest slot falls back to the previous valid slot. Read-only
+snapshots acquire a bounded shared lock on `state.bin` before `ReadAt`, which
+is required because Windows byte-range locks are mandatory. Every material
 slot write reaches stable storage before the state-file lock is released;
 unchanged mutations skip both write and sync. Write, sync, unlock, and close
 failures remain joined so an acknowledged transition never masks a durability

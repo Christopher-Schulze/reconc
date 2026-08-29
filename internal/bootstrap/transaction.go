@@ -782,7 +782,7 @@ func recoverBootstrapStage(
 	if targetPathInfo.Mode()&os.ModeSymlink != 0 || !targetPathInfo.Mode().IsRegular() {
 		return nil, errors.Join(staleBootstrapStageError(stagePath, errors.New("published target is not a real regular file")), stage.Close())
 	}
-	target, _, err := openCreatedFile(parent, targetName, targetPath)
+	target, _, err := openCreatedFileForMutation(parent, targetName, targetPath)
 	if err != nil {
 		return nil, errors.Join(staleBootstrapStageError(stagePath, err), stage.Close())
 	}
