@@ -421,10 +421,6 @@ func digestBoundedBackupWithLayout(path string, maxBytes int64, mode os.FileMode
 	return hex.EncodeToString(digest[:]), nil
 }
 
-func readBoundedBackup(path string, maxBytes int64) ([]byte, error) {
-	return boundedio.ReadRegularFile(path, maxBytes)
-}
-
 func readBoundedBackupWithLayout(path string, maxBytes int64, mode os.FileMode, layout Layout) ([]byte, error) {
 	if err := validateLayoutSecurityFile(layout, path, maxBytes); err != nil {
 		return nil, err

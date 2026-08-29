@@ -262,25 +262,6 @@ func marshalReport(report *runtime.CheckReport) ([]byte, error) {
 	return body, nil
 }
 
-func reportHash(report *runtime.CheckReport) (string, error) {
-	body, err := marshalReport(report)
-	if err != nil {
-		return "", err
-	}
-	if report == nil {
-		return "", nil
-	}
-	return hash(body), nil
-}
-
-func recordDigest(record Record) (string, error) {
-	reportBytes, err := marshalReport(record.Report)
-	if err != nil {
-		return "", fmt.Errorf("encode policy report identity: %w", err)
-	}
-	return recordDigestWithReportBytes(record, reportBytes)
-}
-
 func recordDigestWithReportBytes(record Record, reportBytes []byte) (string, error) {
 	payload := recordPayload{
 		Schema: record.Schema, FormatVersion: record.FormatVersion, Event: record.Event,

@@ -19,10 +19,6 @@ type PublicationResult struct {
 	Changed bool
 }
 
-func (result PublicationResult) published() bool {
-	return result.Outcome != PublicationNotPublished || result.Changed
-}
-
 func (result *PublicationResult) markPublished() {
 	result.Changed = true
 	result.Outcome = PublicationPublishedUncertain
