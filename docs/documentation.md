@@ -3733,6 +3733,12 @@ observation, material progress, the third and fifth unchanged nudge, and the
 no-progress release; terminal and policy-checkpoint transitions are always
 durable. The live log and two archives are each bounded at 2 MiB; readers merge
 the ring in chronological order.
+
+For a blocking terminal Stop, the per-session repeat marker is written before a
+repeat feedback ID is exposed. If that state mutation fails or its durability
+cannot be confirmed, the host still receives a valid fail-closed block response,
+but no feedback ID or repeated-release claim is made; a bounded warning names the
+session-state failure and repeated-stop release stays unavailable.
 Repeated identical policy feedback shrinks to stable `RB-*` feedback IDs,
 rule IDs, and the saved report path. PreToolUse evaluates only pre-execution
 write/shell rules,

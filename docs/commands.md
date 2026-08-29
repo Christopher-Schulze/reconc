@@ -1466,6 +1466,10 @@ end, runtime changes, and application restarts never mutate the durable switch.
 `off` is the only normal manual disable action. Both commands are idempotent
 and log only actual switch transitions. The agent executes these
 commands itself; it must not ask the user to operate Reconc.
+When a blocking Stop cannot persist its per-session repeat marker, the response
+remains fail-closed with `decision: "block"`, omits the repeat feedback ID, and
+emits a bounded durability warning. Repeated-stop release is unavailable until
+session-state storage recovers.
 
 ### `reconc run reset [repo] [--json]`
 Recovery-only replacement of `state.bin` with an identity-bound clean disabled

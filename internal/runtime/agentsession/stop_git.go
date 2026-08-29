@@ -512,10 +512,16 @@ func stopPolicyRuntimeStateRecord(path string) bool {
 	return strings.HasPrefix(filepath.ToSlash(path), ".reconc/")
 }
 
-func recordStopBlockAndRepeated(repoRoot, sessionID string, violations []runtime.Violation) (bool, string) {
+type stopBlockRecord struct {
+	repeated   bool
+	feedbackID string
+	err        error
+}
+
+func recordStopBlockAndRepeated(repoRoot, sessionID string, violations []runtime.Violation) stopBlockRecord {
 	violationHash := hashBlockingViolations(violations)
 	if violationHash == "" {
-		return false, ""
+		return stopBlockRecord{}
 	}
 	repeated := false
 	_, err := mutateSessionStateResolved(repoRoot, sessionID, func(state SessionState) SessionState {
@@ -523,7 +529,10 @@ func recordStopBlockAndRepeated(repoRoot, sessionID string, violations []runtime
 		state.LastStopBlockViolationHash = violationHash
 		return state
 	})
-	return err == nil && repeated, "RB-" + violationHash[:12]
+	if err != nil {
+		return stopBlockRecord{err: fmt.Errorf("persist repeated-stop state: %w", err)}
+	}
+	return stopBlockRecord{repeated: repeated, feedbackID: "RB-" + violationHash[:12]}
 }
 
 func reportPathForStop(repoRoot, sessionID string) string {

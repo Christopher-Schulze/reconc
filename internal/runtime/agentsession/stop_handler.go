@@ -184,7 +184,8 @@ func runStopResolvedWithEvaluatorAndCache(
 			return Result{ExitCode: 0, Stderr: bestEffortStopDecisionDiagnostic(logErr)}
 		}
 		logErr := logRunStopDecision(root, "policy_block", payload, runtimeName, currentRun, currentRun, true, len(violations))
-		return Result{ExitCode: 0, Stdout: stopBlockJSONOutput(root, state.SessionID, report, violations), Stderr: bestEffortStopDecisionDiagnostic(logErr)}
+		blockOutput, stateErr := stopBlockJSONOutput(root, state.SessionID, report, violations)
+		return Result{ExitCode: 0, Stdout: blockOutput, Stderr: joinStderr(bestEffortStopDecisionDiagnostic(logErr), stopBlockStateDiagnostic(stateErr))}
 	}
 
 	if result, blocked, terminalErr := taskCompletionCommitGate(policyResult.TaskSnapshot, policyResult.GitSnapshot); terminalErr != nil {
@@ -407,4 +408,11 @@ func bestEffortStopDecisionDiagnostic(err error) string {
 		return ""
 	}
 	return "reconc run decision log (warn): " + truncateBytes(err.Error(), 4096)
+}
+
+func stopBlockStateDiagnostic(err error) string {
+	if err == nil {
+		return ""
+	}
+	return "reconc stop state (warn): " + truncateBytes(err.Error(), 4096)
 }

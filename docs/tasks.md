@@ -2,10 +2,10 @@
 
 ## Active
 
+- [~] 327 Reuse shell parser state safely -> tasks/327-reuse-shell-parser-state-safely.md
+
 ## Queue
 
-- [ ] 326 Surface repeated-stop state mutation failures -> tasks/326-surface-repeated-stop-state-mutation-failures.md
-- [ ] 327 Reuse shell parser state safely -> tasks/327-reuse-shell-parser-state-safely.md
 - [ ] 328 Cache Git alias discovery within one evaluation -> tasks/328-cache-git-alias-discovery-within-one-evaluation.md
 - [ ] 329 Linearize session-state normalization -> tasks/329-linearize-session-state-normalization.md
 - [ ] 330 Avoid duplicate full session-state equality passes -> tasks/330-avoid-duplicate-full-session-state-equality-passes.md
@@ -28,6 +28,7 @@
 
 ## Done
 
+- [x] 326 Surface repeated-stop state mutation failures -> tasks/done/326-surface-repeated-stop-state-mutation-failures.md
 - [x] 325 Retain bootstrap receipt-plan pairs atomically -> tasks/done/325-retain-bootstrap-receipt-plan-pairs-atomically.md
 - [x] 324 Stream audit archive verification -> tasks/done/324-stream-audit-archive-verification.md
 - [x] 323 Replace audit error-string protocols with typed classification -> tasks/done/323-replace-audit-error-string-protocols-with-typed-classification.md
@@ -37,4 +38,3 @@
 - [x] 319 Implement the completion-state retry contract -> tasks/done/319-implement-the-completion-state-retry-contract.md
 - [x] 318 Avoid repeated glob-expansion key construction -> tasks/done/318-avoid-repeated-glob-expansion-key-construction.md
 - [x] 317 Reduce decimal parse and render allocation -> tasks/done/317-reduce-decimal-parse-and-render-allocation.md
-- [x] 316 Eliminate logical-condition child allocations -> tasks/done/316-eliminate-logical-condition-child-allocations.md

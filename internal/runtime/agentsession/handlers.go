@@ -910,15 +910,18 @@ func postToolFailureJSONOutput(state SessionState) string {
 // Claude/Codex sees decision=block + reason and refuses to finalise
 // the session, prompting the agent to resolve the remaining
 // blocking violations.
-func stopBlockJSONOutput(repoRoot, sessionID string, report *runtime.CheckReport, violations []runtime.Violation) string {
-	repeated, feedbackID := recordStopBlockAndRepeated(repoRoot, sessionID, violations)
-	reason := stopReasonForViolations(violations, reportPathForStop(repoRoot, sessionID), feedbackID, repeated, repositoryRunStatusLine(repoRoot))
+func stopBlockJSONOutput(repoRoot, sessionID string, report *runtime.CheckReport, violations []runtime.Violation) (string, error) {
+	record := recordStopBlockAndRepeated(repoRoot, sessionID, violations)
+	reason := stopReasonForViolations(violations, reportPathForStop(repoRoot, sessionID), record.feedbackID, record.repeated, repositoryRunStatusLine(repoRoot))
+	if record.err != nil {
+		reason += "\nWarning: repeated-stop state durability is unconfirmed; this stop remains blocked until session state storage recovers."
+	}
 	payload := map[string]string{
 		"decision": "block",
 		"reason":   reason,
 	}
 	body, _ := json.Marshal(payload)
-	return string(body)
+	return string(body), record.err
 }
 
 func stopReasonForViolations(violations []runtime.Violation, reportPath, feedbackID string, repeated bool, repositoryRunStatus string) string {
