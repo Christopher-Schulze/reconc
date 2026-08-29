@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 321 Capture coherent command-proof Git state -> tasks/321-capture-coherent-command-proof-git-state.md
 - [ ] 322 Remove duplicate TASK move precondition validation -> tasks/322-remove-duplicate-move-precondition-validation.md
 - [ ] 323 Replace audit error-string protocols with typed classification -> tasks/323-replace-audit-error-string-protocols-with-typed-classification.md
 - [ ] 324 Stream audit archive verification -> tasks/324-stream-audit-archive-verification.md
@@ -33,6 +32,7 @@
 
 ## Done
 
+- [x] 321 Capture coherent command-proof Git state -> tasks/done/321-capture-coherent-command-proof-git-state.md
 - [x] 320 Close the completion-proof publication mutation window -> tasks/done/320-close-the-completion-proof-publication-mutation-window.md
 - [x] 319 Implement the completion-state retry contract -> tasks/done/319-implement-the-completion-state-retry-contract.md
 - [x] 318 Avoid repeated glob-expansion key construction -> tasks/done/318-avoid-repeated-glob-expansion-key-construction.md
@@ -42,4 +42,3 @@
 - [x] 314 Remove the discarded action-ledger checkpoint decode -> tasks/done/314-remove-the-discarded-action-ledger-checkpoint-decode.md
 - [x] 313 Eliminate redundant compiler payload serialization -> tasks/done/313-eliminate-redundant-compiler-payload-serialization.md
 - [x] 312 Use canonical size for budget arguments -> tasks/done/312-use-canonical-size-for-budget-arguments.md
-- [x] 311 Correct action trace byte accounting -> tasks/done/311-correct-action-trace-byte-accounting.md

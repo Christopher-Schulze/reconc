@@ -147,7 +147,9 @@ The public narrative stays consistent at three depths:
    accepts `done` only after the TASK and proof agree.
 3. **2 minutes:** Reconc compiles repository-owned policy, applies the same
    decision engine across CLI, hooks, Git, CI, TASK state, and run control,
-   binds command success to the candidate it verified, and exports a portable
+   binds command success to the candidate it verified, confirms that HEAD and
+   the staged index remain coherent immediately around receipt publication,
+   and exports a portable
    proof bundle. It proves only that the configured repository contract and
    recorded current evidence agree, not that the model is honest or the code
    is universally correct.

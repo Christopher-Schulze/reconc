@@ -140,7 +140,7 @@ func VerifyStagedClean(before Snapshot) error {
 
 // StoreSuccess atomically publishes one successful proof outside the repo.
 func StoreSuccess(snapshot Snapshot, command, executionMode string, startedAt, completedAt time.Time) (Proof, error) {
-	current, err := capture(snapshot.RepoRoot)
+	current, err := CaptureCurrent(snapshot.RepoRoot)
 	if err != nil {
 		return Proof{}, err
 	}
@@ -183,6 +183,13 @@ func StoreSuccess(snapshot Snapshot, command, executionMode string, startedAt, c
 	path := filepath.Join(dir, proofIdentity(proof)+".json")
 	if _, err := privatefs.WritePrivateIfChanged(path, data, 0o600); err != nil {
 		return Proof{}, fmt.Errorf("write command proof: %w", err)
+	}
+	confirmed, err := CaptureCurrent(snapshot.RepoRoot)
+	if err != nil {
+		return Proof{}, fmt.Errorf("confirm command proof candidate after publication: %w", err)
+	}
+	if confirmed != snapshot {
+		return Proof{}, errors.New("git HEAD or staged index changed after command proof publication")
 	}
 	retention.RunIfDue(retention.Options{RepoRoot: snapshot.RepoRoot, StateRoot: retention.ResolveStateRoot()})
 	return proof, nil
