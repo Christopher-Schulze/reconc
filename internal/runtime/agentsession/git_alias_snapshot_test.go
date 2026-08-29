@@ -165,7 +165,21 @@ func installCountingGit(t *testing.T, counterPath string) {
 	if runtime.GOOS == "windows" {
 		wrapper = filepath.Join(directory, "git.cmd")
 		t.Setenv("RECONC_TEST_GIT_COUNTER", counterPath)
-		script = "@echo off\r\nfor %%A in (%*) do if /I \"%%~A\"==\"config\" echo x>>\"%RECONC_TEST_GIT_COUNTER%\"\r\n\"" + gitPath + "\" %*\r\n"
+		script = "@echo off\r\n" +
+			"if /I \"%~1\"==\"config\" goto count\r\n" +
+			"if /I \"%~2\"==\"config\" goto count\r\n" +
+			"if /I \"%~3\"==\"config\" goto count\r\n" +
+			"if /I \"%~4\"==\"config\" goto count\r\n" +
+			"if /I \"%~5\"==\"config\" goto count\r\n" +
+			"if /I \"%~6\"==\"config\" goto count\r\n" +
+			"if /I \"%~7\"==\"config\" goto count\r\n" +
+			"if /I \"%~8\"==\"config\" goto count\r\n" +
+			"if /I \"%~9\"==\"config\" goto count\r\n" +
+			"goto run\r\n" +
+			":count\r\n" +
+			"echo x>>\"%RECONC_TEST_GIT_COUNTER%\"\r\n" +
+			":run\r\n" +
+			"\"" + gitPath + "\" %*\r\n"
 	} else {
 		wrapper = filepath.Join(directory, "git")
 		script = fmt.Sprintf("#!/bin/sh\nfor arg in \"$@\"; do\n  if [ \"$arg\" = config ]; then\n    printf x >> %s\n    break\n  fi\ndone\nexec %s \"$@\"\n", shellQuote(counterPath), shellQuote(gitPath))
