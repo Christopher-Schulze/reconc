@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 358 Bind global uninstall to owned snapshots -> tasks/358-bind-global-uninstall-to-owned-snapshots.md
 - [ ] 359 Record staged command success after postconditions -> tasks/359-record-staged-command-success-after-postconditions.md
 - [ ] 360 Revalidate direct-update ownership at publication -> tasks/360-revalidate-direct-update-ownership-at-publication.md
 - [ ] 361 Publish CLI output without symlink truncation -> tasks/361-publish-cli-output-without-symlink-truncation.md
@@ -25,6 +24,7 @@
 
 ## Done
 
+- [x] 358 Bind global uninstall to owned snapshots -> tasks/done/358-bind-global-uninstall-to-owned-snapshots.md
 - [x] 357 Bind bootstrap removal to validated file identities -> tasks/done/357-bind-bootstrap-removal-to-validated-file-identities.md
 - [x] 356 Use private filesystem boundaries for bootstrap locks -> tasks/done/356-use-private-filesystem-boundaries-for-bootstrap-locks.md
 - [x] 355 Root TASK lifecycle lock acquisition -> tasks/done/355-root-lifecycle-lock-acquisition.md

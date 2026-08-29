@@ -601,7 +601,11 @@ global manager -> installation receipt -> installed CLI
 - `internal/usercli` remains the global binary identity owner. It owns the
   locked receipt, manager classification, global diagnostic, update, and
   uninstall boundaries. Receipt reads execute once and revalidate their
-  observed generation if a writer lock appears concurrently.
+  observed generation if a writer lock appears concurrently. Owned uninstall
+  binds the receipt and binary to strict snapshots, revalidates each identity
+  and byte digest immediately before removal, and restores a removed binary
+  only into an absent path when receipt validation fails; replacements and
+  symlinks are preserved.
 - `internal/bootstrap` remains the only repository transaction owner.
   Canonical `init` and repository sync compose its plan, candidate, receipt,
   verification, journal, recovery, rollback, and path-identity primitives.

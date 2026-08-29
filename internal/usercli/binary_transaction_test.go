@@ -31,6 +31,16 @@ func TestFileBackedBinaryBackupRestoresExactBytesAndMode(t *testing.T) {
 	var backupPath string
 	err = withBinaryBackup(target, func(backup *binaryBackup) error {
 		backupPath = backup.path
+		if backup.identity == nil || !os.SameFile(backup.identity, originalInfo) {
+			t.Fatalf("backup identity = %v, want original target identity", backup.identity)
+		}
+		if backup.mode != wantMode || backup.size != int64(len(previous)) {
+			t.Fatalf("backup metadata = mode %v size %d, want mode %v size %d", backup.mode, backup.size, wantMode, len(previous))
+		}
+		digest := sha256.Sum256(previous)
+		if backup.digest != hex.EncodeToString(digest[:]) {
+			t.Fatalf("backup digest = %q, want %x", backup.digest, digest)
+		}
 		file, err := os.Open(backup.path)
 		if err != nil {
 			t.Fatal(err)
@@ -58,6 +68,25 @@ func TestFileBackedBinaryBackupRestoresExactBytesAndMode(t *testing.T) {
 	}
 	if _, statErr := os.Lstat(backupPath); !os.IsNotExist(statErr) {
 		t.Fatalf("successful rollback retained backup: %v", statErr)
+	}
+}
+
+func TestCapturedBinaryBackupCleansUpWhenOperationMissing(t *testing.T) {
+	target := filepath.Join(t.TempDir(), executableName())
+	if err := os.WriteFile(target, []byte("previous"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	backup, err := captureBinaryBackup(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backupPath := backup.path
+	err = withCapturedBinaryBackup(backup, nil)
+	if err == nil || !strings.Contains(err.Error(), "operation is required") {
+		t.Fatalf("missing operation error = %v", err)
+	}
+	if _, statErr := os.Lstat(backupPath); !os.IsNotExist(statErr) {
+		t.Fatalf("backup retained after missing operation: %v", statErr)
 	}
 }
 

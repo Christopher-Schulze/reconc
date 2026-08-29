@@ -452,6 +452,162 @@ func TestPurgeStateUnknownEntryFailsBeforeUninstallMutation(t *testing.T) {
 	}
 }
 
+func TestUninstallRejectsBinaryReplacementBeforeRemoval(t *testing.T) {
+	target, receiptPath, originalBinary, originalReceipt := setupUninstallFixture(t)
+	replacement := []byte("replacement binary")
+	preserved := target + ".owned-generation"
+	previousHook := beforeUninstallRemoval
+	t.Cleanup(func() { beforeUninstallRemoval = previousHook })
+	beforeUninstallRemoval = func(path string) error {
+		if !samePath(path, target) {
+			return nil
+		}
+		if err := os.Rename(path, preserved); err != nil {
+			return err
+		}
+		return os.WriteFile(path, replacement, 0o755)
+	}
+
+	report, err := Uninstall(context.Background(), "test", UninstallRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != LifecycleRefused || report.Changed {
+		t.Fatalf("binary replacement uninstall = %+v", report)
+	}
+	if body, readErr := os.ReadFile(target); readErr != nil || !bytes.Equal(body, replacement) {
+		t.Fatalf("replacement binary = %q err=%v", body, readErr)
+	}
+	if body, readErr := os.ReadFile(receiptPath); readErr != nil || !bytes.Equal(body, originalReceipt) {
+		t.Fatalf("receipt after binary replacement = %q err=%v", body, readErr)
+	}
+	if bytes.Equal(originalBinary, replacement) {
+		t.Fatal("binary replacement fixture did not differ from the owned generation")
+	}
+}
+
+func TestUninstallRejectsBinaryReplacementBeforeBackup(t *testing.T) {
+	target, receiptPath, _, originalReceipt := setupUninstallFixture(t)
+	replacement := []byte("replacement before backup")
+	preserved := target + ".owned-generation"
+	previousHook := beforeBinaryBackupSnapshot
+	t.Cleanup(func() { beforeBinaryBackupSnapshot = previousHook })
+	beforeBinaryBackupSnapshot = func(path string) error {
+		if !samePath(path, target) {
+			return nil
+		}
+		if err := os.Rename(path, preserved); err != nil {
+			return err
+		}
+		return os.WriteFile(path, replacement, 0o755)
+	}
+
+	report, err := Uninstall(context.Background(), "test", UninstallRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != LifecycleRefused || report.Changed {
+		t.Fatalf("pre-backup replacement uninstall = %+v", report)
+	}
+	if body, readErr := os.ReadFile(target); readErr != nil || !bytes.Equal(body, replacement) {
+		t.Fatalf("replacement before backup = %q err=%v", body, readErr)
+	}
+	if body, readErr := os.ReadFile(receiptPath); readErr != nil || !bytes.Equal(body, originalReceipt) {
+		t.Fatalf("receipt after pre-backup replacement = %q err=%v", body, readErr)
+	}
+}
+
+func TestUninstallRestoresBinaryAndPreservesReceiptReplacement(t *testing.T) {
+	target, receiptPath, originalBinary, _ := setupUninstallFixture(t)
+	replacement := []byte("replacement receipt")
+	preserved := receiptPath + ".owned-generation"
+	previousHook := beforeUninstallRemoval
+	t.Cleanup(func() { beforeUninstallRemoval = previousHook })
+	beforeUninstallRemoval = func(path string) error {
+		if !samePath(path, receiptPath) {
+			return nil
+		}
+		if err := os.Rename(path, preserved); err != nil {
+			return err
+		}
+		return os.WriteFile(path, replacement, 0o600)
+	}
+
+	report, err := Uninstall(context.Background(), "test", UninstallRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != LifecycleRefused || report.Changed {
+		t.Fatalf("receipt replacement uninstall = %+v", report)
+	}
+	if body, readErr := os.ReadFile(target); readErr != nil || !bytes.Equal(body, originalBinary) {
+		t.Fatalf("restored binary = %d bytes err=%v", len(body), readErr)
+	}
+	if body, readErr := os.ReadFile(receiptPath); readErr != nil || !bytes.Equal(body, replacement) {
+		t.Fatalf("replacement receipt = %q err=%v", body, readErr)
+	}
+}
+
+func TestUninstallRejectsBinarySymlinkSubstitution(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink fixture requires optional Windows privileges")
+	}
+	target, receiptPath, _, _ := setupUninstallFixture(t)
+	preserved := target + ".owned-generation"
+	previousHook := beforeUninstallRemoval
+	t.Cleanup(func() { beforeUninstallRemoval = previousHook })
+	beforeUninstallRemoval = func(path string) error {
+		if !samePath(path, target) {
+			return nil
+		}
+		if err := os.Rename(path, preserved); err != nil {
+			return err
+		}
+		return os.Symlink(preserved, path)
+	}
+
+	report, err := Uninstall(context.Background(), "test", UninstallRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != LifecycleRefused || report.Changed {
+		t.Fatalf("symlink substitution uninstall = %+v", report)
+	}
+	info, err := os.Lstat(target)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("substitute binary = %v err=%v", info, err)
+	}
+	if _, err := os.Stat(receiptPath); err != nil {
+		t.Fatalf("symlink substitution removed receipt: %v", err)
+	}
+}
+
+func setupUninstallFixture(t *testing.T) (target string, receiptPath string, binary []byte, receipt []byte) {
+	t.Helper()
+	installDirectory := t.TempDir()
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv("RECONC_INSTALL_DIR", installDirectory)
+	t.Setenv("PATH", installDirectory)
+	installed, err := InstallCurrentWithReceipt("", InstallOptions{Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installed == nil || installed.Status == nil || installed.ReceiptPath == "" {
+		t.Fatalf("installation fixture = %+v", installed)
+	}
+	target = installed.Status.TargetPath
+	receiptPath = installed.ReceiptPath
+	binary, err = os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err = os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return target, receiptPath, binary, receipt
+}
+
 func TestLocalReleaseRejectsUnknownAndSymlinkEntries(t *testing.T) {
 	if !supportedDirectTarget() {
 		t.Skip("unsupported direct release target")

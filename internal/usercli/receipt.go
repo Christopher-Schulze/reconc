@@ -105,6 +105,12 @@ type receiptPaths struct {
 	lock      string
 }
 
+type receiptSnapshot struct {
+	receipt    *Receipt
+	identity   os.FileInfo
+	bodyDigest string
+}
+
 func NewReceipt(input ReceiptInput) (*Receipt, error) {
 	installedAt := input.InstalledAt.UTC()
 	if installedAt.IsZero() {
@@ -363,26 +369,35 @@ func ensurePrivateDirectory(path string) error {
 }
 
 func loadReceiptFile(path string) (*Receipt, error) {
-	body, err := boundedio.ReadRegularFile(path, maxInstallationReceipt)
+	snapshot, err := loadReceiptSnapshot(path)
+	if err != nil {
+		return nil, err
+	}
+	return snapshot.receipt, nil
+}
+
+func loadReceiptSnapshot(path string) (receiptSnapshot, error) {
+	body, identity, err := boundedio.ReadRegularFileSnapshot(path, maxInstallationReceipt)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, os.ErrNotExist
+			return receiptSnapshot{}, os.ErrNotExist
 		}
-		return nil, fmt.Errorf("read installation receipt: %w", err)
+		return receiptSnapshot{}, fmt.Errorf("read installation receipt: %w", err)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	var receipt Receipt
 	if err := decoder.Decode(&receipt); err != nil {
-		return nil, fmt.Errorf("decode installation receipt: %w", err)
+		return receiptSnapshot{}, fmt.Errorf("decode installation receipt: %w", err)
 	}
 	if err := requireJSONEOF(decoder); err != nil {
-		return nil, fmt.Errorf("decode installation receipt: %w", err)
+		return receiptSnapshot{}, fmt.Errorf("decode installation receipt: %w", err)
 	}
 	if err := validateReceipt(&receipt); err != nil {
-		return nil, fmt.Errorf("validate installation receipt: %w", err)
+		return receiptSnapshot{}, fmt.Errorf("validate installation receipt: %w", err)
 	}
-	return &receipt, nil
+	digest := sha256.Sum256(body)
+	return receiptSnapshot{receipt: &receipt, identity: identity, bodyDigest: hex.EncodeToString(digest[:])}, nil
 }
 
 func writeReceiptUnlocked(path string, receipt *Receipt) (bool, error) {

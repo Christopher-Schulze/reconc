@@ -16,13 +16,16 @@ import (
 
 const binaryCopyBufferBytes = 128 << 10
 
+var beforeBinaryBackupSnapshot = func(string) error { return nil }
+
 type binaryBackup struct {
-	exists bool
-	path   string
-	mode   os.FileMode
-	digest string
-	size   int64
-	retain bool
+	exists   bool
+	path     string
+	mode     os.FileMode
+	digest   string
+	size     int64
+	identity os.FileInfo
+	retain   bool
 }
 
 func withBinaryBackup(path string, operation func(*binaryBackup) error) (resultErr error) {
@@ -30,7 +33,14 @@ func withBinaryBackup(path string, operation func(*binaryBackup) error) (resultE
 	if err != nil {
 		return err
 	}
+	return withCapturedBinaryBackup(backup, operation)
+}
+
+func withCapturedBinaryBackup(backup binaryBackup, operation func(*binaryBackup) error) (resultErr error) {
 	defer func() { resultErr = errors.Join(resultErr, backup.cleanup()) }()
+	if operation == nil {
+		return errors.New("binary backup operation is required")
+	}
 	return operation(&backup)
 }
 
@@ -74,7 +84,7 @@ func captureBinaryBackup(path string) (binaryBackup, error) {
 	if err != nil {
 		return binaryBackup{}, fmt.Errorf("create private user CLI backup: %w", err)
 	}
-	backup := binaryBackup{exists: true, path: file.Name(), mode: info.Mode().Perm()}
+	backup := binaryBackup{exists: true, path: file.Name()}
 	closed := false
 	cleanup := func(primary error) (binaryBackup, error) {
 		var closeErr error
@@ -87,8 +97,13 @@ func captureBinaryBackup(path string) (binaryBackup, error) {
 	if err := privatefs.SecureFile(file); err != nil {
 		return cleanup(fmt.Errorf("make user CLI backup private: %w", err))
 	}
+	if err := beforeBinaryBackupSnapshot(path); err != nil {
+		return cleanup(err)
+	}
 	hash := sha256.New()
 	err = boundedio.WithRegularFileSnapshot(path, maxBinaryBytes, func(source *os.File, sourceInfo os.FileInfo) error {
+		backup.identity = sourceInfo
+		backup.mode = sourceInfo.Mode().Perm()
 		written, copyErr := io.CopyBuffer(io.MultiWriter(file, hash), source, make([]byte, binaryCopyBufferBytes))
 		if copyErr != nil {
 			return fmt.Errorf("stream previous user CLI: %w", copyErr)
@@ -115,6 +130,33 @@ func captureBinaryBackup(path string) (binaryBackup, error) {
 		return cleanup(fmt.Errorf("validate previous user CLI backup: %w", err))
 	}
 	return backup, nil
+}
+
+func validateBinaryBackupSnapshot(path string, expected *binaryBackup) error {
+	if expected == nil || !expected.exists || expected.identity == nil {
+		return errors.New("owned binary snapshot is unavailable")
+	}
+	hash := sha256.New()
+	var current os.FileInfo
+	err := boundedio.WithRegularFileSnapshot(path, maxBinaryBytes, func(file *os.File, info os.FileInfo) error {
+		current = info
+		written, copyErr := io.CopyBuffer(hash, file, make([]byte, binaryCopyBufferBytes))
+		if copyErr != nil {
+			return copyErr
+		}
+		if written != info.Size() {
+			return fmt.Errorf("hashed %d of %d bytes", written, info.Size())
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("validate owned binary snapshot: %w", err)
+	}
+	if !os.SameFile(expected.identity, current) || expected.mode != current.Mode().Perm() ||
+		expected.size != current.Size() || expected.digest != hex.EncodeToString(hash.Sum(nil)) {
+		return errors.New("owned binary changed during uninstall")
+	}
+	return nil
 }
 
 func (backup *binaryBackup) cleanup() error {

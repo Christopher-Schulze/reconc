@@ -60,6 +60,8 @@ type UninstallRequest struct {
 
 var lifecycleCommand = exec.CommandContext
 
+var beforeUninstallRemoval = func(string) error { return nil }
+
 func CheckUpdate(ctx context.Context, currentVersion string, request UpdateRequest) (*LifecycleReport, error) {
 	return update(ctx, currentVersion, request, false)
 }
@@ -114,33 +116,48 @@ func uninstallOwned(report *LifecycleReport, request UninstallRequest) (*Lifecyc
 				return err
 			}
 		}
-		receipt, err := loadReceiptFile(paths.receipt)
+		receiptSnapshot, err := loadReceiptSnapshot(paths.receipt)
 		if err != nil {
 			return err
 		}
+		receipt := receiptSnapshot.receipt
 		if report.Owner == nil || receipt.Manager != *report.Owner {
 			return errors.New("installation ownership changed before uninstall")
 		}
-		info, err := os.Lstat(receipt.BinaryPath)
-		if err != nil {
-			return fmt.Errorf("inspect owned binary: %w", err)
-		}
-		if !info.Mode().IsRegular() {
-			return errors.New("owned binary is not a regular file")
-		}
-		digest, err := fileSHA256(receipt.BinaryPath)
+		backup, err := captureBinaryBackup(receipt.BinaryPath)
 		if err != nil {
 			return err
 		}
-		if digest != receipt.ArtifactSHA256 {
+		if !backup.exists {
+			return errors.New("owned binary is missing")
+		}
+		if backup.digest != receipt.ArtifactSHA256 {
 			return errors.New("owned binary checksum no longer matches the installation receipt")
 		}
-		return withBinaryBackup(receipt.BinaryPath, func(backup *binaryBackup) error {
+		if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
+			return err
+		}
+		if err := validateBinaryBackupSnapshot(receipt.BinaryPath, &backup); err != nil {
+			return err
+		}
+		return withCapturedBinaryBackup(backup, func(backup *binaryBackup) error {
+			if err := beforeUninstallRemoval(receipt.BinaryPath); err != nil {
+				return err
+			}
+			if err := validateBinaryBackupSnapshot(receipt.BinaryPath, backup); err != nil {
+				return err
+			}
 			if err := os.Remove(receipt.BinaryPath); err != nil {
 				return fmt.Errorf("remove owned binary: %w", err)
 			}
+			if err := beforeUninstallRemoval(paths.receipt); err != nil {
+				return rollbackUninstallBinary(receipt.BinaryPath, backup, err)
+			}
+			if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
+				return rollbackUninstallBinary(receipt.BinaryPath, backup, err)
+			}
 			if err := os.Remove(paths.receipt); err != nil {
-				return rollbackInstall(receipt.BinaryPath, backup, true, fmt.Errorf("remove installation receipt: %w", err))
+				return rollbackUninstallBinary(receipt.BinaryPath, backup, fmt.Errorf("remove installation receipt: %w", err))
 			}
 			mutationCommitted = true
 			removedPath = receipt.BinaryPath
@@ -182,6 +199,29 @@ func uninstallOwned(report *LifecycleReport, request UninstallRequest) (*Lifecyc
 
 func purgeInstallationState(paths receiptPaths) error {
 	return validatePurgeInventory(paths, false)
+}
+
+func validateReceiptSnapshot(path string, expected receiptSnapshot) error {
+	current, err := loadReceiptSnapshot(path)
+	if err != nil {
+		return fmt.Errorf("validate installation receipt snapshot: %w", err)
+	}
+	if !os.SameFile(expected.identity, current.identity) || expected.bodyDigest != current.bodyDigest {
+		return errors.New("installation receipt changed during uninstall")
+	}
+	return nil
+}
+
+func rollbackUninstallBinary(path string, backup *binaryBackup, cause error) error {
+	if backup == nil || !backup.exists {
+		return cause
+	}
+	if info, err := os.Lstat(path); err == nil {
+		return errors.Join(cause, fmt.Errorf("refuse to overwrite replacement binary during uninstall rollback: %s", path), fmt.Errorf("replacement identity: %v", info))
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return errors.Join(cause, fmt.Errorf("inspect uninstall rollback binary: %w", err))
+	}
+	return rollbackInstall(path, backup, true, cause)
 }
 
 func validatePurgeInventory(paths receiptPaths, receiptPresent bool) error {

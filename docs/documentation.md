@@ -430,6 +430,12 @@ matching candidate bytes already published as an exact recoverable partial
 state. Windows arm64 remains
 unsupported until the release matrix ships a matching native asset.
 
+Owned uninstall snapshots the receipt and binary as one locked transaction,
+revalidates both identities and bytes immediately before each pathname removal,
+and refuses replacement or symlink substitutions. If receipt validation fails
+after the binary removal, rollback restores the verified binary only when the
+path is still absent, so a replacement is never overwritten.
+
 The v0.9 platform contract is one matrix:
 
 | Platform | Direct installer | Architectures | Ownership |
