@@ -187,21 +187,33 @@ func (p compiledDetectorPack) scanTerms(
 		}
 	}
 	if _, selected := categories[action.DetectorForbiddenData]; selected {
-		for index := 0; index < forbiddenTermCount; index++ {
-			term := forbiddenTerm(index)
-			matched, err := p.matchWindows(ctx, confusable, func(window string) bool {
-				return strings.Contains(window, inspectionText(term, true))
-			})
-			if err != nil {
+		normalizedTerms := make([]string, forbiddenTermCount)
+		for index := range normalizedTerms {
+			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			if matched {
-				findings = append(findings, Finding{RuleID: "forbidden-data-term", Category: action.DetectorForbiddenData})
-				break
-			}
+			normalizedTerms[index] = inspectionText(forbiddenTerm(index), true)
+		}
+		matched, err := p.matchForbiddenTerms(ctx, confusable, normalizedTerms)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
+			findings = append(findings, Finding{RuleID: "forbidden-data-term", Category: action.DetectorForbiddenData})
 		}
 	}
 	return findings, ctx.Err()
+}
+
+func (p compiledDetectorPack) matchForbiddenTerms(ctx context.Context, text string, terms []string) (bool, error) {
+	return p.matchWindows(ctx, text, func(window string) bool {
+		for _, term := range terms {
+			if strings.Contains(window, term) {
+				return true
+			}
+		}
+		return false
+	})
 }
 
 func (p compiledDetectorPack) detectorMatches(

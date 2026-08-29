@@ -97,6 +97,30 @@ func TestBuiltinPackIdentityIsStable(t *testing.T) {
 	}
 }
 
+func TestForbiddenTermsNormalizeOnceAndMatchAcrossWindows(t *testing.T) {
+	pack, err := compileBuiltinPack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Repeat("x", builtinPackScanChunk-8) + "Ｐｒｏｔｅｃｔｅｄ" + strings.Repeat("x", 16)
+	terms := []string{
+		"ＰＲＯＴＥＣＴＥＤ",
+		"never present",
+	}
+	findings, err := pack.scan(
+		context.Background(), text,
+		map[action.DetectorCategory]struct{}{action.DetectorForbiddenData: {}},
+		terms,
+		action.MaxArgumentBytes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 || findings[0].RuleID != "forbidden-data-term" {
+		t.Fatalf("forbidden-term findings = %+v", findings)
+	}
+}
+
 func TestDecodeMCPToolResultRejectsMalformedKnownContent(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

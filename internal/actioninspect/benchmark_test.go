@@ -2,6 +2,7 @@ package actioninspect
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -14,6 +15,28 @@ func BenchmarkTextScanRepresentative(b *testing.B) {
 
 func BenchmarkTextScanMaximumLegal(b *testing.B) {
 	benchmarkTextScan(b, strings.Repeat("a", action.MaxArgumentBytes))
+}
+
+func BenchmarkForbiddenTermsMaximumLegal(b *testing.B) {
+	pack, err := compileBuiltinPack()
+	if err != nil {
+		b.Fatal(err)
+	}
+	text := strings.Repeat("a", action.MaxArgumentBytes)
+	terms := make([]string, action.MaxForbiddenTerms)
+	for index := range terms {
+		terms[index] = fmt.Sprintf("forbidden-term-%03d-%s", index, strings.Repeat("z", 480))
+	}
+	categories := map[action.DetectorCategory]struct{}{action.DetectorForbiddenData: {}}
+	b.ReportAllocs()
+	b.SetBytes(int64(len(text)))
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		findings, err := pack.scan(context.Background(), text, categories, terms, action.MaxArgumentBytes)
+		if err != nil || len(findings) != 0 {
+			b.Fatalf("forbidden-term scan = %v, %v", findings, err)
+		}
+	}
 }
 
 func BenchmarkLikelySecretValueASCII(b *testing.B) {
