@@ -181,6 +181,17 @@ func TestPreDecisionCacheInvalidatesOnGitAliasMutation(t *testing.T) {
 	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 2 {
 		t.Fatalf("destructive alias reused stale allow: %+v", result)
 	}
+	updatedBody, err := os.ReadFile(preDecisionCachePath(root.Path(), payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var updated preDecisionCache
+	if err := json.Unmarshal(updatedBody, &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Key != after {
+		t.Fatalf("post-mutation cache key = %q, want fresh alias identity %q", updated.Key, after)
+	}
 }
 
 func BenchmarkResolvedHookEvents(b *testing.B) {

@@ -32,22 +32,24 @@ type preDecisionCache struct {
 }
 
 // runPreDecisionResolvedWithEvaluator reuses a decision only across identical normalized
-// tool-call identity, policy bytes, session-state bytes, and repository taint
-// bytes. The key is sampled again after reading the cache, so a concurrent
-// evidence or policy mutation cannot validate a stale record.
+// tool-call identity, policy bytes, session-state bytes, repository taint bytes,
+// and the bounded repository Git-alias snapshot. The key is sampled again after
+// reading the cache and after evaluation, so a concurrent evidence, policy, or
+// alias mutation cannot validate or warm a stale record.
 func runPreDecisionResolvedWithEvaluator(root string, payloadBytes []byte, permission bool, evaluator *runtime.Evaluator) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return adaptPreDecision(Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}, permission)
 	}
-	key, cacheable := preDecisionKeyForPayload(root, payload)
+	inputs, cacheable := preDecisionInputsForPayload(root, payload)
+	key := inputs.key
 	if cacheable {
 		if cached, ok := readPreDecisionCacheForPayload(root, payload, key); ok {
 			return adaptPreDecision(cached, permission)
 		}
 	}
 
-	decision := runPreToolUseParsedWithEvaluator(root, payload, evaluator)
+	decision := runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root, payload, evaluator, inputs.aliasSnapshot)
 	if postKey, ok := preDecisionKeyForPayload(root, payload); cacheable && ok && postKey == key {
 		_ = writePreDecisionCacheForPayload(root, payload, postKey, decision)
 	}
@@ -74,8 +76,18 @@ func preDecisionKey(root string, payloadBytes []byte) (string, bool) {
 }
 
 func preDecisionKeyForPayload(root string, payload *HookPayload) (string, bool) {
+	inputs, ok := preDecisionInputsForPayload(root, payload)
+	return inputs.key, ok
+}
+
+type preDecisionInputs struct {
+	key           string
+	aliasSnapshot gitAliasSnapshot
+}
+
+func preDecisionInputsForPayload(root string, payload *HookPayload) (preDecisionInputs, bool) {
 	if payload == nil || strings.TrimSpace(payload.SessionID) == "" || strings.TrimSpace(payload.ToolUseID) == "" {
-		return "", false
+		return preDecisionInputs{}, false
 	}
 	payloadIdentity, err := json.Marshal(struct {
 		SessionID string                 `json:"session_id"`
@@ -89,29 +101,31 @@ func preDecisionKeyForPayload(root string, payload *HookPayload) (string, bool) 
 		ToolInput: payload.ToolInput,
 	})
 	if err != nil {
-		return "", false
+		return preDecisionInputs{}, false
 	}
 	policyIdentity, ok := hashPreDecisionFile(filepath.Join(root, policyLockfilePath), false)
 	if !ok {
-		return "", false
+		return preDecisionInputs{}, false
 	}
 	policySourceIdentity, ok := preDecisionPolicySourceIdentity(root)
 	if !ok {
-		return "", false
+		return preDecisionInputs{}, false
 	}
 	stateIdentity, ok := preDecisionSessionIdentity(root, payload.SessionID)
 	if !ok {
-		return "", false
+		return preDecisionInputs{}, false
 	}
 	taintIdentity, ok := hashPreDecisionFile(evidenceTaintPath(root), true)
 	if !ok {
-		return "", false
+		return preDecisionInputs{}, false
 	}
+	inputs := preDecisionInputs{}
 	aliasIdentity := "not-applicable"
 	if payload.IsCommandTool() {
-		aliasIdentity, ok = preDecisionGitAliasIdentity(root)
+		inputs.aliasSnapshot = captureGitAliasSnapshot(root)
+		aliasIdentity, ok = inputs.aliasSnapshot.identityValue()
 		if !ok {
-			return "", false
+			return inputs, false
 		}
 	}
 	hash := sha256.New()
@@ -123,15 +137,8 @@ func preDecisionKeyForPayload(root string, payload *HookPayload) (string, bool) 
 		_, _ = hash.Write(part)
 		_, _ = hash.Write([]byte{0})
 	}
-	return hex.EncodeToString(hash.Sum(nil)), true
-}
-
-func preDecisionGitAliasIdentity(root string) (string, bool) {
-	body, exitCode, err := runGitInspection(root, "config", "--null", "--get-regexp", "^alias\\.")
-	if err != nil || exitCode != 0 && exitCode != 1 {
-		return "", false
-	}
-	return hashBytes(body), true
+	inputs.key = hex.EncodeToString(hash.Sum(nil))
+	return inputs, true
 }
 
 func preDecisionPolicySourceIdentity(root string) (string, bool) {

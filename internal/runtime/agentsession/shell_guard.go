@@ -22,12 +22,20 @@ func forbiddenShellCommandReasonInRepo(repoRoot, command string) string {
 	return forbiddenShellCommandReasonWithAliases(repoRoot, command, make(map[string]gitAlias), 0)
 }
 
+func forbiddenShellCommandReasonInRepoWithAliasSnapshot(repoRoot, command string, snapshot gitAliasSnapshot) string {
+	return forbiddenShellCommandReasonWithAliasState(repoRoot, command, snapshot.workingAliases(), snapshot.complete, 0)
+}
+
 type gitAlias struct {
 	value   string
 	dynamic bool
 }
 
 func forbiddenShellCommandReasonWithAliases(repoRoot, command string, aliases map[string]gitAlias, aliasDepth int) string {
+	return forbiddenShellCommandReasonWithAliasState(repoRoot, command, aliases, false, aliasDepth)
+}
+
+func forbiddenShellCommandReasonWithAliasState(repoRoot, command string, aliases map[string]gitAlias, aliasesComplete bool, aliasDepth int) string {
 	invocations, incomplete := shellcommand.InvocationsWithReason(command, maxShellGuardDepth)
 	if incomplete != shellcommand.IncompleteNone {
 		return unanalyzableShellCommandReason(incomplete)
@@ -52,14 +60,14 @@ func forbiddenShellCommandReasonWithAliases(repoRoot, command string, aliases ma
 				invocationAliases[name] = alias
 			}
 		}
-		if reason := forbiddenGitInvocationReason(repoRoot, invocation, subcommandIndex, invocationAliases, unknownDynamicAlias, aliasDepth); reason != "" {
+		if reason := forbiddenGitInvocationReason(repoRoot, invocation, subcommandIndex, invocationAliases, aliasesComplete, unknownDynamicAlias, aliasDepth); reason != "" {
 			return reason
 		}
 	}
 	return ""
 }
 
-func forbiddenGitInvocationReason(repoRoot string, invocation shellcommand.Invocation, subcommandIndex int, aliases map[string]gitAlias, unknownDynamicAlias bool, aliasDepth int) string {
+func forbiddenGitInvocationReason(repoRoot string, invocation shellcommand.Invocation, subcommandIndex int, aliases map[string]gitAlias, aliasesComplete, unknownDynamicAlias bool, aliasDepth int) string {
 	subcommand := strings.ToLower(invocation.Words[subcommandIndex])
 	args := invocation.Words[subcommandIndex+1:]
 	dynamicArgs := invocation.DynamicWords[subcommandIndex+1:]
@@ -83,7 +91,7 @@ func forbiddenGitInvocationReason(repoRoot string, invocation shellcommand.Invoc
 		return fmt.Sprintf("reconc blocked git subcommand %q because a dynamic inline `alias.*` configuration could change what it executes. Use a literal alias name and value.", subcommand)
 	}
 	alias, found := aliases[subcommand]
-	if !found && repoRoot != "" {
+	if !found && repoRoot != "" && !aliasesComplete {
 		var err error
 		alias.value, found, err = configuredGitAlias(repoRoot, subcommand)
 		if err != nil {
@@ -99,10 +107,10 @@ func forbiddenGitInvocationReason(repoRoot string, invocation shellcommand.Invoc
 	if aliasDepth >= maxGitAliasDepth {
 		return fmt.Sprintf("reconc blocked git alias %q because expansion exceeded %d levels. Flatten the alias chain.", subcommand, maxGitAliasDepth)
 	}
-	return forbiddenGitAliasReason(repoRoot, subcommand, alias.value, args, dynamicArgs, aliases, aliasDepth+1)
+	return forbiddenGitAliasReason(repoRoot, subcommand, alias.value, args, dynamicArgs, aliases, aliasesComplete, aliasDepth+1)
 }
 
-func forbiddenGitAliasReason(repoRoot, name, value string, args []string, dynamicArgs []bool, aliases map[string]gitAlias, aliasDepth int) string {
+func forbiddenGitAliasReason(repoRoot, name, value string, args []string, dynamicArgs []bool, aliases map[string]gitAlias, aliasesComplete bool, aliasDepth int) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return fmt.Sprintf("reconc blocked git alias %q because its value is empty and cannot be inspected safely.", name)
@@ -115,7 +123,7 @@ func forbiddenGitAliasReason(repoRoot, name, value string, args []string, dynami
 		command = "git " + command
 		command = appendGitAliasArgs(command, args, dynamicArgs)
 	}
-	return forbiddenShellCommandReasonWithAliases(repoRoot, command, aliases, aliasDepth)
+	return forbiddenShellCommandReasonWithAliasState(repoRoot, command, aliases, aliasesComplete, aliasDepth)
 }
 
 func appendGitAliasArgs(command string, args []string, dynamicArgs []bool) string {
@@ -168,14 +176,26 @@ func cloneGitAliases(source map[string]gitAlias) map[string]gitAlias {
 
 func parseGitAliasSetting(setting string) (name, value string, found bool) {
 	key, value, found := strings.Cut(setting, "=")
-	if !found || !strings.HasPrefix(strings.ToLower(key), "alias.") {
+	if !found {
 		return "", "", false
 	}
-	name = strings.ToLower(strings.TrimPrefix(strings.ToLower(key), "alias."))
-	if name == "" {
+	name, found = parseGitAliasName(key)
+	if !found {
 		return "", "", false
 	}
 	return name, value, true
+}
+
+func parseGitAliasName(key string) (string, bool) {
+	lower := strings.ToLower(key)
+	if !strings.HasPrefix(lower, "alias.") {
+		return "", false
+	}
+	name := strings.TrimPrefix(lower, "alias.")
+	if name == "" {
+		return "", false
+	}
+	return name, true
 }
 
 func recordGitConfigAlias(invocation shellcommand.Invocation, subcommandIndex int, aliases map[string]gitAlias) {

@@ -204,11 +204,15 @@ func runPreToolUseResolvedWithEvaluator(root string, payloadBytes []byte, evalua
 }
 
 func runPreToolUseParsedWithEvaluator(root string, payload *HookPayload, evaluator *runtime.Evaluator) Result {
+	return runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root, payload, evaluator, gitAliasSnapshot{})
+}
+
+func runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root string, payload *HookPayload, evaluator *runtime.Evaluator, aliasSnapshot gitAliasSnapshot) Result {
 	if payload == nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (pre): parsed payload is unavailable"}
 	}
 	if payload.IsCommandTool() {
-		if reason := forbiddenShellCommandReasonInRepo(root, payload.Command()); reason != "" {
+		if reason := forbiddenShellCommandReasonInRepoWithAliasSnapshot(root, payload.Command(), aliasSnapshot); reason != "" {
 			return Result{ExitCode: 2, Stderr: reason}
 		}
 		state, err := ensureSessionStateResolved(root, payload.SessionID)

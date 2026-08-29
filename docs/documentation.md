@@ -2327,9 +2327,14 @@ unresolved dynamic executable names and exhausted nesting fail closed. The
 built-in destructive Git guard uses the same model for `git clean` and `git
 reset --hard`. It resolves literal inline, local, global, recursive, and
 same-command `git config alias.*` definitions before admission. Alias values
-and invocation arguments are re-analyzed as executable shell input; dynamic
-alias definitions, excessive alias recursion, inspection failures, and unknown
-Git subcommands fail closed instead of bypassing the destructive-command guard.
+and invocation arguments are re-analyzed as executable shell input. Each
+cacheable command pre-decision captures one bounded, hermetic repository alias
+snapshot and reuses its immutable entries for cache identity and shell
+analysis; a fresh snapshot is required after evaluation before any decision is
+stored. Snapshot capture failure keeps the decision uncached and falls back to
+the existing per-alias inspection path. Dynamic alias definitions, excessive
+alias recursion, inspection failures, and unknown Git subcommands fail closed
+instead of bypassing the destructive-command guard.
 
 Literal `eval` uses the shell's two parsing passes, not source-level quote
 reconstruction. The outer parse first produces argument bytes; `eval` then
