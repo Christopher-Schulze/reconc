@@ -131,7 +131,7 @@ func evalNot(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, input
 // signalling "rule does not fire".
 func compositeSetup(ctx *evalContext, rule *policy.Rule, inputs ExecutionInputs) ([]matchContext, []policy.Check, error) {
 	patterns := stringListField(rule, "when_paths")
-	contexts, err := ctx.contextMemo.collect(ctx.templateMatchers, inputs.WritePaths, patterns)
+	contexts, err := ctx.collectMatchContexts(inputs.WritePaths, patterns)
 	if err != nil {
 		return nil, nil, err
 	}

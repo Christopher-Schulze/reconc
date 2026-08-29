@@ -87,7 +87,7 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []policy.Rule, ruleIn
 				// miss is rejected before match-context collection or subprocess IO.
 				continue
 			}
-			contexts, err := ctx.contextMemo.collect(ctx.templateMatchers, inputs.WritePaths, stringListField(item.rule, "when_paths"))
+			contexts, err := ctx.collectMatchContexts(inputs.WritePaths, stringListField(item.rule, "when_paths"))
 			if err != nil {
 				return results, err
 			}

@@ -10,7 +10,7 @@ import (
 
 func TestEvaluationMemosAllocateOrderStorageOnDemand(t *testing.T) {
 	matchMemo := newEvidenceMatchMemo()
-	contextMemo := newMatchContextMemo()
+	contextMemo := newMatchContextMemo([]string{"a.txt"})
 	snapshotCache := newEvidenceSnapshotCache()
 	if matchMemo.entries != nil || matchMemo.order != nil ||
 		contextMemo.entries != nil || contextMemo.order != nil ||
@@ -22,7 +22,7 @@ func TestEvaluationMemosAllocateOrderStorageOnDemand(t *testing.T) {
 	if len(matchMemo.entries) != 1 || len(matchMemo.order) != 1 || cap(matchMemo.order) >= maxEvidenceMatchMemoEntries {
 		t.Fatalf("match memo storage = entries %d, order %d/%d", len(matchMemo.entries), len(matchMemo.order), cap(matchMemo.order))
 	}
-	if _, err := contextMemo.collect(nil, []string{"a.txt"}, []string{"{name}.txt"}); err != nil {
+	if _, err := contextMemo.collect(nil, []string{"{name}.txt"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(contextMemo.entries) != 1 || len(contextMemo.order) != 1 || cap(contextMemo.order) >= maxMatchContextMemoEntries {

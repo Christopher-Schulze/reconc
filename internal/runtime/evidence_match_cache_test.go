@@ -3,6 +3,7 @@ package runtime
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -46,29 +47,36 @@ func TestEvidenceMatchMemoSeparatesOptionsAndFileContent(t *testing.T) {
 }
 
 func TestMatchContextMemoClonesResultsAndErrors(t *testing.T) {
-	memo := newMatchContextMemo()
 	writes := []string{"src/TASK-1.md"}
+	memo := newMatchContextMemo(writes)
 	patterns := []string{"src/{task}.md"}
-	first, err := memo.collect(nil, writes, patterns)
+	first, err := memo.collect(nil, patterns)
 	if err != nil || len(first) != 1 || first[0].captures["task"] != "TASK-1" {
 		t.Fatalf("first context = %#v, %v", first, err)
 	}
+	if !memo.writeIdentityReady || memo.writeIdentity != digestStrings(writes) {
+		t.Fatal("memo did not retain one evaluation-scoped write identity")
+	}
 	first[0].captures["task"] = "mutated"
-	second, err := memo.collect(nil, writes, patterns)
+	second, err := memo.collect(nil, patterns)
 	if err != nil || second[0].captures["task"] != "TASK-1" {
 		t.Fatalf("memo returned mutable context: %#v, %v", second, err)
 	}
+	second[0].captures["task"] = "mutated-hit"
+	third, err := memo.collect(nil, patterns)
+	if err != nil || third[0].captures["task"] != "TASK-1" {
+		t.Fatalf("memo hit exposed cached context ownership: %#v, %v", third, err)
+	}
 	invalid := []string{"src/["}
-	if _, err := memo.collect(nil, writes, invalid); err == nil {
+	if _, err := memo.collect(nil, invalid); err == nil {
 		t.Fatal("invalid matcher was accepted")
 	}
-	if _, err := memo.collect(nil, writes, invalid); err == nil || len(memo.entries) != 2 {
+	if _, err := memo.collect(nil, invalid); err == nil || len(memo.entries) != 2 {
 		t.Fatalf("invalid matcher was not memoized: err=%v entries=%d", err, len(memo.entries))
 	}
 }
 
 func TestMatchContextMemoEnforcesByteBudget(t *testing.T) {
-	memo := newMatchContextMemo()
 	oversized := []matchContext{{
 		path: strings.Repeat("p", maxMatchContextMemoBytes),
 	}}
@@ -79,8 +87,9 @@ func TestMatchContextMemoEnforcesByteBudget(t *testing.T) {
 	// The production store path must never retain a result whose defensive
 	// storage and return clones exceed the complete memo budget.
 	writes := []string{strings.Repeat("p", maxMatchContextMemoBytes)}
+	memo := newMatchContextMemo(writes)
 	patterns := []string{"**"}
-	if _, err := memo.collect(nil, writes, patterns); err != nil {
+	if _, err := memo.collect(nil, patterns); err != nil {
 		t.Fatal(err)
 	}
 	if len(memo.entries) != 0 || memo.bytes != 0 {
@@ -116,20 +125,62 @@ func BenchmarkEvidenceMatchMemoShared(b *testing.B) {
 }
 
 func BenchmarkMatchContextMemoHit(b *testing.B) {
-	memo := newMatchContextMemo()
 	writes := []string{"src/TASK-1.md", "src/TASK-2.md"}
+	memo := newMatchContextMemo(writes)
 	patterns := []string{"src/{task}.md"}
-	if _, err := memo.collect(nil, writes, patterns); err != nil {
+	if _, err := memo.collect(nil, patterns); err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		contexts, err := memo.collect(nil, writes, patterns)
+		contexts, err := memo.collect(nil, patterns)
 		if err != nil || len(contexts) != len(writes) {
 			b.Fatalf("memo hit = %d, %v", len(contexts), err)
 		}
 	}
+}
+
+func BenchmarkMatchContextMemoMiss(b *testing.B) {
+	writes := make([]string, 32)
+	for index := range writes {
+		writes[index] = "src/TASK-" + strconv.Itoa(index) + ".md"
+	}
+	patterns := []string{"src/{task}.md"}
+	matchers := &runtimeTemplateMatchers{byPattern: map[string]compiledTemplateMatcher{
+		patterns[0]: compileTemplateMatcher(patterns[0]),
+	}}
+	b.ReportAllocs()
+	for range b.N {
+		memo := newMatchContextMemo(writes)
+		contexts, err := memo.collect(matchers, patterns)
+		if err != nil || len(contexts) != len(writes) {
+			b.Fatalf("memo miss = %d, %v", len(contexts), err)
+		}
+	}
+}
+
+func BenchmarkMatchContextMemoDuplicateWrites(b *testing.B) {
+	writes := make([]string, 1024)
+	for index := range writes {
+		writes[index] = "src/TASK-1.md"
+	}
+	patterns := []string{"src/{task}.md"}
+	matchers := &runtimeTemplateMatchers{byPattern: map[string]compiledTemplateMatcher{
+		patterns[0]: compileTemplateMatcher(patterns[0]),
+	}}
+	contextCount := 0
+	b.ReportAllocs()
+	for range b.N {
+		normalized := finishInputNormalization(ExecutionInputs{}, nil, writes, nil)
+		memo := newMatchContextMemo(normalized.inputs.WritePaths)
+		contexts, err := memo.collect(matchers, patterns)
+		if err != nil || len(contexts) == 0 {
+			b.Fatalf("duplicate contexts = %d, %v", len(contexts), err)
+		}
+		contextCount = len(contexts)
+	}
+	b.ReportMetric(float64(contextCount), "contexts/op")
 }
 
 type fakeEvidenceInfo struct {

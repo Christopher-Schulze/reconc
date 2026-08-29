@@ -170,7 +170,7 @@ func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode polic
 // to the violation. A "pass" exit (0) clears that context.
 func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	whenPatterns := stringListField(rule, "when_paths")
-	contexts, err := ctx.contextMemo.collect(ctx.templateMatchers, inputs.WritePaths, whenPatterns)
+	contexts, err := ctx.collectMatchContexts(inputs.WritePaths, whenPatterns)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +247,7 @@ func evalRequireFreshFile(ctx *evalContext, rule *policy.Rule, defaultMode polic
 
 	// Collect all (write_path, captures) pairs that match the rule's
 	// when_paths. For non-templated patterns captures is empty.
-	contexts, err := ctx.contextMemo.collect(ctx.templateMatchers, inputs.WritePaths, whenPatterns)
+	contexts, err := ctx.collectMatchContexts(inputs.WritePaths, whenPatterns)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +332,7 @@ func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy
 		return nil, nil
 	}
 
-	contexts, err := ctx.contextMemo.collect(ctx.templateMatchers, inputs.WritePaths, whenPatterns)
+	contexts, err := ctx.collectMatchContexts(inputs.WritePaths, whenPatterns)
 	if err != nil {
 		return nil, err
 	}

@@ -55,6 +55,25 @@ func TestNormalizeReplayInputsUsesProductionPathAndCommandSemantics(t *testing.T
 	}
 }
 
+func TestNormalizeReplayInputsDeduplicatesWriteIdentityAndPreservesLatestEpoch(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	absolute := repo + "/src/main.go"
+	normalized, err := NormalizeReplayInputs(repo, ExecutionInputs{
+		WritePaths:  []string{absolute, "src/main.go", absolute},
+		WriteEpochs: map[string]uint64{absolute: 2, "src/main.go": 3},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(normalized.WritePaths, []string{"src/main.go"}) {
+		t.Fatalf("normalized writes = %#v", normalized.WritePaths)
+	}
+	if normalized.WriteEpochs["src/main.go"] != 3 {
+		t.Fatalf("normalized write epoch = %d, want 3", normalized.WriteEpochs["src/main.go"])
+	}
+}
+
 func TestCompiledPolicyEvaluatorTracesSatisfiedRuleTriggers(t *testing.T) {
 	withRECONCHome(t)
 	repo := makeRepo(t, "# project\n", "", "rules:\n  - id: read-first\n    kind: require_read\n    paths: [src/**]\n    before_paths: [README.md]\n    mode: block\n    message: read first\n")

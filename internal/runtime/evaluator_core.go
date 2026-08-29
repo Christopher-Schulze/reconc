@@ -45,6 +45,13 @@ func (ctx *evalContext) resolvePolicyFile(relative string) (string, error) {
 	return resolvePolicyFile(ctxRepoRoot(ctx), relative)
 }
 
+func (ctx *evalContext) collectMatchContexts(writes, patterns []string) ([]matchContext, error) {
+	if ctx.contextMemo == nil || !ctx.contextMemo.ownsWrites(writes) {
+		ctx.contextMemo = newMatchContextMemo(writes)
+	}
+	return ctx.contextMemo.collect(ctx.templateMatchers, patterns)
+}
+
 type observedCommandInvocations struct {
 	segments []shellcommand.Invocation
 	complete bool
@@ -322,7 +329,7 @@ func (e *Evaluator) AssertRuleByIDContext(lifecycle context.Context, startPath, 
 		commandEvidence:  newCommandEvidenceIndex(normalized.inputs, root),
 		evidenceCache:    newEvidenceSnapshotCache(),
 		evidenceMemo:     newEvidenceMatchMemo(),
-		contextMemo:      newMatchContextMemo(),
+		contextMemo:      newMatchContextMemo(normalized.inputs.WritePaths),
 	}
 
 	v, err := evaluateRule(ctx, target, plan.defaultMode, normalized.inputs)
@@ -485,7 +492,7 @@ func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root 
 		commandEvidence:  newCommandEvidenceIndex(normalized.inputs, root),
 		evidenceCache:    newEvidenceSnapshotCache(),
 		evidenceMemo:     newEvidenceMatchMemo(),
-		contextMemo:      newMatchContextMemo(),
+		contextMemo:      newMatchContextMemo(normalized.inputs.WritePaths),
 	}
 	ruleIndexes := plan.indexesFor(allowedKinds, preCommand)
 	ruleCount := len(ruleIndexes)

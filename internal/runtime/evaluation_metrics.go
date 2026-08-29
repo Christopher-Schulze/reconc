@@ -247,6 +247,7 @@ func normalizeEvaluationInputWithRootResolver(root string, inputs ExecutionInput
 
 func finishInputNormalization(inputs ExecutionInputs, reads, writes []string, epochs map[string]uint64) normalizedEvaluationInputSet {
 	results := normalizeCommandResults(inputs.CommandResults)
+	writes = dedupePreservingOrder(writes)
 	commands := append([]string{}, inputs.Commands...)
 	for _, result := range results {
 		commands = append(commands, result.Command)
@@ -304,7 +305,7 @@ func matchedRuleIDs(repoRoot string, plan *runtimePlan, normalized, original Exe
 		templateMatchers: plan.templateMatchers,
 		commandCache:     newCommandInvocationCache(plan.commandExpectations),
 		commandEvidence:  newCommandEvidenceIndex(normalized, repoRoot),
-		contextMemo:      newMatchContextMemo(),
+		contextMemo:      newMatchContextMemo(normalized.WritePaths),
 	}
 	ids := []string{}
 	for index := range plan.rules {
@@ -346,7 +347,7 @@ func ruleTriggerMatches(ctx *evalContext, rule *policy.Rule, inputs ExecutionInp
 	case policy.KindRequireFreshFile, policy.KindRequireEvidence,
 		policy.KindAllOf, policy.KindAnyOf, policy.KindNot, policy.KindRequireScript:
 		var contexts []matchContext
-		contexts, err = ctx.contextMemo.collect(ctx.templateMatchers, inputs.WritePaths, rule.WhenPaths)
+		contexts, err = ctx.collectMatchContexts(inputs.WritePaths, rule.WhenPaths)
 		return len(contexts) > 0, err
 	default:
 		paths, err = matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, rule.WhenPaths)

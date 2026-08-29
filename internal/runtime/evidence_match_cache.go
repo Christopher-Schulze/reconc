@@ -191,24 +191,35 @@ type matchContextMemoEntry struct {
 }
 
 type matchContextMemo struct {
-	entries map[matchContextMemoKey]matchContextMemoEntry
-	order   []matchContextMemoKey
-	bytes   int
+	writes             []string
+	writeIdentity      [32]byte
+	writeIdentityReady bool
+	entries            map[matchContextMemoKey]matchContextMemoEntry
+	order              []matchContextMemoKey
+	bytes              int
 }
 
-func newMatchContextMemo() *matchContextMemo {
-	return &matchContextMemo{}
+func newMatchContextMemo(writes []string) *matchContextMemo {
+	return &matchContextMemo{writes: writes}
 }
 
-func (m *matchContextMemo) collect(matchers *runtimeTemplateMatchers, writes, patterns []string) ([]matchContext, error) {
-	if m == nil {
-		return collectMatchContextsWithMatchers(matchers, writes, patterns)
+func (m *matchContextMemo) ownsWrites(writes []string) bool {
+	if m == nil || len(m.writes) != len(writes) {
+		return false
 	}
-	key := matchContextMemoKey{writes: digestStrings(writes), patterns: digestStrings(patterns)}
+	return len(writes) == 0 || &m.writes[0] == &writes[0]
+}
+
+func (m *matchContextMemo) collect(matchers *runtimeTemplateMatchers, patterns []string) ([]matchContext, error) {
+	if !m.writeIdentityReady {
+		m.writeIdentity = digestStrings(m.writes)
+		m.writeIdentityReady = true
+	}
+	key := matchContextMemoKey{writes: m.writeIdentity, patterns: digestStrings(patterns)}
 	if cached, ok := m.entries[key]; ok {
 		return cloneMatchContexts(cached.contexts), cached.err
 	}
-	contexts, err := collectMatchContextsWithMatchers(matchers, writes, patterns)
+	contexts, err := collectMatchContextsWithMatchers(matchers, m.writes, patterns)
 	entryBytes := matchContextMemoEntryBytes(key, contexts, err)
 	if entryBytes > maxMatchContextMemoBytes {
 		return contexts, err
@@ -231,7 +242,7 @@ func (m *matchContextMemo) collect(matchers *runtimeTemplateMatchers, writes, pa
 	m.entries[key] = matchContextMemoEntry{contexts: cloneMatchContexts(contexts), err: err, bytes: entryBytes}
 	m.order = append(m.order, key)
 	m.bytes += entryBytes
-	return cloneMatchContexts(contexts), err
+	return contexts, err
 }
 
 func matchContextMemoEntryBytes(key matchContextMemoKey, contexts []matchContext, err error) int {
