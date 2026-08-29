@@ -301,6 +301,7 @@ func matchedRuleIDs(repoRoot string, plan *runtimePlan, normalized, original Exe
 	ctx := &evalContext{
 		repoRoot:         repoRoot,
 		rawCommands:      rawCommandsPreservingSyntax(original.Commands, original.CommandResults),
+		currentCommands:  rawCommandsPreservingSyntax(original.Commands, nil),
 		matchers:         plan.pathMatchers,
 		templateMatchers: plan.templateMatchers,
 		commandCache:     newCommandInvocationCache(plan.commandExpectations),
@@ -344,8 +345,9 @@ func ruleTriggerMatches(ctx *evalContext, rule *policy.Rule, inputs ExecutionInp
 			return true, nil
 		}
 		paths, err = matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, rule.WhenPaths)
-	case policy.KindRequireFreshFile, policy.KindRequireEvidence,
-		policy.KindAllOf, policy.KindAnyOf, policy.KindNot, policy.KindRequireScript:
+	case policy.KindAllOf, policy.KindAnyOf, policy.KindNot:
+		return compositeRuleTriggerMatches(ctx, rule, inputs)
+	case policy.KindRequireFreshFile, policy.KindRequireEvidence, policy.KindRequireScript:
 		var contexts []matchContext
 		contexts, err = ctx.collectMatchContexts(inputs.WritePaths, rule.WhenPaths)
 		return len(contexts) > 0, err

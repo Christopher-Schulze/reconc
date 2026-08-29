@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -94,6 +96,146 @@ func TestCompiledPolicyEvaluatorTracesSatisfiedRuleTriggers(t *testing.T) {
 	}
 	if report.Decision != DecisionPass || !reflect.DeepEqual(trace.MatchedRuleIDs, []string{"read-first"}) {
 		t.Fatalf("satisfied trace = %+v, report=%+v", trace, report)
+	}
+}
+
+func TestCompiledPolicyEvaluatorTraceUsesCompleteCommandTriggers(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", `rules:
+  - id: path-only
+    kind: require_claim
+    when_paths: ['src/**']
+    claims: [approved]
+    mode: warn
+    message: path
+  - id: command-only
+    kind: forbid_command
+    command_match: prefix
+    commands: ['pip install']
+    mode: warn
+    message: command
+  - id: composite
+    kind: all_of
+    when_paths: ['src/**']
+    checks:
+      - kind: forbid_command
+        command_match: prefix
+        commands: ['pip install']
+      - kind: require_claim
+        claims: [approved]
+    mode: warn
+    message: composite
+`)
+	_, body, err := compiler.RenderRepoPolicy(repo, "0.1.0-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluator, err := NewCompiledPolicyEvaluator(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name               string
+		inputs             ExecutionInputs
+		want               []string
+		wantPreCommandMode Decision
+	}{
+		{
+			name:               "path only",
+			inputs:             ExecutionInputs{WritePaths: []string{"src/main.go"}, Claims: []string{"approved"}},
+			want:               []string{"path-only"},
+			wantPreCommandMode: DecisionPass,
+		},
+		{
+			name:               "command only",
+			inputs:             ExecutionInputs{Commands: []string{"pip install requests"}},
+			want:               []string{"command-only"},
+			wantPreCommandMode: DecisionWarn,
+		},
+		{
+			name: "composite hit",
+			inputs: ExecutionInputs{
+				WritePaths: []string{"src/main.go"}, Commands: []string{"rtk pip install requests"}, Claims: []string{"approved"},
+			},
+			want:               []string{"command-only", "composite", "path-only"},
+			wantPreCommandMode: DecisionWarn,
+		},
+		{
+			name: "composite miss",
+			inputs: ExecutionInputs{
+				WritePaths: []string{"src/main.go"}, Commands: []string{"echo safe"}, Claims: []string{"approved"},
+			},
+			want:               []string{"path-only"},
+			wantPreCommandMode: DecisionPass,
+		},
+		{
+			name: "historical command result is not current",
+			inputs: ExecutionInputs{
+				WritePaths: []string{"src/main.go"}, Commands: []string{"echo safe"}, Claims: []string{"approved"},
+				CommandResults: []CommandResult{{Command: "pip install old", Outcome: CommandOutcomeSuccess}},
+			},
+			want:               []string{"command-only", "path-only"},
+			wantPreCommandMode: DecisionPass,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, trace, err := evaluator.CheckWithTrace(repo, test.inputs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(trace.MatchedRuleIDs, test.want) {
+				t.Fatalf("matched rules = %#v, want %#v", trace.MatchedRuleIDs, test.want)
+			}
+			preCommand, err := CheckRepoPolicyForPreCommand(repo, test.inputs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if preCommand.Decision != test.wantPreCommandMode {
+				t.Fatalf("pre-command decision = %s, want %s", preCommand.Decision, test.wantPreCommandMode)
+			}
+		})
+	}
+}
+
+func TestCompiledPolicyEvaluatorTraceDoesNotRepeatScriptSideEffects(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	counter := filepath.Join(repo, "counter")
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	writeFile(t, repo, "scripts/audit.sh", "#!/bin/sh\nprintf x >> \""+counter+"\"\n")
+	if err := os.Chmod(filepath.Join(repo, "scripts/audit.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, repo, "policies/rules.yml", `rules:
+  - id: script
+    kind: require_script
+    when_paths: ['src/**']
+    script: scripts/audit.sh
+    mode: block
+    message: script
+`)
+	_, body, err := compiler.RenderRepoPolicy(repo, "0.1.0-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluator, err := NewCompiledPolicyEvaluator(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, _, trace, err := evaluator.CheckWithTrace(repo, ExecutionInputs{WritePaths: []string{"src/main.go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Decision != DecisionPass || !reflect.DeepEqual(trace.MatchedRuleIDs, []string{"script"}) {
+		t.Fatalf("script trace = %#v, report=%+v", trace.MatchedRuleIDs, report)
+	}
+	body, err = os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "x" {
+		t.Fatalf("script executions = %q, want one", body)
 	}
 }
 

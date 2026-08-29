@@ -922,6 +922,9 @@ boundaries, not wall-clock time. Completeness declares which event classes the
 capture covered and which were missing or redacted. Even a complete declared
 replay describes only its bounded corpus; an unmatched rule is never called
 dead or safe.
+Composite rules containing `forbid_command` contribute to match counts only
+when both the parent path trigger and the current command match. Historical
+command results do not satisfy that pre-command trigger.
 
 Format-2 corpora preserve format-1 repository replay through deterministic
 migration and add strict `action_pre` and `action_post` cases. An action case

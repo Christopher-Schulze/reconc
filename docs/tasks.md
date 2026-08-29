@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 377 Align matched-rule traces with enforcement -> tasks/377-align-matched-rule-traces-with-enforcement.md
 - [ ] 378 Stream source-freshness identity construction -> tasks/378-stream-source-freshness-identity-construction.md
 - [ ] 379 Reduce lockfile serialization passes -> tasks/379-reduce-lockfile-serialization-passes.md
 - [ ] 380 Bound violation diagnostic aggregation -> tasks/380-bound-violation-diagnostic-aggregation.md
@@ -93,6 +92,7 @@
 
 ## Done
 
+- [x] 377 Align matched-rule traces with enforcement -> tasks/done/377-align-matched-rule-traces-with-enforcement.md
 - [x] 376 Deduplicate and reuse runtime match contexts -> tasks/done/376-deduplicate-and-reuse-runtime-match-contexts.md
 - [x] 375 Prioritize runtime matcher compilation within budget -> tasks/done/375-prioritize-runtime-matcher-compilation-within-budget.md
 - [x] 374 Reduce runtime evaluation hot-path allocations -> tasks/done/374-reduce-runtime-evaluation-hot-path-allocations.md

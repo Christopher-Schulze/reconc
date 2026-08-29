@@ -13,14 +13,17 @@
 
 ## Sub-Tasks
 
-- [ ] Define one side-effect-free trigger contract shared by metrics and enforcement.
-- [ ] Thread current commands into matched-rule computation.
-- [ ] Add parity regressions across filtered and full checks.
-- [ ] Run focused runtime trace tests.
+- [x] Define one side-effect-free trigger contract shared by metrics and enforcement.
+- [x] Thread current commands into matched-rule computation.
+- [x] Add parity regressions across filtered and full checks.
+- [x] Run focused runtime trace tests.
 
 ## Notes
 
 - Verified from finding 7.
 - `matchedRuleIDs` builds a context with nil `currentCommands`; `ruleTriggerMatches` treats the composite path portion as sufficient in that path.
+- Added one side-effect-free composite trigger predicate shared by trace accounting and pre-command enforcement. It checks the parent path and current-command trigger without evaluating sub-checks.
+- Regression coverage proves path-only, command-only, composite hit/miss, historical-result isolation, and single execution of a `require_script` side effect.
+- Verified with focused runtime trace tests, uncached runtime and Impact Lab package tests, `make test-fast`, and `git diff --check`.
 
 ## Deviations

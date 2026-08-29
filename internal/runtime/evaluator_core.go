@@ -513,8 +513,14 @@ func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root 
 		if err := ctx.lifecycleContext().Err(); err != nil {
 			return nil, err
 		}
-		if preCommand && rule.Kind.IsComposite() && !compositeForbiddenCommandMatches(ctx, rule) {
-			continue
+		if preCommand && rule.Kind.IsComposite() {
+			matched, err := compositeRuleTriggerMatches(ctx, rule, normalized.inputs)
+			if err != nil {
+				return nil, err
+			}
+			if !matched {
+				continue
+			}
 		}
 		if batchedScripts.handled[index] {
 			if v := batchedScripts.violations[index]; v != nil {

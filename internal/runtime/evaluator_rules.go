@@ -620,6 +620,20 @@ func commandsForShellAnalysis(ctx *evalContext, fallback []string) []string {
 	return fallback
 }
 
+// compositeRuleTriggerMatches evaluates only the parent path trigger and the
+// current-command prevention trigger. It deliberately does not execute or
+// otherwise evaluate any composite sub-check.
+func compositeRuleTriggerMatches(ctx *evalContext, rule *policy.Rule, inputs ExecutionInputs) (bool, error) {
+	if runtimeRuleContainsForbidCommand(rule) && !compositeForbiddenCommandMatches(ctx, rule) {
+		return false, nil
+	}
+	contexts, err := ctx.collectMatchContexts(inputs.WritePaths, rule.WhenPaths)
+	if err != nil {
+		return false, err
+	}
+	return len(contexts) > 0, nil
+}
+
 func compositeForbiddenCommandMatches(ctx *evalContext, rule *policy.Rule) bool {
 	for _, check := range checksFromRule(rule) {
 		if check.Kind != policy.KindForbidCommand {
