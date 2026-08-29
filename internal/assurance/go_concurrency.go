@@ -381,14 +381,6 @@ func setNamedWorkerReceiver(name string, expression ast.Expr, receivers map[stri
 	return true
 }
 
-// waitGroupArgumentReceiver recognizes the delegation shape
-// `go worker(&wg)` for a locally declared WaitGroup: the callee owns
-// Done while the caller keeps Add and Wait.
-func waitGroupArgumentReceiver(launch *ast.GoStmt, waitGroups map[string]bool) (string, bool) {
-	receiver, _, ok := waitGroupArgument(launch, waitGroups)
-	return receiver, ok
-}
-
 func waitGroupArgument(launch *ast.GoStmt, waitGroups map[string]bool) (string, int, bool) {
 	if _, literal := launch.Call.Fun.(*ast.FuncLit); literal {
 		return "", 0, false
@@ -405,10 +397,6 @@ func waitGroupArgument(launch *ast.GoStmt, waitGroups map[string]bool) (string, 
 		return name.Name, index, true
 	}
 	return "", 0, false
-}
-
-func collectWaitGroupValueSpec(spec *ast.ValueSpec, waitGroups map[string]bool) {
-	collectWaitGroupValueSpecWithAliases(spec, waitGroups, nil)
 }
 
 func collectWaitGroupValueSpecWithAliases(spec *ast.ValueSpec, waitGroups map[string]bool, aliases map[string]bool) {

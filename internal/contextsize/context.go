@@ -155,21 +155,6 @@ func normalizeContextPath(raw string) (string, error) {
 	return filepath.ToSlash(cleaned), nil
 }
 
-func contextFileInfo(root, relative string) (info os.FileInfo, exists bool, resultErr error) {
-	rootHandle, err := os.OpenRoot(root)
-	if err != nil {
-		return nil, false, fmt.Errorf("open repository root: %w", err)
-	}
-	defer func() {
-		if closeErr := rootHandle.Close(); closeErr != nil {
-			resultErr = errors.Join(resultErr, fmt.Errorf("close repository root: %w", closeErr))
-			info = nil
-			exists = false
-		}
-	}()
-	return contextFileInfoRoot(rootHandle, relative, rootHandle.Open)
-}
-
 // contextFileInfoRoot keeps the open operation injectable so replacement
 // windows can be exercised deterministically without weakening the os.Root
 // containment boundary.
