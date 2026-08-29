@@ -284,6 +284,81 @@ func TestSubstantiveProofRejectsStaleHashAndMissingLiveCommand(t *testing.T) {
 	}
 }
 
+func TestSubstantiveProofRejectsUnrelatedEvidenceSamples(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC().Truncate(time.Second)
+	evidence := []byte("measured samples: 10, 11, 12\n")
+	writeAssuranceFile(t, root, "evidence.txt", string(evidence))
+	hash := sha256.Sum256(evidence)
+	document := proofDocument{FormatVersion: "1", Proofs: []proofRecord{{
+		ID: "proof-1", Subject: "latency", Command: "go test ./...", Outcome: "pass",
+		Aggregation: "last", Comparator: "gte", Threshold: float64Pointer(0), Actual: float64Pointer(13), Samples: []float64{10, 11, 13},
+		EvidencePath: "evidence.txt", EvidenceSHA256: hex.EncodeToString(hash[:]), VerifiedAt: now.Format(time.RFC3339),
+	}}}
+	body, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAssuranceFile(t, root, "proofs.json", string(body))
+	gates := []policy.AssuranceGate{{ID: "proof", Type: policy.AssuranceSubstantiveProof, ProofFile: "proofs.json", MinSamples: 3, MaxAgeHours: 24}}
+	findings, err := Evaluate(root, gates, Inputs{SuccessfulCommands: []string{"go test ./..."}, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(findingsText(findings), "evidence samples do not match declared samples") {
+		t.Fatalf("unrelated samples accepted despite a valid evidence hash: %+v", findings)
+	}
+}
+
+func TestSubstantiveProofRejectsMalformedEvidenceSamples(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC().Truncate(time.Second)
+	evidence := []byte("measured samples: 10, not-a-number\n")
+	writeAssuranceFile(t, root, "evidence.txt", string(evidence))
+	hash := sha256.Sum256(evidence)
+	document := proofDocument{FormatVersion: "1", Proofs: []proofRecord{{
+		ID: "proof-1", Subject: "latency", Command: "go test ./...", Outcome: "pass",
+		Aggregation: "mean", Comparator: "lte", Threshold: float64Pointer(20), Actual: float64Pointer(11), Samples: []float64{10, 11},
+		EvidencePath: "evidence.txt", EvidenceSHA256: hex.EncodeToString(hash[:]), VerifiedAt: now.Format(time.RFC3339),
+	}}}
+	body, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAssuranceFile(t, root, "proofs.json", string(body))
+	gates := []policy.AssuranceGate{{ID: "proof", Type: policy.AssuranceSubstantiveProof, ProofFile: "proofs.json", MinSamples: 2, MaxAgeHours: 24}}
+	findings, err := Evaluate(root, gates, Inputs{SuccessfulCommands: []string{"go test ./..."}, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(findingsText(findings), "sample 2 is not a finite number") {
+		t.Fatalf("malformed evidence samples were accepted: %+v", findings)
+	}
+}
+
+func TestSubstantiveProofAcceptsJSONEvidenceSamples(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC().Truncate(time.Second)
+	evidence := []byte(`{"samples":[10,11,12]}`)
+	writeAssuranceFile(t, root, "evidence.json", string(evidence))
+	hash := sha256.Sum256(evidence)
+	document := proofDocument{FormatVersion: "1", Proofs: []proofRecord{{
+		ID: "proof-1", Subject: "latency", Command: "go test ./...", Outcome: "pass",
+		Aggregation: "mean", Comparator: "lte", Threshold: float64Pointer(20), Actual: float64Pointer(11), Samples: []float64{10, 11, 12},
+		EvidencePath: "evidence.json", EvidenceSHA256: hex.EncodeToString(hash[:]), VerifiedAt: now.Format(time.RFC3339),
+	}}}
+	body, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAssuranceFile(t, root, "proofs.json", string(body))
+	gates := []policy.AssuranceGate{{ID: "proof", Type: policy.AssuranceSubstantiveProof, ProofFile: "proofs.json", MinSamples: 3, MaxAgeHours: 24}}
+	findings, err := Evaluate(root, gates, Inputs{SuccessfulCommands: []string{"go test ./..."}, Now: now})
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("valid JSON evidence was rejected: findings=%+v err=%v", findings, err)
+	}
+}
+
 func TestSubstantiveProofZeroAgeDisablesOnlyStaleness(t *testing.T) {
 	root := t.TempDir()
 	now := time.Now().UTC().Truncate(time.Second)

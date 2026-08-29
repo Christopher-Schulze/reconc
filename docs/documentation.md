@@ -2518,7 +2518,7 @@ one pattern matches, so an earlier match cannot hide a malformed later pattern.
 | `package_scripts` | Every configured script that is actually declared and non-empty has current successful manager-scoped evidence; a configured manager must be the sole detected manager, while absent scripts stay optional | Matching package manifests, including inherited workspace manager evidence |
 | `network_boundary` | Changed source sites have a nearby executable guard marker or reasoned path exemption; comments and interpreted or raw strings do not count | Matching changed files |
 | `process_boundary` | Changed process-spawn sites have a nearby executable hardening marker or reasoned path exemption; comments and interpreted or raw strings do not count | Matching changed files |
-| `substantive_proof` | Fresh measured samples, computed aggregate, threshold result, live command, and byte-matched evidence agree | Full configured proof manifest |
+| `substantive_proof` | Fresh measured samples parsed from the referenced evidence, computed aggregate, threshold result, live command, and evidence hash agree | Full configured proof manifest |
 | `live_verification` | Every or any configured command has current successful evidence | Current session |
 | `go_concurrency_boundary` | Changed production Go files contain no unowned bare `go` statements | Matching changed Go files, parsed with the Go AST |
 | `go_format` | Changed Go files are byte-identical to Go standard-library canonical formatting | Matching changed Go files |
@@ -2570,11 +2570,16 @@ unique ID, subject, current successful command, `outcome: "pass"`, aggregation
 (`last`, `mean`, `min`, `max`, `median`, or `p95`), comparator (`lt`, `lte`,
 `eq`, `gte`, or `gt`), numeric threshold and actual, measured samples, an
 RFC3339 verification time, and a repository-relative evidence path plus its
-SHA-256. Reconc recomputes the aggregate from the samples, compares it to both
-the declared actual and threshold, reruns no command itself, and verifies the
-evidence bytes. Omitting `max_age_hours` applies the 24-hour authoring default;
-an explicit `max_age_hours: 0` disables only the staleness limit. Invalid
-timestamps and timestamps more than five minutes in the future always fail.
+SHA-256. Evidence bytes must use one supported sample-bearing form: UTF-8 text
+starting with `measured samples:` followed by comma-separated finite numbers
+(the existing `benchmark samples:` prefix remains accepted), a JSON object with
+only a `samples` number array, or a JSON number array. Reconc parses that
+evidence and requires the exact ordered finite sample sequence to equal the
+declared samples before recomputing the aggregate, comparing it to both the
+declared actual and threshold, rerunning no command itself, and accepting the
+evidence hash. Omitting `max_age_hours` applies the 24-hour authoring default; an
+explicit `max_age_hours: 0` disables only the staleness limit. Invalid timestamps
+and timestamps more than five minutes in the future always fail.
 
 Native assurance is intentionally bounded: 20,000 changed paths, 4,096 unique
 files, 4 MiB per file, 32 MiB total reads, 50,000 applicability or reserved-dir

@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 367 Bind substantive proof measurements to evidence -> tasks/367-bind-substantive-proof-measurements-to-evidence.md
 - [ ] 368 Enforce package-script runner ownership -> tasks/368-enforce-package-script-runner-ownership.md
 - [ ] 369 Prove named WaitGroup worker completion -> tasks/369-prove-named-waitgroup-worker-completion.md
 - [ ] 370 Preserve prerelease precedence in harness compatibility -> tasks/370-preserve-prerelease-precedence-in-harness-compatibility.md
@@ -16,6 +15,7 @@
 
 ## Done
 
+- [x] 367 Bind substantive proof measurements to evidence -> tasks/done/367-bind-substantive-proof-measurements-to-evidence.md
 - [x] 366 Parse assurance guard markers outside comments and strings -> tasks/done/366-parse-assurance-guard-markers-outside-comments-and-strings.md
 - [x] 365 Reject duplicate keys in audit evidence -> tasks/done/365-reject-duplicate-keys-in-audit-evidence.md
 - [x] 364 Precompile forbidden-term inspection matching -> tasks/done/364-precompile-forbidden-term-inspection-matching.md

@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -133,6 +134,183 @@ func verifyEvidenceHash(root string, proof proofRecord, state *evaluationState) 
 	actual := hex.EncodeToString(sum[:])
 	if !strings.EqualFold(actual, strings.TrimSpace(proof.EvidenceSHA256)) {
 		return fmt.Errorf("evidence hash mismatch for %s", proof.EvidencePath)
+	}
+	evidenceSamples, err := parseEvidenceSamples(body)
+	if err != nil {
+		return fmt.Errorf("evidence samples for %s: %w", proof.EvidencePath, err)
+	}
+	if !sameEvidenceSamples(proof.Samples, evidenceSamples) {
+		return fmt.Errorf("evidence samples do not match declared samples for %s", proof.EvidencePath)
+	}
+	return nil
+}
+
+const evidenceTextPrefix = "measured samples:"
+const legacyEvidenceTextPrefix = "benchmark samples:"
+
+func parseEvidenceSamples(body []byte) ([]float64, error) {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return nil, fmt.Errorf("evidence must contain measured samples")
+	}
+	if trimmed[0] == '{' || trimmed[0] == '[' {
+		return parseJSONEvidenceSamples(trimmed)
+	}
+	return parseTextEvidenceSamples(trimmed)
+}
+
+func parseJSONEvidenceSamples(body []byte) ([]float64, error) {
+	if err := rejectDuplicateProofJSONKeys(body); err != nil {
+		return nil, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
+	var numbers []json.Number
+	if body[0] == '{' {
+		var document struct {
+			Samples []json.Number `json:"samples"`
+		}
+		if err := decoder.Decode(&document); err != nil {
+			return nil, fmt.Errorf("expected an object with a samples array: %w", err)
+		}
+		numbers = document.Samples
+	} else {
+		if err := decoder.Decode(&numbers); err != nil {
+			return nil, fmt.Errorf("expected a JSON samples array: %w", err)
+		}
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return nil, err
+	}
+	return parseEvidenceNumbers(numbers)
+}
+
+func parseTextEvidenceSamples(body []byte) ([]float64, error) {
+	text := strings.TrimSpace(string(body))
+	prefix := ""
+	for _, candidate := range []string{evidenceTextPrefix, legacyEvidenceTextPrefix} {
+		if strings.HasPrefix(text, candidate) {
+			prefix = candidate
+			break
+		}
+	}
+	if prefix == "" {
+		return nil, fmt.Errorf("unsupported format; expected %q, %q, or a JSON samples array", evidenceTextPrefix, legacyEvidenceTextPrefix)
+	}
+	payload := strings.TrimSpace(strings.TrimPrefix(text, prefix))
+	if payload == "" {
+		return nil, fmt.Errorf("evidence must contain at least one measured sample")
+	}
+	values := strings.Split(payload, ",")
+	samples := make([]float64, len(values))
+	for index, raw := range values {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			return nil, fmt.Errorf("sample %d is empty", index+1)
+		}
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+			return nil, fmt.Errorf("sample %d is not a finite number: %q", index+1, value)
+		}
+		samples[index] = parsed
+	}
+	return samples, nil
+}
+
+func parseEvidenceNumbers(numbers []json.Number) ([]float64, error) {
+	if len(numbers) == 0 {
+		return nil, fmt.Errorf("evidence must contain at least one measured sample")
+	}
+	samples := make([]float64, len(numbers))
+	for index, number := range numbers {
+		parsed, err := strconv.ParseFloat(string(number), 64)
+		if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+			return nil, fmt.Errorf("sample %d is not a finite number: %q", index+1, number)
+		}
+		samples[index] = parsed
+	}
+	return samples, nil
+}
+
+func sameEvidenceSamples(declared, measured []float64) bool {
+	if len(declared) != len(measured) {
+		return false
+	}
+	for index := range declared {
+		if math.Float64bits(declared[index]) != math.Float64bits(measured[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func rejectDuplicateProofJSONKeys(body []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := walkProofJSONValue(decoder); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values are not allowed")
+		}
+		return err
+	}
+	return nil
+}
+
+func walkProofJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		seen := map[string]struct{}{}
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return fmt.Errorf("object key is not a string")
+			}
+			if _, exists := seen[key]; exists {
+				return fmt.Errorf("duplicate evidence object key %q", key)
+			}
+			seen[key] = struct{}{}
+			if err := walkProofJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if closing != json.Delim('}') {
+			return fmt.Errorf("invalid evidence object termination")
+		}
+	case '[':
+		for decoder.More() {
+			if err := walkProofJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if closing != json.Delim(']') {
+			return fmt.Errorf("invalid evidence array termination")
+		}
+	default:
+		return fmt.Errorf("unexpected evidence JSON delimiter %q", delimiter)
 	}
 	return nil
 }
