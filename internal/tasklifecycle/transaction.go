@@ -637,9 +637,6 @@ func publishTransactionMove(
 	if err != nil {
 		return err
 	}
-	if err := validateMovePublishPrecondition(repoRoot, recorded, sourceFile); err != nil {
-		return err
-	}
 	_, source, err := safeTransactionPath(repoRoot, requested.Source)
 	if err != nil {
 		return err
