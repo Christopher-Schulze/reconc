@@ -42,16 +42,16 @@ func runPreDecisionResolvedWithEvaluator(root string, payloadBytes []byte, permi
 		return adaptPreDecision(Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}, permission)
 	}
 	inputs, cacheable := preDecisionInputsForPayload(root, payload)
-	key := inputs.key
 	if cacheable {
-		if cached, ok := readPreDecisionCacheForPayload(root, payload, key); ok {
+		if cached, ok := readPreDecisionCacheForInputs(root, payload, inputs); ok {
 			return adaptPreDecision(cached, permission)
 		}
 	}
 
 	decision := runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root, payload, evaluator, inputs.aliasSnapshot)
-	if postKey, ok := preDecisionKeyForPayload(root, payload); cacheable && ok && postKey == key {
-		_ = writePreDecisionCacheForPayload(root, payload, postKey, decision)
+	if postInputs, ok := resamplePreDecisionInputs(root, payload, inputs); cacheable && ok &&
+		inputs.identity.equal(postInputs.identity) {
+		_ = writePreDecisionCacheForPayload(root, payload, postInputs.key, decision)
 	}
 	return adaptPreDecision(decision, permission)
 }
@@ -81,8 +81,39 @@ func preDecisionKeyForPayload(root string, payload *HookPayload) (string, bool) 
 }
 
 type preDecisionInputs struct {
+	identity      preDecisionIdentity
 	key           string
 	aliasSnapshot gitAliasSnapshot
+}
+
+type preDecisionIdentity struct {
+	payload      string
+	policyLock   string
+	policySource string
+	session      string
+	taint        string
+	alias        string
+}
+
+func (identity preDecisionIdentity) key() string {
+	hash := sha256.New()
+	for _, part := range []string{
+		preDecisionCacheVersion,
+		identity.payload,
+		identity.policyLock,
+		identity.policySource,
+		identity.session,
+		identity.taint,
+		identity.alias,
+	} {
+		_, _ = hash.Write([]byte(part))
+		_, _ = hash.Write([]byte{0})
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func (identity preDecisionIdentity) equal(other preDecisionIdentity) bool {
+	return identity == other
 }
 
 func preDecisionInputsForPayload(root string, payload *HookPayload) (preDecisionInputs, bool) {
@@ -103,41 +134,71 @@ func preDecisionInputsForPayload(root string, payload *HookPayload) (preDecision
 	if err != nil {
 		return preDecisionInputs{}, false
 	}
+	inputs := preDecisionInputs{
+		identity: preDecisionIdentity{payload: string(payloadIdentity)},
+	}
+	if !capturePreDecisionObservedIdentity(root, payload, &inputs) {
+		return preDecisionInputs{}, false
+	}
+	inputs.key = inputs.identity.key()
+	return inputs, true
+}
+
+func capturePreDecisionObservedIdentity(
+	root string,
+	payload *HookPayload,
+	inputs *preDecisionInputs,
+) bool {
+	if payload == nil || inputs == nil {
+		return false
+	}
 	policyIdentity, ok := hashPreDecisionFile(filepath.Join(root, policyLockfilePath), false)
 	if !ok {
-		return preDecisionInputs{}, false
+		return false
 	}
 	policySourceIdentity, ok := preDecisionPolicySourceIdentity(root)
 	if !ok {
-		return preDecisionInputs{}, false
+		return false
 	}
 	stateIdentity, ok := preDecisionSessionIdentity(root, payload.SessionID)
 	if !ok {
-		return preDecisionInputs{}, false
+		return false
 	}
 	taintIdentity, ok := hashPreDecisionFile(evidenceTaintPath(root), true)
 	if !ok {
-		return preDecisionInputs{}, false
+		return false
 	}
-	inputs := preDecisionInputs{}
-	aliasIdentity := "not-applicable"
+	inputs.identity.policyLock = policyIdentity
+	inputs.identity.policySource = policySourceIdentity
+	inputs.identity.session = stateIdentity
+	inputs.identity.taint = taintIdentity
+	inputs.identity.alias = "not-applicable"
 	if payload.IsCommandTool() {
 		inputs.aliasSnapshot = captureGitAliasSnapshot(root)
-		aliasIdentity, ok = inputs.aliasSnapshot.identityValue()
+		aliasIdentity, ok := inputs.aliasSnapshot.identityValue()
 		if !ok {
-			return inputs, false
+			return false
 		}
+		inputs.identity.alias = aliasIdentity
 	}
-	hash := sha256.New()
-	for _, part := range [][]byte{
-		[]byte(preDecisionCacheVersion), payloadIdentity,
-		[]byte(policyIdentity), []byte(policySourceIdentity),
-		[]byte(stateIdentity), []byte(taintIdentity), []byte(aliasIdentity),
-	} {
-		_, _ = hash.Write(part)
-		_, _ = hash.Write([]byte{0})
+	return true
+}
+
+func resamplePreDecisionInputs(
+	root string,
+	payload *HookPayload,
+	baseline preDecisionInputs,
+) (preDecisionInputs, bool) {
+	if payload == nil || baseline.identity.payload == "" {
+		return preDecisionInputs{}, false
 	}
-	inputs.key = hex.EncodeToString(hash.Sum(nil))
+	inputs := preDecisionInputs{
+		identity: preDecisionIdentity{payload: baseline.identity.payload},
+	}
+	if !capturePreDecisionObservedIdentity(root, payload, &inputs) {
+		return preDecisionInputs{}, false
+	}
+	inputs.key = inputs.identity.key()
 	return inputs, true
 }
 
@@ -201,6 +262,18 @@ func readPreDecisionCache(root string, payloadBytes []byte, expectedKey string) 
 }
 
 func readPreDecisionCacheForPayload(root string, payload *HookPayload, expectedKey string) (Result, bool) {
+	inputs, ok := preDecisionInputsForPayload(root, payload)
+	if !ok || inputs.key != expectedKey {
+		return Result{}, false
+	}
+	return readPreDecisionCacheForInputs(root, payload, inputs)
+}
+
+func readPreDecisionCacheForInputs(
+	root string,
+	payload *HookPayload,
+	expected preDecisionInputs,
+) (Result, bool) {
 	path := preDecisionCachePathForPayload(root, payload)
 	if path == "" {
 		return Result{}, false
@@ -210,12 +283,12 @@ func readPreDecisionCacheForPayload(root string, payload *HookPayload, expectedK
 		return Result{}, false
 	}
 	var cached preDecisionCache
-	if json.Unmarshal(body, &cached) != nil || cached.FormatVersion != preDecisionCacheVersion || cached.Key != expectedKey ||
+	if json.Unmarshal(body, &cached) != nil || cached.FormatVersion != preDecisionCacheVersion || cached.Key != expected.key ||
 		(cached.ExitCode != 0 && cached.ExitCode != 2) || len(cached.Stderr) > maxPreDecisionDiagnostic {
 		return Result{}, false
 	}
-	currentKey, ok := preDecisionKeyForPayload(root, payload)
-	if !ok || currentKey != expectedKey {
+	current, ok := resamplePreDecisionInputs(root, payload, expected)
+	if !ok || !expected.identity.equal(current.identity) {
 		return Result{}, false
 	}
 	return Result{ExitCode: cached.ExitCode, Stderr: cached.Stderr}, true

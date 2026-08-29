@@ -2,9 +2,11 @@ package agentsession
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -154,6 +156,78 @@ func TestPreDecisionWithoutStableToolIdentityIsNotCached(t *testing.T) {
 	}
 }
 
+func TestPreDecisionIdentityResamplingReusesPayloadAndDetectsEvidenceMutation(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	root, err := ResolveRepoRootRef(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := RunHookRequest(root, HookHandlerSessionStart, "claude-session-start", []byte(`{"session_id":"identity-resample"}`)); result.ExitCode != 0 {
+		t.Fatalf("session start: %+v", result)
+	}
+	payload := &HookPayload{
+		SessionID: "identity-resample", ToolUseID: "call-identity", ToolName: "Write",
+		ToolInput: map[string]interface{}{"file_path": "src/main.go"},
+	}
+	initial, ok := preDecisionInputsForPayload(root.Path(), payload)
+	if !ok {
+		t.Fatal("initial pre-decision identity was not cacheable")
+	}
+	resampled, ok := resamplePreDecisionInputs(root.Path(), payload, initial)
+	if !ok || !initial.identity.equal(resampled.identity) || initial.key != resampled.key {
+		t.Fatalf("unchanged identity was not preserved: initial=%+v resampled=%+v cacheable=%v", initial, resampled, ok)
+	}
+	if _, err := mutateSessionStateResolved(root.Path(), payload.SessionID, func(state SessionState) SessionState {
+		return AppendReadPath(state, "docs/documentation.md")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	changed, ok := resamplePreDecisionInputs(root.Path(), payload, initial)
+	if !ok {
+		t.Fatal("mutated pre-decision identity became unexpectedly uncacheable")
+	}
+	if initial.identity.equal(changed.identity) || initial.key == changed.key {
+		t.Fatalf("session evidence mutation did not change typed identity: initial=%+v changed=%+v", initial, changed)
+	}
+}
+
+func TestPreDecisionIdentityResamplingIsConcurrentSafe(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	root, err := ResolveRepoRootRef(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := RunHookRequest(root, HookHandlerSessionStart, "claude-session-start", []byte(`{"session_id":"identity-race"}`)); result.ExitCode != 0 {
+		t.Fatalf("session start: %+v", result)
+	}
+	payload := &HookPayload{
+		SessionID: "identity-race", ToolUseID: "call-identity", ToolName: "Write",
+		ToolInput: map[string]interface{}{"file_path": "src/main.go"},
+	}
+	initial, ok := preDecisionInputsForPayload(root.Path(), payload)
+	if !ok {
+		t.Fatal("initial pre-decision identity was not cacheable")
+	}
+	const callers = 16
+	var wait sync.WaitGroup
+	wait.Add(callers)
+	errors := make(chan error, callers)
+	for range callers {
+		go func() {
+			defer wait.Done()
+			resampled, cacheable := resamplePreDecisionInputs(root.Path(), payload, initial)
+			if !cacheable || !initial.identity.equal(resampled.identity) {
+				errors <- fmt.Errorf("concurrent identity resample changed: cacheable=%v identity=%+v", cacheable, resampled.identity)
+			}
+		}()
+	}
+	wait.Wait()
+	close(errors)
+	for err := range errors {
+		t.Fatal(err)
+	}
+}
+
 func TestPreDecisionCacheInvalidatesOnGitAliasMutation(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	runGitGuardTestCommand(t, "-C", repo, "init", "--quiet")
@@ -237,6 +311,10 @@ func BenchmarkPreDecisionKeyPayloadDecode(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	initial, ok := preDecisionInputsForPayload(repo, payload)
+	if !ok {
+		b.Fatal("pre-decision identity is not cacheable")
+	}
 	b.Run("decode-each-key", func(b *testing.B) {
 		b.ReportAllocs()
 		for range b.N {
@@ -250,6 +328,15 @@ func BenchmarkPreDecisionKeyPayloadDecode(b *testing.B) {
 		for range b.N {
 			if _, ok := preDecisionKeyForPayload(repo, payload); !ok {
 				b.Fatal("key is not cacheable")
+			}
+		}
+	})
+	b.Run("resample-typed-components", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			resampled, ok := resamplePreDecisionInputs(repo, payload, initial)
+			if !ok || !initial.identity.equal(resampled.identity) {
+				b.Fatal("typed identity resampling changed without an input mutation")
 			}
 		}
 	})

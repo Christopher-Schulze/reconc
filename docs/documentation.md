@@ -2127,6 +2127,10 @@ The identity is sampled again after reading the cache; missing IDs, unreadable
 identity inputs, policy or evidence mutation, oversized diagnostics, and
 malformed cache entries force a fresh fail-closed evaluation. Session cleanup
 removes its decision cache.
+Within one hook event, the decoded payload identity and typed component record
+are captured once. Cache validation and post-evaluation sampling reread the
+mutable lock, policy-source, session, taint, and alias inputs separately, then
+compare those components before rebuilding a cache key.
 Disabled and unchanged hook events do not create run state. Run decisions record every
 bounded repository continuation plus material transitions without prompt
 payloads. Live session state is hard-capped at 1 MiB; every evidence

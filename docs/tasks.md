@@ -2,11 +2,10 @@
 
 ## Active
 
+- [~] 333 Index immutable schema contracts for direct lookup -> tasks/333-index-immutable-schema-contracts-for-direct-lookup.md
 
 ## Queue
 
-- [ ] 332 Share pre-decision identity work within one hook event -> tasks/332-share-pre-decision-identity-work-within-one-hook-event.md
-- [ ] 333 Index immutable schema contracts for direct lookup -> tasks/333-index-immutable-schema-contracts-for-direct-lookup.md
 - [ ] 334 Propagate protocol and identity serialization failures -> tasks/334-propagate-protocol-and-identity-serialization-failures.md
 - [ ] 335 Pin JSONL backup source identity before linking -> tasks/335-pin-jsonl-backup-source-identity-before-linking.md
 - [ ] 336 Root bootstrap publication against path replacement -> tasks/336-root-bootstrap-publication-against-path-replacement.md
@@ -23,6 +22,7 @@
 
 ## Done
 
+- [x] 332 Share pre-decision identity work within one hook event -> tasks/done/332-share-pre-decision-identity-work-within-one-hook-event.md
 - [x] 331 Reuse one runtime evaluator across MCP gateway checks -> tasks/done/331-reuse-one-runtime-evaluator-across-mcp-gateway-checks.md
 - [x] 330 Avoid duplicate full session-state equality passes -> tasks/done/330-avoid-duplicate-full-session-state-equality-passes.md
 - [x] 329 Linearize session-state normalization -> tasks/done/329-linearize-session-state-normalization.md
