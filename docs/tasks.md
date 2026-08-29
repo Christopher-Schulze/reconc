@@ -4,6 +4,94 @@
 
 ## Queue
 
+- [ ] 374 Reduce runtime evaluation hot-path allocations -> tasks/374-reduce-runtime-evaluation-hot-path-allocations.md
+- [ ] 375 Prioritize runtime matcher compilation within budget -> tasks/375-prioritize-runtime-matcher-compilation-within-budget.md
+- [ ] 376 Deduplicate and reuse runtime match contexts -> tasks/376-deduplicate-and-reuse-runtime-match-contexts.md
+- [ ] 377 Align matched-rule traces with enforcement -> tasks/377-align-matched-rule-traces-with-enforcement.md
+- [ ] 378 Stream source-freshness identity construction -> tasks/378-stream-source-freshness-identity-construction.md
+- [ ] 379 Reduce lockfile serialization passes -> tasks/379-reduce-lockfile-serialization-passes.md
+- [ ] 380 Bound violation diagnostic aggregation -> tasks/380-bound-violation-diagnostic-aggregation.md
+- [ ] 381 Bind require-script execution to validated identity -> tasks/381-bind-require-script-execution-to-validated-identity.md
+- [ ] 382 Streamline command semantic normalization -> tasks/382-streamline-command-semantic-normalization.md
+- [ ] 383 Remove verified runtime helper duplication -> tasks/383-remove-verified-runtime-helper-duplication.md
+- [ ] 384 Hermeticize offline hook verification -> tasks/384-hermeticize-offline-hook-verification.md
+- [ ] 385 Preserve stricter managed-artifact permissions -> tasks/385-preserve-stricter-managed-artifact-permissions.md
+- [ ] 386 Protect live retention locks and sessions -> tasks/386-protect-live-retention-locks-and-sessions.md
+- [ ] 387 Align JSONL writer and reader contracts -> tasks/387-align-jsonl-writer-and-reader-contracts.md
+- [ ] 388 Harden CLI value parsing and helper implementations -> tasks/388-harden-cli-value-parsing-and-helper-implementations.md
+- [ ] 389 Make run-log following duplicate-safe and incremental -> tasks/389-make-run-log-following-duplicate-safe-and-incremental.md
+- [ ] 390 Retain pre-decision and taint-resolution state -> tasks/390-retain-pre-decision-and-taint-resolution-state.md
+- [ ] 391 Harden session-state persistence boundaries -> tasks/391-harden-session-state-persistence-boundaries.md
+- [ ] 392 Reduce session and pre-decision identity work -> tasks/392-reduce-session-and-pre-decision-identity-work.md
+- [ ] 393 Sanitize adapter trust boundaries and diagnostics -> tasks/393-sanitize-adapter-trust-boundaries-and-diagnostics.md
+- [ ] 394 Consolidate adapter MCP envelope construction -> tasks/394-consolidate-adapter-mcp-envelope-construction.md
+- [ ] 395 Prevent TASK section-counter overflow -> tasks/395-prevent-task-section-counter-overflow.md
+- [ ] 396 Preserve blocking CI findings under truncation -> tasks/396-preserve-blocking-ci-findings-under-truncation.md
+- [ ] 397 Redact quoted sensitive command values -> tasks/397-redact-quoted-sensitive-command-values.md
+- [ ] 398 Canonicalize and redact public proof identities -> tasks/398-canonicalize-and-redact-public-proof-identities.md
+- [ ] 399 Make compiler discovery and source paths deterministic -> tasks/399-make-compiler-discovery-and-source-paths-deterministic.md
+- [ ] 400 Reject ambiguous YAML merge semantics -> tasks/400-reject-ambiguous-yaml-merge-semantics.md
+- [ ] 401 Verify bootstrap file modes on Windows -> tasks/401-verify-bootstrap-file-modes-on-windows.md
+- [ ] 402 Bind validated plans to embedded harness packs -> tasks/402-bind-validated-plans-to-embedded-harness-packs.md
+- [ ] 403 Surface corrupt and drifted init state truthfully -> tasks/403-surface-corrupt-and-drifted-init-state-truthfully.md
+- [ ] 404 Validate receipt digests before path construction -> tasks/404-validate-receipt-digests-before-path-construction.md
+- [ ] 405 Bind bootstrap removal to parent handles -> tasks/405-bind-bootstrap-removal-to-parent-handles.md
+- [ ] 406 Stop signaling reaped Unix process groups -> tasks/406-stop-signaling-reaped-unix-process-groups.md
+- [ ] 407 Bound MCP progress admission -> tasks/407-bound-mcp-progress-admission.md
+- [ ] 408 Remove action-evaluation hot-path encodings -> tasks/408-remove-action-evaluation-hot-path-encodings.md
+- [ ] 409 Correct action indeterminate classification and limits -> tasks/409-correct-action-indeterminate-classification-and-limits.md
+- [ ] 410 Bound action glob matching work -> tasks/410-bound-action-glob-matching-work.md
+- [ ] 411 Reconcile abandoned pending approvals -> tasks/411-reconcile-abandoned-pending-approvals.md
+- [ ] 412 Synchronize action-ledger checkpoint publication -> tasks/412-synchronize-action-ledger-checkpoint-publication.md
+- [ ] 413 Settle indeterminate results per budget cap -> tasks/413-settle-indeterminate-results-per-budget-cap.md
+- [ ] 414 Restrict workflow-audit batching to capture-free scopes -> tasks/414-restrict-workflow-audit-batching-to-capture-free-scopes.md
+- [ ] 415 Centralize hook-runtime failure adaptation -> tasks/415-centralize-hook-runtime-failure-adaptation.md
+- [ ] 416 Bound persistent hook-worker root caching -> tasks/416-bound-persistent-hook-worker-root-caching.md
+- [ ] 417 Preserve exact hook output-envelope limits -> tasks/417-preserve-exact-hook-output-envelope-limits.md
+- [ ] 418 Separate TASK validation failures from I/O failures -> tasks/418-separate-task-validation-failures-from-io-failures.md
+- [ ] 419 Consolidate bounded subprocess capture -> tasks/419-consolidate-bounded-subprocess-capture.md
+- [ ] 420 Define deterministic repository control-directory permissions -> tasks/420-define-deterministic-repository-control-directory-permissions.md
+- [ ] 421 Return non-zero for incomplete hook verification -> tasks/421-return-non-zero-for-incomplete-hook-verification.md
+- [ ] 422 Synchronize MCP progress shutdown -> tasks/422-synchronize-mcp-progress-shutdown.md
+- [ ] 423 Persist and expire pending tool correlations -> tasks/423-persist-and-expire-pending-tool-correlations.md
+- [ ] 424 Revalidate terminal Stop state -> tasks/424-revalidate-terminal-stop-state.md
+- [ ] 425 Make JSONL locking bounded and cancellable -> tasks/425-make-jsonl-locking-bounded-and-cancellable.md
+- [ ] 426 Preserve JSONL data through recovery -> tasks/426-preserve-jsonl-data-through-recovery.md
+- [ ] 427 Serialize JSONL retention and validate modes -> tasks/427-serialize-jsonl-retention-and-validate-modes.md
+- [ ] 428 Make hook-worker retries idempotent -> tasks/428-make-hook-worker-retries-idempotent.md
+- [ ] 429 Parse Kimi managed blocks structurally -> tasks/429-parse-kimi-managed-blocks-structurally.md
+- [ ] 430 Share builtin secret-detector programs -> tasks/430-share-builtin-secret-detector-programs.md
+- [ ] 431 Fail closed on truncated adapter output -> tasks/431-fail-closed-on-truncated-adapter-output.md
+- [ ] 432 Report partial wrapper installation -> tasks/432-report-partial-wrapper-installation.md
+- [ ] 433 Preserve mixed hook configuration ownership -> tasks/433-preserve-mixed-hook-configuration-ownership.md
+- [ ] 434 Bind runtime executables to install trust -> tasks/434-bind-runtime-executables-to-install-trust.md
+- [ ] 435 Harden bootstrap stage recovery -> tasks/435-harden-bootstrap-stage-recovery.md
+- [ ] 436 Record manual retention completion -> tasks/436-record-manual-retention-completion.md
+- [ ] 437 Preserve completion drift error identity -> tasks/437-preserve-completion-drift-error-identity.md
+- [ ] 438 Bound impact filesystem snapshots -> tasks/438-bound-impact-filesystem-snapshots.md
+- [ ] 439 Redact CI host paths on boundaries -> tasks/439-redact-ci-host-paths-on-boundaries.md
+- [ ] 440 Bound Grok continuation prompts -> tasks/440-bound-grok-continuation-prompts.md
+- [ ] 441 Short-circuit conditions and bound glob expansion -> tasks/441-short-circuit-conditions-and-bound-glob-expansion.md
+- [ ] 442 Validate budget selector and tool identities -> tasks/442-validate-budget-selector-and-tool-identities.md
+- [ ] 443 Reuse validated compiled action plans -> tasks/443-reuse-validated-compiled-action-plans.md
+- [ ] 444 Keep existing identity-key reads read-only -> tasks/444-keep-existing-identity-key-reads-read-only.md
+- [ ] 445 Add concurrent action-state read paths -> tasks/445-add-concurrent-action-state-read-paths.md
+- [ ] 446 Isolate invalid upstream MCP requests -> tasks/446-isolate-invalid-upstream-mcp-requests.md
+- [ ] 447 Bound Git process cancellation -> tasks/447-bound-git-process-cancellation.md
+- [ ] 448 Enforce action evaluation work deadlines -> tasks/448-enforce-action-evaluation-work-deadlines.md
+- [ ] 449 Retain and stream session evidence safely -> tasks/449-retain-and-stream-session-evidence-safely.md
+- [ ] 450 Bind compaction recovery markers structurally -> tasks/450-bind-compaction-recovery-markers-structurally.md
+- [ ] 451 Keep hook liveness routes consistent -> tasks/451-keep-hook-liveness-routes-consistent.md
+- [ ] 452 Preserve user interrupt on close failure -> tasks/452-preserve-user-interrupt-on-close-failure.md
+- [ ] 453 Preserve policy-relevant Git state -> tasks/453-preserve-policy-relevant-git-state.md
+- [ ] 454 Reuse Stop fingerprints and loaded evidence -> tasks/454-reuse-stop-fingerprints-and-loaded-evidence.md
+- [ ] 455 Persist repository-run terminal reasons -> tasks/455-persist-repository-run-terminal-reasons.md
+- [ ] 456 Correct namespaced MCP strict audit -> tasks/456-correct-namespaced-mcp-strict-audit.md
+- [ ] 457 Avoid Git discovery for ordinary write paths -> tasks/457-avoid-git-discovery-for-ordinary-write-paths.md
+- [ ] 458 Reuse the doctor Grok capability probe -> tasks/458-reuse-doctor-grok-capability-probe.md
+- [ ] 459 Stream and reuse executable verification -> tasks/459-stream-and-reuse-executable-verification.md
+- [ ] 460 Render TUI width in terminal cells -> tasks/460-render-tui-width-in-terminal-cells.md
+
 ## Blocked
 
 ## Done
