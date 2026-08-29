@@ -62,9 +62,6 @@ func writeNew(path string, data []byte, mode, parentMode os.FileMode) (result Pu
 	if err := parent.validate(); err != nil {
 		return result, fmt.Errorf("validate parent after publishing %s: %w", path, err)
 	}
-	if err := parent.validate(); err != nil {
-		return result, fmt.Errorf("validate parent after syncing %s: %w", path, err)
-	}
 	result.markDurable()
 	return result, nil
 }

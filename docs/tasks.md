@@ -5,7 +5,6 @@
 
 ## Queue
 
-- [ ] 347 Remove duplicate create-only parent validation -> tasks/347-remove-duplicate-create-only-parent-validation.md
 - [ ] 348 Bind private parent security to opened descriptors -> tasks/348-bind-private-parent-security-to-opened-descriptors.md
 - [ ] 349 Preserve distinct tool-use event identities -> tasks/349-preserve-distinct-tool-use-event-identities.md
 - [ ] 350 Fail closed on dynamic find launcher arguments -> tasks/350-fail-closed-on-dynamic-find-launcher-arguments.md
@@ -37,6 +36,7 @@
 
 ## Done
 
+- [x] 347 Remove duplicate create-only parent validation -> tasks/done/347-remove-duplicate-create-only-parent-validation.md
 - [x] 346 Publish MCP tool refreshes atomically -> tasks/done/346-publish-mcp-tool-refreshes-atomically.md
 - [x] 345 Eliminate redundant full-evaluation rule slices -> tasks/done/345-eliminate-redundant-full-evaluation-rule-slices.md
 - [x] 344 Cache immutable command expectations in runtime plans -> tasks/done/344-cache-immutable-command-expectations.md
@@ -46,4 +46,3 @@
 - [x] 342 Stabilize concurrent JSONL archive discovery -> tasks/done/342-stabilize-concurrent-jsonl-archive-discovery.md
 - [x] 341 Remove duplicate JSONL lock validation -> tasks/done/341-remove-duplicate-jsonl-lock-validation.md
 - [x] 340 Centralize archive-ring bounds and symlink accounting -> tasks/done/340-centralize-archive-ring-bounds-and-symlink-accounting.md
-- [x] 339 Reuse canonical bytes across proof serialization -> tasks/done/339-reuse-canonical-bytes-across-proof-serialization.md
