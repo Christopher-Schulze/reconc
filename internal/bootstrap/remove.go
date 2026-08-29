@@ -15,12 +15,14 @@ import (
 )
 
 type removalMutation struct {
-	relative string
-	path     string
-	before   []byte
-	after    []byte
-	mode     os.FileMode
-	remove   bool
+	relative        string
+	path            string
+	before          []byte
+	after           []byte
+	mode            os.FileMode
+	remove          bool
+	identity        os.FileInfo
+	appliedIdentity os.FileInfo
 }
 
 type removalCandidate struct {
@@ -28,6 +30,8 @@ type removalCandidate struct {
 	content  []byte
 	mode     uint32
 }
+
+var beforeRemovalMutation = func(removalMutation) error { return nil }
 
 // Remove reverses one applied bootstrap plan using its tamper-evident install
 // receipt. It never infers ownership from a filename alone.
@@ -130,13 +134,13 @@ func removeLegacyReceipt(plan *Plan) (*RemovalReport, error) {
 	if err != nil {
 		return report, err
 	}
-	receiptBody, receiptMode, err := readRemovalFile(receiptPath, maxInstallReceiptBytes)
+	receiptBody, receiptMode, receiptInfo, err := readRemovalSnapshot(receiptPath, maxInstallReceiptBytes)
 	if err != nil {
 		return report, fmt.Errorf("read bootstrap install receipt before removal: %w", err)
 	}
 	mutations = append(mutations, removalMutation{
 		relative: receiptRelative, path: receiptPath, before: receiptBody,
-		mode: receiptMode, remove: true,
+		mode: receiptMode, remove: true, identity: receiptInfo,
 	})
 	removed, updated, rolledBack, err := applyRemovalTransaction(plan.RepoRoot, mutations)
 	report.Removed = removed
@@ -188,13 +192,13 @@ func removePortableReceipt(plan *Plan, receipt *RepositoryReceipt) (*RemovalRepo
 	if err != nil {
 		return report, err
 	}
-	receiptBody, receiptMode, err := readRemovalFile(receiptPath, maxRepositoryReceiptBytes)
+	receiptBody, receiptMode, receiptInfo, err := readRemovalSnapshot(receiptPath, maxRepositoryReceiptBytes)
 	if err != nil {
 		return report, fmt.Errorf("read portable repository receipt before removal: %w", err)
 	}
 	mutations = append(mutations, removalMutation{
 		relative: RepositoryReceiptRelativePath, path: receiptPath,
-		before: receiptBody, mode: receiptMode, remove: true,
+		before: receiptBody, mode: receiptMode, remove: true, identity: receiptInfo,
 	})
 
 	if len(report.Preserved) > 0 || len(candidates) > 0 {
@@ -237,7 +241,7 @@ func planPortableFileRemoval(root, relative, expectedSHA string, expectedMode ui
 	if err != nil {
 		return nil, "", err
 	}
-	body, mode, err := readRemovalFile(target, maxBinaryBytes)
+	body, mode, info, err := readRemovalSnapshot(target, maxBinaryBytes)
 	if os.IsNotExist(err) {
 		return nil, "", nil
 	}
@@ -251,7 +255,7 @@ func planPortableFileRemoval(root, relative, expectedSHA string, expectedMode ui
 		return nil, "mode drifted; portable ownership is no longer exact", nil
 	}
 	return &removalMutation{
-		relative: relative, path: target, before: body, mode: mode, remove: true,
+		relative: relative, path: target, before: body, mode: mode, remove: true, identity: info,
 	}, "", nil
 }
 
@@ -260,7 +264,7 @@ func planPortableBlockRemoval(root string, block ManagedBlock) (*removalMutation
 	if err != nil {
 		return nil, nil, "", err
 	}
-	body, mode, err := readRemovalFile(target, maxBinaryBytes)
+	body, mode, info, err := readRemovalSnapshot(target, maxBinaryBytes)
 	if os.IsNotExist(err) {
 		return nil, nil, "", nil
 	}
@@ -284,7 +288,7 @@ func planPortableBlockRemoval(root string, block ManagedBlock) (*removalMutation
 	if bytesSHA256(managed) == block.ManagedSHA256 {
 		return &removalMutation{
 			relative: block.Path, path: target, before: body,
-			after: []byte(stripped), mode: mode,
+			after: []byte(stripped), mode: mode, identity: info,
 		}, nil, "", nil
 	}
 	candidateBody := []byte(stripped)
@@ -335,13 +339,13 @@ func appendPrivateLifecycleRemoval(plan *Plan, report *RemovalReport, mutations 
 		report.Preserved = append(report.Preserved, receiptRelative+": "+err.Error())
 		return
 	}
-	body, mode, err := readRemovalFile(receiptPath, maxInstallReceiptBytes)
+	body, mode, info, err := readRemovalSnapshot(receiptPath, maxInstallReceiptBytes)
 	if err != nil {
 		report.Preserved = append(report.Preserved, receiptRelative+": "+err.Error())
 		return
 	}
 	*mutations = append(*mutations, removalMutation{
-		relative: receiptRelative, path: receiptPath, before: body, mode: mode, remove: true,
+		relative: receiptRelative, path: receiptPath, before: body, mode: mode, remove: true, identity: info,
 	})
 }
 
@@ -350,7 +354,7 @@ func planReceiptEntryRemoval(root string, entry InstallReceiptEntry) (*removalMu
 	if err != nil {
 		return nil, nil, "", err
 	}
-	body, mode, err := readRemovalFile(target, maxBinaryBytes)
+	body, mode, info, err := readRemovalSnapshot(target, maxBinaryBytes)
 	if os.IsNotExist(err) {
 		return nil, nil, "", nil
 	}
@@ -362,7 +366,7 @@ func planReceiptEntryRemoval(root string, entry InstallReceiptEntry) (*removalMu
 	if exact {
 		switch entry.Ownership {
 		case "file":
-			return &removalMutation{relative: entry.Path, path: target, before: body, mode: mode, remove: true}, nil, "", nil
+			return &removalMutation{relative: entry.Path, path: target, before: body, mode: mode, remove: true, identity: info}, nil, "", nil
 		case "managed-block":
 			stripped, found, stripErr := stripReceiptManagedBlock(string(body), entry.BlockStart, entry.BlockEnd)
 			if stripErr != nil {
@@ -371,7 +375,7 @@ func planReceiptEntryRemoval(root string, entry InstallReceiptEntry) (*removalMu
 			if !found {
 				return nil, nil, "managed block is missing", nil
 			}
-			return &removalMutation{relative: entry.Path, path: target, before: body, after: []byte(stripped), mode: mode}, nil, "", nil
+			return &removalMutation{relative: entry.Path, path: target, before: body, after: []byte(stripped), mode: mode, identity: info}, nil, "", nil
 		}
 	}
 	if entry.BlockStart == "" {
@@ -449,59 +453,88 @@ func materializeRemovalCandidates(plan *Plan, candidates []removalCandidate) ([]
 }
 
 func readRemovalFile(path string, limit int64) ([]byte, os.FileMode, error) {
+	body, mode, _, err := readRemovalSnapshot(path, limit)
+	return body, mode, err
+}
+
+func readRemovalSnapshot(path string, limit int64) ([]byte, os.FileMode, os.FileInfo, error) {
 	pathInfo, err := os.Lstat(path)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	if !pathInfo.Mode().IsRegular() || pathInfo.Mode()&os.ModeSymlink != 0 || pathInfo.Size() > limit {
-		return nil, 0, fmt.Errorf("%s is not a bounded real regular file", path)
+		return nil, 0, nil, fmt.Errorf("%s is not a bounded real regular file", path)
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	openedInfo, err := file.Stat()
 	if err != nil {
 		_ = file.Close()
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	if !os.SameFile(pathInfo, openedInfo) {
 		_ = file.Close()
-		return nil, 0, fmt.Errorf("%s changed while opening", path)
+		return nil, 0, nil, fmt.Errorf("%s changed while opening", path)
 	}
 	body, readErr := io.ReadAll(io.LimitReader(file, limit+1))
+	afterInfo, statErr := file.Stat()
 	closeErr := file.Close()
-	if len(body) > int(limit) {
-		return nil, 0, fmt.Errorf("%s exceeds %d bytes", path, limit)
+	if int64(len(body)) > limit {
+		return nil, 0, nil, fmt.Errorf("%s exceeds %d bytes", path, limit)
 	}
-	if err := errors.Join(readErr, closeErr); err != nil {
-		return nil, 0, err
+	if err := errors.Join(readErr, statErr, closeErr); err != nil {
+		return nil, 0, nil, err
 	}
-	return body, pathInfo.Mode().Perm(), nil
+	pathAfter, err := os.Lstat(path)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	if !afterInfo.Mode().IsRegular() || pathAfter.Mode()&os.ModeSymlink != 0 ||
+		!pathAfter.Mode().IsRegular() || !os.SameFile(pathInfo, afterInfo) ||
+		!os.SameFile(afterInfo, pathAfter) || afterInfo.Size() != int64(len(body)) ||
+		pathAfter.Size() != afterInfo.Size() || !afterInfo.ModTime().Equal(pathAfter.ModTime()) ||
+		afterInfo.Mode() != pathAfter.Mode() {
+		return nil, 0, nil, fmt.Errorf("%s changed while it was read", path)
+	}
+	return body, pathAfter.Mode().Perm(), pathAfter, nil
 }
 
 func applyRemovalTransaction(repoRoot string, mutations []removalMutation) ([]string, []string, []string, error) {
 	for _, mutation := range mutations {
-		current, _, err := readRemovalFile(mutation.path, maxBinaryBytes)
-		if err != nil {
+		if err := validateRemovalMutation(mutation); err != nil {
 			return nil, nil, nil, fmt.Errorf("revalidate removal target %s: %w", mutation.relative, err)
-		}
-		if !bytes.Equal(current, mutation.before) {
-			return nil, nil, nil, fmt.Errorf("removal target changed after preflight: %s", mutation.relative)
 		}
 	}
 	applied := []removalMutation{}
 	removed := []string{}
 	updated := []string{}
 	for _, mutation := range mutations {
+		if beforeRemovalMutation != nil {
+			if err := beforeRemovalMutation(mutation); err != nil {
+				return removed, updated, nil, fmt.Errorf("prepare removal mutation %s: %w", mutation.relative, err)
+			}
+		}
+		if err := validateRemovalMutation(mutation); err != nil {
+			rolledBack, rollbackErr := rollbackRemovalMutations(repoRoot, applied)
+			return removed, updated, rolledBack, fmt.Errorf("revalidate removal target %s: %w", mutation.relative, errors.Join(err, rollbackErr))
+		}
 		var err error
+		mutationApplied := false
 		if mutation.remove {
 			err = os.Remove(mutation.path)
 			if err == nil {
+				mutationApplied = true
 				err = syncRemovalParent(mutation.path)
 			}
 		} else {
 			_, err = atomicfile.WriteIfChanged(mutation.path, mutation.after, mutation.mode)
+		}
+		if err == nil {
+			if !mutation.remove {
+				_, _, mutation.appliedIdentity, err = readRemovalSnapshot(mutation.path, maxBinaryBytes)
+			}
 		}
 		if err == nil {
 			applied = append(applied, mutation)
@@ -512,10 +545,30 @@ func applyRemovalTransaction(repoRoot string, mutations []removalMutation) ([]st
 			}
 			continue
 		}
+		if mutationApplied {
+			applied = append(applied, mutation)
+		}
 		rolledBack, rollbackErr := rollbackRemovalMutations(repoRoot, applied)
 		return removed, updated, rolledBack, fmt.Errorf("apply removal mutation %s: %w", mutation.relative, errors.Join(err, rollbackErr))
 	}
 	return removed, updated, nil, nil
+}
+
+func validateRemovalMutation(mutation removalMutation) error {
+	if mutation.identity == nil {
+		return errors.New("removal mutation has no bound file identity")
+	}
+	current, _, info, err := readRemovalSnapshot(mutation.path, maxBinaryBytes)
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(mutation.identity, info) {
+		return errors.New("removal target identity changed after preflight")
+	}
+	if !bytes.Equal(current, mutation.before) {
+		return errors.New("removal target changed after preflight")
+	}
+	return nil
 }
 
 func rollbackRemovalMutations(repoRoot string, applied []removalMutation) ([]string, error) {
@@ -532,12 +585,16 @@ func rollbackRemovalMutations(repoRoot string, applied []removalMutation) ([]str
 				continue
 			}
 		} else {
-			current, _, err := readRemovalFile(mutation.path, maxBinaryBytes)
+			current, _, info, err := readRemovalSnapshot(mutation.path, maxBinaryBytes)
 			if err != nil || !bytes.Equal(current, mutation.after) {
 				if err == nil {
 					err = fmt.Errorf("content changed after removal mutation")
 				}
 				rollbackErr = errors.Join(rollbackErr, fmt.Errorf("refuse to overwrite removal rollback target %s: %w", mutation.relative, err))
+				continue
+			}
+			if mutation.appliedIdentity != nil && !os.SameFile(mutation.appliedIdentity, info) {
+				rollbackErr = errors.Join(rollbackErr, fmt.Errorf("refuse to overwrite removal rollback target %s: identity changed after removal mutation", mutation.relative))
 				continue
 			}
 		}

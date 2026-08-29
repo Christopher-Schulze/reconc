@@ -403,6 +403,130 @@ func TestRemovalRollbackRefusesToOverwriteConcurrentChanges(t *testing.T) {
 	}
 }
 
+func TestApplyRemovalTransactionRejectsReplacementBeforeEachRemoval(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		replace    func(*testing.T, string, string)
+		wantPath   string
+		wantBackup string
+	}{
+		{
+			name: "regular replacement",
+			replace: func(t *testing.T, path, replacement string) {
+				if err := os.Rename(path, replacement); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("attacker\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantPath: "attacker\n",
+		},
+		{
+			name: "symlink substitution",
+			replace: func(t *testing.T, path, replacement string) {
+				if err := os.Rename(path, replacement); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(replacement, path); err != nil {
+					t.Skipf("symlink unavailable: %v", err)
+				}
+			},
+			wantPath:   "owned\n",
+			wantBackup: "owned\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := t.TempDir()
+			path := filepath.Join(repo, "owned.txt")
+			replacement := filepath.Join(repo, "replacement.txt")
+			if err := os.WriteFile(path, []byte("owned\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			before, mode, identity, err := readRemovalSnapshot(path, maxBinaryBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mutation := removalMutation{relative: "owned.txt", path: path, before: before, mode: mode, remove: true, identity: identity}
+			previousHook := beforeRemovalMutation
+			beforeRemovalMutation = func(removalMutation) error {
+				test.replace(t, path, replacement)
+				return nil
+			}
+			t.Cleanup(func() { beforeRemovalMutation = previousHook })
+			if _, _, _, err := applyRemovalTransaction(repo, []removalMutation{mutation}); err == nil {
+				t.Fatal("replacement was removed")
+			} else if !strings.Contains(err.Error(), "removal target") {
+				t.Fatalf("replacement error = %v", err)
+			}
+			body, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(body) != test.wantPath {
+				t.Fatalf("replacement body = %q", body)
+			}
+			if test.wantBackup != "" {
+				if body, err := os.ReadFile(replacement); err != nil || string(body) != test.wantBackup {
+					t.Fatalf("replacement target changed: body=%q err=%v", body, err)
+				}
+			}
+		})
+	}
+}
+
+func TestApplyRemovalTransactionRollsBackEarlierRemovalAfterReplacement(t *testing.T) {
+	repo := t.TempDir()
+	firstPath := filepath.Join(repo, "first.txt")
+	secondPath := filepath.Join(repo, "second.txt")
+	if err := os.WriteFile(firstPath, []byte("first\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secondPath, []byte("second\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	firstBefore, firstMode, firstIdentity, err := readRemovalSnapshot(firstPath, maxBinaryBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondBefore, secondMode, secondIdentity, err := readRemovalSnapshot(secondPath, maxBinaryBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutations := []removalMutation{
+		{relative: "first.txt", path: firstPath, before: firstBefore, mode: firstMode, remove: true, identity: firstIdentity},
+		{relative: "second.txt", path: secondPath, before: secondBefore, mode: secondMode, remove: true, identity: secondIdentity},
+	}
+	calls := 0
+	previousHook := beforeRemovalMutation
+	beforeRemovalMutation = func(removalMutation) error {
+		calls++
+		if calls == 2 {
+			if err := os.Rename(secondPath, secondPath+".owned"); err != nil {
+				return err
+			}
+			if err := os.WriteFile(secondPath, []byte("attacker\n"), 0o644); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	t.Cleanup(func() { beforeRemovalMutation = previousHook })
+	_, _, rolledBack, err := applyRemovalTransaction(repo, mutations)
+	if err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("replacement transaction error = %v", err)
+	}
+	if strings.Join(rolledBack, ",") != "first.txt" {
+		t.Fatalf("rolled back = %v", rolledBack)
+	}
+	if body, err := os.ReadFile(firstPath); err != nil || string(body) != "first\n" {
+		t.Fatalf("first removal was not restored: body=%q err=%v", body, err)
+	}
+	if body, err := os.ReadFile(secondPath); err != nil || string(body) != "attacker\n" {
+		t.Fatalf("second replacement was changed: body=%q err=%v", body, err)
+	}
+}
+
 func TestRemovalRollbackRestoresRemovedAndUpdatedFiles(t *testing.T) {
 	repo := t.TempDir()
 	removedPath := filepath.Join(repo, "nested", "removed.txt")

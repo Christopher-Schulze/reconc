@@ -318,8 +318,8 @@ candidate insertion and digest ordering.
    parent directories to safe rollback or commit finalization; unproven or
    non-empty directories are never removed.
    Bootstrap removal treats portable ownership as its maximum authority,
-   SHA-verifies owned files, strips only managed blocks, and preserves drift
-   and user-owned paths.
+   SHA- and identity-verifies owned files immediately before each removal,
+   strips only managed blocks, and preserves drift and user-owned paths.
    Bootstrap-created artifact verification and rollback retain opened file and
    parent identities through chmod, hashing, durability, and rooted cleanup;
    external target replacement is reported and preserved. Hook merges and

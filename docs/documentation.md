@@ -707,7 +707,10 @@ artifacts, strips exact marker-owned blocks while preserving every outside
 byte, and never deletes user-owned policy, docs, TASKs, or unrelated files
 merely because an older private receipt once created them. Drift blocks the
 normal mutation set and emits hash-addressed review candidates. The private
-receipt may remove only its own exact lifecycle records.
+receipt may remove only its own exact lifecycle records. Every removal target
+retains its validated file identity and bytes through an immediate
+pre-removal recheck; replacement, symlink, type, or content drift fails closed
+and multi-target rollback preserves the replacement.
 `reconc hook uninstall KIND .` removes one separately selected platform with
 the same ownership discipline.
 

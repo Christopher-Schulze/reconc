@@ -86,14 +86,14 @@ func acceptManagedCandidatesLocked(plan *Plan, report *Report) (*ManagedAcceptan
 		if err != nil {
 			return result, err
 		}
-		current, currentMode, err := readRemovalFile(target, maxBinaryBytes)
+		current, currentMode, currentInfo, err := readRemovalSnapshot(target, maxBinaryBytes)
 		if err != nil {
 			return result, fmt.Errorf("read managed acceptance target %s: %w", action.Path, err)
 		}
 		if bytesSHA256(current) != action.ExistingSHA256 || !modeSatisfies(currentMode, action.Mode) {
 			return result, fmt.Errorf("managed acceptance target drifted since planning: %s", action.Path)
 		}
-		desired, desiredMode, err := readRemovalFile(candidate, maxBinaryBytes)
+		desired, desiredMode, desiredInfo, err := readRemovalSnapshot(candidate, maxBinaryBytes)
 		if err != nil {
 			return result, fmt.Errorf("read managed acceptance candidate %s: %w", action.CandidatePath, err)
 		}
@@ -110,8 +110,8 @@ func acceptManagedCandidatesLocked(plan *Plan, report *Report) (*ManagedAcceptan
 			return result, fmt.Errorf("candidate %s changes content outside its Reconc managed block", action.CandidatePath)
 		}
 		mutations = append(mutations,
-			removalMutation{relative: action.Path, path: target, before: current, after: desired, mode: currentMode},
-			removalMutation{relative: action.CandidatePath, path: candidate, before: desired, mode: desiredMode, remove: true},
+			removalMutation{relative: action.Path, path: target, before: current, after: desired, mode: currentMode, identity: currentInfo},
+			removalMutation{relative: action.CandidatePath, path: candidate, before: desired, mode: desiredMode, remove: true, identity: desiredInfo},
 		)
 		accepted++
 	}
