@@ -2,7 +2,6 @@
 
 ## Active
 
-- [~] 331 Reuse one runtime evaluator across MCP gateway checks -> tasks/331-reuse-one-runtime-evaluator-across-mcp-gateway-checks.md
 
 ## Queue
 
@@ -24,6 +23,7 @@
 
 ## Done
 
+- [x] 331 Reuse one runtime evaluator across MCP gateway checks -> tasks/done/331-reuse-one-runtime-evaluator-across-mcp-gateway-checks.md
 - [x] 330 Avoid duplicate full session-state equality passes -> tasks/done/330-avoid-duplicate-full-session-state-equality-passes.md
 - [x] 329 Linearize session-state normalization -> tasks/done/329-linearize-session-state-normalization.md
 - [x] 328 Cache Git alias discovery within one evaluation -> tasks/done/328-cache-git-alias-discovery-within-one-evaluation.md

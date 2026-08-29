@@ -81,6 +81,7 @@ func gatewayConfig(
 	version string,
 	stdout, stderr io.Writer,
 ) mcpgateway.Config {
+	runtimeEvaluator := productruntime.NewEvaluator()
 	authority := actionstate.PolicyAuthority{Mode: action.AuthorityRepositoryManaged}
 	if options.expectedLockDigest != "" {
 		authority = actionstate.PolicyAuthority{
@@ -97,7 +98,8 @@ func gatewayConfig(
 		CallTimeout: options.timeout, Command: options.command, Arguments: options.arguments,
 		ReconcHome: options.reconcHome, Version: version,
 		Input: os.Stdin, Output: stdout, Diagnostics: stderr,
-		PolicyLoader: gatewayPolicyLoader{}, EvidenceProvider: gatewayEvidenceProvider{},
+		PolicyLoader:     gatewayPolicyLoader{evaluator: runtimeEvaluator},
+		EvidenceProvider: gatewayEvidenceProvider{evaluator: runtimeEvaluator},
 	}
 }
 
@@ -228,12 +230,17 @@ func validateMCPGatewayOptions(options mcpGatewayOptions) error {
 	return nil
 }
 
-type gatewayPolicyLoader struct{}
+type gatewayPolicyLoader struct {
+	evaluator *productruntime.Evaluator
+}
 
-func (gatewayPolicyLoader) Load(
+func (l gatewayPolicyLoader) Load(
 	ctx context.Context,
 	repository string,
 ) (mcpgateway.PolicySnapshot, error) {
+	if l.evaluator == nil {
+		return mcpgateway.PolicySnapshot{}, fmt.Errorf("gateway runtime evaluator is unavailable")
+	}
 	if err := ctx.Err(); err != nil {
 		return mcpgateway.PolicySnapshot{}, err
 	}
@@ -248,7 +255,7 @@ func (gatewayPolicyLoader) Load(
 	if err != nil {
 		return mcpgateway.PolicySnapshot{}, err
 	}
-	compiled, _, err := productruntime.NewEvaluator().CurrentCompiledPolicyEvaluator(root)
+	compiled, _, err := l.evaluator.CurrentCompiledPolicyEvaluator(root)
 	if err != nil {
 		return mcpgateway.PolicySnapshot{}, err
 	}
@@ -262,12 +269,15 @@ func (gatewayPolicyLoader) Load(
 	return mcpgateway.PolicySnapshot{
 		Repository: root, Evaluator: actionRuntime.Evaluator, Plan: actionRuntime.Plan,
 		SourceDigest: actionRuntime.SourceDigest, LockDigest: actionRuntime.LockDigest,
+		RepositoryEffectCheck: compiledRepositoryEffectCheck(compiled, root),
 	}, nil
 }
 
-type gatewayEvidenceProvider struct{}
+type gatewayEvidenceProvider struct {
+	evaluator *productruntime.Evaluator
+}
 
-func (gatewayEvidenceProvider) Observe(
+func (p gatewayEvidenceProvider) Observe(
 	ctx context.Context,
 	snapshot mcpgateway.PolicySnapshot,
 	request action.Request,
@@ -289,24 +299,69 @@ func (gatewayEvidenceProvider) Observe(
 		return mcpgateway.EvidenceSnapshot{}, err
 	}
 	evidence.RepositoryPaths = bindings
-	inputs := productruntime.Empty()
-	if tool.Effect.Kind == action.EffectRepositoryRead {
-		inputs.ReadPaths = paths
-	} else {
-		inputs.WritePaths = paths
-	}
 	if err := ctx.Err(); err != nil {
 		return mcpgateway.EvidenceSnapshot{}, err
 	}
-	report, err := productruntime.CheckRepoPolicyContext(ctx, snapshot.Repository, inputs)
-	if err != nil {
-		return mcpgateway.EvidenceSnapshot{}, err
+	if snapshot.RepositoryEffectCheck != nil {
+		var readPaths, writePaths []string
+		if tool.Effect.Kind == action.EffectRepositoryRead {
+			readPaths = paths
+		} else {
+			writePaths = paths
+		}
+		candidate, err := snapshot.RepositoryEffectCheck(
+			ctx, snapshot.Repository, readPaths, writePaths,
+		)
+		if err != nil {
+			return mcpgateway.EvidenceSnapshot{}, err
+		}
+		evidence.RepositoryEffect = candidate
+	} else {
+		inputs := productruntime.Empty()
+		if tool.Effect.Kind == action.EffectRepositoryRead {
+			inputs.ReadPaths = paths
+		} else {
+			inputs.WritePaths = paths
+		}
+		if p.evaluator == nil {
+			return mcpgateway.EvidenceSnapshot{}, fmt.Errorf("gateway runtime evaluator is unavailable")
+		}
+		report, err := p.evaluator.CheckRepoPolicyContext(ctx, snapshot.Repository, inputs)
+		if err != nil {
+			return mcpgateway.EvidenceSnapshot{}, err
+		}
+		evidence.RepositoryEffect = repositoryEffectCandidate(report)
 	}
-	evidence.RepositoryEffect = repositoryEffectCandidate(report)
 	if err := ctx.Err(); err != nil {
 		return mcpgateway.EvidenceSnapshot{}, err
 	}
 	return evidence, nil
+}
+
+func compiledRepositoryEffectCheck(
+	compiled *productruntime.CompiledPolicyEvaluator,
+	root string,
+) mcpgateway.RepositoryEffectCheck {
+	return func(
+		ctx context.Context,
+		repository string,
+		readPaths, writePaths []string,
+	) (*action.RepositoryEffectCandidate, error) {
+		if compiled == nil {
+			return nil, fmt.Errorf("compiled repository policy evaluator is unavailable")
+		}
+		if repository != root {
+			return nil, fmt.Errorf("repository policy identity changed during evidence evaluation")
+		}
+		inputs := productruntime.Empty()
+		inputs.ReadPaths = append([]string(nil), readPaths...)
+		inputs.WritePaths = append([]string(nil), writePaths...)
+		report, _, err := compiled.CheckContext(ctx, root, inputs)
+		if err != nil {
+			return nil, err
+		}
+		return repositoryEffectCandidate(report), nil
+	}
 }
 
 func gatewayTaint(repository string) (action.TaintSnapshot, error) {

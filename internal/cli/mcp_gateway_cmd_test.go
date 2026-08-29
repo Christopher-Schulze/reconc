@@ -2,13 +2,19 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
+	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/pathidentity"
+	productruntime "reconc.dev/reconc/internal/runtime"
 )
 
 func TestParseMCPGatewayOptionsKeepsDownstreamArgumentsOpaque(t *testing.T) {
@@ -88,6 +94,137 @@ func TestMCPGatewayHelpDoesNotStartGateway(t *testing.T) {
 	}
 	if !strings.HasPrefix(stdout.String(), "Usage: reconc mcp gateway") {
 		t.Fatalf("gateway help = %q", stdout.String())
+	}
+}
+
+func TestGatewayConfigSharesRuntimeEvaluatorAcrossPolicyBoundaries(t *testing.T) {
+	config := gatewayConfig(
+		mcpGatewayOptions{
+			repository: ".", serverLabel: "server", principal: "operator",
+			repositoryManaged: true, command: "/tool",
+		},
+		"test", &bytes.Buffer{}, &bytes.Buffer{},
+	)
+	loader, ok := config.PolicyLoader.(gatewayPolicyLoader)
+	if !ok {
+		t.Fatalf("gateway policy loader = %T", config.PolicyLoader)
+	}
+	provider, ok := config.EvidenceProvider.(gatewayEvidenceProvider)
+	if !ok {
+		t.Fatalf("gateway evidence provider = %T", config.EvidenceProvider)
+	}
+	if loader.evaluator == nil || provider.evaluator == nil || loader.evaluator != provider.evaluator {
+		t.Fatalf("gateway runtime evaluator ownership is not shared: loader=%p provider=%p", loader.evaluator, provider.evaluator)
+	}
+}
+
+func TestGatewayPolicyLoaderReusesCompiledPlanAndBindsRepositoryCheck(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repository := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repository, "AGENTS.md"), []byte("# fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	policyText := "rules:\n  - id: deny-source\n    kind: deny_write\n    paths: ['src/**']\n    mode: block\n    message: denied\n"
+	if err := os.WriteFile(filepath.Join(repository, ".reconc.yml"), []byte(policyText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(repository, "gateway-evaluator-test"); err != nil {
+		t.Fatal(err)
+	}
+	runtimeEvaluator := productruntime.NewEvaluator()
+	loader := gatewayPolicyLoader{evaluator: runtimeEvaluator}
+	first, err := loader.Load(context.Background(), repository)
+	if err != nil {
+		t.Fatalf("first gateway policy load: %v", err)
+	}
+	second, err := loader.Load(context.Background(), repository)
+	if err != nil {
+		t.Fatalf("second gateway policy load: %v", err)
+	}
+	if first.Plan != second.Plan {
+		t.Fatalf("gateway policy loads rebuilt the immutable plan: first=%p second=%p", first.Plan, second.Plan)
+	}
+	if first.RepositoryEffectCheck == nil || second.RepositoryEffectCheck == nil {
+		t.Fatal("gateway policy snapshot did not bind a repository-effect check")
+	}
+
+	arguments, err := action.ParseObjectJSON([]byte(`{"path":"src/main.go"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := (gatewayEvidenceProvider{evaluator: runtimeEvaluator}).Observe(
+		context.Background(), first,
+		action.Request{Arguments: &arguments},
+		action.Tool{Effect: action.Effect{
+			Kind: action.EffectRepositoryWrite, PathFields: []string{"/path"},
+		}},
+	)
+	if err != nil {
+		t.Fatalf("repository-effect evidence: %v", err)
+	}
+	if evidence.RepositoryEffect == nil || evidence.RepositoryEffect.Decision != action.DecisionBlock {
+		t.Fatalf("repository-effect decision = %#v", evidence.RepositoryEffect)
+	}
+
+	updated := strings.Replace(policyText, "src/**", "dist/**", 1)
+	if err := os.WriteFile(filepath.Join(repository, ".reconc.yml"), []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loader.Load(context.Background(), repository); err == nil ||
+		(!strings.Contains(err.Error(), "source_digest") && !strings.Contains(err.Error(), "source_count")) {
+		t.Fatalf("policy mutation was not rejected by the shared evaluator: %v", err)
+	}
+}
+
+func TestGatewayRepositoryEffectCheckIsConcurrentSafe(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repository := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repository, "AGENTS.md"), []byte("# fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, ".reconc.yml"), []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(repository, "gateway-evaluator-race-test"); err != nil {
+		t.Fatal(err)
+	}
+	runtimeEvaluator := productruntime.NewEvaluator()
+	snapshot, err := (gatewayPolicyLoader{evaluator: runtimeEvaluator}).Load(context.Background(), repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	arguments, err := action.ParseObjectJSON([]byte(`{"path":"src/main.go"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := gatewayEvidenceProvider{evaluator: runtimeEvaluator}
+	const workers = 16
+	var group sync.WaitGroup
+	group.Add(workers)
+	errors := make(chan error, workers)
+	for range workers {
+		go func() {
+			defer group.Done()
+			evidence, observeErr := provider.Observe(
+				context.Background(), snapshot,
+				action.Request{Arguments: &arguments},
+				action.Tool{Effect: action.Effect{
+					Kind: action.EffectRepositoryRead, PathFields: []string{"/path"},
+				}},
+			)
+			if observeErr != nil {
+				errors <- observeErr
+				return
+			}
+			if evidence.RepositoryEffect == nil || evidence.RepositoryEffect.Decision != action.DecisionAllow {
+				errors <- fmt.Errorf("unexpected concurrent repository-effect evidence: %#v", evidence.RepositoryEffect)
+			}
+		}()
+	}
+	group.Wait()
+	close(errors)
+	for err := range errors {
+		t.Fatal(err)
 	}
 }
 

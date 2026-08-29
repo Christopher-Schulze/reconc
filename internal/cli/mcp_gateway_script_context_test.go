@@ -10,8 +10,8 @@ import (
 
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/compiler"
-	"reconc.dev/reconc/internal/mcpgateway"
 	"reconc.dev/reconc/internal/pathidentity"
+	productruntime "reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
@@ -60,9 +60,16 @@ func TestGatewayEvidenceCancellationStopsPolicyScript(t *testing.T) {
 		cancel()
 	}()
 
-	_, err = (gatewayEvidenceProvider{}).Observe(
+	runtimeEvaluator := productruntime.NewEvaluator()
+	snapshot, err := (gatewayPolicyLoader{evaluator: runtimeEvaluator}).Load(
+		context.Background(), repo,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = (gatewayEvidenceProvider{evaluator: runtimeEvaluator}).Observe(
 		ctx,
-		mcpgateway.PolicySnapshot{Repository: repo},
+		snapshot,
 		action.Request{Arguments: &arguments},
 		action.Tool{Effect: action.Effect{Kind: action.EffectRepositoryWrite, PathFields: []string{"/path"}}},
 	)

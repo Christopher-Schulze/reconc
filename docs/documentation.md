@@ -2802,7 +2802,11 @@ The Go 1.27 hotpath pass also bounds trace storage during evaluation, shares
 one immutable compiled inspection pack per gateway, traverses immutable action
 values without cloning child slices, reuses one freshness hashing buffer per
 source batch, right-sizes evaluation-local memos, and opens one rooted source
-reader per complete policy load. Five focused Apple M1 repetitions reduced a
+reader per complete policy load. The MCP gateway keeps one runtime evaluator
+for its lifetime: policy refreshes retain the evaluator's freshness-checked
+plan cache, and repository-effect evidence evaluates the already validated
+snapshot plan before the gateway's existing identity and policy resampling
+boundaries. Five focused Apple M1 repetitions reduced a
 maximum legal action plan from 3,184,776 to about 326,700 B/op, a clean maximum
 MCP content-array scan from 4,846,336 B/op and 32,777 allocs/op to about
 178,300 B/op and 88 allocs/op, a large freshness set from about 5.39 MiB/op to

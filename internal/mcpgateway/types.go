@@ -80,12 +80,24 @@ type Config struct {
 }
 
 type PolicySnapshot struct {
-	Repository   string
-	Evaluator    *action.Evaluator
-	Plan         *action.CompiledPlan
-	SourceDigest string
-	LockDigest   string
+	Repository            string
+	Evaluator             *action.Evaluator
+	Plan                  *action.CompiledPlan
+	SourceDigest          string
+	LockDigest            string
+	RepositoryEffectCheck RepositoryEffectCheck
 }
+
+// RepositoryEffectCheck evaluates repository read/write evidence through the
+// immutable policy snapshot that was already validated at the gateway
+// boundary. The path slices are owned by the caller and must be treated as
+// read-only.
+type RepositoryEffectCheck func(
+	context.Context,
+	string,
+	[]string,
+	[]string,
+) (*action.RepositoryEffectCandidate, error)
 
 type PolicyLoader interface {
 	Load(context.Context, string) (PolicySnapshot, error)
