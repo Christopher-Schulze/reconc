@@ -299,6 +299,7 @@ func observeFreshnessFile(path string, totalBytes *int64, copyBuffer []byte) (fr
 	hash := sha256.New()
 	var readBytes int64
 	var openedInfo os.FileInfo
+	var openedIdentity string
 	err = withFreshnessFileSnapshot(path, maxFreshnessFileBytes, func(file *os.File, opened os.FileInfo) error {
 		if *totalBytes > maxFreshnessTotalBytes-opened.Size() {
 			return fmt.Errorf("runtime freshness files exceed bounded byte budget")
@@ -312,7 +313,9 @@ func observeFreshnessFile(path string, totalBytes *int64, copyBuffer []byte) (fr
 		if readBytes != opened.Size() {
 			return fmt.Errorf("runtime freshness source changed while reading: %s", path)
 		}
-		return nil
+		var identityErr error
+		openedIdentity, identityErr = freshnessFileIdentity(file, opened)
+		return identityErr
 	})
 	if err != nil {
 		return observation, err
@@ -322,7 +325,7 @@ func observeFreshnessFile(path string, totalBytes *int64, copyBuffer []byte) (fr
 	observation.Mode = uint32(openedInfo.Mode())
 	observation.Size = openedInfo.Size()
 	observation.ModTime = openedInfo.ModTime().UnixNano()
-	observation.Identity = freshnessIdentity(openedInfo)
+	observation.Identity = openedIdentity
 	var digest [sha256.Size]byte
 	sum := hash.Sum(digest[:0])
 	var encoded [sha256.Size * 2]byte

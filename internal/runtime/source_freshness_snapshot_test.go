@@ -24,6 +24,18 @@ func TestFreshnessFileReplacementBeforeOpenUsesOneCoherentSnapshot(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	wantFile, err := os.Open(replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantIdentity, err := freshnessFileIdentity(wantFile, wantInfo)
+	closeErr := wantFile.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
 	original := withFreshnessFileSnapshot
 	withFreshnessFileSnapshot = func(observedPath string, maximum int64, use func(*os.File, os.FileInfo) error) error {
 		if err := os.Rename(replacement, observedPath); err != nil {
@@ -41,7 +53,7 @@ func TestFreshnessFileReplacementBeforeOpenUsesOneCoherentSnapshot(t *testing.T)
 	wantDigest := sha256.Sum256(body)
 	if !observation.Exists || observation.Size != wantInfo.Size() ||
 		observation.Mode != uint32(wantInfo.Mode()) || observation.ModTime != wantInfo.ModTime().UnixNano() ||
-		observation.Identity != freshnessIdentity(wantInfo) || observation.Digest != hex.EncodeToString(wantDigest[:]) ||
+		observation.Identity != wantIdentity || observation.Digest != hex.EncodeToString(wantDigest[:]) ||
 		total != wantInfo.Size() {
 		t.Fatalf("replacement freshness observation is mixed: %#v total=%d", observation, total)
 	}

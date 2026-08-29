@@ -24,3 +24,7 @@ func freshnessIdentity(info os.FileInfo) string {
 	identity = strconv.AppendUint(identity, uint64(stat.Ino), 10)
 	return string(identity)
 }
+
+func freshnessFileIdentity(_ *os.File, info os.FileInfo) (string, error) {
+	return freshnessIdentity(info), nil
+}
