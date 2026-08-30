@@ -3,12 +3,63 @@
 package runtime
 
 import (
+	"context"
 	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestRunScriptRejectsLinkAndParentSwapsBeforeStart(t *testing.T) {
+	attacks := []struct {
+		name   string
+		attack func(string, string) error
+	}{
+		{name: "hard link", attack: func(repo, sourcePath string) error {
+			if err := os.Rename(sourcePath, sourcePath+".validated"); err != nil {
+				return err
+			}
+			return os.Link(filepath.Join(repo, "replacement.sh"), sourcePath)
+		}},
+		{name: "leaf symlink", attack: func(repo, sourcePath string) error {
+			if err := os.Rename(sourcePath, sourcePath+".validated"); err != nil {
+				return err
+			}
+			return os.Symlink(filepath.Join(repo, "replacement.sh"), sourcePath)
+		}},
+		{name: "escaping parent symlink", attack: func(repo, _ string) error {
+			scripts := filepath.Join(repo, "scripts")
+			if err := os.Rename(scripts, filepath.Join(repo, "validated-scripts")); err != nil {
+				return err
+			}
+			return os.Symlink(filepath.Join(repo, "outside"), scripts)
+		}},
+	}
+	for _, attack := range attacks {
+		t.Run(attack.name, func(t *testing.T) {
+			repo := t.TempDir()
+			writeContextScript(t, repo, "scripts/check.sh", "#!/bin/sh\ntouch original-ran\n")
+			writeContextScript(t, repo, "replacement.sh", "#!/bin/sh\ntouch replacement-ran\n")
+			writeContextScript(t, repo, "outside/check.sh", "#!/bin/sh\ntouch replacement-ran\n")
+			hook := func(stage scriptExecutionStage, sourcePath string) error {
+				if stage != scriptStageCommandPrepared {
+					return nil
+				}
+				return attack.attack(repo, sourcePath)
+			}
+			outcome, err := runScriptContext(context.Background(), repo, "scripts/check.sh", nil, ScriptInput{}, 5, 1, hook)
+			if err == nil || outcome.Status != "error" {
+				t.Fatalf("%s swap was not rejected: outcome=%#v error=%v", attack.name, outcome, err)
+			}
+			for _, marker := range []string{"original-ran", "replacement-ran"} {
+				if _, statErr := os.Stat(filepath.Join(repo, marker)); !os.IsNotExist(statErr) {
+					t.Fatalf("refused %s swap created %s: %v", attack.name, marker, statErr)
+				}
+			}
+		})
+	}
+}
 
 func TestRunScriptRejectsSymlink(t *testing.T) {
 	repo := t.TempDir()

@@ -1157,9 +1157,19 @@ containment policy.
 `require_script` splits the two checks it needs. Containment is enforced on the
 resolved parent directory, because a path whose every segment is a plain name
 can still leave the repository through an intermediate directory symlink, which
-no lexical `..` rejection sees. The script leaf stays lexical so `execfile.Is`
-keeps refusing a symlinked script file. A directory symlink that resolves back
+no lexical `..` rejection sees. The script leaf stays lexical so the source
+identity check keeps refusing a symlinked script file. A directory symlink that resolves back
 inside the repository remains a legal layout.
+Execution is detached from that mutable lexical name. The runtime opens the
+validated executable leaf, compares the descriptor with its path identity and
+metadata, streams the exact bytes into an extension-preserving file inside a
+fresh private `0700` directory with the platform-native private ACL, and records
+their SHA-256. Immediately before
+process creation it re-resolves containment and revalidates both the repository
+source and private executable by identity, metadata, and digest. The command
+therefore starts the validated private bytes; a parent/leaf link change,
+hard-link or rename swap, or in-place content replacement fails closed without
+making replacement bytes executable.
 
 ### Command-injection
 

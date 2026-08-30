@@ -115,6 +115,10 @@ func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, ti
 // configured child timeout. The legacy RunScript entry point uses a bounded
 // background lifecycle for callers that do not own cancellation.
 func RunScriptContext(caller context.Context, repoRoot, scriptPath string, args []string, input ScriptInput, timeoutSec, killTimeoutSec int) (ScriptOutcome, error) {
+	return runScriptContext(caller, repoRoot, scriptPath, args, input, timeoutSec, killTimeoutSec, nil)
+}
+
+func runScriptContext(caller context.Context, repoRoot, scriptPath string, args []string, input ScriptInput, timeoutSec, killTimeoutSec int, hook scriptExecutionHook) (outcome ScriptOutcome, resultErr error) {
 	if caller == nil {
 		return ScriptOutcome{Status: "error"}, errors.New("script caller context is required")
 	}
@@ -125,12 +129,19 @@ func RunScriptContext(caller context.Context, repoRoot, scriptPath string, args 
 	if err != nil {
 		return ScriptOutcome{Status: "error"}, err
 	}
-	info, err := os.Stat(full)
+	bound, err := prepareBoundScript(repoRoot, scriptPath, full, hook)
 	if err != nil {
-		return ScriptOutcome{Status: "error"}, fmt.Errorf("script not found: %s: %w", scriptPath, err)
+		return ScriptOutcome{Status: "error"}, err
 	}
-	if info.IsDir() {
-		return ScriptOutcome{Status: "error"}, fmt.Errorf("script path is a directory: %s", scriptPath)
+	defer func() {
+		if cleanupErr := bound.cleanup(); cleanupErr != nil {
+			outcome.Status = "error"
+			outcome.ExitCode = -1
+			resultErr = errors.Join(resultErr, fmt.Errorf("remove private script snapshot: %w", cleanupErr))
+		}
+	}()
+	if err := caller.Err(); err != nil {
+		return canceledScriptOutcome(err)
 	}
 
 	// Build the JSON stdin payload.
@@ -143,7 +154,7 @@ func RunScriptContext(caller context.Context, repoRoot, scriptPath string, args 
 	ctx, cancel := context.WithTimeout(caller, timeout)
 	defer cancel()
 
-	cmd, err := scriptCommand(ctx, full, args)
+	cmd, err := scriptCommand(ctx, bound.executionPath, args)
 	if err != nil {
 		return ScriptOutcome{Status: "error"}, err
 	}
@@ -159,6 +170,12 @@ func RunScriptContext(caller context.Context, repoRoot, scriptPath string, args 
 	stderrBuf := newCappedWriter(MaxScriptOutputBytes)
 	cmd.Stdout = stdoutBuf
 	cmd.Stderr = stderrBuf
+	if err := runScriptExecutionHook(hook, scriptStageCommandPrepared, full); err != nil {
+		return ScriptOutcome{Status: "error"}, err
+	}
+	if err := bound.revalidate(); err != nil {
+		return ScriptOutcome{Status: "error"}, err
+	}
 
 	start := time.Now()
 	err = cmd.Start()
@@ -169,7 +186,7 @@ func RunScriptContext(caller context.Context, repoRoot, scriptPath string, args 
 	close(done)
 	duration := time.Since(start)
 
-	outcome := ScriptOutcome{
+	outcome = ScriptOutcome{
 		Stdout:   stdoutBuf.String(),
 		Stderr:   stderrBuf.String(),
 		Duration: duration,
@@ -245,8 +262,8 @@ func normalizedScriptKillTimeout(killTimeoutSec int) time.Duration {
 // Containment is enforced on the resolved parent directory, which is what the
 // lexical parser cannot see: rejecting `..` segments does not stop an
 // intermediate directory symlink from moving the execution target outside the
-// repository. The returned leaf stays lexical so scriptCommand's execfile.Is
-// check keeps rejecting a symlinked script file itself.
+// repository. The returned leaf stays lexical so the source identity check
+// keeps rejecting a symlinked script file itself.
 func resolveRepoScriptPath(repoRoot, scriptPath string) (string, error) {
 	configured := filepath.FromSlash(scriptPath)
 	cleaned := filepath.Clean(configured)
