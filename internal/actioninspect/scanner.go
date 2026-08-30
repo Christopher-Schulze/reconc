@@ -9,18 +9,18 @@ import (
 	"reconc.dev/reconc/internal/action"
 )
 
-// TextScanner owns the immutable built-in detector programs for privacy-safe
+// TextScanner shares the immutable built-in detector programs for privacy-safe
 // local classification outside the full action evaluator.
 type TextScanner struct {
 	pack compiledDetectorPack
 }
 
 func NewTextScanner() (*TextScanner, error) {
-	pack, err := compileBuiltinPack()
+	programs, err := loadBuiltinDetectorPrograms()
 	if err != nil {
 		return nil, err
 	}
-	return &TextScanner{pack: pack}, nil
+	return &programs.scanner, nil
 }
 
 func (s *TextScanner) PrivateCategories(

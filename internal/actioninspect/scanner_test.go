@@ -2,10 +2,41 @@ package actioninspect
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"reconc.dev/reconc/internal/action"
 )
+
+func TestSharedBuiltinDetectorPackMatchesFreshCompilation(t *testing.T) {
+	t.Parallel()
+	shared, err := loadSharedBuiltinPack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := compileBuiltinPack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shared.identity != fresh.identity || len(shared.rules) != len(fresh.rules) {
+		t.Fatalf("shared pack identity or rules differ: shared=%q/%d fresh=%q/%d", shared.identity, len(shared.rules), fresh.identity, len(fresh.rules))
+	}
+	for _, test := range loadDetectorCorpus(t) {
+		categories := make(map[action.DetectorCategory]struct{}, len(test.Categories))
+		for _, category := range test.Categories {
+			categories[category] = struct{}{}
+		}
+		sharedFindings, sharedErr := shared.scan(
+			context.Background(), test.Text, categories, test.ForbiddenTerms, action.MaxArgumentBytes,
+		)
+		freshFindings, freshErr := fresh.scan(
+			context.Background(), test.Text, categories, test.ForbiddenTerms, action.MaxArgumentBytes,
+		)
+		if sharedErr != nil || freshErr != nil || !reflect.DeepEqual(sharedFindings, freshFindings) {
+			t.Fatalf("%s: shared=%v/%v fresh=%v/%v", test.Name, sharedFindings, sharedErr, freshFindings, freshErr)
+		}
+	}
+}
 
 func TestTextScannerClassifiesPrivateCategoriesWithoutReturningContent(t *testing.T) {
 	t.Parallel()

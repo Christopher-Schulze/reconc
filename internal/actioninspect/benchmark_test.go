@@ -9,6 +9,33 @@ import (
 	"reconc.dev/reconc/internal/action"
 )
 
+var (
+	benchmarkTextScannerSink   *TextScanner
+	benchmarkEngineFactorySink *EngineFactory
+)
+
+func BenchmarkNewTextScanner(b *testing.B) {
+	b.ReportAllocs()
+	for range b.N {
+		scanner, err := NewTextScanner()
+		if err != nil {
+			b.Fatal(err)
+		}
+		benchmarkTextScannerSink = scanner
+	}
+}
+
+func BenchmarkNewEngineFactory(b *testing.B) {
+	b.ReportAllocs()
+	for range b.N {
+		factory, err := NewEngineFactory()
+		if err != nil {
+			b.Fatal(err)
+		}
+		benchmarkEngineFactorySink = factory
+	}
+}
+
 func BenchmarkTextScanRepresentative(b *testing.B) {
 	benchmarkTextScan(b, strings.Repeat("ordinary repository output ", 160))
 }

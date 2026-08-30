@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 430 Share builtin secret-detector programs -> tasks/430-share-builtin-secret-detector-programs.md
 - [ ] 431 Fail closed on truncated adapter output -> tasks/431-fail-closed-on-truncated-adapter-output.md
 - [ ] 432 Report partial wrapper installation -> tasks/432-report-partial-wrapper-installation.md
 - [ ] 433 Preserve mixed hook configuration ownership -> tasks/433-preserve-mixed-hook-configuration-ownership.md
@@ -40,6 +39,7 @@
 
 ## Done
 
+- [x] 430 Share builtin secret-detector programs -> tasks/done/430-share-builtin-secret-detector-programs.md
 - [x] 429 Parse Kimi managed blocks structurally -> tasks/done/429-parse-kimi-managed-blocks-structurally.md
 - [x] 428 Make hook-worker retries idempotent -> tasks/done/428-make-hook-worker-retries-idempotent.md
 - [x] 427 Serialize JSONL retention and validate modes -> tasks/done/427-serialize-jsonl-retention-and-validate-modes.md

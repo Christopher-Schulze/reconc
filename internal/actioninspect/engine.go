@@ -20,20 +20,20 @@ type Engine struct {
 	pack compiledDetectorPack
 }
 
-// EngineFactory owns one immutable compiled detector pack. The standard
-// library regular expressions in the pack are safe for concurrent matching,
-// so independent engines can share the compiled programs without sharing
-// request or evidence state.
+// EngineFactory shares one process-wide immutable compiled detector pack. The
+// standard library regular expressions in the pack are safe for concurrent
+// matching, so independent engines can share the compiled programs without
+// sharing request or evidence state.
 type EngineFactory struct {
 	pack compiledDetectorPack
 }
 
 func NewEngineFactory() (*EngineFactory, error) {
-	pack, err := compileBuiltinPack()
+	programs, err := loadBuiltinDetectorPrograms()
 	if err != nil {
 		return nil, err
 	}
-	return &EngineFactory{pack: pack}, nil
+	return &programs.factory, nil
 }
 
 func (f *EngineFactory) NewEngine(plan *action.CompiledPlan, key IdentityKey) (*Engine, error) {

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -25,6 +26,33 @@ type compiledDetectorPack struct {
 	rules        []compiledDetectorRule
 	chunkBytes   int
 	overlapBytes int
+}
+
+type builtinDetectorPrograms struct {
+	pack    compiledDetectorPack
+	scanner TextScanner
+	factory EngineFactory
+}
+
+// loadBuiltinDetectorPrograms compiles and validates the immutable built-in
+// detector programs once. regexp.Regexp supports concurrent matching; no scan
+// path exposes or mutates the compiled rules or normalized marker slices.
+var loadBuiltinDetectorPrograms = sync.OnceValues(func() (*builtinDetectorPrograms, error) {
+	pack, err := compileBuiltinPack()
+	if err != nil {
+		return nil, err
+	}
+	return &builtinDetectorPrograms{
+		pack: pack, scanner: TextScanner{pack: pack}, factory: EngineFactory{pack: pack},
+	}, nil
+})
+
+func loadSharedBuiltinPack() (compiledDetectorPack, error) {
+	programs, err := loadBuiltinDetectorPrograms()
+	if err != nil {
+		return compiledDetectorPack{}, err
+	}
+	return programs.pack, nil
 }
 
 func compileBuiltinPack() (compiledDetectorPack, error) {

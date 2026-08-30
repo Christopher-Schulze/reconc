@@ -3253,7 +3253,7 @@ summarizes the core runtime responsibilities:
 - `internal/cli`: argument parsing and command dispatch
 - `internal/action`: pure canonical action contract, strict normalized values with read-only indexed traversal, immutable matcher programs, deterministic evaluation with collection-time bounded redacted traces, and exact in-memory decision caching
 - `internal/actionapproval`: canonical signed requests and receipts, operator authority registry, transport-neutral provider contract, and exact current input-required and legacy form-elicitation mappings
-- `internal/actioninspect`: strict MCP result decoding, offline output-schema validation, concurrency-safe compiled detector packs, allocation-bounded content inspection, and safe withholding
+- `internal/actioninspect`: strict MCP result decoding, offline output-schema validation, one process-wide lazily compiled immutable and concurrency-safe detector pack, allocation-bounded content inspection, and safe withholding
 - `internal/actionledger`: strict payload-free lifecycle events, private retained chain, crash recovery, exact lifecycle aggregation, and deterministic verification
 - `internal/actionledgerexport`: verified synthetic minimized Impact Lab export with explicit omission and replay-completeness truth
 - `internal/actionstate`: trusted context identities, key leases, cumulative budgets, atomic approval consumption, and crash-safe private state

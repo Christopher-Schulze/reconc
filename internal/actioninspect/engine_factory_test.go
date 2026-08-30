@@ -27,6 +27,18 @@ func TestEngineFactoryReusesConcurrentDetectorPrograms(t *testing.T) {
 	if len(first.pack.rules) == 0 || &first.pack.rules[0] != &second.pack.rules[0] {
 		t.Fatal("engines did not share the immutable compiled detector pack")
 	}
+	secondFactory, err := NewEngineFactory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanner, err := NewTextScanner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if &first.pack.rules[0] != &secondFactory.pack.rules[0] || &first.pack.rules[0] != &scanner.pack.rules[0] {
+		t.Fatal("constructors did not share the process-wide detector programs")
+	}
+	wantPrograms := detectorProgramsSignature(first.pack)
 	arguments := mustValue(t, `{"payload":"ordinary value"}`)
 	request := action.Request{
 		Transport: action.TransportMCPStdio, ServerLabel: "server", Tool: "inspect",
@@ -38,18 +50,59 @@ func TestEngineFactoryReusesConcurrentDetectorPrograms(t *testing.T) {
 	for index := 0; index < workers; index++ {
 		go func() {
 			defer wait.Done()
-			engine, engineErr := factory.NewEngine(compiled, key)
+			workerFactory, factoryErr := NewEngineFactory()
+			if factoryErr != nil {
+				t.Error(factoryErr)
+				return
+			}
+			engine, engineErr := workerFactory.NewEngine(compiled, key)
 			if engineErr != nil {
 				t.Error(engineErr)
+				return
+			}
+			workerScanner, scannerErr := NewTextScanner()
+			if scannerErr != nil {
+				t.Error(scannerErr)
+				return
+			}
+			if &engine.pack.rules[0] != &first.pack.rules[0] || &workerScanner.pack.rules[0] != &first.pack.rules[0] {
+				t.Error("concurrent constructor returned different detector programs")
 				return
 			}
 			evidence, inspectErr := engine.Inspect(context.Background(), request, nil, nil)
 			if inspectErr != nil || evidence == nil || evidence.Status != action.InspectionClean {
 				t.Errorf("concurrent inspection = %#v, %v", evidence, inspectErr)
 			}
+			categories, scanErr := workerScanner.PrivateCategories(
+				context.Background(), "api_key=Q7m9V2p4R8x6L3n5", action.MaxArgumentBytes,
+			)
+			if scanErr != nil || !containsCategory(categories, action.DetectorSecret) {
+				t.Errorf("concurrent scan = %v, %v", categories, scanErr)
+			}
 		}()
 	}
 	wait.Wait()
+	if got := detectorProgramsSignature(first.pack); got != wantPrograms {
+		t.Fatal("concurrent constructors or scans mutated the shared detector programs")
+	}
+}
+
+func detectorProgramsSignature(pack compiledDetectorPack) string {
+	var signature strings.Builder
+	signature.WriteString(pack.identity)
+	for _, rule := range pack.rules {
+		signature.WriteByte(0)
+		signature.WriteString(rule.rule.ID)
+		signature.WriteByte(0)
+		if rule.pattern != nil {
+			signature.WriteString(rule.pattern.String())
+		}
+		for _, marker := range rule.markers {
+			signature.WriteByte(0)
+			signature.WriteString(marker)
+		}
+	}
+	return signature.String()
 }
 
 func TestEngineFactoryFailsClosedWhenUnavailable(t *testing.T) {
