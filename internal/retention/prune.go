@@ -28,6 +28,7 @@ type candidate struct {
 	dir              bool
 	probeLock        bool
 	probeProjectRoot bool
+	leasePath        string
 	jsonlArchive     int
 	info             os.FileInfo
 	validate         candidateValidator
@@ -182,6 +183,7 @@ func runLockedContext(ctx context.Context, options Options, forceOwnedTemp bool)
 		stateOptions.Policy.PolicyDecisions = noDelete
 		stateOptions.Policy.PreDecisions = noDelete
 		stateOptions.Policy.TaintResolutions = noDelete
+		stateOptions.Policy.EvidenceSegments = noDelete
 		stateOptions.Policy.StateTotalBytes = int64(^uint64(0) >> 1)
 	}
 	activeID := SessionFileID(active)
@@ -191,6 +193,9 @@ func runLockedContext(ctx context.Context, options Options, forceOwnedTemp bool)
 	}
 	if active != "" || activeErr != nil {
 		taintProtection.all = true
+	}
+	if activeErr != nil {
+		taintProtection.evidenceAll = true
 	}
 	if taintProtection.all {
 		stateOptions.Policy.TaintResolutions = ClassPolicy{MaxFiles: -1, MaxBytes: -1}
@@ -203,6 +208,11 @@ func runLockedContext(ctx context.Context, options Options, forceOwnedTemp bool)
 	policyDecisions := filepath.Join(project, "policy-decisions")
 	preDecisions := filepath.Join(project, "pre-decisions")
 	taintResolutions := filepath.Join(project, "evidence-taint-resolutions")
+	evidenceSegments := filepath.Join(project, "evidence")
+	evidenceProtected := cloneProtectedNames(taintProtection.evidenceNames)
+	if active != "" {
+		evidenceProtected[activeID] = true
+	}
 	report.Classes = append(report.Classes,
 		pruneClass("sessions", sessions, stateOptions.Policy.Sessions, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
 		pruneClass("reports", reports, stateOptions.Policy.Reports, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
@@ -214,8 +224,9 @@ func runLockedContext(ctx context.Context, options Options, forceOwnedTemp bool)
 		pruneClass("policy-decisions", policyDecisions, stateOptions.Policy.PolicyDecisions, options.Now, options.DryRun, map[string]bool{"latest.json": true}, nil, &report),
 		pruneClassInspected("pre-decisions", preDecisions, stateOptions.Policy.PreDecisions, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, inspectPreDecisionArtifact, &report),
 		pruneClassInspected("evidence-taint-resolutions", taintResolutions, stateOptions.Policy.TaintResolutions, options.Now, options.DryRun, taintProtection.names, nil, inspectTaintResolutionArtifact(options.RepoRoot), &report),
+		pruneEvidenceSegmentDirectories(evidenceSegments, stateOptions.Policy.EvidenceSegments, options.Now, options.DryRun, evidenceProtected, taintProtection.evidenceAll, &report),
 	)
-	projectedStateBefore, projectedStateAfter := classTotals(report.Classes, "sessions", "reports", "locks", "command-proofs", "policy-decisions", "pre-decisions", "evidence-taint-resolutions")
+	projectedStateBefore, projectedStateAfter := classTotals(report.Classes, "sessions", "reports", "locks", "command-proofs", "policy-decisions", "pre-decisions", "evidence-taint-resolutions", "evidence-segments")
 	stateTotal := enforceStateTotal(stateOptions, project, activeID, active != "", taintProtection, &report)
 	if options.DryRun {
 		stateTotal.BytesBefore = projectedStateBefore
@@ -732,7 +743,7 @@ func removeCandidateWithHooks(item candidate, dryRun bool, report *Report, hooks
 			}
 		}
 	}
-	lease, live, leaseErr := acquireCandidateLease(root, name, item)
+	lease, live, leaseErr := acquireCandidateLease(root, name, item, dryRun)
 	if leaseErr != nil {
 		closeErr := root.Close()
 		report.Errors = append(report.Errors, fmt.Sprintf("remove %s: validate liveness: %v", item.path, errors.Join(leaseErr, closeErr)))
@@ -742,6 +753,11 @@ func removeCandidateWithHooks(item candidate, dryRun bool, report *Report, hooks
 		if closeErr := root.Close(); closeErr != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("remove %s: close parent after live lock probe: %v", item.path, closeErr))
 		}
+		return false
+	}
+	if err := validateCandidateAt(root, name, item); err != nil {
+		closeErr := errors.Join(lease.close(), root.Close())
+		report.Errors = append(report.Errors, fmt.Sprintf("remove %s: revalidate after lease: %v", item.path, errors.Join(err, closeErr)))
 		return false
 	}
 	if dryRun {
@@ -787,8 +803,12 @@ type heldCandidateLock struct {
 	unlock func() error
 }
 
-func acquireCandidateLease(parent *os.Root, name string, item candidate) (*candidateLease, bool, error) {
+func acquireCandidateLease(parent *os.Root, name string, item candidate, dryRun bool) (*candidateLease, bool, error) {
 	lease := &candidateLease{}
+	if item.leasePath != "" {
+		live, err := lease.tryLockPath(item.leasePath, dryRun)
+		return lease, live, err
+	}
 	if item.probeLock {
 		live, err := lease.tryLockCandidate(parent, name, item.info)
 		return lease, live, err
@@ -814,6 +834,45 @@ func acquireCandidateLease(parent *os.Root, name string, item candidate) (*candi
 		return lease, true, lease.close()
 	}
 	return lease, false, nil
+}
+
+func (lease *candidateLease) tryLockPath(path string, dryRun bool) (bool, error) {
+	var file *os.File
+	var err error
+	if dryRun {
+		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		} else if err != nil {
+			return false, err
+		}
+		file, err = privatefs.OpenExistingLockReadOnly(path)
+	} else {
+		if err := privatefs.RepairDirectory(filepath.Dir(path)); err != nil {
+			return false, err
+		}
+		file, err = privatefs.OpenLock(path)
+	}
+	if err != nil {
+		return false, err
+	}
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return false, errors.Join(err, file.Close(), errors.New("lease is not a regular lock file"))
+	}
+	unlock, err := filelock.TryLock(file)
+	if err != nil {
+		closeErr := file.Close()
+		if filelock.IsContended(err) {
+			return true, closeErr
+		}
+		return false, errors.Join(err, closeErr)
+	}
+	current, statErr := os.Lstat(path)
+	if statErr != nil || !current.Mode().IsRegular() || !os.SameFile(info, current) {
+		return false, errors.Join(statErr, unlock(), file.Close(), errors.New("lease identity changed during ownership probe"))
+	}
+	lease.locks = append(lease.locks, heldCandidateLock{file: file, unlock: unlock})
+	return false, nil
 }
 
 func (lease *candidateLease) tryLockOptionalCandidate(root *os.Root, name string) (bool, error) {

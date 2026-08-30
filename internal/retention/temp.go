@@ -76,6 +76,21 @@ func enforceStateTotal(
 			class.BytesBefore += item.size
 		}
 	}
+	evidenceProtected := cloneProtectedNames(taintProtection.evidenceNames)
+	if hasActive {
+		evidenceProtected[activeID] = true
+	}
+	evidenceCandidates, ok := evidenceSegmentCandidates(
+		filepath.Join(project, "evidence"), evidenceProtected, taintProtection.evidenceAll, report,
+	)
+	if !ok {
+		return class
+	}
+	for _, item := range evidenceCandidates {
+		item.name = "evidence/" + item.name
+		candidates = append(candidates, item)
+		class.BytesBefore += item.size
+	}
 	class.BytesAfter = class.BytesBefore
 	class.FilesKept = len(candidates)
 	if class.BytesAfter <= options.Policy.StateTotalBytes {

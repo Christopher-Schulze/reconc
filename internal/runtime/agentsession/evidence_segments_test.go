@@ -2,8 +2,10 @@ package agentsession
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -152,12 +154,190 @@ func TestVerifiedEvidencePrefixRevalidatesIdentityAndContent(t *testing.T) {
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chtimes(path, current.ModTime(), current.ModTime()); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := loadCompleteSessionEvidenceWithCache(state.RepoRoot, state, cache); err == nil {
-		t.Fatal("cached prefix accepted changed segment bytes")
+		t.Fatal("cached prefix accepted same-size, same-mtime changed segment bytes")
 	}
 	if _, ok := cache.verifiedEvidencePrefix(state.RepoRoot, sessionID); ok {
 		t.Fatal("corrupt prefix remained cached")
 	}
+}
+
+func TestVerifiedEvidencePrefixSkipsReadsAndLoadsOnlyNewSuffix(t *testing.T) {
+	_, repo := withStateRoot(t)
+	const sessionID = "prefix-suffix"
+	if _, err := InitializeSessionState(repo, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	appendCommandRange(t, repo, sessionID, 0, maxCommandEvidenceItems)
+	appendCommandRange(t, repo, sessionID, maxCommandEvidenceItems, maxCommandEvidenceItems)
+	appendCommandRange(t, repo, sessionID, 2*maxCommandEvidenceItems, 1)
+	state, err := LoadSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := NewStopDecisionCache()
+	hooks := defaultEvidenceSegmentLoadHooks()
+	readSnapshot := hooks.readSnapshot
+	reads := 0
+	hooks.readSnapshot = func(path string, maxBytes int64) ([]byte, os.FileInfo, error) {
+		reads++
+		return readSnapshot(path, maxBytes)
+	}
+	if _, err := loadCompleteSessionEvidenceWithHooks(state.RepoRoot, state, cache, hooks); err != nil {
+		t.Fatal(err)
+	}
+	if reads != 2 {
+		t.Fatalf("cold read count = %d, want 2", reads)
+	}
+	if _, err := loadCompleteSessionEvidenceWithHooks(state.RepoRoot, state, cache, hooks); err != nil {
+		t.Fatal(err)
+	}
+	if reads != 2 {
+		t.Fatalf("unchanged prefix performed %d redundant reads", reads-2)
+	}
+	appendCommandRange(t, repo, sessionID, 2*maxCommandEvidenceItems+1, maxCommandEvidenceItems)
+	state, err = LoadSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.EvidenceSegmentCount != 3 {
+		t.Fatalf("segment count = %d, want 3", state.EvidenceSegmentCount)
+	}
+	if _, err := loadCompleteSessionEvidenceWithHooks(state.RepoRoot, state, cache, hooks); err != nil {
+		t.Fatal(err)
+	}
+	if reads != 3 {
+		t.Fatalf("suffix load read count = %d, want 3 total", reads)
+	}
+}
+
+func TestEvidenceSegmentReadFailureDoesNotPersistIntegrityTaint(t *testing.T) {
+	_, repo := withStateRoot(t)
+	state := writeEvidenceChainFixture(t, repo, "retryable-read", 1, 32)
+	hooks := defaultEvidenceSegmentLoadHooks()
+	hooks.readSnapshot = func(string, int64) ([]byte, os.FileInfo, error) {
+		return nil, nil, errors.New("transient read failure")
+	}
+	if _, err := loadCompleteSessionEvidenceWithHooks(state.RepoRoot, state, nil, hooks); err == nil ||
+		!strings.Contains(err.Error(), "transient read failure") {
+		t.Fatalf("transient read result = %v", err)
+	}
+	if _, err := os.Lstat(evidenceTaintPath(state.RepoRoot)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("transient read persisted integrity taint: %v", err)
+	}
+}
+
+func TestEvidenceSegmentLoadFallsBackWhenGenerationIsUnavailable(t *testing.T) {
+	_, repo := withStateRoot(t)
+	state := writeEvidenceChainFixture(t, repo, "generation-fallback", 2, 32)
+	cache := NewStopDecisionCache()
+	hooks := defaultEvidenceSegmentLoadHooks()
+	hooks.generation = func(string, os.FileInfo) (string, bool) { return "", false }
+	complete, err := loadCompleteSessionEvidenceWithHooks(state.RepoRoot, state, cache, hooks)
+	if err != nil || len(complete.Commands) != 2 {
+		t.Fatalf("generation fallback commands=%d err=%v", len(complete.Commands), err)
+	}
+	if _, ok := cache.verifiedEvidencePrefix(state.RepoRoot, state.SessionID); ok {
+		t.Fatal("generation-unavailable chain was cached")
+	}
+}
+
+func TestEvidenceSegmentChainStreamsSixtyFourSegments(t *testing.T) {
+	_, repo := withStateRoot(t)
+	state := writeEvidenceChainFixture(t, repo, "sixty-four", maxEvidenceSegments, 128)
+	complete, err := loadCompleteSessionEvidence(state.RepoRoot, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(complete.Commands) != maxEvidenceSegments {
+		t.Fatalf("merged commands = %d, want %d", len(complete.Commands), maxEvidenceSegments)
+	}
+}
+
+func TestEvidenceSegmentAggregateBudgetPersistsCapacityTaint(t *testing.T) {
+	_, repo := withStateRoot(t)
+	state := writeEvidenceChainFixture(t, repo, "aggregate-budget", 19, 900*1024)
+	if _, err := loadCompleteSessionEvidence(state.RepoRoot, state); err == nil ||
+		!strings.Contains(err.Error(), "merged bytes") {
+		t.Fatalf("aggregate overflow result = %v", err)
+	}
+	taint, err := loadEvidenceTaint(state.RepoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taint == nil || taint.Field != "evidence_segments" || taint.Limit != "aggregate_bytes" {
+		t.Fatalf("aggregate overflow taint = %+v", taint)
+	}
+}
+
+func writeEvidenceChainFixture(t testing.TB, repo, sessionID string, count int, commandBytes int) SessionState {
+	t.Helper()
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := emptyState(root, sessionID)
+	if err := os.MkdirAll(evidenceSegmentsDir(root, sessionID), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	previous := ""
+	for index := 1; index <= count; index++ {
+		command := fmt.Sprintf("%04d-%s", index, strings.Repeat("x", commandBytes))
+		segment := evidenceSegment{
+			FormatVersion: evidenceSegmentFormatVersion, RepoRoot: root, SessionID: sessionID,
+			Index: uint64(index), PreviousDigest: previous, Commands: []string{command},
+			ReadPaths: []string{}, WritePaths: []string{}, WriteEpochs: map[string]uint64{},
+			Claims: []string{}, CommandResults: []CommandResult{},
+		}
+		segment.Digest, err = evidenceSegmentDigest(segment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := json.Marshal(segment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body = append(body, '\n')
+		if len(body) > maxEvidenceSegmentBytes {
+			t.Fatalf("fixture segment bytes = %d", len(body))
+		}
+		if err := os.WriteFile(filepath.Join(evidenceSegmentsDir(root, sessionID), fmt.Sprintf("%08d.json", index)), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		previous = segment.Digest
+	}
+	state.EvidenceSegmentCount = uint64(count)
+	state.EvidenceSegmentDigest = previous
+	return state
+}
+
+func BenchmarkEvidenceSegmentChainLoad64(b *testing.B) {
+	repo := b.TempDir()
+	state := writeEvidenceChainFixture(b, repo, "benchmark-64", maxEvidenceSegments, 128)
+	b.Run("cold", func(b *testing.B) {
+		b.ReportAllocs()
+		for index := 0; index < b.N; index++ {
+			if _, err := loadCompleteSessionEvidence(state.RepoRoot, state); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("verified-prefix", func(b *testing.B) {
+		cache := NewStopDecisionCache()
+		if _, err := loadCompleteSessionEvidenceWithCache(state.RepoRoot, state, cache); err != nil {
+			b.Fatal(err)
+		}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for index := 0; index < b.N; index++ {
+			if _, err := loadCompleteSessionEvidenceWithCache(state.RepoRoot, state, cache); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }
 
 func TestVerifiedEvidencePrefixCacheHasAggregateByteBudget(t *testing.T) {
@@ -216,6 +396,38 @@ func TestEvidenceSegmentChainRejectsRedigestedBrokenLink(t *testing.T) {
 	}
 	if taint == nil || taint.Field != "evidence_segments" || taint.Limit != "chain_integrity" {
 		t.Fatalf("broken link did not persist chain-integrity taint: %+v", taint)
+	}
+}
+
+func TestEvidenceSegmentChainRejectsRedigestedShapeDrift(t *testing.T) {
+	_, repo := withStateRoot(t)
+	state := writeEvidenceChainFixture(t, repo, "shape-drift", 1, 32)
+	segment, err := readEvidenceSegment(state.RepoRoot, state.SessionID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	segment.Commands = nil
+	segment.Digest, err = evidenceSegmentDigest(segment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(segment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidenceSegmentPath(state.RepoRoot, state.SessionID, 1), append(body, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadCompleteSessionEvidence(state.RepoRoot, state); err == nil ||
+		!strings.Contains(err.Error(), "shape mismatch") {
+		t.Fatalf("re-digested shape drift was accepted: %v", err)
+	}
+	taint, err := loadEvidenceTaint(state.RepoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taint == nil || taint.Limit != "chain_integrity" {
+		t.Fatalf("shape drift did not persist integrity taint: %+v", taint)
 	}
 }
 

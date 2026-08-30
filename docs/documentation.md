@@ -2353,8 +2353,13 @@ rules cannot turn concurrent hooks into lost evidence or failed publication.
 Default persistent budgets are 32 session files / 8 MiB / 14 days, 32 reports
 / 8 MiB / 14 days, 128 locks / 1 MiB / 24 hours, 64 staged command proofs /
 256 KiB / 24 hours, 32 pre-decision caches / 512 KiB / 14 days, 32 evidence
-taint-resolution receipts / 512 KiB / 14 days, 16 MiB total external state,
-and 32 MiB / 14 days for generated audit binaries. The active session's
+taint-resolution receipts / 512 KiB / 14 days, 32 rotated-evidence session
+directories / 64 MiB / 14 days, 16 MiB total external state, and 32 MiB / 14
+days for generated audit binaries. Rotated evidence is inspected as a complete
+contiguous chain and removed only as one session directory under its session
+lock; active sessions and the session named by unresolved taint are protected.
+Malformed, oversized, irregular, or concurrently leased chains are reported
+and preserved. The active session's
 pre-decision cache is protected. All taint-resolution receipts are protected
 while a session is active; otherwise the receipt matching the current live
 taint remains protected. An unreadable or malformed live taint or receipt is
@@ -4250,10 +4255,17 @@ The cache owns at most 64
 repository/session entries and starts no watcher or background process.
 Equivalent concurrent Stops serialize under the report lock and load complete
 session evidence once before evaluation. Persistent workers retain at most
-16 MiB of decoded, digest-bound evidence-segment prefixes across 64 keys. Every
-reuse still rereads bounded regular files and rechecks exact bytes, identity,
-metadata, segment count, chain head, linkage, and the newest state revision;
-replacement, append, corruption, or drift invalidates reuse. Generation state is sampled around report
+16 MiB of decoded, digest-bound evidence-segment prefixes across 64 keys,
+including conservative collection overhead. Cold loads decode and merge one
+segment at a time under the same 16 MiB aggregate bound instead of retaining
+every decoded segment. An unchanged prefix is reused only after stable
+platform file identity and change-generation checks before and after the
+snapshot; it skips byte reads and hashing, while a replacement, append, or
+generation drift forces bounded full-chain decoding and a pure append decodes
+only the new suffix.
+Digest, declared identity, shape, linkage, and chain-head failures persist
+integrity taint; transient read and filesystem-identity races remain retryable.
+Generation state is sampled around report
 loading and revalidated after the final evidence reload. If evidence or an
 exact cache input changes during policy evaluation, Stop re-evaluates current
 state up to three times and then fails closed instead of returning or warming a

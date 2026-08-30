@@ -30,6 +30,7 @@ type Policy struct {
 	PolicyDecisions      ClassPolicy
 	PreDecisions         ClassPolicy
 	TaintResolutions     ClassPolicy
+	EvidenceSegments     ClassPolicy
 	GeneratedBinaries    ClassPolicy
 	StateTotalBytes      int64
 	RepoRuntimeBytes     int64
@@ -55,6 +56,7 @@ func DefaultPolicy() Policy {
 		PolicyDecisions:      ClassPolicy{MaxFiles: 1, MaxBytes: 8 * 1024 * 1024},
 		PreDecisions:         stateArtifactPolicy,
 		TaintResolutions:     stateArtifactPolicy,
+		EvidenceSegments:     ClassPolicy{MaxFiles: 32, MaxBytes: 64 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
 		GeneratedBinaries:    ClassPolicy{MaxFiles: 8, MaxBytes: 32 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
 		StateTotalBytes:      16 * 1024 * 1024,
 		RepoRuntimeBytes:     48 * 1024 * 1024,

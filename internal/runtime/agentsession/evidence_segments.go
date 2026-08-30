@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -20,7 +21,11 @@ const (
 	evidenceTaintFormatVersion   = "evidence-taint-v1"
 	maxEvidenceSegments          = 64
 	maxEvidenceSegmentBytes      = MaxSessionStateBytes
+	maxCompleteEvidenceBytes     = 16 << 20
 	maxEvidenceTaintBytes        = 16 * 1024
+	mergedStringOverheadBytes    = 64
+	mergedResultOverheadBytes    = 128
+	mergedEpochOverheadBytes     = 48
 )
 
 type evidenceSegment struct {
@@ -42,9 +47,9 @@ type evidenceSegment struct {
 }
 
 type verifiedEvidenceSegment struct {
-	identity os.FileInfo
-	bodyHash [sha256.Size]byte
-	segment  evidenceSegment
+	identity   os.FileInfo
+	generation string
+	digest     string
 }
 
 type verifiedEvidencePrefix struct {
@@ -52,7 +57,31 @@ type verifiedEvidencePrefix struct {
 	head     string
 	bytes    int
 	segments []verifiedEvidenceSegment
+	snapshot evidenceSnapshot
 }
+
+type evidenceSnapshot struct {
+	readPaths          []string
+	writePaths         []string
+	writeEpochs        map[string]uint64
+	commands           []string
+	claims             []string
+	commandResults     []CommandResult
+	commandResultBytes int64
+}
+
+type evidenceSegmentLoadHooks struct {
+	readSnapshot func(string, int64) ([]byte, os.FileInfo, error)
+	lstat        func(string) (os.FileInfo, error)
+	generation   func(string, os.FileInfo) (string, bool)
+}
+
+type evidenceIntegrityError struct {
+	cause error
+}
+
+func (err *evidenceIntegrityError) Error() string { return err.cause.Error() }
+func (err *evidenceIntegrityError) Unwrap() error { return err.cause }
 
 type evidenceTaint struct {
 	FormatVersion string `json:"format_version"`
@@ -178,75 +207,157 @@ func loadCompleteSessionEvidence(repoRoot string, state SessionState) (SessionSt
 }
 
 func loadCompleteSessionEvidenceWithCache(repoRoot string, state SessionState, cache *StopDecisionCache) (SessionState, error) {
+	return loadCompleteSessionEvidenceWithHooks(repoRoot, state, cache, defaultEvidenceSegmentLoadHooks())
+}
+
+func defaultEvidenceSegmentLoadHooks() evidenceSegmentLoadHooks {
+	return evidenceSegmentLoadHooks{
+		readSnapshot: boundedio.ReadRegularFileSnapshot,
+		lstat:        os.Lstat,
+		generation:   platformFileGeneration,
+	}
+}
+
+func loadCompleteSessionEvidenceWithHooks(
+	repoRoot string,
+	state SessionState,
+	cache *StopDecisionCache,
+	hooks evidenceSegmentLoadHooks,
+) (SessionState, error) {
 	if state.EvidenceSegmentCount == 0 {
 		cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
 		return state, nil
 	}
-	cached, _ := cache.verifiedEvidencePrefix(repoRoot, state.SessionID)
-	verified := make([]verifiedEvidenceSegment, 0, state.EvidenceSegmentCount)
+	if state.EvidenceSegmentCount > maxEvidenceSegments {
+		return SessionState{}, evidenceLoadFailure(cache, repoRoot, state, &evidenceIntegrityError{
+			cause: fmt.Errorf("evidence segment count exceeds %d", maxEvidenceSegments),
+		})
+	}
 	complete := state
-	complete.ReadPaths = []string{}
-	complete.WritePaths = []string{}
-	complete.WriteEpochs = map[string]uint64{}
-	complete.Commands = []string{}
-	complete.Claims = []string{}
-	complete.CommandResults = []CommandResult{}
-	complete.CommandResultBytes = 0
+	clearMergedEvidence(&complete)
 	merger := newEvidenceMerger(&complete)
+	verified := make([]verifiedEvidenceSegment, 0, state.EvidenceSegmentCount)
 	previousDigest := ""
-	for index := uint64(1); index <= state.EvidenceSegmentCount; index++ {
+	startIndex := uint64(1)
+	if cached, ok := cache.verifiedEvidencePrefix(repoRoot, state.SessionID); ok &&
+		cached.count <= state.EvidenceSegmentCount && cached.count == uint64(len(cached.segments)) &&
+		cached.head != "" && verifiedEvidencePrefixMatches(cached, repoRoot, state.SessionID, hooks) {
+		cached.snapshot.apply(&complete)
+		merger = newEvidenceMerger(&complete)
+		previousDigest = cached.head
+		startIndex = cached.count + 1
+		verified = append(verified, cached.segments...)
+	}
+	for index := startIndex; index <= state.EvidenceSegmentCount; index++ {
 		path := evidenceSegmentPath(repoRoot, state.SessionID, index)
-		body, identity, err := boundedio.ReadRegularFileSnapshot(path, maxEvidenceSegmentBytes)
+		body, identity, err := hooks.readSnapshot(path, maxEvidenceSegmentBytes)
 		if err != nil {
-			cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
-			return SessionState{}, persistEvidenceChainFailure(repoRoot, state,
+			return SessionState{}, evidenceLoadFailure(cache, repoRoot, state,
 				fmt.Errorf("read evidence segment %d: %w", index, err))
 		}
-		bodyHash := sha256.Sum256(body)
-		var segment evidenceSegment
-		cachedIndex := int(index - 1)
-		if cached.count == state.EvidenceSegmentCount && cached.head == state.EvidenceSegmentDigest &&
-			cachedIndex < len(cached.segments) &&
-			verifiedEvidenceSegmentMatches(cached.segments[cachedIndex], identity, bodyHash) {
-			segment = cached.segments[cachedIndex].segment
-		} else {
-			segment, err = decodeEvidenceSegment(repoRoot, state.SessionID, index, body)
-			if err != nil {
-				cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
-				return SessionState{}, persistEvidenceChainFailure(repoRoot, state, err)
-			}
+		generation, stable, _ := stableEvidenceSegmentGeneration(path, identity, hooks)
+		if !stable {
+			return SessionState{}, evidenceLoadFailure(cache, repoRoot, state,
+				fmt.Errorf("evidence segment %d changed identity during load", index))
+		}
+		segment, err := decodeEvidenceSegment(repoRoot, state.SessionID, index, body)
+		if err != nil {
+			return SessionState{}, evidenceLoadFailure(cache, repoRoot, state, err)
 		}
 		if segment.PreviousDigest != previousDigest {
-			cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
-			return SessionState{}, persistEvidenceChainFailure(repoRoot, state,
-				fmt.Errorf("evidence segment %d previous digest mismatch", index))
+			return SessionState{}, evidenceLoadFailure(cache, repoRoot, state, &evidenceIntegrityError{
+				cause: fmt.Errorf("evidence segment %d previous digest mismatch", index),
+			})
 		}
-		merger.merge(segment.ReadPaths, segment.WritePaths, segment.WriteEpochs,
-			segment.Commands, segment.Claims, segment.CommandResults)
+		if err := merger.merge(segment.ReadPaths, segment.WritePaths, segment.WriteEpochs,
+			segment.Commands, segment.Claims, segment.CommandResults); err != nil {
+			return SessionState{}, evidenceCapacityFailure(cache, repoRoot, state, err)
+		}
 		previousDigest = segment.Digest
-		verified = append(verified, verifiedEvidenceSegment{identity: identity, bodyHash: bodyHash, segment: segment})
+		verified = append(verified, verifiedEvidenceSegment{identity: identity, generation: generation, digest: segment.Digest})
 	}
 	if previousDigest != state.EvidenceSegmentDigest {
+		return SessionState{}, evidenceLoadFailure(cache, repoRoot, state, &evidenceIntegrityError{
+			cause: errors.New("evidence segment chain head does not match session state"),
+		})
+	}
+	stable, cacheable := revalidateEvidenceSegments(verified, repoRoot, state.SessionID, hooks)
+	if !stable {
+		return SessionState{}, evidenceLoadFailure(cache, repoRoot, state,
+			errors.New("evidence segment identity changed during complete-chain load"))
+	}
+	if cacheable {
+		prefixSnapshot := snapshotEvidence(complete)
+		cache.storeVerifiedEvidencePrefix(repoRoot, state.SessionID, verifiedEvidencePrefix{
+			count: state.EvidenceSegmentCount, head: state.EvidenceSegmentDigest,
+			bytes: max(merger.retainedBytes, 1), segments: verified, snapshot: prefixSnapshot,
+		})
+	} else {
 		cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
-		return SessionState{}, persistEvidenceChainFailure(repoRoot, state,
-			errors.New("evidence segment chain head does not match session state"))
 	}
-	merger.merge(state.ReadPaths, state.WritePaths, state.WriteEpochs,
-		state.Commands, state.Claims, state.CommandResults)
-	retainedBytes := 0
-	for _, segment := range verified {
-		retainedBytes += int(segment.identity.Size())
+	if err := merger.merge(state.ReadPaths, state.WritePaths, state.WriteEpochs,
+		state.Commands, state.Claims, state.CommandResults); err != nil {
+		return SessionState{}, evidenceCapacityFailure(cache, repoRoot, state, err)
 	}
-	cache.storeVerifiedEvidencePrefix(repoRoot, state.SessionID, verifiedEvidencePrefix{
-		count: state.EvidenceSegmentCount, head: state.EvidenceSegmentDigest, bytes: retainedBytes, segments: verified,
-	})
 	return complete, nil
 }
 
-func verifiedEvidenceSegmentMatches(cached verifiedEvidenceSegment, current os.FileInfo, bodyHash [sha256.Size]byte) bool {
-	return cached.identity != nil && current != nil && os.SameFile(cached.identity, current) &&
-		cached.identity.Mode() == current.Mode() && cached.identity.Size() == current.Size() &&
-		cached.identity.ModTime().Equal(current.ModTime()) && cached.bodyHash == bodyHash
+func evidenceLoadFailure(cache *StopDecisionCache, repoRoot string, state SessionState, cause error) error {
+	cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
+	var integrity *evidenceIntegrityError
+	if errors.As(cause, &integrity) {
+		return persistEvidenceChainFailure(repoRoot, state, cause)
+	}
+	return cause
+}
+
+func evidenceCapacityFailure(cache *StopDecisionCache, repoRoot string, state SessionState, cause error) error {
+	cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
+	state.EvidenceOverflow = true
+	state.EvidenceOverflowReason = "evidence_segments"
+	state.EvidenceOverflowLimit = "aggregate_bytes"
+	if err := persistEvidenceTaint(repoRoot, state); err != nil {
+		return errors.Join(cause, err)
+	}
+	return cause
+}
+
+func stableEvidenceSegmentGeneration(path string, expected os.FileInfo, hooks evidenceSegmentLoadHooks) (string, bool, bool) {
+	current, err := hooks.lstat(path)
+	if err != nil || expected == nil || current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
+		!os.SameFile(expected, current) || expected.Mode() != current.Mode() || expected.Size() != current.Size() {
+		return "", false, false
+	}
+	generation, generationOK := hooks.generation(path, current)
+	after, err := hooks.lstat(path)
+	if err != nil || !os.SameFile(current, after) || current.Mode() != after.Mode() || current.Size() != after.Size() {
+		return "", false, false
+	}
+	afterGeneration, afterGenerationOK := hooks.generation(path, after)
+	if !generationOK || !afterGenerationOK {
+		return "", true, false
+	}
+	return generation, generation == afterGeneration, generation == afterGeneration
+}
+
+func verifiedEvidencePrefixMatches(prefix verifiedEvidencePrefix, repoRoot, sessionID string, hooks evidenceSegmentLoadHooks) bool {
+	stable, cacheable := revalidateEvidenceSegments(prefix.segments, repoRoot, sessionID, hooks)
+	return stable && cacheable
+}
+
+func revalidateEvidenceSegments(segments []verifiedEvidenceSegment, repoRoot, sessionID string, hooks evidenceSegmentLoadHooks) (bool, bool) {
+	cacheable := true
+	for index, cached := range segments {
+		path := evidenceSegmentPath(repoRoot, sessionID, uint64(index+1))
+		generation, stable, reliable := stableEvidenceSegmentGeneration(path, cached.identity, hooks)
+		if !stable {
+			return false, false
+		}
+		if !reliable || generation != cached.generation || cached.generation == "" || cached.digest == "" {
+			cacheable = false
+		}
+	}
+	return true, cacheable
 }
 
 func (cache *StopDecisionCache) verifiedEvidencePrefix(repoRoot, sessionID string) (verifiedEvidencePrefix, bool) {
@@ -258,15 +369,18 @@ func (cache *StopDecisionCache) verifiedEvidencePrefix(repoRoot, sessionID strin
 	defer cache.mu.Unlock()
 	prefix, ok := cache.evidence[key]
 	prefix.segments = append([]verifiedEvidenceSegment(nil), prefix.segments...)
+	prefix.snapshot = prefix.snapshot.clone()
 	return prefix, ok
 }
 
 func (cache *StopDecisionCache) storeVerifiedEvidencePrefix(repoRoot, sessionID string, prefix verifiedEvidencePrefix) {
-	if cache == nil || prefix.count == 0 || uint64(len(prefix.segments)) != prefix.count || prefix.head == "" || prefix.bytes <= 0 {
+	if cache == nil || prefix.count == 0 || uint64(len(prefix.segments)) != prefix.count || prefix.head == "" ||
+		prefix.bytes <= 0 || prefix.bytes > maxCompleteEvidenceBytes {
 		return
 	}
 	key := stopDecisionCacheKey(repoRoot, sessionID)
 	prefix.segments = append([]verifiedEvidenceSegment(nil), prefix.segments...)
+	prefix.snapshot = prefix.snapshot.clone()
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	if cache.evidence == nil {
@@ -330,20 +444,62 @@ func readEvidenceSegment(repoRoot, sessionID string, index uint64) (evidenceSegm
 func decodeEvidenceSegment(repoRoot, sessionID string, index uint64, body []byte) (evidenceSegment, error) {
 	var segment evidenceSegment
 	if err := json.Unmarshal(body, &segment); err != nil {
-		return evidenceSegment{}, fmt.Errorf("evidence segment %d is not valid JSON: %w", index, err)
+		return evidenceSegment{}, &evidenceIntegrityError{cause: fmt.Errorf("evidence segment %d is not valid JSON: %w", index, err)}
 	}
 	if segment.FormatVersion != evidenceSegmentFormatVersion || segment.RepoRoot != repoRoot ||
 		segment.SessionID != sessionID || segment.Index != index {
-		return evidenceSegment{}, fmt.Errorf("evidence segment %d identity mismatch", index)
+		return evidenceSegment{}, &evidenceIntegrityError{cause: fmt.Errorf("evidence segment %d identity mismatch", index)}
+	}
+	if err := validateEvidenceSegmentShape(segment); err != nil {
+		return evidenceSegment{}, &evidenceIntegrityError{cause: fmt.Errorf("evidence segment %d shape mismatch: %w", index, err)}
 	}
 	digest, err := evidenceSegmentDigest(segment)
 	if err != nil {
 		return evidenceSegment{}, err
 	}
 	if digest != segment.Digest {
-		return evidenceSegment{}, fmt.Errorf("evidence segment %d digest mismatch", index)
+		return evidenceSegment{}, &evidenceIntegrityError{cause: fmt.Errorf("evidence segment %d digest mismatch", index)}
 	}
 	return segment, nil
+}
+
+func validateEvidenceSegmentShape(segment evidenceSegment) error {
+	if segment.ReadPaths == nil || segment.WritePaths == nil || segment.Commands == nil ||
+		segment.Claims == nil || segment.CommandResults == nil {
+		return errors.New("evidence collections must be arrays")
+	}
+	state := SessionState{
+		ReadPaths: segment.ReadPaths, WritePaths: segment.WritePaths, WriteEpochs: segment.WriteEpochs,
+		EvidenceEpoch: segment.EvidenceEpoch, Commands: segment.Commands, Claims: segment.Claims,
+		CommandResults: segment.CommandResults,
+	}
+	normalized := normalizeSessionState(state)
+	if normalized.EvidenceOverflow || !reflect.DeepEqual(normalized.ReadPaths, segment.ReadPaths) ||
+		!reflect.DeepEqual(normalized.WritePaths, segment.WritePaths) ||
+		!reflect.DeepEqual(normalized.Commands, segment.Commands) ||
+		!reflect.DeepEqual(normalized.Claims, segment.Claims) ||
+		!reflect.DeepEqual(normalized.CommandResults, segment.CommandResults) ||
+		!equalWriteEpochs(normalized.WriteEpochs, segment.WriteEpochs) {
+		return errors.New("evidence collections are not canonical and bounded")
+	}
+	for index, result := range segment.CommandResults {
+		if result.Outcome != "success" && result.Outcome != "failure" {
+			return fmt.Errorf("command_results[%d].outcome must be success|failure", index)
+		}
+	}
+	return nil
+}
+
+func equalWriteEpochs(left, right map[string]uint64) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for path, epoch := range left {
+		if right[path] != epoch {
+			return false
+		}
+	}
+	return true
 }
 
 func evidenceSegmentDigest(segment evidenceSegment) (string, error) {
@@ -357,12 +513,13 @@ func evidenceSegmentDigest(segment evidenceSegment) (string, error) {
 }
 
 type evidenceMerger struct {
-	state    *SessionState
-	reads    map[string]struct{}
-	writes   map[string]struct{}
-	commands map[string]struct{}
-	claims   map[string]struct{}
-	results  map[commandResultKey]struct{}
+	state         *SessionState
+	reads         map[string]struct{}
+	writes        map[string]struct{}
+	commands      map[string]struct{}
+	claims        map[string]struct{}
+	results       map[commandResultKey]struct{}
+	retainedBytes int
 }
 
 func newEvidenceMerger(state *SessionState) *evidenceMerger {
@@ -377,6 +534,7 @@ func newEvidenceMerger(state *SessionState) *evidenceMerger {
 	for _, result := range state.CommandResults {
 		merger.results[commandResultIdentity(result)] = struct{}{}
 	}
+	merger.retainedBytes = mergedEvidenceBytes(*state)
 	return merger
 }
 
@@ -385,25 +543,59 @@ func (m *evidenceMerger) merge(
 	writeEpochs map[string]uint64,
 	commands, claims []string,
 	results []CommandResult,
-) {
-	appendUniqueStrings(&m.state.ReadPaths, reads, m.reads)
-	appendUniqueStrings(&m.state.WritePaths, writes, m.writes)
+) error {
+	if !m.appendStrings(&m.state.ReadPaths, reads, m.reads) ||
+		!m.appendStrings(&m.state.WritePaths, writes, m.writes) {
+		return fmt.Errorf("complete evidence exceeds %d merged bytes", maxCompleteEvidenceBytes)
+	}
 	for path, epoch := range writeEpochs {
+		if _, exists := m.state.WriteEpochs[path]; !exists {
+			charge := len(path) + mergedEpochOverheadBytes
+			if m.retainedBytes+charge > maxCompleteEvidenceBytes {
+				return fmt.Errorf("complete evidence exceeds %d merged bytes", maxCompleteEvidenceBytes)
+			}
+			m.retainedBytes += charge
+		}
 		if epoch > m.state.WriteEpochs[path] {
 			m.state.WriteEpochs[path] = epoch
 		}
 	}
-	appendUniqueStrings(&m.state.Commands, commands, m.commands)
-	appendUniqueStrings(&m.state.Claims, claims, m.claims)
+	if !m.appendStrings(&m.state.Commands, commands, m.commands) ||
+		!m.appendStrings(&m.state.Claims, claims, m.claims) {
+		return fmt.Errorf("complete evidence exceeds %d merged bytes", maxCompleteEvidenceBytes)
+	}
 	for _, result := range results {
 		key := commandResultIdentity(result)
 		if _, found := m.results[key]; found {
 			continue
 		}
+		encodedBytes := commandResultEncodedBytes(result)
+		resultBytes := encodedBytes + mergedResultOverheadBytes
+		if encodedBytes <= 0 || m.retainedBytes+resultBytes > maxCompleteEvidenceBytes {
+			return fmt.Errorf("complete evidence exceeds %d merged bytes", maxCompleteEvidenceBytes)
+		}
 		m.results[key] = struct{}{}
 		m.state.CommandResults = append(m.state.CommandResults, result)
-		m.state.CommandResultBytes += int64(commandResultEncodedBytes(result))
+		m.state.CommandResultBytes += int64(encodedBytes)
+		m.retainedBytes += resultBytes
 	}
+	return nil
+}
+
+func (m *evidenceMerger) appendStrings(target *[]string, added []string, seen map[string]struct{}) bool {
+	for _, value := range added {
+		if _, found := seen[value]; found {
+			continue
+		}
+		charge := len(value) + mergedStringOverheadBytes
+		if m.retainedBytes+charge > maxCompleteEvidenceBytes {
+			return false
+		}
+		seen[value] = struct{}{}
+		*target = append(*target, value)
+		m.retainedBytes += charge
+	}
+	return true
 }
 
 func makeStringSet(values []string) map[string]struct{} {
@@ -414,14 +606,49 @@ func makeStringSet(values []string) map[string]struct{} {
 	return seen
 }
 
-func appendUniqueStrings(target *[]string, added []string, seen map[string]struct{}) {
-	for _, value := range added {
-		if _, found := seen[value]; found {
-			continue
-		}
-		seen[value] = struct{}{}
-		*target = append(*target, value)
+func clearMergedEvidence(state *SessionState) {
+	state.ReadPaths = []string{}
+	state.WritePaths = []string{}
+	state.WriteEpochs = map[string]uint64{}
+	state.Commands = []string{}
+	state.Claims = []string{}
+	state.CommandResults = []CommandResult{}
+	state.CommandResultBytes = 0
+}
+
+func snapshotEvidence(state SessionState) evidenceSnapshot {
+	return evidenceSnapshot{
+		readPaths: append([]string(nil), state.ReadPaths...), writePaths: append([]string(nil), state.WritePaths...),
+		writeEpochs: cloneWriteEpochs(state.WriteEpochs), commands: append([]string(nil), state.Commands...),
+		claims: append([]string(nil), state.Claims...), commandResults: append([]CommandResult(nil), state.CommandResults...),
+		commandResultBytes: state.CommandResultBytes,
 	}
+}
+
+func (snapshot evidenceSnapshot) clone() evidenceSnapshot {
+	state := SessionState{}
+	snapshot.apply(&state)
+	return snapshotEvidence(state)
+}
+
+func (snapshot evidenceSnapshot) apply(state *SessionState) {
+	state.ReadPaths = append([]string(nil), snapshot.readPaths...)
+	state.WritePaths = append([]string(nil), snapshot.writePaths...)
+	state.WriteEpochs = cloneWriteEpochs(snapshot.writeEpochs)
+	state.Commands = append([]string(nil), snapshot.commands...)
+	state.Claims = append([]string(nil), snapshot.claims...)
+	state.CommandResults = append([]CommandResult(nil), snapshot.commandResults...)
+	state.CommandResultBytes = snapshot.commandResultBytes
+}
+
+func mergedEvidenceBytes(state SessionState) int {
+	stringCount := len(state.ReadPaths) + len(state.WritePaths) + len(state.Commands) + len(state.Claims)
+	total := stringBytes(state.ReadPaths) + stringBytes(state.WritePaths) + stringBytes(state.Commands) + stringBytes(state.Claims) +
+		stringCount*mergedStringOverheadBytes + len(state.WriteEpochs)*mergedEpochOverheadBytes
+	for _, result := range state.CommandResults {
+		total += commandResultEncodedBytes(result) + mergedResultOverheadBytes
+	}
+	return total
 }
 
 func persistEvidenceTaint(repoRoot string, state SessionState) error {

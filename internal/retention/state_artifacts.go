@@ -38,8 +38,10 @@ type retainedTaintResolution struct {
 }
 
 type taintResolutionProtection struct {
-	names map[string]bool
-	all   bool
+	names         map[string]bool
+	all           bool
+	evidenceNames map[string]bool
+	evidenceAll   bool
 }
 
 func inspectPreDecisionArtifact(_ string, name string, info os.FileInfo) error {
@@ -93,17 +95,22 @@ func resolveTaintResolutionProtection(project, repoRoot string) (taintResolution
 		return taintResolutionProtection{}, nil
 	}
 	if err != nil {
-		return taintResolutionProtection{all: true}, err
+		return taintResolutionProtection{all: true, evidenceAll: true}, err
 	}
 	var taint retainedEvidenceTaint
 	if err := json.Unmarshal(body, &taint); err != nil {
-		return taintResolutionProtection{all: true}, fmt.Errorf("invalid evidence taint JSON: %w", err)
+		return taintResolutionProtection{all: true, evidenceAll: true}, fmt.Errorf("invalid evidence taint JSON: %w", err)
 	}
 	token, err := retainedEvidenceTaintToken(taint, repoRoot)
 	if err != nil {
-		return taintResolutionProtection{all: true}, err
+		return taintResolutionProtection{all: true, evidenceAll: true}, err
 	}
-	return taintResolutionProtection{names: map[string]bool{token + ".json": true}}, nil
+	return taintResolutionProtection{
+		names: map[string]bool{token + ".json": true},
+		evidenceNames: map[string]bool{
+			SessionFileID(taint.SessionID): true,
+		},
+	}, nil
 }
 
 func retainedEvidenceTaintToken(taint retainedEvidenceTaint, repoRoot string) (string, error) {
