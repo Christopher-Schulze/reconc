@@ -45,6 +45,10 @@ var ErrTransactionCommitRequired = errors.New("JSONL transaction commit may have
 // layout than the one supplied for recovery.
 var ErrLayoutMismatch = errors.New("JSONL append journal belongs to a different layout")
 
+// ErrNoCompleteRecordWithinLimit means tail retention cannot preserve even one
+// complete newline-delimited record without exceeding the configured byte cap.
+var ErrNoCompleteRecordWithinLimit = errors.New("JSONL tail has no complete record within the byte limit")
+
 // Policy bounds one live JSONL file plus a fixed archive ring.
 type Policy struct {
 	MaxBytes    int64

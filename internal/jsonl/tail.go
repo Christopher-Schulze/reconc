@@ -67,8 +67,14 @@ func tailDataWithLayout(path string, maxBytes int64, layout Layout) (int64, int6
 		return info.Size(), info.Size(), nil, info.Mode().Perm(), nil
 	}
 	var data []byte
+	startsAtRecordBoundary := false
 	err = withValidatedLayoutSecurityFileLimits(layout, path, info.Size(), maxBytes, func(file *os.File, opened os.FileInfo) error {
 		start := opened.Size() - maxBytes
+		preceding := []byte{0}
+		if _, readErr := file.ReadAt(preceding, start-1); readErr != nil {
+			return readErr
+		}
+		startsAtRecordBoundary = preceding[0] == '\n'
 		if _, seekErr := file.Seek(start, 0); seekErr != nil {
 			return seekErr
 		}
@@ -79,17 +85,28 @@ func tailDataWithLayout(path string, maxBytes int64, layout Layout) (int64, int6
 	if err != nil {
 		return 0, 0, nil, 0, err
 	}
-	if newline := bytes.IndexByte(data, '\n'); newline >= 0 {
+	if !startsAtRecordBoundary {
+		newline := bytes.IndexByte(data, '\n')
+		if newline < 0 {
+			return info.Size(), info.Size(), nil, info.Mode().Perm(), fmt.Errorf(
+				"%w: %s", ErrNoCompleteRecordWithinLimit, path,
+			)
+		}
 		data = data[newline+1:]
-	} else {
-		data = nil
 	}
 	if len(data) > 0 && data[len(data)-1] != '\n' {
 		if newline := bytes.LastIndexByte(data, '\n'); newline >= 0 {
 			data = data[:newline+1]
 		} else {
-			data = nil
+			return info.Size(), info.Size(), nil, info.Mode().Perm(), fmt.Errorf(
+				"%w: %s", ErrNoCompleteRecordWithinLimit, path,
+			)
 		}
+	}
+	if len(data) == 0 {
+		return info.Size(), info.Size(), nil, info.Mode().Perm(), fmt.Errorf(
+			"%w: %s", ErrNoCompleteRecordWithinLimit, path,
+		)
 	}
 	return info.Size(), int64(len(data)), data, info.Mode().Perm(), nil
 }
@@ -120,7 +137,7 @@ func archiveCandidatesContext(ctx context.Context, path string) ([]archiveCandid
 		}
 		suffix := strings.TrimPrefix(entry.Name(), prefix)
 		index, err := strconv.Atoi(suffix)
-		if err == nil && index > 0 {
+		if err == nil && index > 0 && suffix == strconv.Itoa(index) {
 			out = append(out, archiveCandidate{path: filepath.Join(directory, entry.Name()), index: index})
 		}
 	}

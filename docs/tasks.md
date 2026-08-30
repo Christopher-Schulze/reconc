@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 426 Preserve JSONL data through recovery -> tasks/426-preserve-jsonl-data-through-recovery.md
 - [ ] 427 Serialize JSONL retention and validate modes -> tasks/427-serialize-jsonl-retention-and-validate-modes.md
 - [ ] 428 Make hook-worker retries idempotent -> tasks/428-make-hook-worker-retries-idempotent.md
 - [ ] 429 Parse Kimi managed blocks structurally -> tasks/429-parse-kimi-managed-blocks-structurally.md
@@ -44,6 +43,7 @@
 
 ## Done
 
+- [x] 426 Preserve JSONL data through recovery -> tasks/done/426-preserve-jsonl-data-through-recovery.md
 - [x] 425 Make JSONL locking bounded and cancellable -> tasks/done/425-make-jsonl-locking-bounded-and-cancellable.md
 - [x] 424 Revalidate terminal Stop state -> tasks/done/424-revalidate-terminal-stop-state.md
 - [x] 423 Persist and expire pending tool correlations -> tasks/done/423-persist-and-expire-pending-tool-correlations.md

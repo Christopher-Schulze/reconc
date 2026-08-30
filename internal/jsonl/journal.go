@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 
 	"reconc.dev/reconc/internal/atomicfile"
@@ -121,7 +122,15 @@ func beginAppendJournalWithLayout(
 		for index := 0; index <= policy.MaxArchives; index++ {
 			backupPath := appendBackupPathWithLayout(layout, index)
 			if _, err := os.Lstat(backupPath); err == nil {
-				return appendJournal{}, newAppendBackupCollisionError(backupPath)
+				preservedPath, preserveErr := quarantineOrphanAppendBackupWithLayout(
+					path, layout, index, policy.MaxBytes,
+				)
+				if preserveErr != nil {
+					return appendJournal{}, preserveErr
+				}
+				return appendJournal{}, &OrphanAppendBackupError{
+					BackupPath: backupPath, PreservedPath: preservedPath,
+				}
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return appendJournal{}, err
 			}
@@ -166,6 +175,21 @@ type appendBackupCollisionError struct {
 	path string
 }
 
+// OrphanAppendBackupError reports a crash residue that was preserved outside
+// the active transaction namespace. Retrying the append is safe after the
+// caller records or reviews PreservedPath.
+type OrphanAppendBackupError struct {
+	BackupPath    string
+	PreservedPath string
+}
+
+func (e *OrphanAppendBackupError) Error() string {
+	return fmt.Sprintf(
+		"orphan JSONL append backup %s was preserved at %s; review the preserved data and retry",
+		e.BackupPath, e.PreservedPath,
+	)
+}
+
 func newAppendBackupCollisionError(path string) error {
 	return &appendBackupCollisionError{path: path}
 }
@@ -180,6 +204,111 @@ func appendBackupCollisionPath(err error) string {
 		return collision.path
 	}
 	return ""
+}
+
+type orphanAppendBackupHooks struct {
+	beforeRemove func() error
+}
+
+func quarantineOrphanAppendBackupWithLayout(
+	path string,
+	layout Layout,
+	index int,
+	maxBytes int64,
+) (string, error) {
+	return quarantineOrphanAppendBackupWithLayoutHooks(
+		path, layout, index, maxBytes, orphanAppendBackupHooks{},
+	)
+}
+
+func quarantineOrphanAppendBackupWithLayoutHooks(
+	path string,
+	layout Layout,
+	index int,
+	maxBytes int64,
+	hooks orphanAppendBackupHooks,
+) (preservedPath string, resultErr error) {
+	if err := layout.validateLockLease(); err != nil {
+		return "", err
+	}
+	source := appendBackupPathWithLayout(layout, index)
+	before, err := os.Lstat(source)
+	if err != nil {
+		return "", err
+	}
+	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("orphan JSONL append backup is not a non-symlink regular file: %s", source)
+	}
+	if before.Size() > maxBytes {
+		return "", fmt.Errorf("orphan JSONL append backup %s exceeds %d bytes", source, maxBytes)
+	}
+	mode := before.Mode().Perm()
+	if !layoutIsDefault(path, layout) {
+		mode = layout.FileMode.Perm()
+		if runtime.GOOS != "windows" && before.Mode().Perm() != mode {
+			return "", fmt.Errorf(
+				"orphan JSONL append backup has mode %o; want %o: %s",
+				before.Mode().Perm(), mode, source,
+			)
+		}
+	}
+	sourceFile, sourceInfo, sourceData, sourceLinks, err := openAppendBackupSource(source, before, layout, maxBytes)
+	if err != nil {
+		return "", err
+	}
+	defer func() { resultErr = errors.Join(resultErr, sourceFile.Close()) }()
+	digest := sha256.Sum256(sourceData)
+	preservedName := fmt.Sprintf(
+		".reconc-jsonl-orphan-%s-%d-%s",
+		layoutIdentity(path, layout), index, hex.EncodeToString(digest[:]),
+	)
+	preservedPath = filepath.Join(filepath.Dir(source), preservedName)
+	if _, err := os.Lstat(preservedPath); errors.Is(err, os.ErrNotExist) {
+		if _, err := atomicfile.WriteNew(preservedPath, sourceData, mode); err != nil {
+			return "", fmt.Errorf("preserve orphan JSONL append backup: %w", err)
+		}
+		if err := secureLayoutSecurityFile(layout, preservedPath, maxBytes); err != nil {
+			return "", err
+		}
+	} else if err != nil {
+		return "", err
+	}
+	preservedInfo, err := os.Lstat(preservedPath)
+	if err != nil {
+		return "", err
+	}
+	preservedFile, openedPreservedInfo, preservedData, preservedLinks, err := openAppendBackupSource(
+		preservedPath, preservedInfo, layout, maxBytes,
+	)
+	if err != nil {
+		return "", err
+	}
+	defer func() { resultErr = errors.Join(resultErr, preservedFile.Close()) }()
+	if openedPreservedInfo.Mode().Perm() != mode || !bytes.Equal(preservedData, sourceData) {
+		return "", fmt.Errorf("preserved orphan JSONL append backup does not match source: %s", preservedPath)
+	}
+	if hooks.beforeRemove != nil {
+		if err := hooks.beforeRemove(); err != nil {
+			return "", err
+		}
+	}
+	if err := layout.validateLockLease(); err != nil {
+		return "", err
+	}
+	if err := validateAppendBackupSource(
+		sourceFile, sourceInfo, source, sourceData, sourceLinks, 0, maxBytes,
+	); err != nil {
+		return "", err
+	}
+	if err := validateAppendBackupSource(
+		preservedFile, openedPreservedInfo, preservedPath, preservedData, preservedLinks, 0, maxBytes,
+	); err != nil {
+		return "", err
+	}
+	if err := removeAppendBackupIfSameWithLayout(source, sourceInfo, layout); err != nil {
+		return "", err
+	}
+	return preservedPath, nil
 }
 
 func createAppendBackupWithLayout(path string, layout Layout, index int, maxBytes int64) (appendJournalBackup, error) {

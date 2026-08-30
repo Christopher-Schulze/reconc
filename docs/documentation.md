@@ -2389,7 +2389,15 @@ rebuilding the detached head. A successful callback is marked `resolved`
 before cleanup, so cleanup-only recovery never repeats it. Rotation backups are
 created from an opened archive snapshot, verify the same file identity,
 content, metadata, and hard-link count after publication, and refuse an
-existing backup target instead of replacing it. Legacy version-1
+existing backup target instead of replacing it. If no journal owns an existing
+backup, the next rotation copies it to a digest- and layout-bound hidden
+recovery file, revalidates both identities and contents, removes only the
+validated transaction-name residue, and returns the exact preserved path for
+operator review before a retry. Oversized tail repair retains only complete
+newline-delimited records; when none fits the configured cap, it fails without
+rewriting the source. Archive discovery accepts canonical positive decimal
+suffixes only, so aliases such as `.01` never resolve to another archive path.
+Legacy version-1
 `published` journals remain callback-owned because their state cannot prove
 whether head publication started. Resolved recovery removes only transaction
 artifacts. A private-audit recovery journal is retried through the legacy

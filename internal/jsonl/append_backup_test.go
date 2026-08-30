@@ -137,13 +137,84 @@ func TestBeginAppendJournalPreservesExistingBackupCollision(t *testing.T) {
 	if err := os.WriteFile(backupPath, collisionBody, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := beginAppendJournalWithLayout(path, Policy{MaxBytes: 64, MaxArchives: 1}, defaultLayout(path), true, true); err == nil {
-		t.Fatal("begin append accepted an existing backup collision")
+	_, err := beginAppendJournalWithLayout(path, Policy{MaxBytes: 64, MaxArchives: 1}, defaultLayout(path), true, true)
+	var orphan *OrphanAppendBackupError
+	if !errors.As(err, &orphan) {
+		t.Fatalf("begin append collision error = %v", err)
 	}
-	assertAppendBackupBytes(t, backupPath, collisionBody)
+	if orphan.BackupPath != backupPath || orphan.PreservedPath == "" {
+		t.Fatalf("orphan recovery = %+v", orphan)
+	}
+	if _, statErr := os.Lstat(backupPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("orphan backup remained active: %v", statErr)
+	}
+	assertAppendBackupBytes(t, orphan.PreservedPath, collisionBody)
 	if _, err := os.Lstat(defaultLayout(path).JournalPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("collision preflight left a journal: %v", err)
 	}
+}
+
+func TestAppendReplaysAfterOrphanBackupRecovery(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "events.jsonl")
+	layout := defaultLayout(path)
+	backupPath := appendBackupPathWithLayout(layout, 1)
+	original := []byte("original\n")
+	orphanBody := []byte("orphan\n")
+	if err := os.WriteFile(path, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backupPath, orphanBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	policy := Policy{MaxBytes: int64(len(original) + 1), MaxArchives: 1}
+	err := Append(path, []byte("next"), policy)
+	var orphan *OrphanAppendBackupError
+	if !errors.As(err, &orphan) {
+		t.Fatalf("first Append error = %v", err)
+	}
+	assertAppendBackupBytes(t, orphan.PreservedPath, orphanBody)
+	assertAppendBackupBytes(t, path, original)
+	if err := Append(path, []byte("next"), policy); err != nil {
+		t.Fatalf("retry Append: %v", err)
+	}
+	assertAppendBackupBytes(t, path, []byte("next\n"))
+	assertAppendBackupBytes(t, path+".1", original)
+	assertAppendBackupBytes(t, orphan.PreservedPath, orphanBody)
+}
+
+func TestQuarantineOrphanBackupRejectsConcurrentReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("replacing an open source is not reliable on Windows")
+	}
+	root := t.TempDir()
+	path := filepath.Join(root, "events.jsonl")
+	layout := defaultLayout(path)
+	source := appendBackupPathWithLayout(layout, 1)
+	moved := source + ".moved"
+	original := []byte("original orphan\n")
+	replacement := []byte("replacement orphan\n")
+	if err := os.WriteFile(source, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := quarantineOrphanAppendBackupWithLayoutHooks(
+		path, layout, 1, 64, orphanAppendBackupHooks{beforeRemove: func() error {
+			if err := os.Rename(source, moved); err != nil {
+				return err
+			}
+			return os.WriteFile(source, replacement, 0o644)
+		}},
+	)
+	if err == nil {
+		t.Fatal("concurrent orphan replacement was accepted")
+	}
+	assertAppendBackupBytes(t, moved, original)
+	assertAppendBackupBytes(t, source, replacement)
+	matches, globErr := filepath.Glob(filepath.Join(root, ".reconc-jsonl-orphan-*"))
+	if globErr != nil || len(matches) != 1 {
+		t.Fatalf("preserved orphan paths = %v, err %v", matches, globErr)
+	}
+	assertAppendBackupBytes(t, matches[0], original)
 }
 
 func TestCreateAppendBackupLinksValidatedSource(t *testing.T) {

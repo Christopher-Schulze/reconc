@@ -211,6 +211,8 @@ func TestArchiveCandidatesIgnoreUnrelatedAndInvalidSuffixes(t *testing.T) {
 	for _, candidate := range []string{
 		path + ".1",
 		path + ".0",
+		path + ".0002",
+		path + ".+2",
 		path + ".invalid",
 		filepath.Join(filepath.Dir(path), "other.jsonl.2"),
 	} {
@@ -273,5 +275,42 @@ func TestTailDataKeepsOnlyCompleteRecords(t *testing.T) {
 	}
 	if mode != info.Mode().Perm() {
 		t.Fatalf("mode = %o, want source mode %o", mode, info.Mode().Perm())
+	}
+}
+
+func TestTailDataKeepsRecordStartingAtWindowBoundary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	if err := os.WriteFile(path, []byte("old\nkeep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original, kept, body, _, err := tailData(path, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if original != 9 || kept != 5 || string(body) != "keep\n" {
+		t.Fatalf("tailData = original %d, kept %d, body %q", original, kept, body)
+	}
+}
+
+func TestEnforcePreservesFileWithoutCompleteRetainedRecord(t *testing.T) {
+	for _, body := range [][]byte{
+		[]byte("one-oversized-record"),
+		[]byte("one-oversized-record\n"),
+		[]byte("old\noversized-partial-record"),
+	} {
+		t.Run(fmt.Sprintf("bytes-%d-terminal-%t", len(body), body[len(body)-1] == '\n'), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "events.jsonl")
+			if err := os.WriteFile(path, body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Enforce(path, Policy{MaxBytes: 8, MaxArchives: 1})
+			if !errors.Is(err, ErrNoCompleteRecordWithinLimit) {
+				t.Fatalf("Enforce error = %v", err)
+			}
+			got, readErr := os.ReadFile(path)
+			if readErr != nil || !reflect.DeepEqual(got, body) {
+				t.Fatalf("failed retention changed source: got %q, err %v", got, readErr)
+			}
+		})
 	}
 }
