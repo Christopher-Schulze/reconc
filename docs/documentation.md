@@ -3255,7 +3255,11 @@ the existing session/policy/MCP/Stop engine, emits one bounded versioned JSON
 response, and records route liveness. Routes lacking pre-execution,
 synchronous-response, authoritative-outcome, continuation, continuation
 acknowledgement, or exact MCP identity guarantees return `unsupported` and do
-not execute an enforcing handler. `reconc hook conform <manifest> <fixtures>`
+not execute an enforcing handler. A custom MCP envelope reports
+`input_valid: true` only after the mapped tool input is present as a JSON
+object; a route without that mapping omits the claim. Public custom-runtime
+responses use categorical bounded diagnostics and never echo mapped host
+values, raw tool output, or operational error text. `reconc hook conform <manifest> <fixtures>`
 validates request, response, timeout, failure, liveness, and privacy fixtures
 offline. Generic local-agent and CI-bot fixtures ship as executable contract
 tests; built-in adapters remain registry-owned.
@@ -3723,7 +3727,9 @@ refused rather than admitted. GitHub Copilot uses the version-1 repository hook 
 `.github/hooks/reconc.json`. Copilot CLI and coding agent load the same
 repository file, while the coding agent honors only its Linux `bash` command
 in `/workspace`. Reconc generates documented PascalCase compatibility events
-plus native `subagentStart`, validates `cwd` against the selected repository,
+plus native `subagentStart`, validates the native event against the selected
+route, and accepts `cwd` only when its resolved filesystem identity is the
+selected repository or a contained subdirectory,
 normalizes `tool_result` into evidence, and translates PreToolUse,
 PermissionRequest, PostToolUseFailure, Stop, and SubagentStop output into
 Copilot's exact schemas. `PermissionRequest` and `Notification` are CLI-only; cloud permission
@@ -3757,7 +3763,9 @@ namespace, which is how MCP calls reach the MCP policy path. After compaction, t
 `compact` matcher restores a bounded recovery packet; native `PostCompact` is
 retained as an observation event because it cannot inject context. Devin uses
 `.devin/hooks.v1.json`, including native `UserPromptSubmit` and
-`PostCompaction`, and suppresses compatible Claude-hook duplicates.
+`PostCompaction`, validates each native event against its selected route,
+requires an identity-resolved `cwd` inside the selected repository, and
+suppresses compatible Claude-hook duplicates.
 Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
 `PostToolUse`, `PostInvocation`, and `Stop`; Reconc stores Antigravity PreTool
 metadata as pending evidence so PostToolUse can record exact evidence when the
@@ -3772,6 +3780,12 @@ continuation decisions stay in the Go runtime. Exact shell outcomes,
 subprocess bounds, and idle-continuation behavior are defined in
 [Host Integration Truth](#host-integration-truth). On Windows, the adapters
 invoke the extensionless POSIX wrapper through `sh`.
+Cursor, GitHub Copilot, Devin, Grok, and Antigravity remove every incoming
+top-level `reconc_mcp` member before ordinary event reconstruction; only a
+dedicated Reconc MCP normalizer or an identity-bound custom runtime can create
+the shared MCP envelope. Adapter boundary failures use categorical public
+messages instead of raw host values. Trusted runtime reasons are normalized to
+one line and capped at 1 KiB before entering a host decision envelope.
 Oh My Pi uses the typed Bun extension at `.omp/extensions/reconc.ts`. It
 registers native `session_start`, `input`, `tool_call`, `tool_result`,
 `approval_requested`, `approval_resolved`, `auto_compaction_start`,

@@ -181,11 +181,15 @@ func TestAdapterHelpersPreserveCloneAndReasonContracts(t *testing.T) {
 		{name: "stderr", result: Result{Stderr: " stderr ", Stdout: "stdout"}, fallback: "fallback", want: "stderr"},
 		{name: "stdout", result: Result{Stdout: " stdout "}, fallback: "fallback", want: "stdout"},
 		{name: "fallback", fallback: " exact fallback ", want: "exact fallback"},
+		{name: "controls", result: Result{Stderr: "first\nsecond\x00third\u202ereversed"}, fallback: "fallback", want: "first second third reversed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := resultReason(test.result, test.fallback); got != test.want {
 				t.Fatalf("resultReason() = %q, want %q", got, test.want)
 			}
 		})
+	}
+	if reason := resultReason(Result{Stderr: strings.Repeat("🙂", maxHostReasonBytes)}, "fallback"); len(reason) > maxHostReasonBytes || !utf8.ValidString(reason) || !strings.HasSuffix(reason, " [truncated]") {
+		t.Fatalf("bounded Unicode reason = len %d valid=%t suffix=%t", len(reason), utf8.ValidString(reason), strings.HasSuffix(reason, " [truncated]"))
 	}
 }

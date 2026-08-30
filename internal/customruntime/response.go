@@ -31,6 +31,12 @@ type NeutralResponse struct {
 	ExitCode      int      `json:"exit_code"`
 }
 
+const (
+	customRuntimeBlockReason       = "Reconc blocked this custom runtime action. Inspect Reconc diagnostics for details."
+	customRuntimeDiagnosticReason  = "Reconc custom runtime processing reported a diagnostic."
+	customRuntimeOperationalReason = "Reconc could not safely process the custom runtime request."
+)
+
 func BuildResponse(manifest Manifest, route Route, exitCode int, stdout, stderr string, operationalError error, timedOut bool) NeutralResponse {
 	response := NeutralResponse{
 		Schema:        schema.Resolve(schema.NeutralHookResponse),
@@ -49,7 +55,7 @@ func BuildResponse(manifest Manifest, route Route, exitCode int, stdout, stderr 
 			policy = route.TimeoutPolicy
 			response.Reason = fmt.Sprintf("custom runtime exceeded its declared %d second host timeout", route.TimeoutSeconds)
 		} else {
-			response.Reason = operationalError.Error()
+			response.Reason = customRuntimeOperationalReason
 		}
 		if policy == FailureBlock {
 			response.Decision = DecisionBlock
@@ -67,7 +73,9 @@ func BuildResponse(manifest Manifest, route Route, exitCode int, stdout, stderr 
 	if route.Response == ResponseObservation {
 		response.Decision = DecisionObserve
 		response.ExitCode = 0
-		response.Reason = reason
+		if reason != "" {
+			response.Reason = customRuntimeDiagnosticReason
+		}
 		return response
 	}
 	if blocked {
@@ -76,7 +84,7 @@ func BuildResponse(manifest Manifest, route Route, exitCode int, stdout, stderr 
 			response.Decision = DecisionContinue
 		}
 		response.ExitCode = 2
-		response.Reason = reason
+		response.Reason = customRuntimeBlockReason
 		return response
 	}
 	response.Decision = DecisionAllow

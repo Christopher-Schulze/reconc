@@ -22,11 +22,11 @@ import (
 
 func TestHookRuntimeDevinNativeShapeBlocksDeniedWrite(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
-	_, _, _ = runWithStdin(t, `{"session_id":"devin-1"}`,
+	_, _, _ = runWithStdin(t, fmt.Sprintf(`{"hook_event_name":"SessionStart","session_id":"devin-1","cwd":%q}`, repo),
 		"hook", "runtime", "devin-session-start", repo)
 
 	_, stderr, code := runWithStdin(t,
-		`{"session_id":"devin-1","tool_name":"edit","tool_input":{"file_path":"generated/blocked.go"}}`,
+		fmt.Sprintf(`{"hook_event_name":"PreToolUse","session_id":"devin-1","cwd":%q,"tool_name":"edit","tool_input":{"file_path":"generated/blocked.go"}}`, repo),
 		"hook", "runtime", "devin-pre-tool-use", repo)
 	if code != 2 || !strings.Contains(stderr, "deny-gen") {
 		t.Fatalf("Devin native payload must block denied write, code=%d stderr=%q", code, stderr)
@@ -104,7 +104,7 @@ func TestHookRuntimeZCodePermissionRequestUsesNativeDenyShape(t *testing.T) {
 func TestHookRuntimeDevinUserPromptSubmitCreatesSession(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	stdout, stderr, code := runWithStdin(t,
-		`{"session_id":"devin-prompt","prompt":"continue the task"}`,
+		fmt.Sprintf(`{"hook_event_name":"UserPromptSubmit","session_id":"devin-prompt","cwd":%q,"prompt":"continue the task"}`, repo),
 		"hook", "runtime", "devin-user-prompt-submit", repo)
 	if code != 0 || stdout != "" || stderr != "" {
 		t.Fatalf("Devin UserPromptSubmit failed: code=%d stdout=%q stderr=%q", code, stdout, stderr)
@@ -159,7 +159,7 @@ func TestHookRuntimeGitHubCopilotMalformedStopBlocksExplicitly(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &decision); err != nil {
 		t.Fatalf("decode Copilot Stop decision: %v\n%s", err, stdout)
 	}
-	if decision["decision"] != "block" || !strings.Contains(decision["reason"], "does not match repository root") {
+	if decision["decision"] != "block" || decision["reason"] != "Reconc could not safely validate the hook payload for GitHub Copilot." {
 		t.Fatalf("Copilot malformed Stop did not fail closed: %#v", decision)
 	}
 }
@@ -201,7 +201,7 @@ func TestHookRuntimeGrokMalformedPreToolFailsClosedExplicitly(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &decision); err != nil {
 		t.Fatalf("decode Grok decision: %v\n%s", err, stdout)
 	}
-	if decision["decision"] != "deny" || !strings.Contains(decision["reason"], "truncated") {
+	if decision["decision"] != "deny" || decision["reason"] != "Reconc could not safely validate the hook payload for Grok." {
 		t.Fatalf("Grok malformed payload did not fail closed: %#v", decision)
 	}
 }
@@ -269,7 +269,7 @@ func TestRepositoryRunControlReturnsContinuationForEveryAgentAdapter(t *testing.
 		{name: "GitHub Copilot subagent", event: "copilot-subagent-stop", payload: fmt.Sprintf(`{"hook_event_name":"SubagentStop","session_id":"copilot-subagent-run","cwd":%q,"agent_name":"research","stop_reason":"end_turn"}`, repo), want: `"decision":"block"`},
 		{name: "Cursor", event: "cursor-stop", payload: fmt.Sprintf(`{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"stop","workspace_roots":[%q]}`, repo), want: `"followup_message"`},
 		{name: "OpenCode", event: "opencode-stop", payload: `{"session_id":"opencode-run","reconc_runtime":"opencode"}`, want: `"decision":"block"`},
-		{name: "Devin CLI", event: "devin-stop", payload: `{"session_id":"devin-run"}`, want: `"decision":"block"`},
+		{name: "Devin CLI", event: "devin-stop", payload: fmt.Sprintf(`{"hook_event_name":"Stop","session_id":"devin-run","cwd":%q}`, repo), want: `"decision":"block"`},
 		{name: "Antigravity CLI", event: "antigravity-stop", payload: `{"session_id":"antigravity-run"}`, want: `"decision":"continue"`},
 		{name: "Kilo", event: "kilo-stop", payload: `{"session_id":"kilo-run","reconc_runtime":"kilo"}`, want: `"decision":"block"`},
 		{name: "Oh My Pi", event: "omp-stop", payload: fmt.Sprintf(`{"hook_event_name":"session_stop","session_id":"omp-run","cwd":%q,"stop_hook_active":false}`, repo), want: `"decision":"block"`},
@@ -485,10 +485,10 @@ func TestHookRuntimeGrokStopInterruptStaysPassive(t *testing.T) {
 
 func TestHookRuntimeDevinPostCompactionReturnsRecoveryPacket(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
-	_, _, _ = runWithStdin(t, `{"session_id":"devin-compact"}`,
+	_, _, _ = runWithStdin(t, fmt.Sprintf(`{"hook_event_name":"SessionStart","session_id":"devin-compact","cwd":%q}`, repo),
 		"hook", "runtime", "devin-session-start", repo)
 
-	stdout, stderr, code := runWithStdin(t, `{"session_id":"devin-compact","summary":"provider summary"}`,
+	stdout, stderr, code := runWithStdin(t, fmt.Sprintf(`{"hook_event_name":"PostCompaction","session_id":"devin-compact","cwd":%q,"summary":"provider summary"}`, repo),
 		"hook", "runtime", "devin-post-compaction", repo)
 	if code != 0 || stderr != "" {
 		t.Fatalf("Devin compaction should fail open with clean input, code=%d stderr=%q", code, stderr)

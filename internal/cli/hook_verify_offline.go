@@ -549,7 +549,7 @@ func hookVerificationPayload(kind, repo string) ([]byte, error) {
 	case hooks.KindOpenCode, hooks.KindKilo:
 		payload = map[string]interface{}{"session_id": "verify-" + kind, "reconc_runtime": kind, "tool_name": "Write", "tool_input": map[string]interface{}{"file_path": "forbidden.txt"}}
 	case hooks.KindDevinCLI:
-		payload = map[string]interface{}{"session_id": "verify-devin", "tool_name": "edit", "tool_input": map[string]interface{}{"file_path": "forbidden.txt"}}
+		payload = map[string]interface{}{"hook_event_name": "PreToolUse", "session_id": "verify-devin", "cwd": repo, "tool_name": "edit", "tool_input": map[string]interface{}{"file_path": "forbidden.txt"}}
 	case hooks.KindCursor:
 		payload = map[string]interface{}{"conversation_id": "verify-cursor", "tool_name": "Write", "tool_input": map[string]interface{}{"filePath": "forbidden.txt"}}
 	case hooks.KindGitHubCopilot:

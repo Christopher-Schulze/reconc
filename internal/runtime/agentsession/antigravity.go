@@ -217,6 +217,7 @@ func NormalizeAntigravityPayload(event string, payloadBytes []byte) ([]byte, err
 		return nil, fmt.Errorf("antigravity payload must be a JSON object")
 	}
 	out := cloneObject(raw)
+	delete(out, "reconc_mcp")
 	out["session_id"] = antigravitySessionID(raw)
 	out["antigravity_event"] = event
 	if key := antigravityStepKey(raw); key != "" {
@@ -356,11 +357,11 @@ func antigravityStopReason(stdout string) string {
 	if err := json.Unmarshal([]byte(stdout), &raw); err == nil {
 		if decision, _ := raw["decision"].(string); decision == "block" {
 			if reason, _ := raw["reason"].(string); strings.TrimSpace(reason) != "" {
-				return strings.TrimSpace(reason)
+				return boundHostReason(reason)
 			}
 		}
 	}
-	return strings.TrimSpace(stdout)
+	return boundHostReason(stdout)
 }
 
 func antigravityObject(raw map[string]interface{}, keys ...string) map[string]interface{} {

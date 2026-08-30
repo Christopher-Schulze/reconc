@@ -1,18 +1,20 @@
 package agentsession
 
 import (
-	"path/filepath"
+	"fmt"
 	"strings"
 	"testing"
 )
 
 func TestNormalizeDevinPayload(t *testing.T) {
-	repo := filepath.Join(t.TempDir(), "repo")
-	body, err := NormalizeDevinPayload("devin-pre-tool-use", []byte(`{
+	repo := t.TempDir()
+	body, err := NormalizeDevinPayload("devin-pre-tool-use", []byte(fmt.Sprintf(`{
+  "hook_event_name":"PreToolUse",
+  "cwd":%q,
   "source":"devin-cli",
   "tool_name":"exec",
   "tool_input":{"command":"go test ./..."}
-}`), repo)
+}`, repo)), repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,6 +31,7 @@ func TestNormalizeDevinPayload(t *testing.T) {
 }
 
 func TestNormalizeDevinToolCoverage(t *testing.T) {
+	repo := t.TempDir()
 	tests := []struct {
 		name string
 		want string
@@ -40,7 +43,8 @@ func TestNormalizeDevinToolCoverage(t *testing.T) {
 		{name: "mcp__github__create_issue", want: "mcp__github__create_issue"},
 	}
 	for _, test := range tests {
-		body, err := NormalizeDevinPayload("devin-post-tool-use", []byte(`{"session_id":"s1","tool_name":"`+test.name+`"}`), "/repo")
+		raw := fmt.Sprintf(`{"hook_event_name":"PostToolUse","session_id":"s1","cwd":%q,"tool_name":%q}`, repo, test.name)
+		body, err := NormalizeDevinPayload("devin-post-tool-use", []byte(raw), repo)
 		if err != nil {
 			t.Fatalf("%s: %v", test.name, err)
 		}
@@ -55,12 +59,15 @@ func TestNormalizeDevinToolCoverage(t *testing.T) {
 }
 
 func TestNormalizeDevinSuccessfulStderrRemainsDiagnosticOutput(t *testing.T) {
-	body, err := NormalizeDevinPayload("devin-post-tool-use", []byte(`{
+	repo := t.TempDir()
+	body, err := NormalizeDevinPayload("devin-post-tool-use", []byte(fmt.Sprintf(`{
+  "hook_event_name":"PostToolUse",
+  "cwd":%q,
   "session_id":"s1",
   "tool_name":"exec",
   "tool_response":{"success":true,"output":"ok"},
   "stderr":"warning: cache miss"
-}`), "/repo")
+}`, repo)), repo)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -29,8 +29,15 @@ func NormalizeDevinPayload(event string, payloadBytes []byte, repoRoot string) (
 	if raw == nil {
 		return nil, fmt.Errorf("devin payload must be a JSON object")
 	}
+	if err := validateDevinEvent(event, raw); err != nil {
+		return nil, err
+	}
+	if err := validateHookPayloadCWD(cursorFirstString(raw, "cwd"), repoRoot, "Devin CLI"); err != nil {
+		return nil, err
+	}
 
 	out := cloneObject(raw)
+	delete(out, "reconc_mcp")
 	out["session_id"] = devinSessionID(raw, repoRoot)
 	out["reconc_runtime"] = "devin"
 	out["devin_event"] = event
@@ -69,6 +76,27 @@ func NormalizeDevinPayload(event string, payloadBytes []byte, repoRoot string) (
 		return nil, fmt.Errorf("devin payload normalize: %w", err)
 	}
 	return body, nil
+}
+
+func validateDevinEvent(event string, raw map[string]interface{}) error {
+	expected := map[string]string{
+		"devin-session-start":      "SessionStart",
+		"devin-user-prompt-submit": "UserPromptSubmit",
+		"devin-pre-tool-use":       "PreToolUse",
+		"devin-permission-request": "PermissionRequest",
+		"devin-post-tool-use":      "PostToolUse",
+		"devin-stop":               "Stop",
+		"devin-session-end":        "SessionEnd",
+		"devin-post-compaction":    "PostCompaction",
+	}
+	native, supported := expected[event]
+	if !supported {
+		return fmt.Errorf("unsupported Devin CLI hook route %q", event)
+	}
+	if cursorFirstString(raw, "hook_event_name", "hookEventName") != native {
+		return fmt.Errorf("Devin CLI payload hook_event_name does not match the selected route")
+	}
+	return nil
 }
 
 // PayloadLooksLikeDevin detects compatible Claude hooks that Devin also

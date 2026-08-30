@@ -29,6 +29,7 @@ func NormalizeCursorPayload(event string, payloadBytes []byte) ([]byte, error) {
 	}
 
 	out := cloneObject(raw)
+	delete(out, "reconc_mcp")
 	sessionID := cursorSessionID(raw)
 	if event == "cursor-subagent-start" || event == "cursor-subagent-stop" {
 		sessionID = cursorFirstString(raw, "subagent_id", "subagentId", "agent_id", "agentId")
@@ -289,11 +290,11 @@ func cursorStopReason(stdout string) string {
 	if err := json.Unmarshal([]byte(stdout), &raw); err == nil {
 		for _, key := range []string{"reason", "followup_message", "message"} {
 			if reason, _ := raw[key].(string); strings.TrimSpace(reason) != "" {
-				return strings.TrimSpace(reason)
+				return boundHostReason(reason)
 			}
 		}
 	}
-	return strings.TrimSpace(stdout)
+	return boundHostReason(stdout)
 }
 
 func cursorSessionID(raw map[string]interface{}) string {

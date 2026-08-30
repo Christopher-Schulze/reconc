@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 393 Sanitize adapter trust boundaries and diagnostics -> tasks/393-sanitize-adapter-trust-boundaries-and-diagnostics.md
 - [ ] 394 Consolidate adapter MCP envelope construction -> tasks/394-consolidate-adapter-mcp-envelope-construction.md
 - [ ] 395 Prevent TASK section-counter overflow -> tasks/395-prevent-task-section-counter-overflow.md
 - [ ] 396 Preserve blocking CI findings under truncation -> tasks/396-preserve-blocking-ci-findings-under-truncation.md
@@ -77,6 +76,7 @@
 
 ## Done
 
+- [x] 393 Sanitize adapter trust boundaries and diagnostics -> tasks/done/393-sanitize-adapter-trust-boundaries-and-diagnostics.md
 - [x] 392 Reduce session and pre-decision identity work -> tasks/done/392-reduce-session-and-pre-decision-identity-work.md
 - [x] 391 Harden session-state persistence boundaries -> tasks/done/391-harden-session-state-persistence-boundaries.md
 - [x] 390 Retain pre-decision and taint-resolution state -> tasks/done/390-retain-pre-decision-and-taint-resolution-state.md

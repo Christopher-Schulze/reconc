@@ -6,10 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
-
-	"reconc.dev/reconc/internal/pathidentity"
 )
 
 // NormalizeGitHubCopilotPayload converts GitHub Copilot's documented hook
@@ -52,6 +49,7 @@ func NormalizeGitHubCopilotPayload(event string, payloadBytes []byte, repoRoot s
 		return nil, fmt.Errorf("GitHub Copilot payload must include a non-empty session_id")
 	}
 	out := cloneObject(raw)
+	delete(out, "reconc_mcp")
 	out["session_id"] = sessionID
 	out["reconc_runtime"] = "github-copilot"
 	out["copilot_event"] = event
@@ -161,27 +159,7 @@ func validateGitHubCopilotEvent(event string, raw map[string]interface{}) error 
 }
 
 func validateGitHubCopilotWorkspace(raw map[string]interface{}, repoRoot string) error {
-	root, err := pathidentity.ResolveExisting(repoRoot)
-	if err != nil {
-		return fmt.Errorf("resolve GitHub Copilot repository root: %w", err)
-	}
-	cwd := cursorFirstString(raw, "cwd")
-	if cwd == "" {
-		return fmt.Errorf("GitHub Copilot payload must include cwd")
-	}
-	resolved, err := pathidentity.ResolveExisting(cwd)
-	if err != nil {
-		return fmt.Errorf("resolve GitHub Copilot cwd: %w", err)
-	}
-	if resolved == root {
-		return nil
-	}
-	rootInfo, rootErr := os.Stat(root)
-	cwdInfo, cwdErr := os.Stat(resolved)
-	if rootErr == nil && cwdErr == nil && os.SameFile(rootInfo, cwdInfo) {
-		return nil
-	}
-	return fmt.Errorf("GitHub Copilot cwd %q does not match repository root %q", cwd, root)
+	return validateHookPayloadCWD(cursorFirstString(raw, "cwd"), repoRoot, "GitHub Copilot")
 }
 
 func normalizeGitHubCopilotToolName(name string) string {
@@ -258,7 +236,7 @@ func adaptGitHubCopilotPermissionResult(result Result) Result {
 		result.Stdout = ""
 		return result
 	}
-	message := cursorFirstString(decision, "message")
+	message := boundHostReason(cursorFirstString(decision, "message"))
 	if message == "" {
 		message = "Reconc denied this GitHub Copilot permission request."
 	}
@@ -279,14 +257,14 @@ func adaptGitHubCopilotPostFailureResult(result Result) Result {
 		result.Stdout = ""
 		return result
 	}
-	return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]string{"additionalContext": context})
+	return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]string{"additionalContext": boundHostReason(context)})
 }
 
 func adaptGitHubCopilotStopResult(result Result) Result {
 	if result.ExitCode != 0 || result.Err != nil {
 		return resultWithHookJSON(Result{ExitCode: 0, Err: result.Err}, map[string]string{
 			"decision": "block",
-			"reason":   "Reconc could not evaluate this GitHub Copilot stop: " + resultReason(result, "Reconc runtime returned no diagnostic"),
+			"reason":   boundHostReason("Reconc could not evaluate this GitHub Copilot stop: " + resultReason(result, "Reconc runtime returned no diagnostic")),
 		})
 	}
 	stdout := strings.TrimSpace(result.Stdout)
@@ -300,9 +278,9 @@ func adaptGitHubCopilotStopResult(result Result) Result {
 	if json.Unmarshal([]byte(stdout), &decision) != nil || decision.Decision != "block" || strings.TrimSpace(decision.Reason) == "" {
 		return gitHubCopilotStopBlockResult("Reconc produced an invalid non-empty GitHub Copilot stop decision")
 	}
-	return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]string{"decision": "block", "reason": strings.TrimSpace(decision.Reason)})
+	return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]string{"decision": "block", "reason": boundHostReason(decision.Reason)})
 }
 
 func gitHubCopilotStopBlockResult(reason string) Result {
-	return resultWithHookJSON(Result{ExitCode: 0}, map[string]string{"decision": "block", "reason": strings.TrimSpace(reason)})
+	return resultWithHookJSON(Result{ExitCode: 0}, map[string]string{"decision": "block", "reason": boundHostReason(reason)})
 }

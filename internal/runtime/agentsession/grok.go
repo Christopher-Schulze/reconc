@@ -77,6 +77,7 @@ func NormalizeGrokPayload(event string, payloadBytes []byte, repoRoot string) ([
 	}
 
 	out := cloneObject(raw)
+	delete(out, "reconc_mcp")
 	out["session_id"] = sessionID
 	out["reconc_runtime"] = "grok"
 	out["grok_event"] = event
@@ -153,7 +154,7 @@ func AdaptGrokResult(event string, result Result) Result {
 		if result.ExitCode != 0 || result.Err != nil {
 			return resultWithHookJSON(Result{ExitCode: 0, Err: result.Err}, map[string]string{
 				"decision": "block",
-				"reason":   "Reconc could not evaluate this Grok Stop: " + resultReason(result, "Reconc runtime returned no diagnostic"),
+				"reason":   boundHostReason("Reconc could not evaluate this Grok Stop: " + resultReason(result, "Reconc runtime returned no diagnostic")),
 			})
 		}
 		stdout := strings.TrimSpace(result.Stdout)
@@ -170,7 +171,7 @@ func AdaptGrokResult(event string, result Result) Result {
 		}
 		return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]string{
 			"decision": "block",
-			"reason":   strings.TrimSpace(decision.Reason),
+			"reason":   boundHostReason(decision.Reason),
 		})
 	}
 	result.ExitCode = 0
@@ -179,7 +180,7 @@ func AdaptGrokResult(event string, result Result) Result {
 }
 
 func grokStopBlockResult(reason string) Result {
-	return resultWithHookJSON(Result{ExitCode: 0}, map[string]string{"decision": "block", "reason": strings.TrimSpace(reason)})
+	return resultWithHookJSON(Result{ExitCode: 0}, map[string]string{"decision": "block", "reason": boundHostReason(reason)})
 }
 
 func validateGrokEvent(event string, raw map[string]interface{}) error {

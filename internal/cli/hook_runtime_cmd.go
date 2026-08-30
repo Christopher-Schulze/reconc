@@ -165,14 +165,14 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	payload, err := agentsession.ReadPayload(input)
 	if err != nil {
 		if route.PlatformKind == hooks.KindGitHubCopilot && (route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop) {
-			if writeErr := writeGitHubCopilotRuntimeBlock(stdout, "Reconc could not read the GitHub Copilot hook payload: "+err.Error()); writeErr != nil {
+			if writeErr := writeGitHubCopilotRuntimeBlock(stdout, hookRuntimeBoundaryDiagnostic(route.PlatformKind, "read the hook payload", err)); writeErr != nil {
 				exitCode = 2
 				return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + writeErr.Error()}
 			}
 			return nil
 		}
 		if route.PlatformKind == hooks.KindGrok && route.Event == hooks.EventPreToolUse {
-			if writeErr := writeGrokRuntimeDeny(stdout, "Reconc could not read the Grok hook payload: "+err.Error()); writeErr != nil {
+			if writeErr := writeGrokRuntimeDeny(stdout, hookRuntimeBoundaryDiagnostic(route.PlatformKind, "read the hook payload", err)); writeErr != nil {
 				exitCode = 2
 				return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + writeErr.Error()}
 			}
@@ -180,23 +180,23 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 		}
 		if route.ErrorPolicy == hooks.FailureBlock {
 			exitCode = 2
-			return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + err.Error()}
+			return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + hookRuntimeBoundaryDiagnostic(route.PlatformKind, "read the hook payload", err)}
 		}
-		fmt.Fprintln(stderr, "reconc hook runtime warning: "+err.Error())
+		fmt.Fprintln(stderr, "reconc hook runtime warning: "+hookRuntimeBoundaryDiagnostic(route.PlatformKind, "read the hook payload", err))
 		return nil
 	}
 	timing.mark("payload_read")
 	root, err := resolveRoot(repo)
 	if err != nil {
 		if route.PlatformKind == hooks.KindGitHubCopilot && (route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop) {
-			if writeErr := writeGitHubCopilotRuntimeBlock(stdout, "Reconc rejected the GitHub Copilot repository root: "+err.Error()); writeErr != nil {
+			if writeErr := writeGitHubCopilotRuntimeBlock(stdout, hookRuntimeBoundaryDiagnostic(route.PlatformKind, "resolve the repository root", err)); writeErr != nil {
 				exitCode = 2
 				return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + writeErr.Error()}
 			}
 			return nil
 		}
 		if route.PlatformKind == hooks.KindGrok && route.Event == hooks.EventPreToolUse {
-			if writeErr := writeGrokRuntimeDeny(stdout, "Reconc rejected the Grok repository root: "+err.Error()); writeErr != nil {
+			if writeErr := writeGrokRuntimeDeny(stdout, hookRuntimeBoundaryDiagnostic(route.PlatformKind, "resolve the repository root", err)); writeErr != nil {
 				exitCode = 2
 				return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + writeErr.Error()}
 			}
@@ -204,9 +204,9 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 		}
 		if route.ErrorPolicy == hooks.FailureBlock {
 			exitCode = 2
-			return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + err.Error()}
+			return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + hookRuntimeBoundaryDiagnostic(route.PlatformKind, "resolve the repository root", err)}
 		}
-		fmt.Fprintln(stderr, "reconc hook runtime warning: "+err.Error())
+		fmt.Fprintln(stderr, "reconc hook runtime warning: "+hookRuntimeBoundaryDiagnostic(route.PlatformKind, "resolve the repository root", err))
 		return nil
 	}
 	repo = root.Path()
@@ -262,14 +262,14 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	}
 	if err != nil {
 		if route.PlatformKind == hooks.KindGitHubCopilot && (route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop) {
-			if writeErr := writeGitHubCopilotRuntimeBlock(stdout, "Reconc rejected the GitHub Copilot hook payload: "+err.Error()); writeErr != nil {
+			if writeErr := writeGitHubCopilotRuntimeBlock(stdout, hookRuntimeBoundaryDiagnostic(route.PlatformKind, "validate the hook payload", err)); writeErr != nil {
 				exitCode = 2
 				return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + writeErr.Error()}
 			}
 			return nil
 		}
 		if route.PlatformKind == hooks.KindGrok && route.Event == hooks.EventPreToolUse {
-			if writeErr := writeGrokRuntimeDeny(stdout, "Reconc rejected the Grok hook payload: "+err.Error()); writeErr != nil {
+			if writeErr := writeGrokRuntimeDeny(stdout, hookRuntimeBoundaryDiagnostic(route.PlatformKind, "validate the hook payload", err)); writeErr != nil {
 				exitCode = 2
 				return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + writeErr.Error()}
 			}
@@ -277,9 +277,9 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 		}
 		if route.ErrorPolicy == hooks.FailureBlock {
 			exitCode = 2
-			return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + err.Error()}
+			return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + hookRuntimeBoundaryDiagnostic(route.PlatformKind, "validate the hook payload", err)}
 		}
-		fmt.Fprintln(stderr, "reconc hook runtime warning: "+err.Error())
+		fmt.Fprintln(stderr, "reconc hook runtime warning: "+hookRuntimeBoundaryDiagnostic(route.PlatformKind, "validate the hook payload", err))
 		return nil
 	}
 	grokPrepareWarning := ""
@@ -387,6 +387,23 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 		return &CLIError{ExitCode: result.ExitCode, Message: ""}
 	}
 	return nil
+}
+
+func hookRuntimeBoundaryDiagnostic(platformKind, operation string, err error) string {
+	displayName := map[string]string{
+		hooks.KindCursor:        "Cursor",
+		hooks.KindDevinCLI:      "Devin CLI",
+		hooks.KindGitHubCopilot: "GitHub Copilot",
+		hooks.KindGrok:          "Grok",
+		hooks.KindAntigravity:   "Antigravity",
+	}[platformKind]
+	if displayName != "" {
+		return fmt.Sprintf("Reconc could not safely %s for %s.", operation, displayName)
+	}
+	if err == nil {
+		return "Reconc hook runtime failed without a diagnostic."
+	}
+	return err.Error()
 }
 
 func writeGitHubCopilotRuntimeBlock(stdout io.Writer, reason string) error {

@@ -600,7 +600,7 @@ func TestHookRuntimeCursorMalformedObservationAddsNoEvidence(t *testing.T) {
 	_, stderr, code := runWithStdin(t,
 		`{"tool_name":"Write","tool_input":{"filePath":"src/app.go"}}`,
 		"hook", "runtime", "cursor-post-tool-use", repo)
-	if code != 0 || !strings.Contains(stderr, "session identity") {
+	if code != 0 || !strings.Contains(stderr, "could not safely validate the hook payload for Cursor") {
 		t.Fatalf("malformed Cursor observation must warn and fail open, code=%d stderr=%q", code, stderr)
 	}
 	state, err := agentsession.LoadSessionState(repo, "cursor-workspace")

@@ -111,7 +111,12 @@ func buildMCPEnvelope(manifest Manifest, route Route, selected selectedHostValue
 	mcp := map[string]interface{}{
 		"platform": manifest.Runtime(), "tool": tool, "observed": true,
 		"blocking_pre_hook": route.Event == EventMCPBefore && route.Guarantees.PreExecution && route.Guarantees.SynchronousResponse,
-		"input_valid":       true,
+	}
+	if route.Fields.ToolInput != "" {
+		if _, ok := selected[route.Fields.ToolInput].(map[string]interface{}); !ok {
+			return nil, fmt.Errorf("mapped tool_input must be an object")
+		}
+		mcp["input_valid"] = true
 	}
 	if err := copyOptionalString(selected, mcp, route.Fields.MCPServerFingerprint, "server_fingerprint"); err != nil {
 		return nil, err

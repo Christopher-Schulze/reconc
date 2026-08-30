@@ -78,7 +78,7 @@ func TestNormalizeGitHubCopilotPayloadRejectsUnsafeShapes(t *testing.T) {
 		want    string
 	}{
 		{name: "route mismatch", event: "copilot-pre-tool-use", payload: fmt.Sprintf(`{"hook_event_name":"PostToolUse","session_id":"s","cwd":%q,"tool_name":"Edit","tool_input":{}}`, repo), want: "does not match route"},
-		{name: "workspace mismatch", event: "copilot-stop", payload: fmt.Sprintf(`{"hook_event_name":"Stop","session_id":"s","cwd":%q}`, other), want: "does not match repository root"},
+		{name: "workspace mismatch", event: "copilot-stop", payload: fmt.Sprintf(`{"hook_event_name":"Stop","session_id":"s","cwd":%q}`, other), want: "outside repository root"},
 		{name: "missing session", event: "copilot-stop", payload: fmt.Sprintf(`{"hook_event_name":"Stop","cwd":%q}`, repo), want: "session_id"},
 		{name: "missing tool input", event: "copilot-pre-tool-use", payload: fmt.Sprintf(`{"hook_event_name":"PreToolUse","session_id":"s","cwd":%q,"tool_name":"Edit"}`, repo), want: "tool_input"},
 		{name: "unsafe scalar edit input", event: "copilot-pre-tool-use", payload: fmt.Sprintf(`{"hook_event_name":"PreToolUse","session_id":"s","cwd":%q,"tool_name":"Edit","tool_input":"unsafe"}`, repo), want: "cannot be evaluated safely"},
