@@ -255,8 +255,8 @@ func finalizeCleanStop(root, sessionID string, evaluated stopPolicyCheckResult) 
 	if err != nil {
 		return Result{}, false, fmt.Errorf("recapture TASK snapshot: %w", err)
 	}
-	currentGit := stopPolicyGitSnapshotFor(root)
-	if !reflect.DeepEqual(evaluated.TaskSnapshot, currentTask) || evaluated.GitSnapshot != currentGit {
+	currentCacheGit := stopPolicyGitSnapshotFor(root)
+	if !reflect.DeepEqual(evaluated.TaskSnapshot, currentTask) || evaluated.GitSnapshot != currentCacheGit {
 		return Result{}, false, fmt.Errorf("terminal repository state changed during Stop evaluation")
 	}
 	if _, err := mutateSessionStateResolved(root, sessionID, func(state SessionState) SessionState {
@@ -265,7 +265,8 @@ func finalizeCleanStop(root, sessionID string, evaluated stopPolicyCheckResult) 
 	}); err != nil {
 		return Result{}, false, fmt.Errorf("clear repeated-block state: %w", err)
 	}
-	return taskCompletionCommitGate(currentTask, currentGit)
+	terminalGit := completionPolicyGitSnapshotFor(root)
+	return taskCompletionCommitGate(currentTask, terminalGit)
 }
 
 func repoRunPolicyCheckpointDue(run repositoryRunState, state SessionState, now time.Time) bool {

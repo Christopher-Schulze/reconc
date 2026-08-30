@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 453 Preserve policy-relevant Git state -> tasks/453-preserve-policy-relevant-git-state.md
 - [ ] 454 Reuse Stop fingerprints and loaded evidence -> tasks/454-reuse-stop-fingerprints-and-loaded-evidence.md
 - [ ] 455 Persist repository-run terminal reasons -> tasks/455-persist-repository-run-terminal-reasons.md
 - [ ] 456 Correct namespaced MCP strict audit -> tasks/456-correct-namespaced-mcp-strict-audit.md
@@ -17,6 +16,7 @@
 
 ## Done
 
+- [x] 453 Preserve policy-relevant Git state -> tasks/done/453-preserve-policy-relevant-git-state.md
 - [x] 452 Preserve user interrupt on close failure -> tasks/done/452-preserve-user-interrupt-on-close-failure.md
 - [x] 451 Keep hook liveness routes consistent -> tasks/done/451-keep-hook-liveness-routes-consistent.md
 - [x] 450 Bind compaction recovery markers structurally -> tasks/done/450-bind-compaction-recovery-markers-structurally.md

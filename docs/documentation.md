@@ -4247,8 +4247,8 @@ maps payload-read, repository-resolution, and normalization failures to the
 registry route's exact exit code, stdout decision envelope, or stderr warning;
 Copilot and Grok host-specific fail-closed transports therefore cannot drift
 between stages. Routine executable repository continuation never
-builds a Stop fingerprint. Terminal Stop uses one git status snapshot
-per report build with default `--untracked-files=normal`, dirty-path
+builds a Stop fingerprint. Stop report construction uses one cache-oriented
+git status snapshot with default `--untracked-files=normal`, dirty-path
 content/index hashes, policy-source identity, typed TASK state, direct
 loose/packed/worktree HEAD resolution, and a
 per-session report lock instead of full `git diff --binary` output or repeated
@@ -4373,13 +4373,17 @@ aggregate-content bound. Directory or file identity replacement during the
 scan fails closed. Unsupported file metadata, dirty submodules, scan overflow,
 malformed Git/TASK state, and interrupted report publication bypass generation
 reuse. Alternate Git ref backends fall back to `git rev-parse`; the normal
-path avoids that extra process. Reconc's own `.reconc/cache/`,
-`.reconc/run/`, `.reconc/locks/`, `.reconc/reports/`, and
-`.reconc/audit.jsonl` runtime artefacts are excluded from the dirty fingerprint
-so report writes cannot invalidate their own cache.
+path avoids that extra process. Only Reconc-owned runtime namespaces and exact
+transaction, lock, audit, and bootstrap artifacts are excluded from the dirty
+fingerprint so report writes cannot invalidate their own cache. Policy inputs,
+compiled policy, install receipts, runtime manifests, and scripts under
+`.reconc/` remain visible.
 `RECONC_STOP_FINGERPRINT_UNTRACKED=all` asks Git to enumerate every untracked
 path; the default `normal` mode still binds all nested content below each
-directory sentinel, while `no` excludes untracked paths. Matching `require_script` rules
+directory sentinel, while `no` excludes untracked paths from cache identity
+only. Terminal TASK completion uses a separate fresh
+`--untracked-files=all` snapshot, so cache tuning cannot hide untracked TASK
+control files from `require_committed`. Matching `require_script` rules
 that call the same `run-workflow-audit` runner are batched through
 `--batch-json` in one process and then split back into per-rule pass/block
 reports, so subprocess startup drops without weakening rule attribution. All

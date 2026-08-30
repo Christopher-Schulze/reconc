@@ -480,8 +480,22 @@ func oversizedFileFingerprint(info os.FileInfo) string {
 func filterStopPolicyGitStatus(raw string) string {
 	parts := strings.Split(raw, "\x00")
 	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if part == "" || stopPolicyRuntimeStateRecord(statusRecordPath(part)) {
+	for i := 0; i < len(parts); i++ {
+		part := parts[i]
+		if part == "" {
+			continue
+		}
+		if len(part) >= 4 && part[2] == ' ' && isRenameOrCopyStatus(part[0], part[1]) && i+1 < len(parts) {
+			origin := parts[i+1]
+			if stopPolicyRuntimeStateRecord(statusRecordPath(part)) && stopPolicyRuntimeStateRecord(origin) {
+				i++
+				continue
+			}
+			out = append(out, part, origin)
+			i++
+			continue
+		}
+		if stopPolicyRuntimeStateRecord(statusRecordPath(part)) {
 			continue
 		}
 		out = append(out, part)
@@ -502,14 +516,73 @@ func statusRecordPath(record string) string {
 	return record
 }
 
-// stopPolicyRuntimeStateRecord reports whether a repo-relative path is
-// Reconc-owned runtime state that must not influence the stop-policy
-// fingerprint. Matching is prefix-based on the path: a substring match would
-// wrongly drop user files such as "src/x.reconc/run/data.txt" whose name
-// merely contains a runtime marker, leaving the stop cache stale when they
-// change.
+// stopPolicyRuntimeStateRecord reports whether a repo-relative path is an
+// exact Reconc-owned runtime artifact. Policy, receipt, runtime-manifest, and
+// script paths under .reconc remain visible to Stop and completion checks.
 func stopPolicyRuntimeStateRecord(path string) bool {
-	return strings.HasPrefix(filepath.ToSlash(path), ".reconc/")
+	path = filepath.ToSlash(path)
+	switch path {
+	case ".reconc/.compile.lock",
+		".reconc/audit.jsonl",
+		".reconc/audit.head.json",
+		".reconc/hook-verify-events.jsonl",
+		".reconc/repository-sync-transaction.json",
+		".reconc/task-transaction.json":
+		return true
+	}
+	for _, prefix := range []string{
+		".reconc/cache/",
+		".reconc/locks/",
+		".reconc/reports/",
+		".reconc/run/",
+		".reconc/sessions/",
+		".reconc/.reconc-jsonl-orphan-",
+	} {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return stopPolicyAuditSidecar(path) || stopPolicyBootstrapStateRecord(path)
+}
+
+func stopPolicyAuditSidecar(path string) bool {
+	const prefix = ".reconc/audit.jsonl."
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	suffix := strings.TrimPrefix(path, prefix)
+	switch suffix {
+	case "lock", "append-transaction.json":
+		return true
+	}
+	if strings.HasPrefix(suffix, "append-backup.") {
+		suffix = strings.TrimPrefix(suffix, "append-backup.")
+	}
+	return decimalPathSuffix(suffix)
+}
+
+func stopPolicyBootstrapStateRecord(path string) bool {
+	const root = ".reconc/"
+	if !strings.HasPrefix(path, root) {
+		return false
+	}
+	name := strings.TrimPrefix(path, root)
+	if strings.Contains(name, "/") || !strings.HasSuffix(name, ".json") {
+		return false
+	}
+	return strings.HasPrefix(name, "bootstrap-plan-") || strings.HasPrefix(name, "bootstrap-install-")
+}
+
+func decimalPathSuffix(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		if value[i] < '0' || value[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 type stopBlockRecord struct {

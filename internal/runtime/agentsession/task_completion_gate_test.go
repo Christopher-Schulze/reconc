@@ -11,6 +11,7 @@ import (
 )
 
 func TestTerminalTaskCompletionRequiresCommittedControlPlaneWhenConfigured(t *testing.T) {
+	t.Setenv(stopPolicyUntrackedModeEnv, "no")
 	repo := setupPolicyRepo(t)
 	gitInitHelper(t, repo)
 	config := "task_lifecycle:\n  profile: sections-v1\n  completion:\n    require_committed: true\nrules: []\n"
@@ -29,6 +30,14 @@ func TestTerminalTaskCompletionRequiresCommittedControlPlaneWhenConfigured(t *te
 	}
 	if _, err := InitializeSessionState(repo, "terminal"); err != nil {
 		t.Fatal(err)
+	}
+	cacheSnapshot := stopPolicyGitSnapshotFor(repo)
+	if cacheSnapshot.StatusMode != "no" || strings.Contains(cacheSnapshot.Status, "docs/tasks.md") {
+		t.Fatalf("cache snapshot did not honor no-untracked tuning: %#v", cacheSnapshot)
+	}
+	terminalSnapshot := completionPolicyGitSnapshotFor(repo)
+	if terminalSnapshot.StatusMode != "all" || !strings.Contains(terminalSnapshot.Status, "docs/tasks.md") {
+		t.Fatalf("terminal snapshot did not capture all untracked files: %#v", terminalSnapshot)
 	}
 	blocked := RunStop(repo, []byte(`{"session_id":"terminal","runtime":"codex"}`))
 	if blocked.ExitCode != 0 || !strings.Contains(blocked.Stdout, "TASK control plane is not committed") {

@@ -43,13 +43,130 @@ func TestDirtyPathsFromStatusIncludesRenamePairAndSkipsRuntimeState(t *testing.T
 func TestDirtyPathsFromStatusKeepsUserPathsContainingRuntimeMarker(t *testing.T) {
 	// A user file whose name merely contains a runtime marker substring
 	// (for example "x.reconc/run/") is not Reconc-owned state and must
-	// stay in the fingerprint; only paths rooted at ".reconc/" are
-	// filtered.
+	// stay in the fingerprint; only exact owned runtime namespaces are filtered.
 	status := " M src/x.reconc/run/data.txt\x00 M .reconc/run/decisions.jsonl\x00"
 	got := dirtyPathsFromStatus(status)
 	want := []string{"src/x.reconc/run/data.txt"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("dirty paths mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestStopPolicyRuntimeStateRecordUsesExactOwnedNamespaces(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: ".reconc/.compile.lock", want: true},
+		{path: ".reconc/audit.jsonl", want: true},
+		{path: ".reconc/audit.head.json", want: true},
+		{path: ".reconc/audit.jsonl.lock", want: true},
+		{path: ".reconc/audit.jsonl.2", want: true},
+		{path: ".reconc/audit.jsonl.append-backup.0", want: true},
+		{path: ".reconc/audit.jsonl.append-transaction.json", want: true},
+		{path: ".reconc/.reconc-jsonl-orphan-audit-0-deadbeef", want: true},
+		{path: ".reconc/cache/report.json", want: true},
+		{path: ".reconc/locks/stop.lock", want: true},
+		{path: ".reconc/reports/session.json", want: true},
+		{path: ".reconc/run/state.bin", want: true},
+		{path: ".reconc/sessions/session.json", want: true},
+		{path: ".reconc/task-transaction.json", want: true},
+		{path: ".reconc/repository-sync-transaction.json", want: true},
+		{path: ".reconc/hook-verify-events.jsonl", want: true},
+		{path: ".reconc/bootstrap-plan-deadbeef.json", want: true},
+		{path: ".reconc/bootstrap-install-deadbeef.json", want: true},
+		{path: ".reconc/policy.lock.json", want: false},
+		{path: ".reconc/install.lock.json", want: false},
+		{path: ".reconc/runtimes/custom.json", want: false},
+		{path: ".reconc/scripts/check.sh", want: false},
+		{path: ".reconc/impact/candidate.yml", want: false},
+		{path: ".reconc/policy.yml", want: false},
+		{path: ".reconc/runbook.md", want: false},
+		{path: ".reconc/run", want: false},
+		{path: "src/.reconc/run/state.bin", want: false},
+		{path: ".reconc/bootstrap-notes.md", want: false},
+		{path: ".reconc/nested/bootstrap-plan-deadbeef.json", want: false},
+		{path: ".reconc/audit.jsonl-notes", want: false},
+		{path: ".reconc/audit.jsonl.append-backup.latest", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			if got := stopPolicyRuntimeStateRecord(test.path); got != test.want {
+				t.Fatalf("stopPolicyRuntimeStateRecord(%q) = %v, want %v", test.path, got, test.want)
+			}
+		})
+	}
+}
+
+func TestStopPolicyGitFilteringPreservesUserSideOfRenames(t *testing.T) {
+	tests := []struct {
+		name   string
+		status string
+		want   []string
+	}{
+		{
+			name:   "policy input renamed into runtime state",
+			status: "R  .reconc/run/state.bin\x00.reconc/policy.yml\x00 M src/after.go\x00",
+			want:   []string{".reconc/policy.yml", "src/after.go"},
+		},
+		{
+			name:   "runtime state renamed into policy input",
+			status: "R  .reconc/policy.yml\x00.reconc/run/state.bin\x00 M src/after.go\x00",
+			want:   []string{".reconc/policy.yml", "src/after.go"},
+		},
+		{
+			name:   "runtime-only rename",
+			status: "R  .reconc/run/new.bin\x00.reconc/run/old.bin\x00 M src/after.go\x00",
+			want:   []string{"src/after.go"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := dirtyPathsFromStatus(filterStopPolicyGitStatus(test.status))
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("filtered rename paths = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestStopPolicyGitSnapshotPreservesTrackedPolicyInputsInEveryMode(t *testing.T) {
+	repo := setupStopBenchmarkRepo(t)
+	policyPath := filepath.Join(repo, ".reconc", "runtimes", "custom.json")
+	runtimePath := filepath.Join(repo, ".reconc", "run", "state.bin")
+	for path, body := range map[string]string{policyPath: "v1\n", runtimePath: "v1\n"} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, args := range [][]string{{"add", "-f", ".reconc/runtimes/custom.json", ".reconc/run/state.bin"}, {"commit", "-m", "tracked reconc state", "--quiet"}} {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	for _, path := range []string{policyPath, runtimePath} {
+		if err := os.WriteFile(path, []byte("v2\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, mode := range []string{"normal", "all", "no"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv(stopPolicyUntrackedModeEnv, mode)
+			snapshot := stopPolicyGitSnapshotFor(repo)
+			if !snapshot.StatusOK || snapshot.StatusMode != mode {
+				t.Fatalf("snapshot status_ok=%v mode=%q, want true and %q", snapshot.StatusOK, snapshot.StatusMode, mode)
+			}
+			if !strings.Contains(snapshot.Status, ".reconc/runtimes/custom.json") {
+				t.Fatalf("tracked policy input missing in %s mode: %q", mode, snapshot.Status)
+			}
+			if strings.Contains(snapshot.Status, ".reconc/run/state.bin") {
+				t.Fatalf("owned runtime artifact visible in %s mode: %q", mode, snapshot.Status)
+			}
+		})
 	}
 }
 
