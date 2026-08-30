@@ -4170,7 +4170,10 @@ runtimes still keep git pre-commit as the repository backstop.
 Candidates are grouped by their immutable runner and timeout key before scope
 and template-context preparation; singleton or ineligible candidates pay only
 the normal per-rule path, while genuine batches retain rule order and per-rule
-attribution.
+attribution. A rule whose `when_paths` contains template variables is always
+evaluated per match context, because its normal script input exposes those
+captures. Capture-free batches receive the same complete normalized write-path
+set and an explicitly empty capture map as their per-context execution.
 The runtime keeps the old read-safe fast path as defense in depth if a host tool
 still sends a read-only PreToolUse event; write tools still resolve the repo and
 fail closed before policy evaluation. Payload parsing stays allocation-light by decoding

@@ -164,6 +164,9 @@ func workflowAuditBatchCandidate(rule *policy.Rule) (scriptPath, mode string, ti
 	if rule.Kind != policy.KindRequireScript {
 		return "", "", 0, 0, false
 	}
+	if PatternHasAnyTemplateVar(rule.WhenPaths) {
+		return "", "", 0, 0, false
+	}
 	scriptPath = rule.Script
 	slashScriptPath := filepath.ToSlash(scriptPath)
 	batchConvention := strings.HasSuffix(slashScriptPath, "/audits/run-workflow-audit") || slashScriptPath == "audits/run-workflow-audit"

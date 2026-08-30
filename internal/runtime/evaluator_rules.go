@@ -199,10 +199,14 @@ func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 		if err != nil {
 			return nil, &rerrors.RuleValidationError{Message: "script args: " + err.Error()}
 		}
+		captures := mc.captures
+		if captures == nil {
+			captures = map[string]string{}
+		}
 		input := ScriptInput{
 			RuleID:         ruleIDOf(rule),
 			RepoRoot:       ctx.repoRoot,
-			Captures:       mc.captures,
+			Captures:       captures,
 			WritePaths:     inputs.WritePaths,
 			ReadPaths:      inputs.ReadPaths,
 			Commands:       inputs.Commands,

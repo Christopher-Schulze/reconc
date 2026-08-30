@@ -31,6 +31,7 @@ func TestWorkflowAuditBatchCandidateRejectsEveryProtocolMismatch(t *testing.T) {
 	}{
 		{name: "wrong kind", change: func(rule *policy.Rule) { rule.Kind = policy.KindDenyWrite }},
 		{name: "missing script", change: func(rule *policy.Rule) { rule.Script = "" }},
+		{name: "captured when path", change: func(rule *policy.Rule) { rule.WhenPaths = []string{"src/{module}/main.go"} }},
 		{name: "template script", change: func(rule *policy.Rule) { rule.Script = "{root}/audits/run-workflow-audit" }},
 		{name: "wrong basename", change: func(rule *policy.Rule) { rule.Script = "audits/run-other" }},
 		{name: "no args", change: func(rule *policy.Rule) { rule.Args = nil }},

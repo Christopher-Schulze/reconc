@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 414 Restrict workflow-audit batching to capture-free scopes -> tasks/414-restrict-workflow-audit-batching-to-capture-free-scopes.md
 - [ ] 415 Centralize hook-runtime failure adaptation -> tasks/415-centralize-hook-runtime-failure-adaptation.md
 - [ ] 416 Bound persistent hook-worker root caching -> tasks/416-bound-persistent-hook-worker-root-caching.md
 - [ ] 417 Preserve exact hook output-envelope limits -> tasks/417-preserve-exact-hook-output-envelope-limits.md
@@ -56,6 +55,7 @@
 
 ## Done
 
+- [x] 414 Restrict workflow-audit batching to capture-free scopes -> tasks/done/414-restrict-workflow-audit-batching-to-capture-free-scopes.md
 - [x] 413 Settle indeterminate results per budget cap -> tasks/done/413-settle-indeterminate-results-per-budget-cap.md
 - [x] 412 Synchronize action-ledger checkpoint publication -> tasks/done/412-synchronize-action-ledger-checkpoint-publication.md
 - [x] 411 Reconcile abandoned pending approvals -> tasks/done/411-reconcile-abandoned-pending-approvals.md

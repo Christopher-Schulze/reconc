@@ -128,8 +128,13 @@ func TestCheckBatchesWorkflowAuditRequireScripts(t *testing.T) {
 	writeFile(t, repo, "AGENTS.md", "# project\n")
 	script := strings.ReplaceAll(`#!/bin/sh
 set -eu
+payload=$(cat)
 printf x >> "__COUNTER__"
 if [ "${1:-}" = "--batch-json" ]; then
+  case "$payload" in
+    *'"captures":{}'*'"write_paths":["src/main.go"]'*) ;;
+    *) printf '{"results":[{"mode":"mode-a","failures":["invalid batch input"]},{"mode":"mode-b","failures":["invalid batch input"]}]}\n'; exit 2 ;;
+  esac
   printf '{"results":[{"mode":"mode-a","failures":[]},{"mode":"mode-b","failures":["mode-b failed"]}]}\n'
   exit 2
 fi
@@ -172,7 +177,9 @@ esac
 	if report.Decision != DecisionBlock {
 		t.Fatalf("expected block, got %s", report.Decision)
 	}
-	if len(report.Violations) != 1 || report.Violations[0].RuleID != "script-b" {
+	if len(report.Violations) != 1 || report.Violations[0].RuleID != "script-b" ||
+		len(report.Violations[0].MatchedPaths) != 1 || report.Violations[0].MatchedPaths[0] != "src/main.go" ||
+		!strings.Contains(report.Violations[0].Explanation, "mode-b failed") {
 		t.Fatalf("expected only script-b violation, got %#v", report.Violations)
 	}
 	counter, err := os.ReadFile(counterPath)
@@ -181,6 +188,142 @@ esac
 	}
 	if string(counter) != "x" {
 		t.Fatalf("expected one batched script invocation, got %q", string(counter))
+	}
+}
+
+func TestWorkflowAuditBatchRejectsCaptureProducingRules(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	observationsPath := filepath.Join(repo, "audits", "observations.jsonl")
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	script := strings.ReplaceAll(`#!/bin/sh
+set -eu
+payload=$(cat)
+printf '%s\n' "$payload" >> "__OBSERVATIONS__"
+if [ "${1:-}" = "--batch-json" ]; then
+  printf '{"results":[{"mode":"mode-a","failures":[]},{"mode":"mode-b","failures":[]}]}\n'
+  exit 0
+fi
+case "$payload" in
+  *'"write_paths":["src/api/main.go","src/web/main.go"]'*) ;;
+  *) printf 'write paths missing\n'; exit 2 ;;
+esac
+case "$payload" in
+  *'"captures":{"module":"api"}'*) printf 'captured api\n'; exit 2 ;;
+  *'"captures":{"module":"web"}'*) exit 0 ;;
+  *) printf 'capture missing\n'; exit 2 ;;
+esac
+`, "__OBSERVATIONS__", observationsPath)
+	writeFile(t, repo, "audits/run-workflow-audit", script)
+	if err := os.Chmod(filepath.Join(repo, "audits", "run-workflow-audit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, repo, "policies/rules.yml", `rules:
+  - id: capture-a
+    kind: require_script
+    when_paths: ['src/{module}/main.go']
+    script: audits/run-workflow-audit
+    args: ['mode-a']
+    mode: block
+    message: capture a
+  - id: capture-b
+    kind: require_script
+    when_paths: ['src/{module}/main.go']
+    script: audits/run-workflow-audit
+    args: ['mode-b']
+    mode: block
+    message: capture b
+`)
+	if _, err := compiler.CompileRepoPolicy(repo, "0.1.0-test"); err != nil {
+		t.Fatal(err)
+	}
+	writes := []string{"src/api/main.go", "src/web/main.go"}
+	report, err := CheckRepoPolicy(repo, ExecutionInputs{WritePaths: writes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Decision != DecisionBlock || report.BlockingViolationCount != 2 || len(report.Violations) != 2 {
+		t.Fatalf("capture-aware workflow audit = decision %s, violations=%#v", report.Decision, report.Violations)
+	}
+	for index, ruleID := range []string{"capture-a", "capture-b"} {
+		violation := report.Violations[index]
+		if violation.RuleID != ruleID || len(violation.MatchedPaths) != 2 ||
+			violation.MatchedPaths[0] != writes[0] || violation.MatchedPaths[1] != writes[1] ||
+			!strings.Contains(violation.Explanation, "[src/api/main.go]") ||
+			!strings.Contains(violation.Explanation, "captured api") {
+			t.Fatalf("capture-aware violation %d = %#v", index, violation)
+		}
+	}
+	body, err := os.ReadFile(observationsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("capture-aware script invocations = %d, want four per-context calls: %s", len(lines), body)
+	}
+	captures := map[string]int{}
+	for _, line := range lines {
+		var input ScriptInput
+		if err := json.Unmarshal([]byte(line), &input); err != nil {
+			t.Fatalf("decode capture-aware script input: %v", err)
+		}
+		if len(input.Captures) != 1 || len(input.WritePaths) != 2 ||
+			input.WritePaths[0] != writes[0] || input.WritePaths[1] != writes[1] {
+			t.Fatalf("capture-aware script input = %#v", input)
+		}
+		captures[input.Captures["module"]]++
+	}
+	if captures["api"] != 2 || captures["web"] != 2 || len(captures) != 2 {
+		t.Fatalf("capture-aware script contexts = %#v", captures)
+	}
+}
+
+func TestWorkflowAuditBatchCaptureFreeInputMatchesSingletonExecution(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	observationPath := filepath.Join(repo, "audits", "observation.json")
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	script := strings.ReplaceAll(`#!/bin/sh
+set -eu
+payload=$(cat)
+printf '%s\n' "$payload" > "__OBSERVATION__"
+case "$payload" in
+  *'"captures":{}'*'"write_paths":["src/main.go"]'*) exit 0 ;;
+  *) printf 'input contract mismatch\n'; exit 2 ;;
+esac
+`, "__OBSERVATION__", observationPath)
+	writeFile(t, repo, "audits/run-workflow-audit", script)
+	if err := os.Chmod(filepath.Join(repo, "audits", "run-workflow-audit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, repo, "policies/rules.yml", `rules:
+  - id: singleton
+    kind: require_script
+    when_paths: ['src/**']
+    script: audits/run-workflow-audit
+    args: ['mode-a']
+    mode: block
+    message: singleton
+`)
+	if _, err := compiler.CompileRepoPolicy(repo, "0.1.0-test"); err != nil {
+		t.Fatal(err)
+	}
+	report, err := CheckRepoPolicy(repo, ExecutionInputs{WritePaths: []string{"src/main.go"}})
+	if err != nil || report.Decision != DecisionPass || len(report.Violations) != 0 {
+		t.Fatalf("capture-free singleton = decision %s, violations=%#v, error=%v", report.Decision, report.Violations, err)
+	}
+	body, err := os.ReadFile(observationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var input ScriptInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		t.Fatal(err)
+	}
+	if input.Captures == nil || len(input.Captures) != 0 || len(input.WritePaths) != 1 ||
+		input.WritePaths[0] != "src/main.go" {
+		t.Fatalf("capture-free singleton input = %#v", input)
 	}
 }
 
