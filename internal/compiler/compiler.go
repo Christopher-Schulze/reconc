@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -224,16 +225,14 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 	compiledDiscovery.Warnings = append(compiledDiscovery.Warnings, braceVariableWarnings(parsed.Rules)...)
 
 	payload := buildLockPayload(bundle, parsed, actionPlan, provenance, compilerVersion, compiledDiscovery, customRuntimes)
-	payload, canonicalPayload, err := normalizeLockPayloadWithBytes(payload)
+	if _, present := payload["lock_digest"]; present {
+		return nil, nil, &rerrors.LockfileError{Message: "lockfile payload contains a premature lock digest"}
+	}
+	canonicalPayload, formattedSize, err := canonicalLockPayloadForEncoding(payload)
 	if err != nil {
 		return nil, nil, &rerrors.LockfileError{Message: "normalize lockfile payload", Cause: err}
 	}
-	if _, present := payload["lock_digest"]; present {
-		return nil, nil, &rerrors.LockfileError{Message: "normalized lockfile payload contains a premature lock digest"}
-	}
-	payload["lock_digest"] = digestCanonicalJSON(canonicalPayload)
-
-	body, err := encodeLockfile(payload)
+	body, err := encodeCanonicalLockfileWithSize(canonicalPayload, digestCanonicalJSON(canonicalPayload), formattedSize)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -302,7 +301,7 @@ func computeSerializedSourceDigest(sources []interface{}) (string, error) {
 		"source_precedence": stringifyKinds(policy.SourcePrecedence()),
 		"sources":           sources,
 	}
-	data, err := marshalCanonical(canonical)
+	data, err := encodeCanonicalJSON(canonical)
 	if err != nil {
 		return "", err
 	}
@@ -321,10 +320,10 @@ func stringifyKinds(kinds []policy.SourceKind) []string {
 	return out
 }
 
-// marshalCanonical encodes digest input as compact JSON. json.Marshal sorts
+// encodeCanonicalJSON encodes digest input as compact JSON. json.Marshal sorts
 // string-keyed maps deterministically and returns any encoding error directly;
 // this wrapper performs no additional whitespace transformation.
-func marshalCanonical(v interface{}) ([]byte, error) {
+func encodeCanonicalJSON(v interface{}) ([]byte, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return nil, err
@@ -348,7 +347,7 @@ func normalizeLockPayload(payload map[string]interface{}) (map[string]interface{
 }
 
 func normalizeLockPayloadWithBytes(payload map[string]interface{}) (map[string]interface{}, []byte, error) {
-	normalized, canonical, err := normalizeJSONValueWithBytes(payload)
+	normalized, canonical, _, err := normalizeJSONValueWithBytesAndSize(payload)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -357,6 +356,14 @@ func normalizeLockPayloadWithBytes(payload map[string]interface{}) (map[string]i
 		return nil, nil, fmt.Errorf("normalized lockfile is not an object")
 	}
 	return object, canonical, nil
+}
+
+func canonicalLockPayloadForEncoding(payload map[string]interface{}) ([]byte, int, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, 0, err
+	}
+	return canonicalizeJSONObjectsIfNeeded(data)
 }
 
 func normalizeJSONValue(value interface{}) (interface{}, error) {
@@ -382,15 +389,123 @@ func decodeNormalizedJSON(data []byte) (interface{}, error) {
 }
 
 func normalizeJSONValueWithBytes(value interface{}) (interface{}, []byte, error) {
-	normalized, err := normalizeJSONValue(value)
+	normalized, canonical, _, err := normalizeJSONValueWithBytesAndSize(value)
+	return normalized, canonical, err
+}
+
+func normalizeJSONValueWithBytesAndSize(value interface{}) (interface{}, []byte, int, error) {
+	data, err := json.Marshal(value)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
-	canonical, err := marshalCanonical(normalized)
+	canonical, formattedSize, err := canonicalizeJSONObjectsIfNeeded(data)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
-	return normalized, canonical, nil
+	normalized, err := decodeNormalizedJSON(canonical)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	return normalized, canonical, formattedSize, nil
+}
+
+func canonicalizeJSONObjectsIfNeeded(data []byte) ([]byte, int, error) {
+	ordered, formattedSize, err := inspectCanonicalJSON(data)
+	if err != nil {
+		return nil, 0, err
+	}
+	if ordered {
+		return data, formattedSize, nil
+	}
+	canonical := jsontext.Value(append([]byte(nil), data...))
+	if err := canonical.Format(jsontext.ReorderRawObjects(true), jsontext.EscapeForHTML(true)); err != nil {
+		return nil, 0, err
+	}
+	return canonical, formattedSize, nil
+}
+
+func inspectCanonicalJSON(data []byte) (bool, int, error) {
+	type frame struct {
+		kind      byte
+		expectKey bool
+		previous  []byte
+	}
+	stack := make([]frame, 0, 16)
+	ordered := true
+	formattedSize := len(data)
+	for index := 0; index < len(data); index++ {
+		switch data[index] {
+		case '{':
+			stack = append(stack, frame{kind: '{', expectKey: true})
+			if index+1 < len(data) && data[index+1] != '}' {
+				formattedSize += 1 + 2*len(stack)
+			}
+		case '[':
+			stack = append(stack, frame{kind: '['})
+			if index+1 < len(data) && data[index+1] != ']' {
+				formattedSize += 1 + 2*len(stack)
+			}
+		case '}', ']':
+			if len(stack) == 0 || (data[index] == '}' && stack[len(stack)-1].kind != '{') || (data[index] == ']' && stack[len(stack)-1].kind != '[') {
+				return false, 0, fmt.Errorf("JSON container is unbalanced")
+			}
+			opening := stack[len(stack)-1].kind
+			stack = stack[:len(stack)-1]
+			if index == 0 || data[index-1] != opening {
+				formattedSize += 1 + 2*len(stack)
+			}
+		case ',':
+			formattedSize += 1 + 2*len(stack)
+			if len(stack) > 0 && stack[len(stack)-1].kind == '{' {
+				stack[len(stack)-1].expectKey = true
+			}
+		case ':':
+			formattedSize++
+		case '"':
+			end, simple, err := scanJSONString(data, index)
+			if err != nil {
+				return false, 0, err
+			}
+			if len(stack) > 0 && stack[len(stack)-1].kind == '{' && stack[len(stack)-1].expectKey {
+				if !simple {
+					ordered = false
+				}
+				key := data[index+1 : end]
+				frame := &stack[len(stack)-1]
+				if frame.previous != nil && bytes.Compare(key, frame.previous) <= 0 {
+					ordered = false
+				}
+				frame.previous = key
+				frame.expectKey = false
+			}
+			index = end
+		}
+	}
+	if len(stack) != 0 {
+		return false, 0, fmt.Errorf("JSON container is not closed")
+	}
+	return ordered, formattedSize, nil
+}
+
+func scanJSONString(data []byte, start int) (end int, simple bool, err error) {
+	simple = true
+	for index := start + 1; index < len(data); index++ {
+		switch data[index] {
+		case '"':
+			return index, simple, nil
+		case '\\':
+			simple = false
+			index++
+			if index >= len(data) {
+				return 0, false, fmt.Errorf("JSON string escape is truncated")
+			}
+		default:
+			if data[index] >= 0x80 {
+				simple = false
+			}
+		}
+	}
+	return 0, false, fmt.Errorf("JSON string is not closed")
 }
 
 // ComputeLockDigest returns the canonical SHA-256 digest of the complete
@@ -404,7 +519,7 @@ func ComputeLockDigest(payload map[string]interface{}) (string, error) {
 			canonical[key] = value
 		}
 	}
-	data, err := marshalCanonical(canonical)
+	data, err := encodeCanonicalJSON(canonical)
 	if err != nil {
 		return "", err
 	}
@@ -424,11 +539,11 @@ func ValidateEmbeddedRules(payload map[string]interface{}, parsed *parser.Parsed
 	for _, rule := range parsed.Rules {
 		expected = append(expected, ruleToMap(rule))
 	}
-	expectedData, err := marshalCanonical(expected)
+	expectedData, err := encodeCanonicalJSON(expected)
 	if err != nil {
 		return &rerrors.LockfileError{Message: "encode rules parsed from current policy sources", Cause: err}
 	}
-	actualData, err := marshalCanonical(payload["rules"])
+	actualData, err := encodeCanonicalJSON(payload["rules"])
 	if err != nil {
 		return &rerrors.LockfileError{Message: "encode embedded lockfile rules", Cause: err}
 	}
@@ -942,6 +1057,180 @@ func encodeLockfile(payload map[string]interface{}) ([]byte, error) {
 		return nil, &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile exceeds %d bytes", MaxLockfileBytes)}
 	}
 	return data, nil
+}
+
+func encodeCanonicalLockfile(canonical []byte, digest string) ([]byte, error) {
+	_, formattedSize, err := inspectCanonicalJSON(canonical)
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "format lockfile", Cause: err}
+	}
+	return encodeCanonicalLockfileWithSize(canonical, digest, formattedSize)
+}
+
+func encodeCanonicalLockfileWithSize(canonical []byte, digest string, formattedSize int) ([]byte, error) {
+	offset, member, err := canonicalStringFieldInsertion(canonical, "lock_digest", digest)
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "add lockfile digest", Cause: err}
+	}
+	formatted, err := indentCanonicalJSONWithField(canonical, offset, member, formattedSize)
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "format lockfile", Cause: err}
+	}
+	formatted = append(formatted, '\n')
+	if int64(len(formatted)) > MaxLockfileBytes {
+		return nil, &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile exceeds %d bytes", MaxLockfileBytes)}
+	}
+	return formatted, nil
+}
+
+func indentCanonicalJSONWithField(compact []byte, offset int, member []byte, formattedSize int) ([]byte, error) {
+	nameEnd, _, err := scanJSONString(member, 0)
+	if err != nil || nameEnd+1 >= len(member) || member[nameEnd+1] != ':' {
+		return nil, fmt.Errorf("canonical JSON member is malformed")
+	}
+	appendMember := func(destination []byte) []byte {
+		destination = append(destination, member[:nameEnd+2]...)
+		destination = append(destination, ' ')
+		return append(destination, member[nameEnd+2:]...)
+	}
+	empty := len(compact) == 2 && offset == 1
+	if empty {
+		formattedSize += len(member) + 4
+	} else {
+		formattedSize += len(member) + 5
+	}
+	formatted := make([]byte, 0, formattedSize)
+	stack := make([]byte, 0, 16)
+	inString := false
+	escaped := false
+	appendIndent := func(depth int) {
+		for range depth {
+			formatted = append(formatted, ' ', ' ')
+		}
+	}
+	for index, char := range compact {
+		if index == offset {
+			switch {
+			case empty:
+				formatted = append(formatted, '\n', ' ', ' ')
+				formatted = appendMember(formatted)
+				formatted = append(formatted, '\n')
+			case offset == 1:
+				formatted = appendMember(formatted)
+				formatted = append(formatted, ',', '\n', ' ', ' ')
+			default:
+				formatted = append(formatted, ',', '\n', ' ', ' ')
+				formatted = appendMember(formatted)
+			}
+		}
+		if inString {
+			formatted = append(formatted, char)
+			if escaped {
+				escaped = false
+				continue
+			}
+			if char == '\\' {
+				escaped = true
+			} else if char == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch char {
+		case '"':
+			inString = true
+			formatted = append(formatted, char)
+		case '{', '[':
+			stack = append(stack, char)
+			formatted = append(formatted, char)
+			if index+1 < len(compact) && !((char == '{' && compact[index+1] == '}') || (char == '[' && compact[index+1] == ']')) {
+				formatted = append(formatted, '\n')
+				appendIndent(len(stack))
+			}
+		case '}', ']':
+			opening := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if index == 0 || compact[index-1] != opening {
+				formatted = append(formatted, '\n')
+				appendIndent(len(stack))
+			}
+			formatted = append(formatted, char)
+		case ',':
+			formatted = append(formatted, ',', '\n')
+			appendIndent(len(stack))
+		case ':':
+			formatted = append(formatted, ':', ' ')
+		default:
+			formatted = append(formatted, char)
+		}
+	}
+	return formatted, nil
+}
+
+func insertCanonicalStringField(canonical []byte, name, value string) ([]byte, error) {
+	offset, member, err := canonicalStringFieldInsertion(canonical, name, value)
+	if err != nil {
+		return nil, err
+	}
+	return insertCanonicalObjectMember(canonical, offset, member), nil
+}
+
+func canonicalStringFieldInsertion(canonical []byte, name, value string) (int, []byte, error) {
+	decoder := jsontext.NewDecoder(bytes.NewReader(canonical))
+	opening, err := decoder.ReadToken()
+	if err != nil || opening.Kind() != jsontext.KindBeginObject {
+		return 0, nil, fmt.Errorf("canonical lockfile payload must be an object")
+	}
+	member, err := json.Marshal(name)
+	if err != nil {
+		return 0, nil, err
+	}
+	encodedValue, err := json.Marshal(value)
+	if err != nil {
+		return 0, nil, err
+	}
+	member = append(member, ':')
+	member = append(member, encodedValue...)
+	previousEnd := int(decoder.InputOffset())
+	for decoder.PeekKind() != jsontext.KindEndObject {
+		key, err := decoder.ReadToken()
+		if err != nil {
+			return 0, nil, err
+		}
+		if key.Kind() != jsontext.KindString {
+			return 0, nil, fmt.Errorf("canonical lockfile object key is not a string")
+		}
+		if key.String() == name {
+			return 0, nil, fmt.Errorf("canonical lockfile payload already contains %s", name)
+		}
+		if key.String() > name {
+			return previousEnd, member, nil
+		}
+		if err := decoder.SkipValue(); err != nil {
+			return 0, nil, err
+		}
+		previousEnd = int(decoder.InputOffset())
+	}
+	return previousEnd, member, nil
+}
+
+func insertCanonicalObjectMember(canonical []byte, offset int, member []byte) []byte {
+	empty := offset == 1 && len(canonical) == 2
+	extra := 1
+	if empty {
+		extra = 0
+	}
+	out := make([]byte, 0, len(canonical)+len(member)+extra)
+	out = append(out, canonical[:offset]...)
+	if offset > 1 {
+		out = append(out, ',')
+	}
+	out = append(out, member...)
+	if offset == 1 && !empty {
+		out = append(out, ',')
+	}
+	out = append(out, canonical[offset:]...)
+	return out
 }
 
 func writeLockfile(repoRoot string, body []byte) error {

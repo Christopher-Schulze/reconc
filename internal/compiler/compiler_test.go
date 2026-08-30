@@ -174,6 +174,42 @@ func TestEncodeLockfileEnforcesTheSharedReadBoundary(t *testing.T) {
 	}
 }
 
+func TestEncodeCanonicalLockfileEnforcesTheSharedReadBoundary(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	empty, err := encodeCanonicalLockfile([]byte(`{"filler":""}`), digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overhead := len(empty)
+	for _, test := range []struct {
+		name    string
+		offset  int
+		wantErr bool
+	}{
+		{name: "minus one", offset: -1},
+		{name: "exact", offset: 0},
+		{name: "plus one", offset: 1, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			target := int(MaxLockfileBytes) + test.offset
+			canonical := []byte(`{"filler":"` + strings.Repeat("x", target-overhead) + `"}`)
+			body, err := encodeCanonicalLockfile(canonical, digest)
+			if test.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "exceeds 16777216 bytes") {
+					t.Fatalf("encode error = %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(body) != target {
+				t.Fatalf("encoded bytes = %d, want %d", len(body), target)
+			}
+		})
+	}
+}
+
 func TestCompileLockfileIsByteStable(t *testing.T) {
 	withRECONCHome(t)
 	repo := t.TempDir()
@@ -685,7 +721,7 @@ func TestNormalizeJSONValueWithBytesPreservesNumbersAndCanonicalBytes(t *testing
 	if got, ok := normalized.(map[string]interface{})["b"].(json.Number); !ok || got.String() != "9007199254740993" {
 		t.Fatalf("normalized number = %#v", normalized)
 	}
-	encoded, err := marshalCanonical(normalized)
+	encoded, err := encodeCanonicalJSON(normalized)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -735,6 +771,131 @@ func TestNormalizeLockPayloadCanonicalBytesFreezeCustomMarshalersOnce(t *testing
 	}
 }
 
+func TestCanonicalLockPayloadMatchesLegacyObjectKeyOrdering(t *testing.T) {
+	for _, body := range []string{
+		`{"z":1,"a":2}`,
+		`{"a:b":1,"a\"":2,"a\\b":3}`,
+		`{"é":1,"\u0080":2,"😀":3,"a":4}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			payload := map[string]interface{}{
+				"actions": normalizationMarshaler{body: body, calls: new(int)},
+				"rules":   []interface{}{},
+			}
+			normalized, err := normalizeLockPayload(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := encodeCanonicalJSON(normalized)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, _, err := canonicalLockPayloadForEncoding(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("canonical payload ordering drifted:\ngot:  %s\nwant: %s", got, want)
+			}
+		})
+	}
+}
+
+func TestEncodeCanonicalLockfileMatchesMapEncoding(t *testing.T) {
+	calls := 0
+	payload := map[string]interface{}{
+		"format_version": LockfileFormatVersion,
+		"nested": normalizationMarshaler{
+			body:  `{"z":"<tag>&value","a":9007199254740993}`,
+			calls: &calls,
+		},
+		"rule_count": json.Number("9007199254740993"),
+		"rules":      []interface{}{},
+	}
+	normalized, canonical, err := normalizeLockPayloadWithBytes(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("custom marshaler calls = %d, want 1", calls)
+	}
+	digest := digestCanonicalJSON(canonical)
+	legacyPayload := make(map[string]interface{}, len(normalized)+1)
+	for key, value := range normalized {
+		legacyPayload[key] = value
+	}
+	legacyPayload["lock_digest"] = digest
+	want, err := encodeLockfile(legacyPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := encodeCanonicalLockfile(canonical, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls = 0
+	productionCanonical, formattedSize, err := canonicalLockPayloadForEncoding(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("production custom marshaler calls = %d, want 1", calls)
+	}
+	if !bytes.Equal(productionCanonical, canonical) {
+		t.Fatalf("production canonical payload drifted:\ngot:  %s\nwant: %s", productionCanonical, canonical)
+	}
+	productionGot, err := encodeCanonicalLockfileWithSize(productionCanonical, digest, formattedSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(productionGot, want) {
+		t.Fatalf("production lockfile encoding drifted:\ngot:  %s\nwant: %s", productionGot, want)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("canonical lockfile encoding drifted:\ngot:  %s\nwant: %s", got, want)
+	}
+	if !bytes.HasSuffix(got, []byte("\n")) || bytes.HasSuffix(got, []byte("\n\n")) {
+		t.Fatalf("lockfile newline contract drifted: %q", got[len(got)-2:])
+	}
+	if !bytes.Contains(got, []byte(`\u003ctag\u003e\u0026value`)) {
+		t.Fatalf("lockfile HTML escaping drifted: %s", got)
+	}
+}
+
+func TestInsertCanonicalStringField(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		canonical string
+		field     string
+		want      string
+		wantErr   bool
+	}{
+		{name: "empty", canonical: `{}`, field: "lock_digest", want: `{"lock_digest":"digest"}`},
+		{name: "first", canonical: `{"z":2}`, field: "a", want: `{"a":"digest","z":2}`},
+		{name: "middle", canonical: `{"a":1,"z":2}`, field: "m", want: `{"a":1,"m":"digest","z":2}`},
+		{name: "last", canonical: `{"a":1}`, field: "z", want: `{"a":1,"z":"digest"}`},
+		{name: "duplicate", canonical: `{"lock_digest":"old"}`, field: "lock_digest", wantErr: true},
+		{name: "array", canonical: `[]`, field: "lock_digest", wantErr: true},
+		{name: "truncated", canonical: `{"a":1`, field: "lock_digest", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := insertCanonicalStringField([]byte(test.canonical), test.field, "digest")
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("insert accepted %q", test.canonical)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != test.want {
+				t.Fatalf("inserted JSON = %s, want %s", got, test.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeLockPayloadRejectsCustomMarshalerTrailingData(t *testing.T) {
 	calls := 0
 	_, _, err := normalizeLockPayloadWithBytes(map[string]interface{}{
@@ -745,16 +906,16 @@ func TestNormalizeLockPayloadRejectsCustomMarshalerTrailingData(t *testing.T) {
 	}
 }
 
-func TestMarshalCanonicalContract(t *testing.T) {
+func TestEncodeCanonicalJSONContract(t *testing.T) {
 	t.Parallel()
-	encoded, err := marshalCanonical(map[string]interface{}{"z": 2, "a": 1})
+	encoded, err := encodeCanonicalJSON(map[string]interface{}{"z": 2, "a": 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, want := string(encoded), `{"a":1,"z":2}`; got != want {
 		t.Fatalf("canonical JSON = %q, want %q", got, want)
 	}
-	if _, err := marshalCanonical(map[string]interface{}{"unsupported": make(chan int)}); err == nil {
+	if _, err := encodeCanonicalJSON(map[string]interface{}{"unsupported": make(chan int)}); err == nil {
 		t.Fatal("unsupported value did not propagate a JSON encoding error")
 	}
 }

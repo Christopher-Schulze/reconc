@@ -293,6 +293,36 @@ func TestRuntimePlanRejectsUnknownEnvelopeAndSourceFields(t *testing.T) {
 	}
 }
 
+func TestCurrentLockfilePlaceholderEnvelopeRejectsMalformedFields(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		mutate  func(map[string]interface{})
+		wantErr string
+	}{
+		{name: "compiler version type", mutate: func(payload map[string]interface{}) {
+			payload["compiler_version"] = true
+		}, wantErr: "typed envelope is invalid"},
+		{name: "source precedence type", mutate: func(payload map[string]interface{}) {
+			payload["source_precedence"] = "global"
+		}, wantErr: "typed envelope is invalid"},
+		{name: "missing rules", mutate: func(payload map[string]interface{}) {
+			delete(payload, "rules")
+		}, wantErr: "missing canonical rules or actions"},
+		{name: "missing actions", mutate: func(payload map[string]interface{}) {
+			delete(payload, "actions")
+		}, wantErr: "missing canonical rules or actions"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			withRECONCHome(t)
+			repo := makeRepo(t, "# project\n", "", "rules: []\n")
+			rewriteLockfileWithDigest(t, repo, test.mutate)
+			if _, err := CheckRepoPolicy(repo, Empty()); err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("malformed current envelope error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestRuntimePlanCacheInvalidatesOnSourceAndLockChanges(t *testing.T) {
 	withRECONCHome(t)
 	policyText := "rules:\n  - id: generated\n    kind: deny_write\n    paths: ['generated/**']\n    mode: block\n    message: generated\n"

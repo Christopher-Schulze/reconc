@@ -113,7 +113,7 @@ func verifyLegacySourceDigest(payload map[string]interface{}) error {
 	if !ok {
 		return fmt.Errorf("legacy lockfile sources must contain a list")
 	}
-	canonical, err := marshalCanonical(map[string]interface{}{
+	canonical, err := encodeCanonicalJSON(map[string]interface{}{
 		"source_precedence": precedence,
 		"sources":           sources,
 	})

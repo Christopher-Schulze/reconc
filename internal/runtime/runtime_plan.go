@@ -487,9 +487,9 @@ func decodeRuntimeEnvelopeWithParts(payload map[string]interface{}, rulesJSON, a
 			return nil, &rerrors.LockfileError{Message: "encode compiled lockfile action plan for typed runtime plan", Cause: err}
 		}
 	}
-	// Keep the large rules/actions arrays as already encoded raw messages. The
-	// typed envelope conversion still validates every scalar and source field,
-	// but does not walk and re-encode those nested plans a second time.
+	// Validate the typed envelope with constant-size placeholders, then attach
+	// the already canonical rule and action bytes. This keeps unknown-field and
+	// scalar/source validation without re-encoding either large subtree.
 	envelopePayload := make(map[string]interface{}, len(payload))
 	for key, value := range payload {
 		switch key {
@@ -499,13 +499,19 @@ func decodeRuntimeEnvelopeWithParts(payload map[string]interface{}, rulesJSON, a
 			envelopePayload[key] = value
 		}
 	}
-	envelopePayload["rules"] = json.RawMessage(rulesJSON)
-	envelopePayload["actions"] = json.RawMessage(actionsJSON)
+	envelopePayload["rules"] = json.RawMessage("[]")
+	envelopePayload["actions"] = json.RawMessage("{}")
 	data, err := json.Marshal(envelopePayload)
 	if err != nil {
 		return nil, &rerrors.LockfileError{Message: "encode compiled lockfile for typed runtime plan", Cause: err}
 	}
-	return decodeRuntimeEnvelopeJSON(data)
+	envelope, err := decodeRuntimeEnvelopeJSON(data)
+	if err != nil {
+		return nil, err
+	}
+	envelope.Rules = rulesJSON
+	envelope.Actions = actionsJSON
+	return envelope, nil
 }
 
 func decodeRuntimeEnvelopeJSON(data []byte) (*runtimeEnvelope, error) {

@@ -1947,33 +1947,39 @@ and worktrees. Source records contain only portable logical paths, SHA-256
 content identities, kinds, and bounded inline locations; raw source bodies and
 physical global-policy paths never enter the committable lock. Its
 `lock_digest` binds the complete canonical payload except for the digest field
-itself. For current format-6 locks, runtime verifies that envelope and reads the
-bounded source bundle once to compare its complete identity digest, then
-strictly decodes one typed immutable repository-rule and action plan. Cold-load
-freshness streams canonical discovery, source, file, and directory fields
+itself. Compilation freezes custom encoders and exact JSON numbers into one
+compact normalized representation, hashes those bytes, inserts the digest in
+canonical top-level order, and indents the same representation for publication
+without another full payload encoding. For current format-6 locks, runtime
+verifies that envelope and reads the bounded source bundle once to compare its
+complete identity digest, then strictly decodes one typed immutable
+repository-rule and action plan. Cold-load freshness streams canonical
+discovery, source, file, and directory fields
 directly into SHA-256. The loaded bundle supplies the first content identities;
 one full publication observation then detects content, inventory, metadata,
 filesystem-object drift, and repository-root replacement without rereading every
-loaded source twice. Format-1
-lockfiles are migrated in memory only after their legacy schema and historical
-source digest over `source_precedence` plus raw `sources` pass. That digest
+loaded source twice. Format-1 lockfiles are migrated in memory only after their
+legacy schema and historical source digest over `source_precedence` plus raw
+`sources` pass. That digest
 verifies source records, not the whole format-1 payload because `lock_digest`
 did not exist yet. Formats 2 through 5 require their legacy schema and
 whole-payload digest to pass before migration;
 their sources are reparsed and must retain exact embedded rule and canonical
-action parity.
-The lockfile boundary performs a bounded recursive
+action parity. The lockfile boundary performs a bounded recursive
 `encoding/json/jsontext` admission scan before allocation: it rejects duplicate
 keys, invalid Unicode, more than 1,048,576 aggregate JSON items, excessive
 nesting, non-object roots, and trailing values. A strictly admitted current
 format is then decoded directly into one typed envelope. Its rules and actions
 remain raw JSON subtrees in the compatibility payload, are decoded once into
 typed plans, and rule/check/assurance field presence is collected with a token
-walk rather than maps of `json.RawMessage`. Current large arrays are therefore
-never boxed into `interface{}` or re-marshaled to recover their bytes. Formats
-1 through 5 retain the generic migration table and exact historical digest
-semantics. The action-value boundary uses the same strict token API while
-preserving decimal normalization, aggregate cardinality, string, numeric,
+walk rather than maps of `json.RawMessage`. Typed envelope validation serializes
+only bounded scalar, discovery, and source fields with constant rules/actions
+placeholders, then reattaches the already canonical subtrees. Current large
+arrays are therefore never boxed into `interface{}` or re-marshaled to recover
+their bytes. Formats 1 through 5 retain the generic migration table and exact
+historical digest semantics. The action-value boundary uses the same strict
+token API while preserving decimal normalization, aggregate cardinality,
+string, numeric,
 argument-size, and depth limits plus the public error-kind contract.
 Source compilation uses an evaluation-scoped `SourceLoadContext`: discovery,
 canonical root identity, config identity, and the per-default-glob fragment

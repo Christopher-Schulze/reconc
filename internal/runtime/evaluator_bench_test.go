@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -108,6 +109,87 @@ func BenchmarkDecodeCurrentLockfileRepresentative(b *testing.B) {
 
 func BenchmarkDecodeCurrentLockfileMaximumRules(b *testing.B) {
 	benchmarkDecodeCurrentLockfile(b, 4096)
+}
+
+func BenchmarkDecodeCurrentLockfileMaximumBytes(b *testing.B) {
+	b.Setenv("RECONC_HOME", b.TempDir())
+	repo := b.TempDir()
+	writeFileBench(b, repo, "AGENTS.md", "# t\n")
+	const (
+		policyFiles  = 4
+		rulesPerFile = 60
+		messageBytes = 63 << 10
+	)
+	message := strings.Repeat("m", messageBytes)
+	for fileIndex := 0; fileIndex < policyFiles; fileIndex++ {
+		var policyText strings.Builder
+		policyText.WriteString("rules:\n")
+		for ruleIndex := 0; ruleIndex < rulesPerFile; ruleIndex++ {
+			id := strconv.Itoa(fileIndex*rulesPerFile + ruleIndex)
+			policyText.WriteString("  - id: maximum-" + id + "\n    kind: deny_write\n    paths: ['generated/" + id + "/**']\n    mode: warn\n    message: '" + message + "'\n")
+		}
+		writeFileBench(b, repo, "policies/maximum-"+strconv.Itoa(fileIndex)+".yml", policyText.String())
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "bench"); err != nil {
+		b.Fatal(err)
+	}
+	body, err := readLockfileBytes(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	if len(body) < 14<<20 {
+		b.Fatalf("maximum-byte benchmark lockfile is only %d bytes", len(body))
+	}
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &rawFields); err != nil {
+		b.Fatal(err)
+	}
+	payload, err := decodeCurrentLockfilePayload(rawFields)
+	if err != nil {
+		b.Fatal(err)
+	}
+	rulesJSON := payload["rules"].(json.RawMessage)
+	actionsJSON := payload["actions"].(json.RawMessage)
+
+	b.Run("legacy_full_envelope", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(body)))
+		b.ReportMetric(float64(len(body)), "lock-bytes")
+		runtime.GC()
+		runtime.GC()
+		b.ResetTimer()
+		for range b.N {
+			if _, err := decodeRuntimeEnvelopeJSON(body); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("canonical_parts_envelope", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(body)))
+		b.ReportMetric(float64(len(body)), "lock-bytes")
+		runtime.GC()
+		runtime.GC()
+		b.ResetTimer()
+		for range b.N {
+			if _, err := decodeRuntimeEnvelopeWithParts(payload, rulesJSON, actionsJSON); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("full_current_decode", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(body)))
+		b.ReportMetric(float64(len(body)), "lock-bytes")
+		runtime.GC()
+		runtime.GC()
+		b.ResetTimer()
+		for range b.N {
+			if _, err := decodeLockfile(body); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }
 
 func benchmarkDecodeCurrentLockfile(b *testing.B, ruleCount int) {

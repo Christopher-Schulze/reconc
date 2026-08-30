@@ -691,9 +691,10 @@ and byte-compares the notice before checksums and provenance are accepted.
      The frozen source bundle is converted to one provenance record set and
      content digest; the same records feed both source-digest computation and
      lock-payload serialization.
-     Canonical JSON boundaries expose normalized bytes together with the
-     decoded `UseNumber` tree, so action validation does not marshal the same
-     normalized payload a second time.
+     Compiler serialization freezes the payload into one compact normalized
+     encoding. It hashes that encoding, inserts `lock_digest` in sorted
+     top-level order, and indents the same bytes; neither digesting nor
+     publication constructs or re-encodes a generic normalized map.
      Budget validation reuses the exact canonical argument-byte length once per
      evaluation whenever a selected budget declares `argument_bytes`; other
      budget dimensions do not trigger serialization.
@@ -705,8 +706,10 @@ and byte-compares the notice before checksums and provenance are accepted.
      Its strict recursive decoder is the single JSON-token boundary: duplicate
      keys, Unicode, depth, root shape, numeric values, and trailing data are
      checked while the `UseNumber` tree is retained. Rules/actions are encoded
-     once for typed decoding, and the already compiled action plan is reused by
-     the runtime plan builder.
+     once for typed decoding. Typed envelope validation marshals only the bounded
+     scalar/source envelope with constant subtree placeholders, reattaches the
+     canonical rules/actions bytes, and reuses the compiled action plan in the
+     runtime plan builder.
    - The validated payload is decoded once into an immutable typed runtime plan.
      ID, kind, pre-command composite, and scope metadata are indexed before any
      evidence is evaluated; malformed or unknown typed fields fail closed. The

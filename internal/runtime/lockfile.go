@@ -115,7 +115,7 @@ func decodeLockfile(data []byte) (*decodedLockfile, error) {
 		_ = json.Unmarshal(rawFormat, &formatVersion)
 	}
 	if formatVersion == compiler.LockfileFormatVersion {
-		return decodeCurrentLockfile(data, rawFields)
+		return decodeCurrentLockfile(rawFields)
 	}
 
 	payload, err := decodeStrictLockfileJSON(data)
@@ -185,7 +185,7 @@ func decodeLockfile(data []byte) (*decodedLockfile, error) {
 	}, nil
 }
 
-func decodeCurrentLockfile(data []byte, rawFields map[string]json.RawMessage) (*decodedLockfile, error) {
+func decodeCurrentLockfile(rawFields map[string]json.RawMessage) (*decodedLockfile, error) {
 	payload, err := decodeCurrentLockfilePayload(rawFields)
 	if err != nil {
 		return nil, &rerrors.LockfileError{Message: "decode current compiled lockfile fields", Cause: err}
@@ -193,7 +193,12 @@ func decodeCurrentLockfile(data []byte, rawFields map[string]json.RawMessage) (*
 	if err := compiler.ValidateLockfileEnvelope(payload); err != nil {
 		return nil, err
 	}
-	envelope, err := decodeRuntimeEnvelopeJSON(data)
+	rulesJSON, rulesOK := payload["rules"].(json.RawMessage)
+	actionsJSON, actionsOK := payload["actions"].(json.RawMessage)
+	if !rulesOK || !actionsOK {
+		return nil, &rerrors.LockfileError{Message: "current compiled lockfile is missing canonical rules or actions"}
+	}
+	envelope, err := decodeRuntimeEnvelopeWithParts(payload, rulesJSON, actionsJSON)
 	if err != nil {
 		return nil, err
 	}
