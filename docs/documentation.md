@@ -2749,6 +2749,15 @@ clock rollback, partial publication, symlinks, special files, permission drift,
 counter overflow, duplicate calls, and capacity oversubscription. This is an
 enforcement primitive used by the gateway; it does not make direct MCP or
 framework calls enforced.
+
+`max_result_bytes` is optional on a tool declaration. Omission is represented
+as zero only inside the Go `Tool` value; serialized policy and lock values must
+be integers from 1 through 8 MiB, and an explicit zero is invalid. A
+`result_bytes` budget may select only a tool with that declaration. Its
+pre-dispatch reservation charges the exact declared maximum; terminal
+settlement may reduce the charge to the actual result size, while excess raw
+result bytes are withheld.
+
 Each state transaction is read through one private regular-file snapshot and
 retains that exact file identity through recovery. Final journal cleanup opens
 the private parent as a rooted handle, revalidates the parent and journal

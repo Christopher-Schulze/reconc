@@ -288,6 +288,12 @@ func expectedBudgetUsageWithArgumentBytes(
 		}
 	}
 	if limits.ResultBytes != 0 {
+		if tool.MaxResultBytes == 0 {
+			return BudgetUsage{}, fmt.Errorf("result_bytes budget requires max_result_bytes on the selected tool")
+		}
+		if tool.MaxResultBytes > MaxArgumentBytes {
+			return BudgetUsage{}, fmt.Errorf("max_result_bytes exceeds maximum %d", MaxArgumentBytes)
+		}
 		usage.ResultBytes = tool.MaxResultBytes
 	}
 	if limits.CostUnits != 0 && tool.CostUnits != nil {

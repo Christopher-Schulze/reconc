@@ -13,14 +13,16 @@ A scalar target whose type differs from an `in` operand list is agent-controlled
 
 ## Sub-Tasks
 
-- [ ] Separate target mismatch from operand invariant failure.
-- [ ] Choose and propagate one zero/absent result-limit contract.
-- [ ] Add evaluator, schema, and plan regressions.
-- [ ] Run focused action tests.
+- [x] Separate target mismatch from operand invariant failure.
+- [x] Choose and propagate one zero/absent result-limit contract.
+- [x] Add evaluator, schema, and plan regressions.
+- [x] Run focused action tests.
 
 ## Notes
 
 - Verified from findings 85 and 88; finding 109 duplicates finding 85.
 - Compiled operand lists are already guaranteed same-kind scalar; only the target mismatch is normal indeterminate input.
+- Explicit policy and lock values are 1 through 8 MiB; zero exists only as the omitted-field sentinel in Go. Result-byte reservation rejects a missing or oversized declaration even when called outside plan compilation.
+- Focused action, parser, schema, and action-state tests passed. `make test-fast` and `git diff --check` passed.
 
 ## Deviations

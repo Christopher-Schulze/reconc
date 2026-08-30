@@ -268,10 +268,12 @@ type Tool struct {
 	Tool              string    `json:"tool"`
 	Effect            Effect    `json:"effect"`
 	CostUnits         *uint64   `json:"cost_units,omitempty"`
-	MaxResultBytes    uint64    `json:"max_result_bytes,omitempty"`
-	LedgerNameSafe    bool      `json:"ledger_name_safe,omitempty"`
-	Origin            Origin    `json:"origin"`
-	SourceIdentity    string    `json:"source_identity"`
+	// MaxResultBytes is zero only when the serialized field is absent. A
+	// present policy or lock value is between 1 and MaxArgumentBytes.
+	MaxResultBytes uint64 `json:"max_result_bytes,omitempty"`
+	LedgerNameSafe bool   `json:"ledger_name_safe,omitempty"`
+	Origin         Origin `json:"origin"`
+	SourceIdentity string `json:"source_identity"`
 }
 
 type Defaults struct {

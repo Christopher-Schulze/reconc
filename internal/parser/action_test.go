@@ -227,6 +227,45 @@ func TestParseActionBudgetLimitsRejectEveryNonPositiveOrNonCanonicalValue(t *tes
 	}
 }
 
+func TestParseActionMaxResultBytesUsesOmissionForNoContract(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		field     string
+		wantValue uint64
+		wantError string
+	}{
+		{name: "omitted"},
+		{name: "explicit zero", field: "      max_result_bytes: 0\n", wantError: "must be between 1"},
+		{name: "minimum", field: "      max_result_bytes: 1\n", wantValue: 1},
+		{name: "maximum", field: fmt.Sprintf("      max_result_bytes: %d\n", action.MaxArgumentBytes), wantValue: action.MaxArgumentBytes},
+		{name: "overflow", field: fmt.Sprintf("      max_result_bytes: %d\n", action.MaxArgumentBytes+1), wantError: "omitted (zero in Go) or between 1 and"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			body := "actions:\n  tools:\n    - id: query\n      transport: mcp_stdio\n" +
+				"      server_label: server\n      tool: query\n      effect: {kind: external}\n" + test.field
+			parsed, err := ParseRuleDocuments(actionBundle(body))
+			if err == nil {
+				_, err = action.CompilePlan(*parsed.Actions)
+			}
+			if test.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantError) {
+					t.Fatalf("error = %v, want %q", err, test.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := parsed.Actions.Tools[0].MaxResultBytes; got != test.wantValue {
+				t.Fatalf("max_result_bytes = %d, want %d", got, test.wantValue)
+			}
+		})
+	}
+}
+
 func TestParseActionBudgetWindowEnforcesUint32Range(t *testing.T) {
 	t.Parallel()
 	parse := func(value uint64) (*ParsedPolicy, error) {

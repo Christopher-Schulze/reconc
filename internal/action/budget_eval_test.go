@@ -237,7 +237,7 @@ func TestCanonicalArgumentBytesForBudgetsUsesCanonicalSizeOnce(t *testing.T) {
 	t.Parallel()
 	arguments := mustTestValue(t, `{"unicode":"ä","number":1.0,"nested":{"ok":[true,false]}}`)
 	request := Request{Arguments: &arguments}
-	tool := Tool{}
+	tool := Tool{MaxResultBytes: 4096}
 	budgets := []Budget{
 		{Limits: BudgetLimits{CallCount: 1}},
 		{Limits: BudgetLimits{ArgumentBytes: 1}},
@@ -260,7 +260,7 @@ func TestCanonicalArgumentBytesForBudgetsUsesCanonicalSizeOnce(t *testing.T) {
 	second, err := expectedBudgetUsageWithArgumentBytes(
 		budgets[2].Limits, tool, request, bytes, known, nil,
 	)
-	if err != nil || second.ArgumentBytes != bytes {
+	if err != nil || second.ArgumentBytes != bytes || second.ResultBytes != tool.MaxResultBytes {
 		t.Fatalf("second shared usage = %#v, %v", second, err)
 	}
 	withoutArgumentLimit, withoutArgumentLimitKnown, err := canonicalArgumentBytesForBudgets(
@@ -268,6 +268,39 @@ func TestCanonicalArgumentBytesForBudgetsUsesCanonicalSizeOnce(t *testing.T) {
 	)
 	if err != nil || withoutArgumentLimitKnown || withoutArgumentLimit != 0 {
 		t.Fatalf("unneeded argument sizing = %d, known %t, %v", withoutArgumentLimit, withoutArgumentLimitKnown, err)
+	}
+}
+
+func TestRequiredBudgetUsageChargesValidatedResultMaximum(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		limits  BudgetLimits
+		tool    Tool
+		want    uint64
+		wantErr string
+	}{
+		{name: "absent result budget ignores absent declaration"},
+		{name: "absent result budget ignores positive declaration", tool: Tool{MaxResultBytes: 64}},
+		{name: "minimum declaration", limits: BudgetLimits{ResultBytes: 1}, tool: Tool{MaxResultBytes: 1}, want: 1},
+		{name: "maximum declaration", limits: BudgetLimits{ResultBytes: 1}, tool: Tool{MaxResultBytes: MaxArgumentBytes}, want: MaxArgumentBytes},
+		{name: "missing declaration", limits: BudgetLimits{ResultBytes: 1}, wantErr: "requires max_result_bytes"},
+		{name: "overflowing declaration", limits: BudgetLimits{ResultBytes: 1}, tool: Tool{MaxResultBytes: MaxArgumentBytes + 1}, wantErr: "maximum"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			usage, err := RequiredBudgetUsage(test.limits, test.tool, Request{})
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("error = %v, want %q", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil || usage.ResultBytes != test.want {
+				t.Fatalf("usage = %#v, error = %v, want result bytes %d", usage, err, test.want)
+			}
+		})
 	}
 }
 

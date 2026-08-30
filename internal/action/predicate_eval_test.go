@@ -91,6 +91,51 @@ func TestPredicateMissingNullWrongTypeAndUnicodeSemantics(t *testing.T) {
 	}
 }
 
+func TestEvaluateMembershipSeparatesTargetMismatchFromOperandCorruption(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		op      Operator
+		target  string
+		operand string
+		want    ConditionState
+		reason  ReasonCode
+	}{
+		{name: "boolean target string list", op: OperatorIn, target: `true`, operand: `["true"]`, want: ConditionIndeterminate, reason: ReasonConditionIndeterminate},
+		{name: "number target string list", op: OperatorIn, target: `1`, operand: `["1"]`, want: ConditionIndeterminate, reason: ReasonConditionIndeterminate},
+		{name: "string target boolean list", op: OperatorNotIn, target: `"true"`, operand: `[true]`, want: ConditionIndeterminate, reason: ReasonConditionIndeterminate},
+		{name: "string target number list", op: OperatorNotIn, target: `"1"`, operand: `[1]`, want: ConditionIndeterminate, reason: ReasonConditionIndeterminate},
+		{name: "null target", op: OperatorIn, target: `null`, operand: `["x"]`, want: ConditionIndeterminate, reason: ReasonConditionIndeterminate},
+		{name: "array target", op: OperatorIn, target: `[]`, operand: `["x"]`, want: ConditionIndeterminate, reason: ReasonConditionIndeterminate},
+		{name: "object target", op: OperatorIn, target: `{}`, operand: `["x"]`, want: ConditionIndeterminate, reason: ReasonConditionIndeterminate},
+		{name: "valid match", op: OperatorIn, target: `"x"`, operand: `["x","y"]`, want: ConditionTrue},
+		{name: "valid not in", op: OperatorNotIn, target: `"z"`, operand: `["x","y"]`, want: ConditionTrue},
+		{name: "operand is not array", op: OperatorIn, target: `"x"`, operand: `"x"`, want: ConditionIndeterminate, reason: ReasonInternalInvariant},
+		{name: "operand is empty", op: OperatorIn, target: `"x"`, operand: `[]`, want: ConditionIndeterminate, reason: ReasonInternalInvariant},
+		{name: "operand contains null", op: OperatorIn, target: `"x"`, operand: `[null]`, want: ConditionIndeterminate, reason: ReasonInternalInvariant},
+		{name: "operand contains mixed scalar kinds", op: OperatorIn, target: `"x"`, operand: `["x",1]`, want: ConditionIndeterminate, reason: ReasonInternalInvariant},
+		{name: "operand contains collection", op: OperatorIn, target: `"x"`, operand: `["x",[]]`, want: ConditionIndeterminate, reason: ReasonInternalInvariant},
+		{name: "invalid operator", op: OperatorEqual, target: `"x"`, operand: `["x"]`, want: ConditionIndeterminate, reason: ReasonInternalInvariant},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			state, reason := evaluateMembership(
+				test.op, mustTestValue(t, test.target), mustTestValue(t, test.operand),
+			)
+			if state != test.want || reason != test.reason {
+				t.Fatalf("membership = %s (%s), want %s (%s)", state, reason, test.want, test.reason)
+			}
+		})
+	}
+
+	oversized := Value{kind: ValueArray, array: make([]Value, MaxListValues+1)}
+	state, reason := evaluateMembership(OperatorIn, testStringValue(t, "x"), oversized)
+	if state != ConditionIndeterminate || reason != ReasonInternalInvariant {
+		t.Fatalf("oversized operand = %s (%s), want indeterminate internal invariant", state, reason)
+	}
+}
+
 func TestEveryPredicateStateMatrix(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

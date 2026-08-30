@@ -304,6 +304,41 @@ func TestCompilePlanRejectsInvalidBudgetContracts(t *testing.T) {
 	}
 }
 
+func TestCompilePlanValidatesMaxResultBytesContract(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		value uint64
+		want  string
+	}{
+		{name: "omitted internal sentinel", value: 0},
+		{name: "minimum", value: 1},
+		{name: "maximum", value: MaxArgumentBytes},
+		{name: "overflow", value: MaxArgumentBytes + 1, want: "omitted (zero in Go) or between 1 and"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			tool := gatewayTool("query", "query")
+			tool.MaxResultBytes = test.value
+			compiled, err := CompilePlan(Plan{Tools: []Tool{tool}})
+			if test.want != "" {
+				if err == nil || !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("error = %v, want %q", err, test.want)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, ok := compiled.Tool("query")
+			if !ok || got.MaxResultBytes != test.value {
+				t.Fatalf("max_result_bytes = %d, found %t, want %d", got.MaxResultBytes, ok, test.value)
+			}
+		})
+	}
+}
+
 func TestCompilePlanRejectsDuplicateExactOwnership(t *testing.T) {
 	t.Parallel()
 	first := hostTool("first", "same", EffectExternal, nil, "")

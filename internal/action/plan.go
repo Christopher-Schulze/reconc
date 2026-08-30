@@ -265,7 +265,7 @@ func normalizeTool(tool *Tool) error {
 		return fmt.Errorf("cost_units must be between 0 and %d", int64(math.MaxInt64))
 	}
 	if tool.MaxResultBytes > MaxArgumentBytes {
-		return fmt.Errorf("max_result_bytes must be between 1 and %d when present", MaxArgumentBytes)
+		return fmt.Errorf("max_result_bytes must be omitted (zero in Go) or between 1 and %d", MaxArgumentBytes)
 	}
 	if err := normalizePointers(&tool.Effect.PathFields, "effect.path_fields", false); err != nil {
 		return err

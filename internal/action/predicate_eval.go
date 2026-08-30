@@ -325,26 +325,34 @@ func evaluatePathPredicate(predicate *CompiledPredicate, target Value) (Conditio
 }
 
 func evaluateMembership(op Operator, target, operand Value) (ConditionState, ReasonCode) {
-	if !target.Scalar() || target.Kind() == ValueNull {
-		return ConditionIndeterminate, ReasonConditionIndeterminate
+	if op != OperatorIn && op != OperatorNotIn {
+		return ConditionIndeterminate, ReasonInternalInvariant
 	}
 	length, ok := operand.ArrayLen()
 	if !ok || length == 0 || length > MaxListValues {
 		return ConditionIndeterminate, ReasonInternalInvariant
 	}
-	matched := false
-	for index := 0; index < length; index++ {
+	first, exists := operand.ArrayItem(0)
+	if !exists || !first.Scalar() {
+		return ConditionIndeterminate, ReasonInternalInvariant
+	}
+	operandKind := first.Kind()
+	targetComparable := target.Scalar() && target.Kind() == operandKind
+	matched := targetComparable && target.Equal(first)
+	for index := 1; index < length; index++ {
 		item, exists := operand.ArrayItem(index)
 		if !exists {
 			return ConditionIndeterminate, ReasonInternalInvariant
 		}
-		if !item.Scalar() || item.Kind() != target.Kind() {
+		if !item.Scalar() || item.Kind() != operandKind {
 			return ConditionIndeterminate, ReasonInternalInvariant
 		}
-		if target.Equal(item) {
+		if targetComparable && target.Equal(item) {
 			matched = true
-			break
 		}
+	}
+	if !targetComparable {
+		return ConditionIndeterminate, ReasonConditionIndeterminate
 	}
 	if op == OperatorNotIn {
 		matched = !matched

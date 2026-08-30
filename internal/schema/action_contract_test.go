@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/actioninspect"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/schema"
@@ -68,6 +69,32 @@ func TestCurrentPolicyConfigSchemaAcceptsOnlyTheImplementedActionSurface(t *test
 	}
 	if err := definition.Validate(valid); err != nil {
 		t.Fatalf("valid action authoring rejected: %v", err)
+	}
+	for _, test := range []struct {
+		name  string
+		value int
+		omit  bool
+		valid bool
+	}{
+		{name: "omitted", omit: true, valid: true},
+		{name: "minimum", value: 1, valid: true},
+		{name: "maximum", value: action.MaxArgumentBytes, valid: true},
+		{name: "zero", value: 0},
+		{name: "overflow", value: action.MaxArgumentBytes + 1},
+	} {
+		t.Run("max_result_bytes "+test.name, func(t *testing.T) {
+			candidate := cloneJSONValue(t, valid).(map[string]interface{})
+			tool := candidate["actions"].(map[string]interface{})["tools"].([]interface{})[0].(map[string]interface{})
+			if test.omit {
+				delete(tool, "max_result_bytes")
+			} else {
+				tool["max_result_bytes"] = test.value
+			}
+			err := definition.Validate(candidate)
+			if test.valid && err != nil || !test.valid && err == nil {
+				t.Fatalf("validation error = %v, valid = %t", err, test.valid)
+			}
+		})
 	}
 	for _, mutate := range []func(map[string]interface{}){
 		func(candidate map[string]interface{}) {
@@ -215,5 +242,31 @@ actions:
 	contract, _ := schema.CurrentContract(schema.PolicyLock)
 	if err := compiled[contract.DefaultURL].Validate(lock); err != nil {
 		t.Fatalf("real compiled format-6 lock is schema-invalid: %v", err)
+	}
+	for _, test := range []struct {
+		name  string
+		value int
+		omit  bool
+		valid bool
+	}{
+		{name: "omitted", omit: true, valid: true},
+		{name: "minimum", value: 1, valid: true},
+		{name: "maximum", value: action.MaxArgumentBytes, valid: true},
+		{name: "zero", value: 0},
+		{name: "overflow", value: action.MaxArgumentBytes + 1},
+	} {
+		t.Run("lock max_result_bytes "+test.name, func(t *testing.T) {
+			candidate := cloneJSONValue(t, lock).(map[string]interface{})
+			tool := candidate["actions"].(map[string]interface{})["tools"].([]interface{})[0].(map[string]interface{})
+			if test.omit {
+				delete(tool, "max_result_bytes")
+			} else {
+				tool["max_result_bytes"] = test.value
+			}
+			err := compiled[contract.DefaultURL].Validate(candidate)
+			if test.valid && err != nil || !test.valid && err == nil {
+				t.Fatalf("validation error = %v, valid = %t", err, test.valid)
+			}
+		})
 	}
 }

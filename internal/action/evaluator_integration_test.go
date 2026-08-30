@@ -235,6 +235,35 @@ func TestEvaluatorThreeValuedConditionSemantics(t *testing.T) {
 	}
 }
 
+func TestEvaluatorHonorsOnIndeterminateForMembershipTargetTypeMismatch(t *testing.T) {
+	t.Parallel()
+	operand := mustTestValue(t, `["1","2"]`)
+	for _, decision := range []Decision{DecisionBlock, DecisionRequireApproval} {
+		decision := decision
+		t.Run(string(decision), func(t *testing.T) {
+			t.Parallel()
+			rule := testRule("typed-membership", DecisionBlock, Predicate{
+				Source: SourceArguments, Pointer: "/amount", Op: OperatorIn, Value: &operand,
+			})
+			rule.OnIndeterminate = decision
+			evaluator, input := testActionEvaluator(t, []Rule{rule}, Defaults{}, testExternalEffect())
+			result := evaluator.Evaluate(input)
+			if result.Decision != decision || result.Reason != ReasonConditionIndeterminate ||
+				result.Failure != nil || result.Completeness.Complete() || len(result.Trace) != 1 {
+				t.Fatalf("result = %#v", result)
+			}
+			trace := result.Trace[0]
+			if trace.Condition != ConditionIndeterminate || trace.CandidateDecision != decision ||
+				trace.Reason != ReasonConditionIndeterminate || trace.Completeness {
+				t.Fatalf("trace = %#v", trace)
+			}
+			if decision == DecisionRequireApproval && result.RequiredApprovalIdentity == "" {
+				t.Fatal("indeterminate approval decision has no bound requirement identity")
+			}
+		})
+	}
+}
+
 func TestConditionEvaluationRejectsInvalidChild(t *testing.T) {
 	invalid := &CompiledCondition{Kind: ConditionKind("invalid")}
 	condition := &CompiledCondition{Kind: ConditionAll, Children: []*CompiledCondition{invalid}}
