@@ -2795,6 +2795,12 @@ Startup and pre-work reconciliation atomically expire crashed pending waits so
 their pre-dispatch reservations do not remain stranded. Transition evidence
 contains only safe labels, timestamps, counters, and bound identities, never
 raw selected values, receipts, credentials, or private keys.
+When a reservation owner is explicitly reconciled as abandoned, every pending
+approval bound to that owner's transitioned reservations becomes terminal
+`unavailable`, the persisted approval-budget reservation is released, and the
+call reservation becomes indeterminate in the same crash-recoverable state
+transaction. `unavailable` records authority unavailability and sealed request
+state for such a record is permanently non-consumable.
 
 The action ledger uses
 `$RECONC_HOME/projects/<repository-key>/action/ledger.jsonl`, two bounded

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -105,6 +106,216 @@ func TestIndependentPendingApprovalsSurviveUnrelatedStateTransitions(t *testing.
 	if status.PendingApprovals != 0 || len(status.ApprovalRecords) != 2 ||
 		status.Budgets[0].Consumed.ApprovalCount != 2 {
 		t.Fatalf("independent pending approvals = %#v", status)
+	}
+}
+
+func TestOwnerAbandonmentTerminalizesOnlyOwnedPendingApprovals(t *testing.T) {
+	fixture := newStoreFixture(t, []action.Budget{storeBudget(
+		"owner-abandonment",
+		action.BudgetLimits{CallCount: 8, ApprovalCount: 8, ResultBytes: 800, Concurrent: 4},
+		action.BudgetResetNever,
+	)})
+	preInput, preReserved := fixture.reserve(t, callID("g"))
+	pre := issueFixtureApproval(t, fixture, preInput, preReserved)
+
+	postInput, postReserved := fixture.reserve(t, callID("h"))
+	postPre := issueFixtureApproval(t, fixture, postInput, postReserved)
+	postPreResult, err := consumeFixtureApproval(t, fixture, postPre, actionapproval.DecisionApprove)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := fixture.store.MarkDispatched(
+		context.Background(), postReserved.Reservation.Identity, postPreResult.StateVersion,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := action.ParseJSON([]byte(`{"target":"production","ok":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	postRequest := postInput.Request
+	postRequest.Phase = action.PhasePostResult
+	postRequest.Arguments = nil
+	postRequest.Result = &result
+	postRequest.StateVersion = version
+	postBinding := ApprovalBinding{
+		Plan: fixture.plan, BudgetRequest: postInput.Request,
+		Context: fixture.context, Authority: fixture.authority, Server: fixture.server,
+		Evaluation: action.EvaluationInput{
+			Request: postRequest, SourceIdentity: strings.Repeat("8", 64),
+			ContextIdentity: fixture.context.ContextIdentity, ExecutableDigest: fixture.server.ExecutableDigest,
+			Principal: fixture.context.Principal, CredentialLabels: credentialLabels(fixture.context.Credentials),
+			Budget:    absentBudgetSnapshot(version),
+			Approval:  action.ApprovalSnapshot{Status: action.ApprovalNone, Identity: "approval-none"},
+			Taint:     action.TaintSnapshot{Status: action.TaintClean, Identity: "taint-clean"},
+			Lifecycle: action.LifecycleActive, CachePolicyVersion: action.CacheIdentityVersion,
+		},
+	}
+	postIssue, err := fixture.store.IssueApproval(context.Background(), ApprovalIssueRequest{
+		Binding: postBinding, AuthorityPolicyID: "production-writes", TTL: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := issuedApprovalFixture{
+		binding: postBinding, issue: postIssue, registry: postPre.registry, privateKey: postPre.privateKey,
+	}
+
+	_, indeterminate := fixture.reserve(t, callID("i"))
+	if _, err := fixture.store.MarkIndeterminate(
+		context.Background(), indeterminate.Reservation.Identity, indeterminate.Snapshot.StateVersion,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	secondaryLease, err := AcquireIdentityKey(context.Background(), fixture.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := secondaryLease.Close(); err != nil {
+			t.Errorf("close secondary identity-key lease: %v", err)
+		}
+	})
+	secondaryStore, err := OpenStore(StoreOptions{
+		Home: fixture.home, Repository: fixture.repository, KeyLease: secondaryLease,
+		Clock: fixture.clock, OwnerID: "owner-secondary",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondaryFixture := *fixture
+	secondaryFixture.store = secondaryStore
+	secondaryInput, secondaryReserved := secondaryFixture.reserve(t, callID("j"))
+	secondary := issueFixtureApproval(t, &secondaryFixture, secondaryInput, secondaryReserved)
+
+	current, err := fixture.store.CurrentStateVersion(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleAuthorization, err := NewOwnerAbandonmentAuthorization(fixture.key, "owner-primary", pre.issue.StateVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.store.MarkOwnerAbandoned(
+		context.Background(), "owner-primary", pre.issue.StateVersion, staleAuthorization,
+	); err == nil {
+		t.Fatal("stale owner abandonment version was accepted")
+	} else {
+		requireStateCode(t, err, action.ReasonStateUnavailable)
+	}
+	authorization, err := NewOwnerAbandonmentAuthorization(fixture.key, "owner-primary", current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err = fixture.store.MarkOwnerAbandoned(
+		context.Background(), "owner-primary", current, authorization,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := fixture.store.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvalStatuses := make(map[string]actionapproval.Status, len(status.ApprovalRecords))
+	for _, record := range status.ApprovalRecords {
+		approvalStatuses[record.RequestID] = record.Status
+	}
+	if approvalStatuses[pre.issue.Request.RequestID] != actionapproval.StatusUnavailable ||
+		approvalStatuses[post.issue.Request.RequestID] != actionapproval.StatusUnavailable ||
+		approvalStatuses[postPre.issue.Request.RequestID] != actionapproval.StatusApproved ||
+		approvalStatuses[secondary.issue.Request.RequestID] != actionapproval.StatusPending {
+		t.Fatalf("owner abandonment approval statuses = %#v", approvalStatuses)
+	}
+	reservationStatuses := make(map[string]ReservationStatus, len(status.Reservations))
+	for _, reservation := range status.Reservations {
+		reservationStatuses[reservation.CallID] = reservation.Status
+	}
+	if reservationStatuses[preReserved.Reservation.CallID] != ReservationIndeterminate ||
+		reservationStatuses[postReserved.Reservation.CallID] != ReservationIndeterminate ||
+		reservationStatuses[indeterminate.Reservation.CallID] != ReservationIndeterminate ||
+		reservationStatuses[secondaryReserved.Reservation.CallID] != ReservationReserved ||
+		status.PendingApprovals != 1 || status.Indeterminate != 3 ||
+		status.Budgets[0].Consumed.ApprovalCount != 1 || status.Budgets[0].Reserved.ApprovalCount != 1 {
+		t.Fatalf("owner abandonment state = %#v", status)
+	}
+	for _, test := range []struct {
+		name   string
+		issued issuedApprovalFixture
+	}{
+		{name: "pre-call", issued: pre},
+		{name: "post-result", issued: post},
+	} {
+		t.Run(test.name+" replay", func(t *testing.T) {
+			result, err := consumeFixtureApproval(t, fixture, test.issued, actionapproval.DecisionApprove)
+			requireStateCode(t, err, action.ReasonApprovalReplayed)
+			if result.Status != actionapproval.StatusUnavailable || result.StateVersion != version {
+				t.Fatalf("abandoned approval replay = %#v", result)
+			}
+		})
+	}
+	retryAuthorization, err := NewOwnerAbandonmentAuthorization(fixture.key, "owner-primary", version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retry, err := fixture.store.MarkOwnerAbandoned(
+		context.Background(), "owner-primary", version, retryAuthorization,
+	); err != nil || retry != version {
+		t.Fatalf("idempotent owner abandonment = %q, %v", retry, err)
+	}
+	if _, err := consumeFixtureApproval(t, &secondaryFixture, secondary, actionapproval.DecisionApprove); err != nil {
+		t.Fatalf("unrelated owner approval was changed: %v", err)
+	}
+}
+
+func TestOwnerAbandonmentRecoversAtomicApprovalTransitionAfterPublicationFailure(t *testing.T) {
+	fixture := newStoreFixture(t, []action.Budget{storeBudget(
+		"owner-abandonment-recovery",
+		action.BudgetLimits{CallCount: 2, ApprovalCount: 2, Concurrent: 2},
+		action.BudgetResetNever,
+	)})
+	input, reserved := fixture.reserve(t, callID("k"))
+	issued := issueFixtureApproval(t, fixture, input, reserved)
+	authorization, err := NewOwnerAbandonmentAuthorization(
+		fixture.key, "owner-primary", issued.issue.StateVersion,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publish := fixture.store.publish
+	fixture.store.publish = func(path string, body []byte) error {
+		if path == fixture.store.statePath {
+			return errors.New("simulated state publication failure")
+		}
+		return publish(path, body)
+	}
+	if _, err := fixture.store.MarkOwnerAbandoned(
+		context.Background(), "owner-primary", issued.issue.StateVersion, authorization,
+	); err == nil {
+		t.Fatal("owner abandonment survived simulated state publication failure")
+	}
+	if _, err := os.Lstat(fixture.store.transactionPath); err != nil {
+		t.Fatalf("owner abandonment recovery journal missing: %v", err)
+	}
+	fixture.store.publish = publish
+	status, err := fixture.store.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.PendingApprovals != 0 || status.Indeterminate != 1 ||
+		len(status.ApprovalRecords) != 1 || status.ApprovalRecords[0].Status != actionapproval.StatusUnavailable ||
+		status.Budgets[0].Reserved.ApprovalCount != 0 {
+		t.Fatalf("recovered owner abandonment state = %#v", status)
+	}
+	if _, err := os.Lstat(fixture.store.transactionPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("completed owner abandonment recovery journal remains: %v", err)
+	}
+	result, err := consumeFixtureApproval(t, fixture, issued, actionapproval.DecisionApprove)
+	requireStateCode(t, err, action.ReasonApprovalReplayed)
+	if result.Status != actionapproval.StatusUnavailable {
+		t.Fatalf("recovered abandoned approval replay = %#v", result)
 	}
 }
 

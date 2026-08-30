@@ -398,6 +398,10 @@ func validateApprovalRecordTransition(
 		return nil
 	default:
 		if record.Request.Phase == action.PhasePreCall {
+			if record.Status == actionapproval.StatusUnavailable && active && !completed &&
+				reservation.Status == ReservationIndeterminate {
+				return validateApprovalReservationBinding(record, reservation)
+			}
 			if active || !completed || terminal.CallID != record.Request.CallID || terminal.Outcome != OutcomeBlocked {
 				return stateError(action.ReasonStateCorrupt, "failed pre-call approval terminal state is invalid", nil)
 			}

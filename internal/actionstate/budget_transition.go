@@ -218,6 +218,9 @@ func (s *Store) MarkOwnerAbandoned(
 		if err != nil || !constantIdentityEqual(authorizationIdentity, wantAuthorization) {
 			return stateError(action.ReasonAuthorityUnavailable, "abandonment authority does not bind the exact operation", err)
 		}
+		if err := terminalizeAbandonedPendingApprovals(&state, ownerID, clock.Time); err != nil {
+			return err
+		}
 		changed := false
 		for index := range state.Reservations {
 			reservation := &state.Reservations[index]

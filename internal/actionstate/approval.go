@@ -791,6 +791,29 @@ func terminalizeApprovalReservation(state *State, record ApprovalRecord, now tim
 	return exhausted, err
 }
 
+func terminalizeAbandonedPendingApprovals(state *State, ownerID string, now time.Time) error {
+	for index := range state.Approvals {
+		record := &state.Approvals[index]
+		if record.Status != actionapproval.StatusPending || record.ReservationIdentity == "absent" {
+			continue
+		}
+		position := reservationIndex(state.Reservations, record.ReservationIdentity)
+		if position < 0 {
+			return stateError(action.ReasonStateCorrupt, "pending approval budget reservation is absent", nil)
+		}
+		reservation := state.Reservations[position]
+		if reservation.OwnerID != ownerID || reservation.Status == ReservationIndeterminate {
+			continue
+		}
+		if _, err := releaseApprovalCharges(state, position); err != nil {
+			return err
+		}
+		record.Status = actionapproval.StatusUnavailable
+		record.UpdatedAtUnix = now.Unix()
+	}
+	return nil
+}
+
 func setVerifiedApprovalMetadata(
 	record *ApprovalRecord,
 	status actionapproval.Status,

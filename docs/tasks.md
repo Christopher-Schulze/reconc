@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 411 Reconcile abandoned pending approvals -> tasks/411-reconcile-abandoned-pending-approvals.md
 - [ ] 412 Synchronize action-ledger checkpoint publication -> tasks/412-synchronize-action-ledger-checkpoint-publication.md
 - [ ] 413 Settle indeterminate results per budget cap -> tasks/413-settle-indeterminate-results-per-budget-cap.md
 - [ ] 414 Restrict workflow-audit batching to capture-free scopes -> tasks/414-restrict-workflow-audit-batching-to-capture-free-scopes.md
@@ -59,6 +58,7 @@
 
 ## Done
 
+- [x] 411 Reconcile abandoned pending approvals -> tasks/done/411-reconcile-abandoned-pending-approvals.md
 - [x] 410 Bound action glob matching work -> tasks/done/410-bound-action-glob-matching-work.md
 - [x] 409 Correct action indeterminate classification and limits -> tasks/done/409-correct-action-indeterminate-classification-and-limits.md
 - [x] 408 Remove action-evaluation hot-path encodings -> tasks/done/408-remove-action-evaluation-hot-path-encodings.md
