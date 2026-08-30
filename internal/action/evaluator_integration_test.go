@@ -264,6 +264,52 @@ func TestEvaluatorHonorsOnIndeterminateForMembershipTargetTypeMismatch(t *testin
 	}
 }
 
+func TestEvaluatorHonorsOnIndeterminateForGlobWorkLimit(t *testing.T) {
+	t.Parallel()
+	pattern := testStringValue(t, "**/missing")
+	for _, decision := range []Decision{DecisionBlock, DecisionRequireApproval} {
+		decision := decision
+		t.Run(string(decision), func(t *testing.T) {
+			t.Parallel()
+			globPredicate := Predicate{
+				Source: SourceArguments, Pointer: "/path", Op: OperatorGlob, Value: &pattern,
+			}
+			existsPredicate := Predicate{
+				Source: SourceArguments, Pointer: "/path", Op: OperatorExists,
+			}
+			rule := testRule("bounded-glob", DecisionBlock, globPredicate)
+			rule.When = &Condition{All: []Condition{
+				{Predicate: &existsPredicate}, {Predicate: &globPredicate},
+			}}
+			rule.OnIndeterminate = decision
+			evaluator, input := testActionEvaluator(t, []Rule{rule}, Defaults{}, testExternalEffect())
+			limited := false
+			for _, child := range evaluator.rules[0].Condition.Children {
+				if child.Predicate != nil && child.Predicate.Glob != nil {
+					child.Predicate.Glob.workLimit = 1
+					limited = true
+				}
+			}
+			if !limited {
+				t.Fatal("compiled glob predicate is absent")
+			}
+			arguments := mustTestValue(t, `{"path":"a/b/c/present"}`)
+			input.Request.Arguments = &arguments
+			refreshTestIdentities(evaluator, &input)
+			result := evaluator.Evaluate(input)
+			if result.Decision != decision || result.Reason != ReasonLimitExceeded ||
+				result.Failure != nil || result.Completeness.Complete() || len(result.Trace) != 1 {
+				t.Fatalf("result = %#v", result)
+			}
+			trace := result.Trace[0]
+			if trace.Condition != ConditionIndeterminate || trace.CandidateDecision != decision ||
+				trace.Reason != ReasonLimitExceeded || trace.Completeness {
+				t.Fatalf("trace = %#v", trace)
+			}
+		})
+	}
+}
+
 func TestConditionEvaluationRejectsInvalidChild(t *testing.T) {
 	invalid := &CompiledCondition{Kind: ConditionKind("invalid")}
 	condition := &CompiledCondition{Kind: ConditionAll, Children: []*CompiledCondition{invalid}}

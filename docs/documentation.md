@@ -3076,6 +3076,15 @@ constraints, JSON Pointers, and typed constants are compiled once into the
 immutable runtime plan. `reconc why action .` explains the result with operand
 values redacted.
 
+Each action-predicate doublestar match has one shared deterministic work budget
+across all brace-expanded programs: four units times the sum of the input byte
+length, compiled token count, and one terminal state per program. The shared
+limit is capped at 16,777,216 units from the 4 MiB string boundary. Token
+dispatch and directory backtracking consume that budget. Exhaustion produces
+an indeterminate `limit_exceeded`
+condition and applies the rule's `on_indeterminate` decision; it is never
+reported as an ordinary non-match.
+
 Canonical action values expose exact encoded size and bounded indexed reads
 without revealing mutable collection storage. Pointer traversal and redacted
 operand summaries therefore do not clone arrays, objects, or encoded JSON.

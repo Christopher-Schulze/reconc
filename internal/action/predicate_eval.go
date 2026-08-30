@@ -292,7 +292,11 @@ func evaluatePatternOperator(predicate *CompiledPredicate, target Value) (Condit
 		if !ok || predicate.Glob == nil {
 			return ConditionIndeterminate, reasonForMatcher(ok, predicate.Glob != nil)
 		}
-		return conditionFromBool(predicate.Glob.Match(text)), ""
+		matched, complete := predicate.Glob.Match(text)
+		if !complete {
+			return ConditionIndeterminate, ReasonLimitExceeded
+		}
+		return conditionFromBool(matched), ""
 	}
 	if !ok || predicate.Regex == nil {
 		return ConditionIndeterminate, reasonForMatcher(ok, predicate.Regex != nil)

@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 410 Bound action glob matching work -> tasks/410-bound-action-glob-matching-work.md
 - [ ] 411 Reconcile abandoned pending approvals -> tasks/411-reconcile-abandoned-pending-approvals.md
 - [ ] 412 Synchronize action-ledger checkpoint publication -> tasks/412-synchronize-action-ledger-checkpoint-publication.md
 - [ ] 413 Settle indeterminate results per budget cap -> tasks/413-settle-indeterminate-results-per-budget-cap.md
@@ -60,6 +59,7 @@
 
 ## Done
 
+- [x] 410 Bound action glob matching work -> tasks/done/410-bound-action-glob-matching-work.md
 - [x] 409 Correct action indeterminate classification and limits -> tasks/done/409-correct-action-indeterminate-classification-and-limits.md
 - [x] 408 Remove action-evaluation hot-path encodings -> tasks/done/408-remove-action-evaluation-hot-path-encodings.md
 - [x] 407 Bound MCP progress admission -> tasks/done/407-bound-mcp-progress-admission.md

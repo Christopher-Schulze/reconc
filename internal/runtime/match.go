@@ -65,13 +65,18 @@ func (m CompiledPathMatcher) Pattern() string {
 }
 
 // Match evaluates a previously validated pattern without reparsing its
-// grammar. A zero matcher is always a miss.
+// grammar. A zero matcher is always a miss. If the action matcher exhausts
+// its action-payload work ceiling, runtime path matching preserves its legacy
+// bool contract through the already validated doublestar fallback.
 func (m CompiledPathMatcher) Match(path string) bool {
 	if m.pattern == "" && m.glob == nil {
 		return false
 	}
 	if m.glob != nil {
-		return m.glob.Match(path)
+		matched, complete := m.glob.Match(path)
+		if complete {
+			return matched
+		}
 	}
 	return doublestar.MatchUnvalidated(m.pattern, path)
 }

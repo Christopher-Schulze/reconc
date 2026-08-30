@@ -177,6 +177,8 @@ func mergeConditionMetadata(target *conditionEvaluation, child conditionEvaluati
 func conditionReasonStrength(reason ReasonCode) int {
 	switch reason {
 	case ReasonInternalInvariant:
+		return 5
+	case ReasonLimitExceeded:
 		return 4
 	case ReasonContextUntrusted:
 		return 3

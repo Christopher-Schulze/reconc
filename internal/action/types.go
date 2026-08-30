@@ -482,6 +482,7 @@ type CompiledGlob struct {
 	pattern      string
 	programs     []globProgram
 	logicalBytes int
+	workLimit    uint64
 }
 
 type URLConstraint struct {

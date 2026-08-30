@@ -47,6 +47,22 @@ func TestCompiledPathMatcherMatchesDoublestar(t *testing.T) {
 	}
 }
 
+func TestCompiledPathMatcherPreservesLateMatchAfterActionWorkLimit(t *testing.T) {
+	t.Parallel()
+	pattern := "**/" + strings.Repeat("{a,b}", 10)
+	matcher, err := CompilePathMatcher(pattern)
+	if err != nil || matcher.glob == nil {
+		t.Fatalf("CompilePathMatcher: matcher=%#v error=%v", matcher, err)
+	}
+	path := strings.Repeat("x/", (16<<10)/2) + strings.Repeat("b", 10)
+	if matched, complete := matcher.glob.Match(path); matched || complete {
+		t.Fatalf("action matcher = %t complete %t, want bounded exhaustion", matched, complete)
+	}
+	if !matcher.Match(path) {
+		t.Fatal("runtime matcher lost a valid late brace-alternative match")
+	}
+}
+
 func TestCompilePathMatcherRejectsInvalidPattern(t *testing.T) {
 	for _, pattern := range []string{"[", "[!00", `trailing\`} {
 		if _, err := CompilePathMatcher(pattern); err == nil {

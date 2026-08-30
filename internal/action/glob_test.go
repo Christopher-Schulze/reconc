@@ -30,8 +30,9 @@ func TestCompiledGlobMatchesDoublestarContract(t *testing.T) {
 			}
 			for _, name := range names {
 				want := doublestar.MatchUnvalidated(pattern, name)
-				if got := compiled.Match(name); got != want {
-					t.Errorf("pattern %q name %q = %t, want %t", pattern, name, got, want)
+				got, complete := compiled.Match(name)
+				if !complete || got != want {
+					t.Errorf("pattern %q name %q = %t complete %t, want %t", pattern, name, got, complete, want)
 				}
 			}
 		})
@@ -60,10 +61,60 @@ func TestCompiledGlobGeneratedParity(t *testing.T) {
 			t.Fatalf("compile %q: %v", pattern, err)
 		}
 		for _, name := range names {
-			if got, want := compiled.Match(name), doublestar.MatchUnvalidated(pattern, name); got != want {
-				t.Fatalf("pattern %q name %q = %t, want %t", pattern, name, got, want)
+			got, complete := compiled.Match(name)
+			if want := doublestar.MatchUnvalidated(pattern, name); !complete || got != want {
+				t.Fatalf("pattern %q name %q = %t complete %t, want %t", pattern, name, got, complete, want)
 			}
 		}
+	}
+}
+
+func TestCompiledGlobWorkLimitIsDerivedAndCapped(t *testing.T) {
+	t.Parallel()
+	simple, err := compileGlob("**/missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := uint64(4 * (64 + len(simple.programs[0].tokens) + 1))
+	if got := simple.matchWorkLimit(64); got != want {
+		t.Fatalf("simple work limit = %d, want %d", got, want)
+	}
+	expanded, err := compileGlob("**/" + strings.Repeat("{a,b}", 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := expanded.matchWorkLimit(MaxJSONStringBytes); got != maxGlobMatchWork {
+		t.Fatalf("expanded work limit = %d, want cap %d", got, maxGlobMatchWork)
+	}
+}
+
+func TestCompiledGlobReportsWorkExhaustion(t *testing.T) {
+	t.Parallel()
+	compiled, err := compileGlob("**/missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matched, complete := compiled.matchWithLimit("a/b/c/present", 1); matched || complete {
+		t.Fatalf("limited match = %t complete %t, want fail-closed exhaustion", matched, complete)
+	}
+	if matched, complete := compiled.Match("a/b/c/present"); matched || !complete {
+		t.Fatal("ordinary public match changed the non-match result")
+	}
+}
+
+func TestCompiledGlobCapsBraceAlternativeScalingBeforeLateMatch(t *testing.T) {
+	t.Parallel()
+	pattern := "**/" + strings.Repeat("{a,b}", 10)
+	compiled, err := compileGlob(pattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := strings.Repeat("x/", (64<<10)/2) + strings.Repeat("b", 10)
+	if !doublestar.MatchUnvalidated(pattern, value) {
+		t.Fatal("adversarial fixture must match a late brace alternative")
+	}
+	if matched, complete := compiled.Match(value); matched || complete {
+		t.Fatalf("bounded late match = %t complete %t, want fail-closed exhaustion", matched, complete)
 	}
 }
 
@@ -128,8 +179,15 @@ func FuzzCompiledGlobParity(f *testing.F) {
 		if err != nil {
 			return
 		}
-		if got, want := compiled.Match(name), doublestar.MatchUnvalidated(pattern, name); got != want {
-			t.Fatalf("pattern %q name %q = %t, want %t", pattern, name, got, want)
+		got, complete := compiled.Match(name)
+		if !complete {
+			if got {
+				t.Fatal("work-exhausted glob reported a match")
+			}
+			return
+		}
+		if want := doublestar.MatchUnvalidated(pattern, name); got != want {
+			t.Fatalf("pattern %q name %q = %t complete %t, want %t", pattern, name, got, complete, want)
 		}
 	})
 }

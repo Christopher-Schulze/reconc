@@ -13,14 +13,16 @@ Directory-star backtracking can rescan the same agent-controlled value once per 
 
 ## Sub-Tasks
 
-- [ ] Add worst-case matcher benchmarks and confirm the current scaling curve.
-- [ ] Normalize redundant directory-star states and/or count bounded match work.
-- [ ] Add limit classification and semantic equivalence tests.
-- [ ] Run focused action glob tests and benchmarks.
+- [x] Add worst-case matcher benchmarks and confirm the current scaling curve.
+- [x] Normalize redundant directory-star states and/or count bounded match work.
+- [x] Add limit classification and semantic equivalence tests.
+- [x] Run focused action glob tests and benchmarks.
 
 ## Notes
 
 - Verified from finding 86 by inspecting `directoryPatternBacktrack` rescans.
 - This is a performance/resource-bound task, not a regex ReDoS task; the separate regex operator uses bounded RE2 semantics.
+- Before the bound, 64 KiB non-matches across 16, 64, 256, and 1,024 brace programs took 1.81 ms, 7.25 ms, 29.32 ms, and 116.17 ms in one-iteration Apple M1 benchmarks. The shared 16,777,216-unit ceiling reduced the 256- and 1,024-program cases to about 21 ms while maximum-size repeated-directory-star matching remained linear and allocation-free.
+- The runtime path-matcher caller preserves its legacy bool semantics through its existing validated doublestar fallback if the action-payload ceiling is exhausted. Focused action and runtime tests, the adversarial benchmarks, `make test-fast`, and `git diff --check` passed.
 
 ## Deviations

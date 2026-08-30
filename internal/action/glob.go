@@ -10,7 +10,11 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-const compiledGlobBranchOverhead = 16
+const (
+	compiledGlobBranchOverhead = 16
+	globWorkPerState           = uint64(4)
+	maxGlobMatchWork           = uint64(MaxJSONStringBytes) * globWorkPerState
+)
 
 type globTokenKind uint8
 
@@ -81,7 +85,10 @@ func compileGlob(pattern string) (*CompiledGlob, error) {
 		}
 		programs = append(programs, program)
 	}
-	return &CompiledGlob{pattern: pattern, programs: programs, logicalBytes: logicalBytes}, nil
+	return &CompiledGlob{
+		pattern: pattern, programs: programs, logicalBytes: logicalBytes,
+		workLimit: maxGlobMatchWork,
+	}, nil
 }
 
 // CompileGlob builds an immutable glob program from validated doublestar
@@ -504,19 +511,62 @@ func compileGlobClass(pattern string, start int) (globClass, int, error) {
 	return globClass{negated: negated, literals: literals, ranges: ranges}, index + 1, nil
 }
 
-func (g *CompiledGlob) Match(value string) bool {
+// Match evaluates value within a deterministic work budget. Complete is false
+// only when the shared budget across brace-expanded programs is exhausted;
+// callers must treat that result as indeterminate rather than as a non-match.
+func (g *CompiledGlob) Match(value string) (matched bool, complete bool) {
 	if g == nil {
-		return false
+		return false, true
 	}
-	for index := range g.programs {
-		if g.programs[index].match(value) {
-			return true
-		}
-	}
-	return false
+	return g.matchWithLimit(value, g.matchWorkLimit(len(value)))
 }
 
-func (p globProgram) match(value string) bool {
+func (g *CompiledGlob) matchWithLimit(value string, limit uint64) (bool, bool) {
+	work := globMatchWork{remaining: limit}
+	for index := range g.programs {
+		matched, complete := g.programs[index].match(value, &work)
+		if !complete {
+			return false, false
+		}
+		if matched {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+func (g *CompiledGlob) matchWorkLimit(valueBytes int) uint64 {
+	if g == nil || valueBytes < 0 || g.workLimit == 0 {
+		return 0
+	}
+	total := uint64(0)
+	for index := range g.programs {
+		states := uint64(valueBytes) + uint64(len(g.programs[index].tokens)) + 1
+		if states > g.workLimit/globWorkPerState {
+			return g.workLimit
+		}
+		programWork := states * globWorkPerState
+		if programWork >= g.workLimit-total {
+			return g.workLimit
+		}
+		total += programWork
+	}
+	return total
+}
+
+type globMatchWork struct {
+	remaining uint64
+}
+
+func (w *globMatchWork) take() bool {
+	if w == nil || w.remaining == 0 {
+		return false
+	}
+	w.remaining--
+	return true
+}
+
+func (p globProgram) match(value string, work *globMatchWork) (bool, bool) {
 	patternIndex := 0
 	nameIndex := 0
 	directoryPatternBacktrack := -1
@@ -526,11 +576,14 @@ func (p globProgram) match(value string) bool {
 
 match:
 	for nameIndex < len(value) {
+		if !work.take() {
+			return false, false
+		}
 		if patternIndex < len(p.tokens) {
 			token := p.tokens[patternIndex]
 			switch token.kind {
 			case globRemainder:
-				return true
+				return true, true
 			case globDirectories:
 				patternIndex++
 				directoryPatternBacktrack = patternIndex
@@ -580,6 +633,9 @@ match:
 		if directoryPatternBacktrack >= 0 {
 			nameIndex = directoryNameBacktrack
 			for nameIndex < len(value) {
+				if !work.take() {
+					return false, false
+				}
 				character, width := utf8.DecodeRuneInString(value[nameIndex:])
 				nameIndex += width
 				if character == '/' {
@@ -589,9 +645,12 @@ match:
 				}
 			}
 		}
-		return false
+		return false, true
 	}
-	return p.zeroLength(patternIndex)
+	if !work.take() {
+		return false, false
+	}
+	return p.zeroLength(patternIndex), true
 }
 
 func (p globProgram) zeroLength(tokenIndex int) bool {
@@ -621,7 +680,10 @@ func (g *CompiledGlob) clone() *CompiledGlob {
 	if g == nil {
 		return nil
 	}
-	out := &CompiledGlob{pattern: g.pattern, logicalBytes: g.logicalBytes, programs: make([]globProgram, len(g.programs))}
+	out := &CompiledGlob{
+		pattern: g.pattern, logicalBytes: g.logicalBytes, workLimit: g.workLimit,
+		programs: make([]globProgram, len(g.programs)),
+	}
 	for index := range g.programs {
 		out.programs[index] = globProgram{
 			pattern: g.programs[index].pattern,
