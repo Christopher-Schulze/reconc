@@ -2140,8 +2140,9 @@ strings, 16-KiB command strings, 64-KiB message strings, 32 nesting levels,
 1,024 alias occurrences, and 4 MiB of expanded scalar bytes. Raw admission
 never follows alias pointers; expansion counts each shared target per occurrence
 without materializing a duplicate tree. Duplicate mapping keys, trailing
-documents, recursive aliases, and any limit overflow fail closed with source
-path/block, rule, field,
+documents, recursive aliases, YAML merge keys in plain or explicitly tagged
+form, and any limit overflow fail closed before raw-node and decoded-map
+consumers can diverge. Errors retain the source path/block, rule, field,
 actual value, and maximum where a rule is identifiable. Required-file,
 evidence, assurance, scope, and composite sub-check collections use the same
 item and text ceilings, so a source cannot bypass bounds by moving data into a

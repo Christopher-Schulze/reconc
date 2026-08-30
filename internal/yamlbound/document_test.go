@@ -18,6 +18,7 @@ func TestDecodeMappingContract(t *testing.T) {
 		{name: "explicit null", body: "null\n", wantErr: "explicit null is not an empty mapping"},
 		{name: "sequence root", body: "- item\n", wantErr: "expected a YAML mapping"},
 		{name: "duplicate document", body: "rules: []\n---\nrules: []\n", wantErr: "must contain exactly one document"},
+		{name: "duplicate key", body: "rules: []\nrules: []\n", wantErr: "already defined"},
 		{name: "alias budget", body: "base: &base {value: x}\nrules:\n" + strings.Repeat("  - *base\n", MaxAliases+1), wantErr: "yaml aliases"},
 		{name: "depth budget", body: deeplyNestedMapping(MaxDepth + 1), wantErr: "yaml nesting depth"},
 		{name: "node budget", body: "items:\n" + strings.Repeat("  - x\n", MaxNodes), wantErr: "yaml nodes"},
@@ -39,6 +40,32 @@ func TestDecodeMappingContract(t *testing.T) {
 				t.Fatalf("DecodeMapping error = %v, want %q with context", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestDecodeMappingRejectsMergeSemanticsBeforeDecoding(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "direct merge key", body: "base: &base {mode: block}\nrule:\n  <<: *base\n"},
+		{name: "nested alias merge", body: "base: &base {mode: block}\nwrapper: &wrapper\n  <<: *base\nrule: *wrapper\n"},
+		{name: "explicit short merge tag", body: "base: &base {mode: block}\nrule:\n  !!merge \"<<\": *base\n"},
+		{name: "explicit long merge tag", body: "base: &base {mode: block}\nrule:\n  !<tag:yaml.org,2002:merge> \"<<\": *base\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, _, err := DecodeMapping([]byte(test.body), "merge.yml"); err == nil ||
+				!strings.Contains(err.Error(), "YAML merge keys are not supported") ||
+				!strings.Contains(err.Error(), "merge.yml") {
+				t.Fatalf("DecodeMapping merge error = %v", err)
+			}
+		})
+	}
+
+	_, mapping, err := DecodeMapping([]byte("\"<<\": literal\n"), "quoted.yml")
+	if err != nil || mapping["<<"] != "literal" {
+		t.Fatalf("quoted literal merge spelling = %#v, %v", mapping, err)
 	}
 }
 

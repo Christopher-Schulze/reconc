@@ -82,6 +82,9 @@ func walkRaw(node *yaml.Node, depth int, limit *bounds, context string) error {
 	if limit.rawNodes > MaxNodes {
 		return limitError(context, "yaml nodes", limit.rawNodes, MaxNodes, "nodes")
 	}
+	if node.Kind == yaml.ScalarNode && node.Value == "<<" && node.ShortTag() == "!!merge" {
+		return &rerrors.RuleValidationError{Message: "YAML merge keys are not supported in " + context + "; write fields explicitly"}
+	}
 	if node.Kind == yaml.AliasNode {
 		limit.aliases++
 		if limit.aliases > MaxAliases {
