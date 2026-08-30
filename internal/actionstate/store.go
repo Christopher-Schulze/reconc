@@ -146,20 +146,11 @@ func pathContained(root, candidate string) bool {
 }
 
 func (s *Store) withLock(ctx context.Context, operation func() error) (resultErr error) {
-	if s == nil || operation == nil {
-		return stateError(action.ReasonStateUnavailable, "action state store is unavailable", nil)
-	}
-	key, releaseKey, err := s.keyLease.acquireUse()
-	if err != nil || key != s.key {
-		if releaseKey != nil {
-			releaseKey()
-		}
-		return stateError(action.ReasonIdentityUnavailable, "action identity-key lease is inactive", err)
+	releaseKey, err := s.beginOperation(operation)
+	if err != nil {
+		return err
 	}
 	defer releaseKey()
-	if err := s.validatePrivateDirectories(); err != nil {
-		return stateError(action.ReasonStateUnavailable, "validate private action-state directories", err)
-	}
 	lock, err := acquireFileLock(ctx, s.lockPath, s.lockTimeout)
 	if err != nil {
 		return stateError(action.ReasonStateUnavailable, "acquire action state transaction lock", err)
@@ -169,6 +160,73 @@ func (s *Store) withLock(ctx context.Context, operation func() error) (resultErr
 		return err
 	}
 	return operation()
+}
+
+func (s *Store) withReadLock(ctx context.Context, operation func() error) (resultErr error) {
+	releaseKey, err := s.beginOperation(operation)
+	if err != nil {
+		return err
+	}
+	keyHeld := true
+	defer func() {
+		if keyHeld {
+			releaseKey()
+		}
+	}()
+	lock, err := acquireSharedFileLock(ctx, s.lockPath, s.lockTimeout)
+	if err != nil {
+		return stateError(action.ReasonStateUnavailable, "acquire shared action state lock", err)
+	}
+	shared := true
+	defer func() {
+		if shared {
+			resultErr = errors.Join(resultErr, lock.close())
+		}
+	}()
+	pending, err := s.recoveryPending()
+	if err != nil {
+		return err
+	}
+	if !pending {
+		return operation()
+	}
+	closeErr := lock.close()
+	shared = false
+	if closeErr != nil {
+		return stateError(action.ReasonStateUnavailable, "release shared action state lock", closeErr)
+	}
+	releaseKey()
+	keyHeld = false
+	return s.withLock(ctx, operation)
+}
+
+func (s *Store) beginOperation(operation func() error) (func(), error) {
+	if s == nil || operation == nil {
+		return nil, stateError(action.ReasonStateUnavailable, "action state store is unavailable", nil)
+	}
+	key, releaseKey, err := s.keyLease.acquireUse()
+	if err != nil || key != s.key {
+		if releaseKey != nil {
+			releaseKey()
+		}
+		return nil, stateError(action.ReasonIdentityUnavailable, "action identity-key lease is inactive", err)
+	}
+	if err := s.validatePrivateDirectories(); err != nil {
+		releaseKey()
+		return nil, stateError(action.ReasonStateUnavailable, "validate private action-state directories", err)
+	}
+	return releaseKey, nil
+}
+
+func (s *Store) recoveryPending() (bool, error) {
+	_, err := os.Lstat(s.transactionPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, stateError(action.ReasonStateCorrupt, "inspect action state transaction", err)
+	}
+	return true, nil
 }
 
 func (s *Store) validatePrivateDirectories() error {

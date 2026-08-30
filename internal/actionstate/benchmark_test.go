@@ -64,6 +64,23 @@ func BenchmarkBudgetStatusLargePersistedState(b *testing.B) {
 	}
 }
 
+func BenchmarkActionStateHealthyReadsParallel(b *testing.B) {
+	fixture := newStoreFixture(b, nil)
+	if _, err := fixture.store.CurrentStateVersion(context.Background()); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(worker *testing.PB) {
+		for worker.Next() {
+			version, err := fixture.store.CurrentStateVersion(context.Background())
+			if err != nil || version == "" {
+				b.Fatalf("CurrentStateVersion = %q, %v", version, err)
+			}
+		}
+	})
+}
+
 func BenchmarkTerminalCallLookupMaximumState(b *testing.B) {
 	state := State{TerminalCalls: make([]TerminalCall, MaxTerminalCallRecords)}
 	for index := range state.TerminalCalls {

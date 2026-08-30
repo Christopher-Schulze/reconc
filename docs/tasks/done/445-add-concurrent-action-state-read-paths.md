@@ -13,13 +13,15 @@
 
 ## Sub-Tasks
 
-- [ ] Separate healthy snapshot validation from mutation-capable recovery.
-- [ ] Add shared-read then exclusive-escalation flow without lock upgrade deadlock.
-- [ ] Add concurrency/regression benchmarks.
-- [ ] Run focused action-state tests and benchmarks.
+- [x] Separate healthy snapshot validation from mutation-capable recovery.
+- [x] Add shared-read then exclusive-escalation flow without lock upgrade deadlock.
+- [x] Add concurrency/regression benchmarks.
+- [x] Run focused action-state tests and benchmarks.
 
 ## Notes
 
 - Verified from finding 181 in `internal/actionstate/status.go`, `budget_store.go`, and `store.go`.
+- `Status` and `CurrentStateVersion` now retain the key lease and a shared state lock while validating healthy snapshots. Any journal entry causes the reader to release both leases before entering the existing exclusive recovery path, preventing lock-upgrade and key-lease writer deadlocks.
+- Parallel healthy-version reads improved from about 321 us/op to 131 us/op on the focused 8-worker benchmark, with unchanged allocation count. Deterministic tests prove reader overlap, bounded writer contention, writer progress after release, cancellation, and recovery escalation.
 
 ## Deviations

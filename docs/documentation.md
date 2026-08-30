@@ -2823,6 +2823,12 @@ counter overflow, duplicate calls, and capacity oversubscription. This is an
 enforcement primitive used by the gateway; it does not make direct MCP or
 framework calls enforced.
 
+Healthy status and state-version reads validate repository and key identity
+under concurrent shared state locks. A detected recovery journal releases the
+shared lock before acquiring the exclusive transaction lock, then revalidates
+and recovers the complete snapshot before returning it; cancellation and lock
+timeouts remain bounded.
+
 `max_result_bytes` is optional on a tool declaration. Omission is represented
 as zero only inside the Go `Tool` value; serialized policy and lock values must
 be integers from 1 through 8 MiB, and an explicit zero is invalid. A

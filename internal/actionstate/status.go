@@ -12,7 +12,7 @@ import (
 // state. It includes only safe labels, keyed identities, counters, limits, and
 // provenance declarations.
 func (s *Store) Status(ctx context.Context) (status StateStatus, resultErr error) {
-	resultErr = s.withLock(ctx, func() error {
+	resultErr = s.withReadLock(ctx, func() error {
 		if err := s.resampleRepositoryIdentity(); err != nil {
 			return err
 		}

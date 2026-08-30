@@ -12,7 +12,7 @@ import (
 )
 
 func (s *Store) CurrentStateVersion(ctx context.Context) (version string, resultErr error) {
-	resultErr = s.withLock(ctx, func() error {
+	resultErr = s.withReadLock(ctx, func() error {
 		if err := s.resampleRepositoryIdentity(); err != nil {
 			return err
 		}
