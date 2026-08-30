@@ -86,10 +86,12 @@ func TestValidateRecordShapeRejectsEveryInvalidField(t *testing.T) {
 		{name: "relative root", mutate: func(r *Record) { r.RepoRoot = "relative" }, err: "root is not absolute"},
 		{name: "empty fingerprint", mutate: func(r *Record) { r.CandidateFingerprint = "" }, err: "fingerprint is empty"},
 		{name: "invalid fingerprint", mutate: func(r *Record) { r.CandidateFingerprint = "xyz" }, err: "fingerprint is invalid"},
+		{name: "uppercase fingerprint", mutate: func(r *Record) { r.CandidateFingerprint = strings.Repeat("A", 64) }, err: "fingerprint is invalid"},
 		{name: "missing report", mutate: func(r *Record) { r.Report = nil }, err: "report is missing"},
 		{name: "report repository", mutate: func(r *Record) { r.Report.RepoRoot = t.TempDir() }, err: "report repository mismatch"},
 		{name: "empty report hash", mutate: func(r *Record) { r.PolicyReportHash = "" }, err: "report hash is empty"},
 		{name: "invalid report hash", mutate: func(r *Record) { r.PolicyReportHash = "xyz" }, err: "report hash is invalid"},
+		{name: "uppercase report hash", mutate: func(r *Record) { r.PolicyReportHash = strings.ToUpper(r.PolicyReportHash) }, err: "report hash is invalid"},
 		{name: "report schema", mutate: func(r *Record) { r.Report.Schema = "other" }, err: "report schema"},
 		{name: "derived report fields", mutate: func(r *Record) { r.Report.OK = true }, err: "derived fields"},
 	} {
@@ -131,6 +133,13 @@ func TestValidateRecordRejectsNestedTampering(t *testing.T) {
 		record.Digest = strings.Repeat("0", 64)
 		if err := validateRecord(record, repo); err == nil || !strings.Contains(err.Error(), "digest mismatch") {
 			t.Fatalf("expected record-digest rejection, got %v", err)
+		}
+	})
+	t.Run("uppercase record digest", func(t *testing.T) {
+		record := valid
+		record.Digest = strings.ToUpper(record.Digest)
+		if err := validateRecord(record, repo); err == nil || !strings.Contains(err.Error(), "digest is invalid") {
+			t.Fatalf("expected canonical record-digest rejection, got %v", err)
 		}
 	})
 	t.Run("repository identity", func(t *testing.T) {

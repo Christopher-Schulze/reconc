@@ -1,6 +1,8 @@
 package completiongate_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -128,6 +130,66 @@ func TestEvaluateFailsClosedOnTamperedDecisionProof(t *testing.T) {
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	report := evaluateCompletion(t, repo, completiongate.Options{})
+	assertFailedCheck(t, report, "policy/latest-decision-integrity")
+}
+
+func TestEvaluateRejectsForgedUppercaseCurrentDecisionFingerprint(t *testing.T) {
+	repo := completionRepo(t, denyGeneratedPolicy, nil)
+	state, err := agentsession.CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs := runtime.Empty()
+	inputs.WritePaths = []string{"gen/output.go"}
+	blocked, err := runtime.CheckRepoPolicy(state.RepoRoot, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := policyproof.Store(state.RepoRoot, "check", state.Fingerprint, blocked); err != nil {
+		t.Fatal(err)
+	}
+	path := policyproof.Path(state.RepoRoot)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record policyproof.Record
+	if err := json.Unmarshal(body, &record); err != nil {
+		t.Fatal(err)
+	}
+	record.CandidateFingerprint = strings.ToUpper(record.CandidateFingerprint)
+	reportBody, err := json.Marshal(record.Report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := struct {
+		Schema               string          `json:"schema"`
+		FormatVersion        string          `json:"format_version"`
+		Event                string          `json:"event"`
+		RepoRoot             string          `json:"repo_root"`
+		CandidateFingerprint string          `json:"candidate_fingerprint"`
+		PolicyReportHash     string          `json:"policy_report_hash"`
+		Report               json.RawMessage `json:"report"`
+	}{
+		Schema: record.Schema, FormatVersion: record.FormatVersion, Event: record.Event,
+		RepoRoot: record.RepoRoot, CandidateFingerprint: record.CandidateFingerprint,
+		PolicyReportHash: record.PolicyReportHash, Report: reportBody,
+	}
+	payloadBody, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(payloadBody)
+	record.Digest = hex.EncodeToString(digest[:])
+	body, err = json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(body, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	report := evaluateCompletion(t, repo, completiongate.Options{})
 	assertFailedCheck(t, report, "policy/latest-decision-integrity")
 }

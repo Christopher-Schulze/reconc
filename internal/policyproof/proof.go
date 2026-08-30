@@ -150,7 +150,7 @@ func newRecord(repoRoot, event, candidateFingerprint string, report *runtime.Che
 	}
 	record := Record{
 		Schema: Schema, FormatVersion: FormatVersion, Event: strings.TrimSpace(event),
-		RepoRoot: reportRoot, CandidateFingerprint: strings.TrimSpace(candidateFingerprint),
+		RepoRoot: reportRoot, CandidateFingerprint: candidateFingerprint,
 		Report: report,
 	}
 	if report != nil {
@@ -174,6 +174,9 @@ func validateRecord(record Record, repoRoot string) error {
 	if err := validateRecordShape(record); err != nil {
 		return err
 	}
+	if !validDigest(record.Digest) {
+		return errors.New("policy decision proof digest is invalid")
+	}
 	if record.Report.Decision != runtime.DecisionBlock {
 		return errors.New("stored policy decision proof is not an unresolved block")
 	}
@@ -192,7 +195,7 @@ func validateRecord(record Record, repoRoot string) error {
 	if err != nil {
 		return err
 	}
-	if !equalDigest(record.Digest, digest) {
+	if record.Digest != digest {
 		return errors.New("policy decision proof digest mismatch")
 	}
 	return nil
@@ -280,15 +283,16 @@ func hash(body []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func equalDigest(left, right string) bool {
-	leftBytes, leftErr := hex.DecodeString(left)
-	rightBytes, rightErr := hex.DecodeString(right)
-	return leftErr == nil && rightErr == nil && bytes.Equal(leftBytes, rightBytes)
-}
-
 func validDigest(value string) bool {
-	decoded, err := hex.DecodeString(value)
-	return err == nil && len(decoded) == sha256.Size
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	for index := range value {
+		if (value[index] < '0' || value[index] > '9') && (value[index] < 'a' || value[index] > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func ensureEOF(decoder *json.Decoder) error {

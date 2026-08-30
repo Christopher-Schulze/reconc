@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 398 Canonicalize and redact public proof identities -> tasks/398-canonicalize-and-redact-public-proof-identities.md
 - [ ] 399 Make compiler discovery and source paths deterministic -> tasks/399-make-compiler-discovery-and-source-paths-deterministic.md
 - [ ] 400 Reject ambiguous YAML merge semantics -> tasks/400-reject-ambiguous-yaml-merge-semantics.md
 - [ ] 401 Verify bootstrap file modes on Windows -> tasks/401-verify-bootstrap-file-modes-on-windows.md
@@ -72,6 +71,7 @@
 
 ## Done
 
+- [x] 398 Canonicalize and redact public proof identities -> tasks/done/398-canonicalize-and-redact-public-proof-identities.md
 - [x] 397 Redact quoted sensitive command values -> tasks/done/397-redact-quoted-sensitive-command-values.md
 - [x] 396 Preserve blocking CI findings under truncation -> tasks/done/396-preserve-blocking-ci-findings-under-truncation.md
 - [x] 395 Prevent TASK section-counter overflow -> tasks/done/395-prevent-task-section-counter-overflow.md

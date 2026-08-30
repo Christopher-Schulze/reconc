@@ -517,8 +517,14 @@ func sanitizeText(root, value string) string {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		value = replaceBoundaryToken(value, filepath.Clean(home), "<home>")
 	}
-	if user := strings.TrimSpace(os.Getenv("USER")); len(user) >= 3 {
-		value = replaceBoundaryToken(value, user, "<user>")
+	redactedIdentity := ""
+	for _, environment := range []string{"USER", "USERNAME"} {
+		identity := strings.TrimSpace(os.Getenv(environment))
+		if !validOperatorIdentity(identity) || strings.EqualFold(identity, redactedIdentity) {
+			continue
+		}
+		redactedIdentity = identity
+		value = replaceBoundaryTokenFold(value, identity, "<user>")
 	}
 	value = secretAssignment.ReplaceAllString(value, "$1=<redacted>")
 	value = bearerSecret.ReplaceAllString(value, "Bearer <redacted>")
@@ -528,6 +534,20 @@ func sanitizeText(root, value string) string {
 	value = unixAbsolutePath.ReplaceAllString(value, "$1<external>")
 	value = windowsPath.ReplaceAllString(value, "$1<external>")
 	return boundText(value)
+}
+
+func validOperatorIdentity(value string) bool {
+	if value == "" || len(value) > 256 || value == "." || value == ".." {
+		return false
+	}
+	hasLetterOrDigit := false
+	for _, runeValue := range value {
+		if !isTokenRune(runeValue) {
+			return false
+		}
+		hasLetterOrDigit = hasLetterOrDigit || unicode.IsLetter(runeValue) || unicode.IsDigit(runeValue)
+	}
+	return hasLetterOrDigit
 }
 
 func canonicalSanitizationRoot(root string) string {
@@ -572,6 +592,37 @@ func replaceBoundaryToken(value, target, replacement string) string {
 		output.WriteString(value[searchFrom : start+len(target[:1])])
 		searchFrom = start + len(target[:1])
 	}
+	return output.String()
+}
+
+func replaceBoundaryTokenFold(value, target, replacement string) string {
+	if value == "" || target == "" {
+		return value
+	}
+	var output strings.Builder
+	output.Grow(len(value))
+	lastWritten := 0
+	tokenStart := -1
+	for index, runeValue := range value {
+		if isTokenRune(runeValue) {
+			if tokenStart < 0 {
+				tokenStart = index
+			}
+			continue
+		}
+		if tokenStart >= 0 && strings.EqualFold(value[tokenStart:index], target) {
+			output.WriteString(value[lastWritten:tokenStart])
+			output.WriteString(replacement)
+			lastWritten = index
+		}
+		tokenStart = -1
+	}
+	if tokenStart >= 0 && strings.EqualFold(value[tokenStart:], target) {
+		output.WriteString(value[lastWritten:tokenStart])
+		output.WriteString(replacement)
+		lastWritten = len(value)
+	}
+	output.WriteString(value[lastWritten:])
 	return output.String()
 }
 

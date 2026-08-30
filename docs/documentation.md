@@ -177,8 +177,10 @@ Hashes intentionally do not commit to the normalized command or any argument,
 so an observer cannot use the public bundle as an offline argument-guessing
 oracle. The visible command is the corresponding executable or uncertainty
 summary with arguments redacted; sanitization is bounded, portable, UTF-8-safe,
-and defense in depth rather than a guarantee of discovering every possible
-secret format.
+and removes boundary-delimited `USER` and `USERNAME` identities, including
+one- and two-character names, without replacing those bytes inside longer
+tokens. It remains defense in depth rather than a guarantee of discovering
+every possible secret format.
 
 Submitted Build Week video, Devpost text, and the immutable v0.8.6 artifacts
 remain historical evidence. Current README and documentation use this
@@ -1798,7 +1800,11 @@ clears its tamper-evident receipt. Time and retention never clear it. With no
 typed TASK lifecycle, the TASK check is a minimal pass; configured lifecycle
 state must be terminal and satisfy every required section, evidence field, and
 optional committed-control-plane rule. `--require-clean-git` adds a clean-tree
-check. When the gate persists a policy decision, it captures the candidate
+check. Persisted candidate fingerprints, policy-report hashes, and receipt
+digests are exact 64-character lowercase hexadecimal identities; mixed-case or
+whitespace-padded forms fail integrity validation rather than comparing as a
+different candidate. When the gate persists a policy decision, it captures the
+candidate
 immediately before and after publication; drift makes the receipt retryable and
 keeps any stored blocking record bound to its original fingerprint. Elapsed
 time is never completion evidence.
@@ -2632,7 +2638,8 @@ unique ID, subject, current successful command, `outcome: "pass"`, aggregation
 (`last`, `mean`, `min`, `max`, `median`, or `p95`), comparator (`lt`, `lte`,
 `eq`, `gte`, or `gt`), numeric threshold and actual, measured samples, an
 RFC3339 verification time, and a repository-relative evidence path plus its
-SHA-256. Evidence bytes must use one supported sample-bearing form: UTF-8 text
+SHA-256 as exactly 64 lowercase hexadecimal characters without surrounding
+whitespace. Evidence bytes must use one supported sample-bearing form: UTF-8 text
 starting with `measured samples:` followed by comma-separated finite numbers
 (the existing `benchmark samples:` prefix remains accepted), a JSON object with
 only a `samples` number array, or a JSON number array. Reconc parses that

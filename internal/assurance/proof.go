@@ -116,6 +116,9 @@ func verifyEvidenceHash(root string, proof proofRecord, state *evaluationState) 
 	if strings.TrimSpace(proof.EvidencePath) == "" || strings.TrimSpace(proof.EvidenceSHA256) == "" {
 		return fmt.Errorf("requires evidence_path and evidence_sha256")
 	}
+	if !validCanonicalSHA256(proof.EvidenceSHA256) {
+		return fmt.Errorf("evidence_sha256 must contain exactly 64 lowercase hexadecimal characters")
+	}
 	resolved, err := state.resolve(root, proof.EvidencePath)
 	if err != nil {
 		return err
@@ -132,7 +135,7 @@ func verifyEvidenceHash(root string, proof proofRecord, state *evaluationState) 
 	}
 	sum := sha256.Sum256(body)
 	actual := hex.EncodeToString(sum[:])
-	if !strings.EqualFold(actual, strings.TrimSpace(proof.EvidenceSHA256)) {
+	if actual != proof.EvidenceSHA256 {
 		return fmt.Errorf("evidence hash mismatch for %s", proof.EvidencePath)
 	}
 	evidenceSamples, err := parseEvidenceSamples(body)
@@ -143,6 +146,18 @@ func verifyEvidenceHash(root string, proof proofRecord, state *evaluationState) 
 		return fmt.Errorf("evidence samples do not match declared samples for %s", proof.EvidencePath)
 	}
 	return nil
+}
+
+func validCanonicalSHA256(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	for index := range value {
+		if (value[index] < '0' || value[index] > '9') && (value[index] < 'a' || value[index] > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 const evidenceTextPrefix = "measured samples:"

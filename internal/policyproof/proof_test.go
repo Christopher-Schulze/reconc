@@ -56,6 +56,11 @@ func TestStoreRejectsInconsistentReportAndFingerprint(t *testing.T) {
 	if err := policyproof.Store(repo, "check", "not-a-digest", report); err == nil || !strings.Contains(err.Error(), "fingerprint is invalid") {
 		t.Fatalf("invalid fingerprint was accepted: %v", err)
 	}
+	for _, fingerprint := range []string{strings.Repeat("A", 64), " " + strings.Repeat("a", 64), strings.Repeat("a", 64) + " "} {
+		if err := policyproof.Store(repo, "check", fingerprint, report); err == nil || !strings.Contains(err.Error(), "fingerprint is invalid") {
+			t.Fatalf("non-canonical fingerprint %q was accepted: %v", fingerprint, err)
+		}
+	}
 
 	report = passingReport(repo)
 	report.Schema = "https://example.invalid/report.schema.json"

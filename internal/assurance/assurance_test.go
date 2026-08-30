@@ -310,6 +310,35 @@ func TestSubstantiveProofRejectsUnrelatedEvidenceSamples(t *testing.T) {
 	}
 }
 
+func TestSubstantiveProofRejectsNonCanonicalEvidenceDigest(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC().Truncate(time.Second)
+	evidence := []byte("measured samples: 10, 11, 12\n")
+	writeAssuranceFile(t, root, "evidence.txt", string(evidence))
+	hash := sha256.Sum256(evidence)
+	canonical := hex.EncodeToString(hash[:])
+	gate := policy.AssuranceGate{ID: "proof", Type: policy.AssuranceSubstantiveProof, ProofFile: "proofs.json", MinSamples: 3, MaxAgeHours: 24}
+	for _, digest := range []string{strings.ToUpper(canonical), " " + canonical, canonical + " "} {
+		document := proofDocument{FormatVersion: "1", Proofs: []proofRecord{{
+			ID: "proof-1", Subject: "latency", Command: "go test ./...", Outcome: "pass",
+			Aggregation: "mean", Comparator: "lte", Threshold: float64Pointer(20), Actual: float64Pointer(11), Samples: []float64{10, 11, 12},
+			EvidencePath: "evidence.txt", EvidenceSHA256: digest, VerifiedAt: now.Format(time.RFC3339),
+		}}}
+		body, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeAssuranceFile(t, root, "proofs.json", string(body))
+		findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{SuccessfulCommands: []string{"go test ./..."}, Now: now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(findingsText(findings), "64 lowercase hexadecimal characters") {
+			t.Fatalf("non-canonical evidence digest %q was accepted: %+v", digest, findings)
+		}
+	}
+}
+
 func TestSubstantiveProofRejectsMalformedEvidenceSamples(t *testing.T) {
 	root := t.TempDir()
 	now := time.Now().UTC().Truncate(time.Second)

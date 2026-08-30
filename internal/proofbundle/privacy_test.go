@@ -48,6 +48,24 @@ func TestSanitizeTextDoesNotRedactRepositoryBasenameTokens(t *testing.T) {
 	}
 }
 
+func TestSanitizeTextRedactsShortUnixAndWindowsOperatorIdentitiesAtBoundaries(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USER", "xy")
+	t.Setenv("USERNAME", "ab")
+	input := `unix xy and XY; windows ab and AB; proxy xy2; grab; xy_value; ab-name; C:\Users\AB\proof.json`
+	got := sanitizeText("", input)
+	for _, forbidden := range []string{"unix xy", "and XY", "windows ab", "and AB", `C:\Users\AB`} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("sanitizeText leaked operator identity %q: %s", forbidden, got)
+		}
+	}
+	for _, expected := range []string{"unix <user> and <user>", "windows <user> and <user>", "proxy xy2", "grab", "xy_value", "ab-name", "<external>"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("sanitizeText corrupted or omitted %q: %s", expected, got)
+		}
+	}
+}
+
 func TestSanitizeTextUsesAdversarialPrivacyCorpus(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "private-project")
 	t.Setenv("HOME", filepath.Join(t.TempDir(), "home", "alice"))
