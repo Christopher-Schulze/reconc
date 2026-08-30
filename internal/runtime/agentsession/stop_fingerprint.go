@@ -77,14 +77,18 @@ func stopPolicyFingerprintInputForSnapshotWithScan(
 	}
 	dirtyFiles := []gitDirtyFile{}
 	if gitSnapshot.StatusOK {
-		dirtyFiles = gitDirtyFiles(root, gitSnapshot.Status)
+		dirtyFiles = gitDirtyFilesWithScan(root, gitSnapshot.Status, scanCache)
 	}
 	policyScan := scanCache.get(root, state.WritePaths)
+	policyLockHash := policyScan.LockHash
+	if policyLockHash == "" {
+		policyLockHash = fileContentHash(filepath.Join(root, policyLockfilePath))
+	}
 	return stopPolicyFingerprintInput{
 		Version:            stopPolicyFingerprintVersion,
 		RepoRoot:           root,
 		SessionID:          state.SessionID,
-		PolicyLockHash:     fileContentHash(filepath.Join(root, policyLockfilePath)),
+		PolicyLockHash:     policyLockHash,
 		PolicySourceDigest: policyDigest,
 		PolicySourceCount:  policyCount,
 		TaskStateHash:      taskHash,
@@ -102,7 +106,7 @@ func stopPolicyFingerprintInputForSnapshotWithScan(
 		GitStatus:          gitSnapshot.Status,
 		GitDirtyFiles:      dirtyFiles,
 		ReconcAuditNoCache: os.Getenv("RECONC_AUDIT_NO_CACHE"),
-		PolicyInputs:       stopPolicyInputIdentities(root, policyScan.Paths),
+		PolicyInputs:       stopPolicyInputIdentitiesWithScan(root, policyScan.Paths, scanCache),
 	}
 }
 
@@ -186,11 +190,39 @@ type stopPolicyLockScan struct {
 // only the bounded structural scan and its exact lockfile hash, never the raw
 // lockfile bytes or process-global policy data.
 type stopPolicyScanCache struct {
-	root     string
-	writeKey string
-	scan     stopPolicyLockScan
-	loaded   bool
-	mutated  bool
+	root             string
+	writeKey         string
+	scan             stopPolicyLockScan
+	loaded           bool
+	mutated          bool
+	dirtyIdentities  map[string]stopCachedDirtyIdentity
+	policyIdentities map[string]stopCachedPolicyIdentity
+	metrics          stopPolicyAttemptMetrics
+}
+
+type stopCachedDirtyIdentity struct {
+	generation string
+	identity   string
+}
+
+type stopCachedPolicyIdentity struct {
+	resolved   string
+	generation string
+	identity   policyInputIdentity
+}
+
+type stopPolicyAttemptMetrics struct {
+	contentHashReads     int
+	contentHashBytes     int64
+	thresholdTreeEntries int
+}
+
+func (c *stopPolicyScanCache) recordContentHash(size int64) {
+	if c == nil || size < 0 {
+		return
+	}
+	c.metrics.contentHashReads++
+	c.metrics.contentHashBytes += size
 }
 
 func (c *stopPolicyScanCache) get(repoRoot string, writePaths []string) stopPolicyLockScan {
@@ -246,14 +278,15 @@ func scanStopPolicyLockfile(repoRoot string, writePaths []string) stopPolicyLock
 		// non-cacheable so we never reuse a report we cannot revalidate.
 		return stopPolicyLockScan{}
 	}
+	scan := stopPolicyLockScan{Cacheable: true, LockHash: hashBytes(body)}
 	var lock struct {
 		Rules []stopPolicyLockRule `json:"rules"`
 	}
 	if err := json.Unmarshal(body, &lock); err != nil {
 		// A lock we cannot decode is a lock we cannot reason about.
-		return stopPolicyLockScan{}
+		scan.Cacheable = false
+		return scan
 	}
-	scan := stopPolicyLockScan{Cacheable: true, LockHash: hashBytes(body)}
 	paths := map[string]struct{}{}
 	collect := func(path string, maxAgeHours int, fresh bool, captures []map[string]string) {
 		if path == "" {
@@ -399,17 +432,25 @@ func stopPolicyTemplateCaptures(patterns, writePaths []string) []map[string]stri
 // even when Git also reports it: dirty-set symlink identity deliberately
 // describes the link itself, while policy evaluation follows contained links.
 func stopPolicyInputIdentities(repoRoot string, paths []string) []policyInputIdentity {
+	return stopPolicyInputIdentitiesWithScan(repoRoot, paths, nil)
+}
+
+func stopPolicyInputIdentitiesWithScan(repoRoot string, paths []string, scanCache *stopPolicyScanCache) []policyInputIdentity {
 	if len(paths) == 0 {
 		return nil
 	}
 	identities := make([]policyInputIdentity, 0, len(paths))
 	for _, path := range paths {
-		identities = append(identities, stopPolicyInputIdentity(repoRoot, path))
+		identities = append(identities, stopPolicyInputIdentityWithScan(repoRoot, path, scanCache))
 	}
 	return identities
 }
 
 func stopPolicyInputIdentity(repoRoot, path string) policyInputIdentity {
+	return stopPolicyInputIdentityWithScan(repoRoot, path, nil)
+}
+
+func stopPolicyInputIdentityWithScan(repoRoot, path string, scanCache *stopPolicyScanCache) policyInputIdentity {
 	identity := policyInputIdentity{Path: path}
 	resolved, err := resolveStopPolicyInputPath(repoRoot, path)
 	if err != nil {
@@ -426,15 +467,25 @@ func stopPolicyInputIdentity(repoRoot, path string) policyInputIdentity {
 		identity.Identity = "error:" + err.Error()
 		return identity
 	}
+	generation, generationOK := stopPolicyInputGeneration(resolved, info)
+	cacheKey := repoRoot + "\x00" + path
+	if generationOK && scanCache != nil {
+		if cached, ok := scanCache.policyIdentities[cacheKey]; ok && cached.resolved == resolved && cached.generation == generation {
+			return cached.identity
+		}
+	}
 	switch {
 	case info.IsDir():
-		identity.Identity = stopDirectoryContentHash(resolved)
+		identity.Identity = stopDirectoryContentHashObserved(resolved, scanCache.recordContentHash)
 		identity.Trusted = trustedStopDirectoryIdentity(identity.Identity)
 	case info.Mode().IsRegular():
 		contentHash, hashErr := hashFileContentExpected(resolved, info)
 		if hashErr != nil {
 			identity.Identity = "error:" + hashErr.Error()
 			return identity
+		}
+		if info.Size() <= stopPolicyContentHashBound {
+			scanCache.recordContentHash(info.Size())
 		}
 		metadata, metadataOK := stopPathMetadataGeneration(resolved, info)
 		if !metadataOK {
@@ -446,7 +497,25 @@ func stopPolicyInputIdentity(repoRoot, path string) policyInputIdentity {
 	default:
 		identity.Identity = "mode:" + info.Mode().String()
 	}
+	if generationOK && identity.Trusted && scanCache != nil {
+		if scanCache.policyIdentities == nil {
+			scanCache.policyIdentities = make(map[string]stopCachedPolicyIdentity)
+		}
+		scanCache.policyIdentities[cacheKey] = stopCachedPolicyIdentity{
+			resolved: resolved, generation: generation, identity: identity,
+		}
+	}
 	return identity
+}
+
+func stopPolicyInputGeneration(path string, info os.FileInfo) (string, bool) {
+	if info.IsDir() {
+		return stopPolicyDirectoryGeneration(path)
+	}
+	if info.Mode().IsRegular() {
+		return stopPathMetadataGeneration(path, info)
+	}
+	return "", false
 }
 
 func resolveStopPolicyInputPath(repoRoot, path string) (string, error) {

@@ -86,6 +86,7 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 		}()
 	}
 	runState := runSnapshot.State
+	loadedEvidence := &stopLoadedEvidence{}
 
 	// An interrupt releases only this host invocation. Durable repository run
 	// state remains enabled until `reconc run off` or terminal TASK exhaustion.
@@ -116,7 +117,9 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 		if state.EvidenceOverflow {
 			return repositoryRunBlockResult(evidenceOverflowMessage(state))
 		}
-		state, loadErr = loadCompleteSessionEvidenceWithCache(root, state, stopCache)
+		rawState := state
+		var evidencePrefix verifiedEvidencePrefix
+		state, loadErr = loadCompleteSessionEvidenceWithCacheCapture(root, state, stopCache, &evidencePrefix)
 		if loadErr != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): load evidence chain: %s", loadErr)}
 		}
@@ -128,6 +131,11 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 				return contResult
 			}
 		}
+		revision, revisionErr := stopPolicyEvidenceRevision(rawState)
+		if revisionErr != nil {
+			return resultWithEncodingError(Result{ExitCode: 2}, revisionErr)
+		}
+		loadedEvidence.capture(root, rawState, revision, state, evidencePrefix)
 	}
 
 	state, err := ensureSessionStateResolved(root, payload.SessionID)
@@ -146,7 +154,7 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 		}
 		return Result{ExitCode: 0, Stderr: evidenceOverflowMessage(state) + " Stop released as uncertified because repository run is disabled."}
 	}
-	state, err = loadCompleteSessionEvidenceWithCache(root, state, stopCache)
+	state, _, err = loadedEvidence.load(root, state, stopCache)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): load evidence chain: %s", err)}
 	}
@@ -171,7 +179,9 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 		}
 	}
 
-	policyResult, err := runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(root, state, evaluator, stopCache, &taskSnapshot)
+	policyResult, err := runStopPolicyCheckWithSnapshotWithEvaluatorCacheAndEvidence(
+		root, state, evaluator, stopCache, &taskSnapshot, loadedEvidence,
+	)
 	if err != nil {
 		if isLockfileError(err) {
 			// A stale lockfile must still hold the session open, but it must

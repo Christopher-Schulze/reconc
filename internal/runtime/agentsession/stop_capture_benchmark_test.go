@@ -41,6 +41,27 @@ func BenchmarkVerifiedEvidencePrefix(b *testing.B) {
 	}
 }
 
+func BenchmarkStopLoadedEvidenceAttempt(b *testing.B) {
+	_, repo := withBenchmarkStateRoot(b)
+	state := writeEvidenceChainFixture(b, repo, "attempt-evidence-benchmark", 4, 4*1024)
+	var chainLoads int
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		loaded := &stopLoadedEvidence{}
+		first, _, err := loaded.load(state.RepoRoot, state, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		second, _, err := loaded.load(state.RepoRoot, state, nil)
+		if err != nil || len(second.Commands) != len(first.Commands) {
+			b.Fatalf("reused evidence commands=%d/%d err=%v", len(first.Commands), len(second.Commands), err)
+		}
+		chainLoads += loaded.chainLoads
+	}
+	b.ReportMetric(float64(chainLoads)/float64(b.N), "chain-load/op")
+}
+
 func BenchmarkPackedRefLookup(b *testing.B) {
 	root := b.TempDir()
 	var body strings.Builder

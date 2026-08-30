@@ -22,13 +22,18 @@ const (
 )
 
 func stopGenerationWorthwhile(repoRoot string, files []gitDirtyFile) bool {
-	var bytes int64
-	entries := 0
-	worthwhile := false
+	return stopGenerationWorthwhileWithMetrics(repoRoot, files, nil)
+}
+
+func stopGenerationWorthwhileWithMetrics(repoRoot string, files []gitDirtyFile, metrics *stopPolicyAttemptMetrics) bool {
 	for _, file := range files {
 		if strings.HasPrefix(file.WorktreeHash, "submodule:") {
 			return false
 		}
+	}
+	var bytes int64
+	entries := 0
+	for _, file := range files {
 		if file.WorktreeHash == "missing" || strings.HasPrefix(file.WorktreeHash, "symlink:") {
 			continue
 		}
@@ -38,32 +43,50 @@ func stopGenerationWorthwhile(repoRoot string, files []gitDirtyFile) bool {
 			return false
 		}
 		if info.IsDir() {
-			treeBytes, treeEntries, ok := stopTreeWorkEstimate(path)
+			treeBytes, treeEntries, reached, ok := stopTreeWorkEstimateUntil(
+				path, stopGenerationMinBytes-bytes, stopGenerationMinEntries-entries,
+			)
+			if metrics != nil {
+				metrics.thresholdTreeEntries += treeEntries
+			}
 			if !ok {
 				return false
 			}
 			bytes += treeBytes
 			entries += treeEntries
+			if reached {
+				return true
+			}
 		} else if info.Mode().IsRegular() {
 			bytes += info.Size()
 			entries++
 		}
 		if bytes >= stopGenerationMinBytes || entries >= stopGenerationMinEntries {
-			worthwhile = true
+			return true
 		}
 	}
-	return worthwhile
+	return false
 }
 
-func stopTreeWorkEstimate(root string) (int64, int, bool) {
+var errStopGenerationThreshold = errors.New("stop generation threshold reached")
+
+func stopTreeWorkEstimateUntil(root string, byteThreshold int64, entryThreshold int) (int64, int, bool, bool) {
 	var bytes int64
+	observedEntries := 0
 	entries, err := walkStopTree(root, func(_ string, info os.FileInfo) error {
+		observedEntries++
 		if info.Mode().IsRegular() {
 			bytes += info.Size()
 		}
+		if bytes >= byteThreshold || observedEntries >= entryThreshold {
+			return errStopGenerationThreshold
+		}
 		return nil
 	})
-	return bytes, entries, err == nil
+	if errors.Is(err, errStopGenerationThreshold) || entries >= entryThreshold {
+		return bytes, entries, true, true
+	}
+	return bytes, entries, false, err == nil
 }
 
 func stopPathMetadataGeneration(path string, info os.FileInfo) (string, bool) {
@@ -139,6 +162,10 @@ func stopDirectoryGeneration(root string) (string, bool) {
 }
 
 func stopDirectoryContentHash(root string) string {
+	return stopDirectoryContentHashObserved(root, nil)
+}
+
+func stopDirectoryContentHashObserved(root string, observe func(int64)) string {
 	hasher := sha256.New()
 	var totalBytes int64
 	_, err := walkStopTree(root, func(path string, info os.FileInfo) error {
@@ -168,6 +195,9 @@ func stopDirectoryContentHash(root string) string {
 			}
 			if strings.HasPrefix(contentHash, "oversized:") {
 				return fmt.Errorf("tree contains oversized file")
+			}
+			if observe != nil {
+				observe(info.Size())
 			}
 			writeStopTreeComponent(hasher, contentHash)
 		default:

@@ -422,6 +422,114 @@ func TestStopGenerationWorthwhileRejectsMixedDirtySubmodule(t *testing.T) {
 	}
 }
 
+func TestStopGenerationWorthwhileStopsAtProvenThreshold(t *testing.T) {
+	repo := t.TempDir()
+	const totalEntries = 2 * stopGenerationMinEntries
+	for index := 0; index < totalEntries; index++ {
+		path := filepath.Join(repo, "scratch", fmt.Sprintf("%04d.txt", index))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	metrics := &stopPolicyAttemptMetrics{}
+	files := []gitDirtyFile{{Path: "scratch", WorktreeHash: "dir:" + strings.Repeat("a", 64)}}
+	if !stopGenerationWorthwhileWithMetrics(repo, files, metrics) {
+		t.Fatal("entry threshold did not make generation worthwhile")
+	}
+	if metrics.thresholdTreeEntries != stopGenerationMinEntries {
+		t.Fatalf("threshold walk visited %d entries, want %d of %d", metrics.thresholdTreeEntries, stopGenerationMinEntries, totalEntries+1)
+	}
+}
+
+func TestStopAttemptReusesContentHashesAfterGenerationRevalidation(t *testing.T) {
+	repo := setupStopBenchmarkRepo(t)
+	target := filepath.Join(repo, "src", "a.go")
+	firstBody := bytes.Repeat([]byte{'a'}, stopGenerationMinBytes)
+	if err := os.WriteFile(target, firstBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	beforeInfo, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := InitializeSessionState(repo, "attempt-hash-reuse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = AppendWritePath(state, "src/a.go")
+	taskSnapshot, err := captureStopTaskSnapshot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitSnapshot := stopPolicyGitSnapshotFor(repo)
+	scanCache := &stopPolicyScanCache{}
+	first := stopPolicyFingerprintInputForSnapshotWithScan(
+		repo, state, gitSnapshot, taskSnapshot, stopGenerationCapture{}, scanCache,
+	)
+	if scanCache.metrics.contentHashReads != 1 || scanCache.metrics.contentHashBytes != stopGenerationMinBytes {
+		t.Fatalf("cold hash metrics = %+v", scanCache.metrics)
+	}
+	second := stopPolicyFingerprintInputForSnapshotWithScan(
+		repo, state, gitSnapshot, taskSnapshot, stopGenerationCapture{}, scanCache,
+	)
+	if hashStopPolicyFingerprintInput(first) != hashStopPolicyFingerprintInput(second) {
+		t.Fatal("unchanged attempt-local identity changed the fingerprint")
+	}
+	if scanCache.metrics.contentHashReads != 1 || scanCache.metrics.contentHashBytes != stopGenerationMinBytes {
+		t.Fatalf("unchanged revalidation rehashed content: %+v", scanCache.metrics)
+	}
+
+	if err := os.WriteFile(target, bytes.Repeat([]byte{'b'}, stopGenerationMinBytes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(target, beforeInfo.ModTime(), beforeInfo.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	changed := stopPolicyFingerprintInputForSnapshotWithScan(
+		repo, state, stopPolicyGitSnapshotFor(repo), taskSnapshot, stopGenerationCapture{}, scanCache,
+	)
+	if hashStopPolicyFingerprintInput(changed) == hashStopPolicyFingerprintInput(first) {
+		t.Fatal("same-size, same-mtime rewrite reused the cached content hash")
+	}
+	if scanCache.metrics.contentHashReads != 2 || scanCache.metrics.contentHashBytes != 2*stopGenerationMinBytes {
+		t.Fatalf("changed identity was not rehashed exactly once: %+v", scanCache.metrics)
+	}
+}
+
+func TestStopAttemptReusesPolicyInputHashAfterGenerationRevalidation(t *testing.T) {
+	repo := t.TempDir()
+	target := filepath.Join(repo, "build", "report.json")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("pass\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	beforeInfo, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanCache := &stopPolicyScanCache{}
+	first := stopPolicyInputIdentityWithScan(repo, "build/report.json", scanCache)
+	second := stopPolicyInputIdentityWithScan(repo, "build/report.json", scanCache)
+	if !first.Trusted || first != second || scanCache.metrics.contentHashReads != 1 || scanCache.metrics.contentHashBytes != 5 {
+		t.Fatalf("unchanged policy input was not reused exactly: first=%+v second=%+v metrics=%+v", first, second, scanCache.metrics)
+	}
+	if err := os.WriteFile(target, []byte("fail\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(target, beforeInfo.ModTime(), beforeInfo.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	changed := stopPolicyInputIdentityWithScan(repo, "build/report.json", scanCache)
+	if !changed.Trusted || changed == first || scanCache.metrics.contentHashReads != 2 || scanCache.metrics.contentHashBytes != 10 {
+		t.Fatalf("changed policy input reused stale identity: first=%+v changed=%+v metrics=%+v", first, changed, scanCache.metrics)
+	}
+}
+
 func TestStopRepositoryGenerationBindsPolicyTaskIndexHeadAndSymlink(t *testing.T) {
 	repo := setupStopBenchmarkRepo(t)
 	taskSnapshot, err := captureStopTaskSnapshot(repo)

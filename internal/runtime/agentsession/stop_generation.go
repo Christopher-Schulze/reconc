@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -277,7 +276,7 @@ func captureStopRepositoryGenerationWithIdentityAndScan(
 		Version:            stopGenerationVersion,
 		RepoRoot:           root,
 		RootIdentity:       rootIdentity,
-		PolicyLockHash:     fileContentHash(filepath.Join(root, policyLockfilePath)),
+		PolicyLockHash:     policyScan.LockHash,
 		PolicySourceDigest: policyDigest,
 		PolicySourceCount:  policyCount,
 		TaskStateHash:      taskStateHash,

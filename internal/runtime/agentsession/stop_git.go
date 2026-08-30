@@ -197,6 +197,10 @@ func gitCommonDir(gitDir string) (string, error) {
 }
 
 func gitDirtyFiles(repoRoot string, status string) []gitDirtyFile {
+	return gitDirtyFilesWithScan(repoRoot, status, nil)
+}
+
+func gitDirtyFilesWithScan(repoRoot string, status string, scanCache *stopPolicyScanCache) []gitDirtyFile {
 	paths := dirtyPathsFromStatus(status)
 	indexEntries := gitIndexEntries(repoRoot, paths)
 	files := make([]gitDirtyFile, 0, len(paths))
@@ -204,7 +208,7 @@ func gitDirtyFiles(repoRoot string, status string) []gitDirtyFile {
 		indexEntry := indexEntries[path]
 		files = append(files, gitDirtyFile{
 			Path:         path,
-			WorktreeHash: worktreePathHash(repoRoot, path, indexEntry),
+			WorktreeHash: worktreePathHashWithScan(repoRoot, path, indexEntry, scanCache),
 			IndexEntry:   indexEntry,
 		})
 	}
@@ -339,6 +343,10 @@ func mergeGitIndexEntries(entries map[string]string, repoRoot string, paths []st
 }
 
 func worktreePathHash(repoRoot string, path, indexEntry string) string {
+	return worktreePathHashWithScan(repoRoot, path, indexEntry, nil)
+}
+
+func worktreePathHashWithScan(repoRoot string, path, indexEntry string, scanCache *stopPolicyScanCache) string {
 	fullPath := filepath.Join(repoRoot, filepath.FromSlash(path))
 	info, err := os.Lstat(fullPath)
 	if err != nil {
@@ -358,16 +366,64 @@ func worktreePathHash(repoRoot string, path, indexEntry string) string {
 		if strings.HasPrefix(indexEntry, "160000 ") {
 			return submoduleWorktreeHash(fullPath)
 		}
-		return stopDirectoryContentHash(fullPath)
+		generation, reliable := stopDirectoryGeneration(fullPath)
+		if reliable {
+			if identity, ok := cachedStopDirtyIdentity(scanCache, repoRoot, path, indexEntry, generation); ok {
+				return identity
+			}
+		}
+		identity := stopDirectoryContentHashObserved(fullPath, scanCache.recordContentHash)
+		if reliable && trustedStopDirectoryIdentity(identity) {
+			storeStopDirtyIdentity(scanCache, repoRoot, path, indexEntry, generation, identity)
+		}
+		return identity
 	}
 	if !info.Mode().IsRegular() {
 		return "mode:" + info.Mode().String()
 	}
-	hash, err := hashFileContent(fullPath)
+	generation, reliable := stopPathMetadataGeneration(fullPath, info)
+	if reliable {
+		if identity, ok := cachedStopDirtyIdentity(scanCache, repoRoot, path, indexEntry, generation); ok {
+			return identity
+		}
+	}
+	hash, err := hashFileContentExpected(fullPath, info)
 	if err != nil {
 		return "error:" + err.Error()
 	}
+	if info.Size() <= stopPolicyContentHashBound {
+		scanCache.recordContentHash(info.Size())
+	}
+	if reliable {
+		storeStopDirtyIdentity(scanCache, repoRoot, path, indexEntry, generation, hash)
+	}
 	return hash
+}
+
+func cachedStopDirtyIdentity(
+	cache *stopPolicyScanCache,
+	repoRoot, path, indexEntry, generation string,
+) (string, bool) {
+	if cache == nil {
+		return "", false
+	}
+	key := repoRoot + "\x00" + path + "\x00" + indexEntry
+	entry, ok := cache.dirtyIdentities[key]
+	return entry.identity, ok && entry.generation == generation
+}
+
+func storeStopDirtyIdentity(
+	cache *stopPolicyScanCache,
+	repoRoot, path, indexEntry, generation, identity string,
+) {
+	if cache == nil {
+		return
+	}
+	if cache.dirtyIdentities == nil {
+		cache.dirtyIdentities = make(map[string]stopCachedDirtyIdentity)
+	}
+	key := repoRoot + "\x00" + path + "\x00" + indexEntry
+	cache.dirtyIdentities[key] = stopCachedDirtyIdentity{generation: generation, identity: identity}
 }
 
 func submoduleWorktreeHash(root string) string {

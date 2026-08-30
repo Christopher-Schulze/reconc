@@ -70,6 +70,85 @@ type evidenceSnapshot struct {
 	commandResultBytes int64
 }
 
+// stopLoadedEvidence owns one complete evidence view for one Stop attempt.
+// Reuse is authorized only after the raw session evidence revision is read
+// again and matches; the value never escapes the synchronous attempt.
+type stopLoadedEvidence struct {
+	repoRoot   string
+	sessionID  string
+	revision   string
+	complete   SessionState
+	prefix     verifiedEvidencePrefix
+	valid      bool
+	chainLoads int
+}
+
+func (loaded *stopLoadedEvidence) load(
+	repoRoot string,
+	raw SessionState,
+	cache *StopDecisionCache,
+) (SessionState, string, error) {
+	revision, err := stopPolicyEvidenceRevision(raw)
+	if err != nil {
+		return SessionState{}, "", err
+	}
+	complete, err := loaded.loadRevision(repoRoot, raw, revision, cache)
+	return complete, revision, err
+}
+
+func (loaded *stopLoadedEvidence) loadRevision(
+	repoRoot string,
+	raw SessionState,
+	revision string,
+	cache *StopDecisionCache,
+) (SessionState, error) {
+	if loaded != nil && loaded.valid && loaded.repoRoot == repoRoot && loaded.sessionID == raw.SessionID && loaded.revision == revision &&
+		(raw.EvidenceSegmentCount == 0 || verifiedEvidencePrefixMatches(loaded.prefix, repoRoot, raw.SessionID, defaultEvidenceSegmentLoadHooks())) {
+		complete := raw
+		applyLoadedStopEvidence(&complete, loaded.complete)
+		return complete, nil
+	}
+	var prefix verifiedEvidencePrefix
+	complete, err := loadCompleteSessionEvidenceWithCacheCapture(repoRoot, raw, cache, &prefix)
+	if err != nil {
+		return SessionState{}, err
+	}
+	if loaded != nil {
+		loaded.capture(repoRoot, raw, revision, complete, prefix)
+	}
+	return complete, nil
+}
+
+func (loaded *stopLoadedEvidence) capture(
+	repoRoot string,
+	raw SessionState,
+	revision string,
+	complete SessionState,
+	prefix verifiedEvidencePrefix,
+) {
+	if loaded == nil {
+		return
+	}
+	loaded.repoRoot = repoRoot
+	loaded.sessionID = raw.SessionID
+	loaded.revision = revision
+	loaded.complete = complete
+	loaded.prefix = prefix
+	loaded.valid = raw.EvidenceSegmentCount == 0 ||
+		(prefix.count == raw.EvidenceSegmentCount && prefix.head == raw.EvidenceSegmentDigest && uint64(len(prefix.segments)) == prefix.count)
+	loaded.chainLoads++
+}
+
+func applyLoadedStopEvidence(state *SessionState, complete SessionState) {
+	state.ReadPaths = complete.ReadPaths
+	state.WritePaths = complete.WritePaths
+	state.WriteEpochs = complete.WriteEpochs
+	state.Commands = complete.Commands
+	state.Claims = complete.Claims
+	state.CommandResults = complete.CommandResults
+	state.CommandResultBytes = complete.CommandResultBytes
+}
+
 type evidenceSegmentLoadHooks struct {
 	readSnapshot func(string, int64) ([]byte, os.FileInfo, error)
 	lstat        func(string) (os.FileInfo, error)
@@ -207,7 +286,16 @@ func loadCompleteSessionEvidence(repoRoot string, state SessionState) (SessionSt
 }
 
 func loadCompleteSessionEvidenceWithCache(repoRoot string, state SessionState, cache *StopDecisionCache) (SessionState, error) {
-	return loadCompleteSessionEvidenceWithHooks(repoRoot, state, cache, defaultEvidenceSegmentLoadHooks())
+	return loadCompleteSessionEvidenceWithCacheCapture(repoRoot, state, cache, nil)
+}
+
+func loadCompleteSessionEvidenceWithCacheCapture(
+	repoRoot string,
+	state SessionState,
+	cache *StopDecisionCache,
+	captured *verifiedEvidencePrefix,
+) (SessionState, error) {
+	return loadCompleteSessionEvidenceWithHooksCapture(repoRoot, state, cache, defaultEvidenceSegmentLoadHooks(), captured)
 }
 
 func defaultEvidenceSegmentLoadHooks() evidenceSegmentLoadHooks {
@@ -224,6 +312,19 @@ func loadCompleteSessionEvidenceWithHooks(
 	cache *StopDecisionCache,
 	hooks evidenceSegmentLoadHooks,
 ) (SessionState, error) {
+	return loadCompleteSessionEvidenceWithHooksCapture(repoRoot, state, cache, hooks, nil)
+}
+
+func loadCompleteSessionEvidenceWithHooksCapture(
+	repoRoot string,
+	state SessionState,
+	cache *StopDecisionCache,
+	hooks evidenceSegmentLoadHooks,
+	captured *verifiedEvidencePrefix,
+) (SessionState, error) {
+	if captured != nil {
+		*captured = verifiedEvidencePrefix{}
+	}
 	if state.EvidenceSegmentCount == 0 {
 		cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
 		return state, nil
@@ -288,10 +389,14 @@ func loadCompleteSessionEvidenceWithHooks(
 	}
 	if cacheable {
 		prefixSnapshot := snapshotEvidence(complete)
-		cache.storeVerifiedEvidencePrefix(repoRoot, state.SessionID, verifiedEvidencePrefix{
+		prefix := verifiedEvidencePrefix{
 			count: state.EvidenceSegmentCount, head: state.EvidenceSegmentDigest,
 			bytes: max(merger.retainedBytes, 1), segments: verified, snapshot: prefixSnapshot,
-		})
+		}
+		if captured != nil {
+			*captured = prefix
+		}
+		cache.storeVerifiedEvidencePrefix(repoRoot, state.SessionID, prefix)
 	} else {
 		cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
 	}

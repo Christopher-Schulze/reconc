@@ -4267,7 +4267,9 @@ policy-declared input, typed TASK state, configuration, and session evidence.
 The cache owns at most 64
 repository/session entries and starts no watcher or background process.
 Equivalent concurrent Stops serialize under the report lock and load complete
-session evidence once before evaluation. Persistent workers retain at most
+session evidence once before evaluation. The complete evidence view is reused
+only while the raw evidence revision and every sealed segment generation still
+match, and it is discarded with the synchronous Stop attempt. Persistent workers retain at most
 16 MiB of decoded, digest-bound evidence-segment prefixes across 64 keys,
 including conservative collection overhead. Cold loads decode and merge one
 segment at a time under the same 16 MiB aggregate bound instead of retaining
@@ -4373,7 +4375,11 @@ aggregate-content bound. Directory or file identity replacement during the
 scan fails closed. Unsupported file metadata, dirty submodules, scan overflow,
 malformed Git/TASK state, and interrupted report publication bypass generation
 reuse. Alternate Git ref backends fall back to `git rev-parse`; the normal
-path avoids that extra process. Only Reconc-owned runtime namespaces and exact
+path avoids that extra process. Within one Stop attempt, exact dirty-content
+and policy-input hashes are reused only after platform file generations match;
+phase and publication barriers still revalidate metadata. Generation-cost tree
+walks preflight disqualifying submodules, then stop as soon as their byte or
+entry threshold is proven. Only Reconc-owned runtime namespaces and exact
 transaction, lock, audit, and bootstrap artifacts are excluded from the dirty
 fingerprint so report writes cannot invalidate their own cache. Policy inputs,
 compiled policy, install receipts, runtime manifests, and scripts under

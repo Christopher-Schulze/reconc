@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/internal/runtime"
 )
 
 func TestEvidenceRotationPreservesByteBoundedCommands(t *testing.T) {
@@ -211,6 +214,94 @@ func TestVerifiedEvidencePrefixSkipsReadsAndLoadsOnlyNewSuffix(t *testing.T) {
 	}
 	if reads != 3 {
 		t.Fatalf("suffix load read count = %d, want 3 total", reads)
+	}
+}
+
+func TestStopLoadedEvidenceReusesOnlyMatchingRawRevision(t *testing.T) {
+	_, repo := withStateRoot(t)
+	state := writeEvidenceChainFixture(t, repo, "attempt-evidence", 2, 64)
+	loaded := &stopLoadedEvidence{}
+	complete, revision, err := loaded.load(state.RepoRoot, state, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision == "" || loaded.chainLoads != 1 || len(complete.Commands) != 2 {
+		t.Fatalf("cold loaded evidence revision=%q loads=%d commands=%d", revision, loaded.chainLoads, len(complete.Commands))
+	}
+
+	metadataChanged := state
+	metadataChanged.StopPolicyFingerprint = "new-cache-metadata"
+	reused, reusedRevision, err := loaded.load(state.RepoRoot, metadataChanged, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reusedRevision != revision || loaded.chainLoads != 1 || reused.StopPolicyFingerprint != "new-cache-metadata" || len(reused.Commands) != 2 {
+		t.Fatalf("matching revision reuse lost current metadata or evidence: revision=%q loads=%d state=%+v", reusedRevision, loaded.chainLoads, reused)
+	}
+
+	evidenceChanged := metadataChanged
+	evidenceChanged.Claims = []string{"new-claim"}
+	evidenceChanged.EvidenceEpoch++
+	reloaded, changedRevision, err := loaded.load(state.RepoRoot, evidenceChanged, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedRevision == revision || loaded.chainLoads != 2 || !reflect.DeepEqual(reloaded.Claims, []string{"new-claim"}) {
+		t.Fatalf("changed revision was not reloaded: revision=%q loads=%d claims=%v", changedRevision, loaded.chainLoads, reloaded.Claims)
+	}
+}
+
+func TestStopLoadedEvidenceRevalidatesSegmentGeneration(t *testing.T) {
+	_, repo := withStateRoot(t)
+	state := writeEvidenceChainFixture(t, repo, "attempt-evidence-race", 1, 128)
+	loaded := &stopLoadedEvidence{}
+	if _, _, err := loaded.load(state.RepoRoot, state, nil); err != nil {
+		t.Fatal(err)
+	}
+	path := evidenceSegmentPath(state.RepoRoot, state.SessionID, 1)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body[len(body)/2] ^= 1
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := loaded.load(state.RepoRoot, state, nil); err == nil {
+		t.Fatal("attempt-local evidence accepted same-size, same-mtime segment mutation")
+	}
+}
+
+func TestStopPolicyConsumesPreloadedEvidenceWithoutReloadingChain(t *testing.T) {
+	repo := setupStopBenchmarkRepo(t)
+	state := writeEvidenceChainFixture(t, repo, "preloaded-policy", 2, 128)
+	if err := SaveSessionState(state); err != nil {
+		t.Fatal(err)
+	}
+	loaded := &stopLoadedEvidence{}
+	complete, _, err := loaded.load(state.RepoRoot, state, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskSnapshot, err := captureStopTaskSnapshot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runStopPolicyCheckWithSnapshotWithEvaluatorCacheAndEvidence(
+		repo, complete, runtime.NewEvaluator(), nil, &taskSnapshot, loaded,
+	)
+	if err != nil || result.Report == nil {
+		t.Fatalf("preloaded policy result=%+v err=%v", result, err)
+	}
+	if loaded.chainLoads != 1 {
+		t.Fatalf("policy reloaded an unchanged complete evidence chain %d times", loaded.chainLoads)
 	}
 }
 

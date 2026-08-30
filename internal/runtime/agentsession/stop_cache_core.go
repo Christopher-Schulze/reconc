@@ -168,6 +168,19 @@ func runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(
 	cache *StopDecisionCache,
 	taskSnapshot *stopTaskSnapshot,
 ) (stopPolicyCheckResult, error) {
+	return runStopPolicyCheckWithSnapshotWithEvaluatorCacheAndEvidence(
+		repoRoot, state, evaluator, cache, taskSnapshot, nil,
+	)
+}
+
+func runStopPolicyCheckWithSnapshotWithEvaluatorCacheAndEvidence(
+	repoRoot string,
+	state SessionState,
+	evaluator *runtime.Evaluator,
+	cache *StopDecisionCache,
+	taskSnapshot *stopTaskSnapshot,
+	loadedEvidence *stopLoadedEvidence,
+) (stopPolicyCheckResult, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return stopPolicyCheckResult{}, err
@@ -179,8 +192,11 @@ func runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(
 		}
 		taskSnapshot = &captured
 	}
+	if loadedEvidence == nil {
+		loadedEvidence = &stopLoadedEvidence{}
+	}
 	return withStopPolicyReportLock(root, state.SessionID, func() (stopPolicyCheckResult, error) {
-		return runStopPolicyCheckLocked(root, state, evaluator, cache, *taskSnapshot)
+		return runStopPolicyCheckLocked(root, state, evaluator, cache, *taskSnapshot, loadedEvidence)
 	})
 }
 
@@ -190,8 +206,9 @@ func runStopPolicyCheckLocked(
 	evaluator *runtime.Evaluator,
 	cache *StopDecisionCache,
 	taskSnapshot stopTaskSnapshot,
+	loadedEvidence *stopLoadedEvidence,
 ) (stopPolicyCheckResult, error) {
-	return runStopPolicyCheckLockedAttempt(repoRoot, state, evaluator, cache, taskSnapshot, 1)
+	return runStopPolicyCheckLockedAttempt(repoRoot, state, evaluator, cache, taskSnapshot, loadedEvidence, 1)
 }
 
 func runStopPolicyCheckLockedAttempt(
@@ -200,10 +217,13 @@ func runStopPolicyCheckLockedAttempt(
 	evaluator *runtime.Evaluator,
 	cache *StopDecisionCache,
 	taskSnapshot stopTaskSnapshot,
+	loadedEvidence *stopLoadedEvidence,
 	stabilityRun int,
 ) (stopPolicyCheckResult, error) {
 	scanCache := &stopPolicyScanCache{}
-	currentState, initialEvidenceRevision, err := loadCurrentStopPolicyStateWithRevisionAndCache(repoRoot, state.SessionID, cache)
+	currentState, initialEvidenceRevision, err := loadCurrentStopPolicyStateWithRevisionCacheAndLoaded(
+		repoRoot, state.SessionID, cache, loadedEvidence,
+	)
 	if err != nil {
 		return stopPolicyCheckResult{}, err
 	}
@@ -213,7 +233,9 @@ func runStopPolicyCheckLockedAttempt(
 		stopCaptureBeforeEvaluation, repoRoot, state, initialEvidenceRevision, taskSnapshot, gitSnapshot, scanCache,
 	)
 	if report, ok := cache.readStableReportWithSnapshot(repoRoot, state, taskSnapshot, gitSnapshot, scanCache, &beforeSnapshot); ok {
-		current, _, loadErr := loadCurrentStopPolicyStateWithRevisionAndCache(repoRoot, state.SessionID, cache)
+		current, _, loadErr := loadCurrentStopPolicyStateWithRevisionCacheAndLoaded(
+			repoRoot, state.SessionID, cache, loadedEvidence,
+		)
 		if loadErr != nil {
 			return stopPolicyCheckResult{}, loadErr
 		}
@@ -251,7 +273,9 @@ func runStopPolicyCheckLockedAttempt(
 		state.StopPolicyReportHash != "" && !stopPolicyReportExpired(state.StopPolicyExpiresAt) {
 		report, reportHash, err := readLatestReport(repoRoot, state.SessionID)
 		if err == nil && reportHash == state.StopPolicyReportHash {
-			current, _, loadErr := loadCurrentStopPolicyStateWithRevisionAndCache(repoRoot, state.SessionID, cache)
+			current, _, loadErr := loadCurrentStopPolicyStateWithRevisionCacheAndLoaded(
+				repoRoot, state.SessionID, cache, loadedEvidence,
+			)
 			if loadErr != nil {
 				return stopPolicyCheckResult{}, loadErr
 			}
@@ -382,7 +406,7 @@ func runStopPolicyCheckLockedAttempt(
 			return stopPolicyCheckResult{}, fmt.Errorf("recapture TASK snapshot after unstable Stop: %w", captureErr)
 		}
 		return runStopPolicyCheckLockedAttempt(
-			repoRoot, current, evaluator, cache, currentTask, stabilityRun+1,
+			repoRoot, current, evaluator, cache, currentTask, loadedEvidence, stabilityRun+1,
 		)
 	}
 	if cacheMetadataPublished {
@@ -410,6 +434,14 @@ func loadCurrentStopPolicyStateWithRevision(repoRoot, sessionID string) (Session
 }
 
 func loadCurrentStopPolicyStateWithRevisionAndCache(repoRoot, sessionID string, cache *StopDecisionCache) (SessionState, string, error) {
+	return loadCurrentStopPolicyStateWithRevisionCacheAndLoaded(repoRoot, sessionID, cache, nil)
+}
+
+func loadCurrentStopPolicyStateWithRevisionCacheAndLoaded(
+	repoRoot, sessionID string,
+	cache *StopDecisionCache,
+	loadedEvidence *stopLoadedEvidence,
+) (SessionState, string, error) {
 	current, err := loadSessionStateWithLockResolved(repoRoot, sessionID)
 	if err != nil {
 		return SessionState{}, "", fmt.Errorf("reload session state for Stop revalidation: %w", err)
@@ -418,7 +450,7 @@ func loadCurrentStopPolicyStateWithRevisionAndCache(repoRoot, sessionID string, 
 	if err != nil {
 		return SessionState{}, "", fmt.Errorf("hash Stop evidence revision: %w", err)
 	}
-	current, err = loadCompleteSessionEvidenceWithCache(repoRoot, current, cache)
+	current, err = loadedEvidence.loadRevision(repoRoot, current, revision, cache)
 	if err != nil {
 		return SessionState{}, "", fmt.Errorf("reload evidence chain for Stop revalidation: %w", err)
 	}
@@ -455,7 +487,12 @@ func storeStopGenerationIfWorthwhileWithScan(
 	fingerprintInput stopPolicyFingerprintInput,
 	scanCache *stopPolicyScanCache,
 ) error {
-	if cache == nil || !stopPolicyFingerprintCacheableWithScan(fingerprintInput, scanCache) || !stopGenerationWorthwhile(root, fingerprintInput.GitDirtyFiles) {
+	var metrics *stopPolicyAttemptMetrics
+	if scanCache != nil {
+		metrics = &scanCache.metrics
+	}
+	if cache == nil || !stopPolicyFingerprintCacheableWithScan(fingerprintInput, scanCache) ||
+		!stopGenerationWorthwhileWithMetrics(root, fingerprintInput.GitDirtyFiles, metrics) {
 		cache.invalidate(root, state.SessionID)
 		return nil
 	}

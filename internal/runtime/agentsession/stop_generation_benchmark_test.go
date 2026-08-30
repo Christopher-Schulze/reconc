@@ -103,6 +103,44 @@ func BenchmarkStopGenerationOracle(b *testing.B) {
 	})
 }
 
+func BenchmarkStopAttemptIdentityReuse(b *testing.B) {
+	repo := setupStopBenchmarkRepo(b)
+	target := filepath.Join(repo, "src", "a.go")
+	if err := os.WriteFile(target, bytes.Repeat([]byte{'d'}, stopGenerationMinBytes), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	state, err := InitializeSessionState(repo, "attempt-identity")
+	if err != nil {
+		b.Fatal(err)
+	}
+	state = AppendWritePath(state, "src/a.go")
+	taskSnapshot, err := captureStopTaskSnapshot(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	gitSnapshot := stopPolicyGitSnapshotFor(repo)
+	var hashBytes int64
+	var hashReads int
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		scanCache := &stopPolicyScanCache{}
+		first := stopPolicyFingerprintInputForSnapshotWithScan(
+			repo, state, gitSnapshot, taskSnapshot, stopGenerationCapture{}, scanCache,
+		)
+		second := stopPolicyFingerprintInputForSnapshotWithScan(
+			repo, state, gitSnapshot, taskSnapshot, stopGenerationCapture{}, scanCache,
+		)
+		if hashStopPolicyFingerprintInput(first) != hashStopPolicyFingerprintInput(second) {
+			b.Fatal("unchanged attempt identities diverged")
+		}
+		hashBytes += scanCache.metrics.contentHashBytes
+		hashReads += scanCache.metrics.contentHashReads
+	}
+	b.ReportMetric(float64(hashBytes)/float64(b.N), "hash-B/op")
+	b.ReportMetric(float64(hashReads)/float64(b.N), "hash-read/op")
+}
+
 func benchmarkExactStopGenerationFallback(b *testing.B, repo, sessionID string) {
 	b.Helper()
 	state, err := InitializeSessionState(repo, sessionID)
