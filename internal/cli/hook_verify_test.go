@@ -2,19 +2,25 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"reconc.dev/reconc/internal/gitexec"
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
+
+const hookVerificationLookPathProbeEnv = "RECONC_HOOK_VERIFY_LOOKPATH_PROBE"
 
 func TestHookVerifyOfflineCoversSharedMatrixWithoutLiveClaims(t *testing.T) {
 	var stdout, stderr bytes.Buffer
@@ -108,6 +114,141 @@ func TestHookVerificationIsolationDoesNotMutateParentEnvironment(t *testing.T) {
 			t.Fatalf("parent %s = %q, want %q", name, got, value)
 		}
 	}
+}
+
+func TestHookVerificationEnvironmentIsMinimalAndPathSafe(t *testing.T) {
+	probeRoot := t.TempDir()
+	binDir := filepath.Join(probeRoot, "bin")
+	trustedDir := filepath.Join(probeRoot, "trusted")
+	inheritedPath := strings.Join([]string{"", ".", "relative-bin", trustedDir, trustedDir, ""}, string(os.PathListSeparator))
+	values := hookVerificationEnvironmentValues(probeRoot, binDir, []string{
+		"PATH=" + inheritedPath,
+		"HOME=/host/home",
+		"TMPDIR=/host/tmp",
+		"GIT_CONFIG_GLOBAL=/host/gitconfig",
+		"GIT_DIR=/host/repository",
+		"AWS_SECRET_ACCESS_KEY=secret",
+		"SSH_AUTH_SOCK=/host/agent.sock",
+		"NODE_OPTIONS=--require=/host/inject.js",
+	})
+	environment := hookVerificationEnvironment(values)
+	if !sort.StringsAreSorted(environment) {
+		t.Fatalf("verification environment is not deterministic: %q", environment)
+	}
+	got := hookVerificationEnvironmentMap(environment)
+	wantPath := binDir + string(os.PathListSeparator) + trustedDir
+	if got["PATH"] != wantPath {
+		t.Fatalf("verification PATH = %q, want %q", got["PATH"], wantPath)
+	}
+	for _, path := range filepath.SplitList(got["PATH"]) {
+		if path == "" || !filepath.IsAbs(path) {
+			t.Fatalf("verification PATH retained unsafe element %q", path)
+		}
+	}
+	for _, name := range []string{"AWS_SECRET_ACCESS_KEY", "GIT_CONFIG_GLOBAL", "GIT_DIR", "NODE_OPTIONS", "SSH_AUTH_SOCK"} {
+		if _, found := got[name]; found {
+			t.Fatalf("ambient %s survived the verification allowlist", name)
+		}
+	}
+	if got["HOME"] != filepath.Join(probeRoot, "home") || got["TMPDIR"] != filepath.Join(probeRoot, "tmp") {
+		t.Fatalf("verification homes are not disposable: HOME=%q TMPDIR=%q", got["HOME"], got["TMPDIR"])
+	}
+}
+
+func TestHookVerificationPATHCannotResolveCurrentDirectoryExecutable(t *testing.T) {
+	probeRoot := t.TempDir()
+	binDir := filepath.Join(probeRoot, "bin")
+	workingDirectory := filepath.Join(probeRoot, "working")
+	for _, directory := range []string{binDir, workingDirectory} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, directory := range hookVerificationPrivateDirectories(probeRoot) {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	name := "reconc-hook-verify-path-poison"
+	filename := name
+	if runtime.GOOS == "windows" {
+		filename += ".exe"
+	}
+	if err := os.WriteFile(filepath.Join(workingDirectory, filename), []byte("poison"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	values := hookVerificationEnvironmentValues(probeRoot, binDir, []string{"PATH=" + string(os.PathListSeparator) + "."})
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(executable, "-test.run=^TestHookVerificationCurrentDirectoryLookupChild$")
+	command.Dir = workingDirectory
+	command.Env = append(hookVerificationEnvironment(values), hookVerificationLookPathProbeEnv+"="+name)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("isolated lookup child: %v: %s", err, output)
+	}
+}
+
+func TestHookVerificationCurrentDirectoryLookupChild(t *testing.T) {
+	name := os.Getenv(hookVerificationLookPathProbeEnv)
+	if name == "" {
+		return
+	}
+	if path, err := exec.LookPath(name); err == nil {
+		t.Fatalf("current-directory executable resolved through isolated PATH: %s", path)
+	}
+}
+
+func TestInitializeHookVerificationRepoIgnoresAmbientGitControls(t *testing.T) {
+	repo := t.TempDir()
+	template := t.TempDir()
+	if err := os.WriteFile(filepath.Join(template, "poisoned-template"), []byte("poison"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	globalConfig := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(globalConfig, []byte("[init]\n\ttemplateDir = "+template+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	foreignRoot := t.TempDir()
+	foreignGitDir := filepath.Join(foreignRoot, "foreign.git")
+	foreignIndex := filepath.Join(foreignRoot, "foreign.index")
+	for name, value := range map[string]string{
+		"GIT_CONFIG_GLOBAL":   globalConfig,
+		"GIT_CONFIG_COUNT":    "1",
+		"GIT_CONFIG_KEY_0":    "init.templateDir",
+		"GIT_CONFIG_VALUE_0":  template,
+		"GIT_DIR":             foreignGitDir,
+		"GIT_INDEX_FILE":      foreignIndex,
+		"GIT_WORK_TREE":       foreignRoot,
+		"GIT_TERMINAL_PROMPT": "1",
+	} {
+		t.Setenv(name, value)
+	}
+	if err := initializeHookVerificationRepo(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(repo, ".git", "poisoned-template")); !os.IsNotExist(err) {
+		t.Fatalf("ambient Git template entered disposable repository: %v", err)
+	}
+	if _, err := os.Lstat(foreignIndex); !os.IsNotExist(err) {
+		t.Fatalf("ambient Git index received disposable state: %v", err)
+	}
+	command := gitexec.CommandContext(context.Background(), repo, nil, "ls-files", "--error-unmatch", "forbidden.txt")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("disposable denied path was not staged in its own index: %v: %s", err, output)
+	}
+}
+
+func hookVerificationEnvironmentMap(environment []string) map[string]string {
+	values := make(map[string]string, len(environment))
+	for _, entry := range environment {
+		name, value, found := strings.Cut(entry, "=")
+		if found {
+			values[name] = value
+		}
+	}
+	return values
 }
 
 func TestHookVerificationInternalCommandsRequireIsolatedWorkspace(t *testing.T) {

@@ -3265,8 +3265,13 @@ verification discovers the POSIX `sh` transport on native Windows, including
 Git for Windows, and normalizes generated Bun module paths with file URLs; an
 absent shell remains explicitly incomplete rather than passing by inspection.
 The disposable repository and homes are installed in a dedicated child process
-with an explicit environment, so concurrent verification cannot temporarily
-mutate or incorrectly restore the parent process environment.
+with a minimal explicit environment: private home, cache, config, data, and
+temporary roots replace host locations; PATH retains only absolute non-empty
+entries behind the disposable Reconc binary; unrelated credentials, runtime
+controls, and Git variables are omitted. Every disposable Git command also
+disables ambient system/global configuration, hooks, prompts, and repository
+redirection. Concurrent verification therefore cannot temporarily mutate or
+incorrectly restore the parent process environment.
 The offline `synthetic_enforced` fact is not promoted to `loaded`, `observed`,
 or live `enforced`; all expected host routes remain explicitly unproven.
 

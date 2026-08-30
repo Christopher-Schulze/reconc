@@ -1322,8 +1322,12 @@ installation/configuration, the generated shell or Bun transport, a real
 policy denial, the platform-native response adaptation, and route duration.
 It invokes no host, model, account, cloud service, or caller repository.
 Verification runs inside a dedicated child process with an explicit isolated
-environment; parallel verification cannot mutate or restore the parent
-process environment.
+environment. Private disposable home, cache, config, data, and temporary roots
+replace host locations; PATH contains only absolute non-empty entries; unrelated
+credentials, runtime controls, and Git variables are omitted. Disposable Git
+commands independently disable ambient system/global configuration, hooks,
+prompts, and repository redirection. Parallel verification cannot mutate or
+restore the parent process environment.
 Native Windows discovers a POSIX `sh` transport from `PATH` (normally Git for
 Windows) and uses platform-correct file URLs for generated Bun adapters; a
 missing shell produces an explicit incomplete result.

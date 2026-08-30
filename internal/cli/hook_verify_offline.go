@@ -18,6 +18,7 @@ import (
 	"reconc.dev/reconc/internal/boundedexec"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/gitexec"
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
@@ -170,8 +171,7 @@ func uniqueVerificationKinds(surfaces []hooks.VerificationSurface) []string {
 func initializeHookVerificationRepo(repo string, stageDeniedPath bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, "git", "-C", repo, "init", "-q")
-	command.Env = os.Environ()
+	command := gitexec.CommandContext(ctx, repo, nil, "init", "-q")
 	if output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput); err != nil {
 		return fmt.Errorf("initialize disposable Git repository: %w: %s", err, strings.TrimSpace(string(output)))
 	}
@@ -191,8 +191,7 @@ func initializeHookVerificationRepo(repo string, stageDeniedPath bool) error {
 		return fmt.Errorf("compile disposable policy: %w", err)
 	}
 	if stageDeniedPath {
-		command = exec.CommandContext(ctx, "git", "-C", repo, "add", "--", "forbidden.txt")
-		command.Env = os.Environ()
+		command = gitexec.CommandContext(ctx, repo, nil, "add", "--", "forbidden.txt")
 		if output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput); err != nil {
 			return fmt.Errorf("stage disposable denied path: %w: %s", err, strings.TrimSpace(string(output)))
 		}
@@ -220,7 +219,13 @@ func newHookVerificationWorkspace(prefix string) (hookVerificationWorkspace, err
 		cleanup()
 		return hookVerificationWorkspace{}, err
 	}
-	values := hookVerificationEnvironmentValues(probeRoot, binDir)
+	for _, directory := range hookVerificationPrivateDirectories(probeRoot) {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			cleanup()
+			return hookVerificationWorkspace{}, fmt.Errorf("create disposable environment directory: %w", err)
+		}
+	}
+	values := hookVerificationEnvironmentValues(probeRoot, binDir, os.Environ())
 	values[hookVerificationChildEnv] = "1"
 	values[hookVerificationRepoEnv] = repo
 	executable, err := os.Executable()
@@ -231,7 +236,7 @@ func newHookVerificationWorkspace(prefix string) (hookVerificationWorkspace, err
 	return hookVerificationWorkspace{
 		executable:  executable,
 		repo:        repo,
-		environment: overlayHookVerificationEnvironment(os.Environ(), values),
+		environment: hookVerificationEnvironment(values),
 		cleanup:     cleanup,
 	}, nil
 }
@@ -248,28 +253,50 @@ func installHookVerificationBareExecutable(binDir string) error {
 	return linkOrCopyVerificationExecutable(running, filepath.Join(binDir, bareName))
 }
 
-func hookVerificationEnvironmentValues(probeRoot, binDir string) map[string]string {
-	return map[string]string{
+func hookVerificationEnvironmentValues(probeRoot, binDir string, inherited []string) map[string]string {
+	home := filepath.Join(probeRoot, "home")
+	temporary := filepath.Join(probeRoot, "tmp")
+	values := map[string]string{
+		"HOME":                    home,
+		"USERPROFILE":             home,
+		"XDG_CACHE_HOME":          filepath.Join(probeRoot, "cache"),
+		"XDG_CONFIG_HOME":         filepath.Join(probeRoot, "config"),
+		"XDG_DATA_HOME":           filepath.Join(probeRoot, "data"),
+		"TMPDIR":                  temporary,
+		"TMP":                     temporary,
+		"TEMP":                    temporary,
+		"LANG":                    "C",
+		"LC_ALL":                  "C",
+		"TZ":                      "UTC",
 		"RECONC_HOME":             filepath.Join(probeRoot, "reconc-home"),
 		agentsession.StateRootEnv: filepath.Join(probeRoot, "session-state"),
 		"KIMI_CODE_HOME":          filepath.Join(probeRoot, "kimi-code"),
 		"PI_CODING_AGENT_DIR":     filepath.Join(probeRoot, "pi-agent"),
 		"KILO_PURE":               "",
-		"PATH":                    binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"PATH":                    hookVerificationPath(binDir, environmentValue(inherited, "PATH")),
+	}
+	if runtime.GOOS == "windows" {
+		for _, name := range []string{"COMSPEC", "PATHEXT", "SYSTEMROOT", "WINDIR"} {
+			if value, ok := lookupEnvironment(inherited, name); ok {
+				values[name] = value
+			}
+		}
+	}
+	return values
+}
+
+func hookVerificationPrivateDirectories(probeRoot string) []string {
+	return []string{
+		filepath.Join(probeRoot, "cache"),
+		filepath.Join(probeRoot, "config"),
+		filepath.Join(probeRoot, "data"),
+		filepath.Join(probeRoot, "home"),
+		filepath.Join(probeRoot, "tmp"),
 	}
 }
 
-func overlayHookVerificationEnvironment(base []string, values map[string]string) []string {
-	environment := make([]string, 0, len(base)+len(values))
-	for _, entry := range base {
-		name, _, found := strings.Cut(entry, "=")
-		if !found {
-			continue
-		}
-		if _, replaced := values[name]; !replaced {
-			environment = append(environment, entry)
-		}
-	}
+func hookVerificationEnvironment(values map[string]string) []string {
+	environment := make([]string, 0, len(values))
 	names := make([]string, 0, len(values))
 	for name := range values {
 		names = append(names, name)
@@ -279,6 +306,42 @@ func overlayHookVerificationEnvironment(base []string, values map[string]string)
 		environment = append(environment, name+"="+values[name])
 	}
 	return environment
+}
+
+func hookVerificationPath(binDir, inherited string) string {
+	paths := make([]string, 0, len(filepath.SplitList(inherited))+1)
+	seen := make(map[string]struct{}, len(paths))
+	for _, path := range append([]string{binDir}, filepath.SplitList(inherited)...) {
+		if path == "" || !filepath.IsAbs(path) {
+			continue
+		}
+		path = filepath.Clean(path)
+		identity := path
+		if runtime.GOOS == "windows" {
+			identity = strings.ToLower(path)
+		}
+		if _, exists := seen[identity]; exists {
+			continue
+		}
+		seen[identity] = struct{}{}
+		paths = append(paths, path)
+	}
+	return strings.Join(paths, string(os.PathListSeparator))
+}
+
+func environmentValue(environment []string, name string) string {
+	value, _ := lookupEnvironment(environment, name)
+	return value
+}
+
+func lookupEnvironment(environment []string, name string) (string, bool) {
+	for index := len(environment) - 1; index >= 0; index-- {
+		key, value, found := strings.Cut(environment[index], "=")
+		if found && strings.EqualFold(key, name) {
+			return value, true
+		}
+	}
+	return "", false
 }
 
 func runHookVerificationChild(workspace hookVerificationWorkspace, args ...string) ([]byte, error) {
