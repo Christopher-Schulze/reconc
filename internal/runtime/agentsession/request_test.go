@@ -341,3 +341,54 @@ func BenchmarkPreDecisionKeyPayloadDecode(b *testing.B) {
 		}
 	})
 }
+
+func BenchmarkPreDecisionCacheHitIdentitySampling(b *testing.B) {
+	repo := setupStopBenchmarkRepo(b)
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	payload := &HookPayload{
+		SessionID: "bench-cache-hit", ToolUseID: "call-1", ToolName: "Write",
+		ToolInput: map[string]interface{}{"file_path": "src/a.go"},
+	}
+	if _, err := InitializeSessionState(root, payload.SessionID); err != nil {
+		b.Fatal(err)
+	}
+	initial, ok := preDecisionInputsForPayload(root, payload)
+	if !ok {
+		b.Fatal("pre-decision identity is not cacheable")
+	}
+	if err := writePreDecisionCacheForPayload(root, payload, initial.key, Result{ExitCode: 0}); err != nil {
+		b.Fatal(err)
+	}
+	b.Run("post-cache-read-single-sample", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ReportMetric(1, "filesystem-identity-samples/op")
+		b.ReportMetric(1, "identity-hash-passes/op")
+		for range b.N {
+			cached, ok := readPreDecisionCacheCandidate(root, payload)
+			if !ok {
+				b.Fatal("cache candidate unavailable")
+			}
+			current, ok := preDecisionInputsForPayload(root, payload)
+			if !ok || cached.Key != current.key {
+				b.Fatal("cache hit identity changed")
+			}
+		}
+	})
+	b.Run("pre-read-plus-post-read-resample", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ReportMetric(2, "filesystem-identity-samples/op")
+		b.ReportMetric(2, "identity-hash-passes/op")
+		for range b.N {
+			baseline, ok := preDecisionInputsForPayload(root, payload)
+			if !ok {
+				b.Fatal("baseline identity unavailable")
+			}
+			if _, ok := readPreDecisionCacheForInputs(root, payload, baseline); !ok {
+				b.Fatal("cache hit identity changed")
+			}
+		}
+	})
+}

@@ -72,6 +72,22 @@ func TestMaximumNormalizedStateMutationComparesOnceEquivalent(t *testing.T) {
 	}
 }
 
+func TestNormalizedStatePublicationMatchesDefensiveMarshal(t *testing.T) {
+	state := maximumNormalizationState()
+	normalized := normalizeSessionState(state)
+	want, err := marshalStateDeterministic(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := marshalNormalizedStateDeterministic(normalized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("normalized publication changed deterministic state bytes")
+	}
+}
+
 func BenchmarkNormalizedMaximumStateMutationComparison(b *testing.B) {
 	state := normalizeSessionState(maximumNormalizationState())
 	mutated := state
@@ -83,6 +99,28 @@ func BenchmarkNormalizedMaximumStateMutationComparison(b *testing.B) {
 		if !reflect.DeepEqual(state, candidate) {
 			b.Fatal("maximum-state mutation unexpectedly changed normalized state")
 		}
+	}
+}
+
+func BenchmarkMaximumStateDeterministicPublication(b *testing.B) {
+	state := maximumNormalizationState()
+	normalized := normalizeSessionState(state)
+	for _, test := range []struct {
+		name    string
+		marshal func(SessionState) ([]byte, error)
+		input   SessionState
+	}{
+		{name: "normalized-once", marshal: marshalNormalizedStateDeterministic, input: normalized},
+		{name: "defensive-renormalization", marshal: marshalStateDeterministic, input: normalized},
+	} {
+		b.Run(test.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for range b.N {
+				if _, err := test.marshal(test.input); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
 

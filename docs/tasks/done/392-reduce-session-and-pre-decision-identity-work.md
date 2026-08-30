@@ -13,14 +13,17 @@ Every state mutation normalizes the complete state before comparison and again d
 
 ## Sub-Tasks
 
-- [ ] Benchmark maximum-state mutation and pre-decision hit/miss paths.
-- [ ] Pass normalized state into deterministic marshaling without a second normalization.
-- [ ] Reuse bound identity snapshots across cache phases without weakening revalidation.
-- [ ] Run focused tests and benchmarks.
+- [x] Benchmark maximum-state mutation and pre-decision hit/miss paths.
+- [x] Pass normalized state into deterministic marshaling without a second normalization.
+- [x] Reuse bound identity snapshots across cache phases without weakening revalidation.
+- [x] Run focused tests and benchmarks.
 
 ## Notes
 
 - Verified from findings 43 and 44.
 - The pre-decision resample is security-relevant and must remain; the target is redundant loading and materialization, not fewer integrity checks.
+- Cache candidates are now read before one complete lookup-identity sample. Misses still resample every mutable component after evaluation before warming the cache.
+- Maximum-state deterministic publication improved from 2,144,266 ns/op, 3,193,363 B/op, and 4,079 allocs/op to 892,644 ns/op, 513,660 B/op, and 2,123 allocs/op in the focused benchmark.
+- Pre-decision hits improved from 820,058 ns/op, 129,800 B/op, 1,032 allocs/op, and two complete identity samples to 418,254 ns/op, 66,709 B/op, 530 allocs/op, and one post-cache-read identity sample.
 
 ## Deviations

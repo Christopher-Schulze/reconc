@@ -588,7 +588,7 @@ func mutateSessionStateResolved(root, sessionID string, mutate func(SessionState
 			}
 		}
 		if stateChanged {
-			data, marshalErr := marshalStateDeterministic(updated)
+			data, marshalErr := marshalNormalizedStateDeterministic(updated)
 			if marshalErr != nil {
 				var sizeErr *sessionStateSizeError
 				if !errors.As(marshalErr, &sizeErr) {
@@ -625,7 +625,10 @@ func mutateSessionStateResolved(root, sessionID string, mutate func(SessionState
 // trailing newline. We dedupe + sort the slice fields first so two
 // semantically-equal states produce identical bytes.
 func marshalStateDeterministic(state SessionState) ([]byte, error) {
-	state = normalizeSessionState(state)
+	return marshalNormalizedStateDeterministic(normalizeSessionState(state))
+}
+
+func marshalNormalizedStateDeterministic(state SessionState) ([]byte, error) {
 	body, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return nil, err

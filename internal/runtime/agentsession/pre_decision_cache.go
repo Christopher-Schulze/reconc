@@ -33,19 +33,19 @@ type preDecisionCache struct {
 
 // runPreDecisionResolvedWithEvaluator reuses a decision only across identical normalized
 // tool-call identity, policy bytes, session-state bytes, repository taint bytes,
-// and the bounded repository Git-alias snapshot. The key is sampled again after
-// reading the cache and after evaluation, so a concurrent evidence, policy, or
-// alias mutation cannot validate or warm a stale record.
+// and the bounded repository Git-alias snapshot. Cache bytes are read before
+// the lookup identity is sampled, so a hit needs one complete post-read sample.
+// A miss is sampled again after evaluation, so a concurrent evidence, policy,
+// or alias mutation cannot validate or warm a stale record.
 func runPreDecisionResolvedWithEvaluator(root string, payloadBytes []byte, permission bool, evaluator *runtime.Evaluator) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return adaptPreDecision(Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}, permission)
 	}
+	cached, cachedOK := readPreDecisionCacheCandidate(root, payload)
 	inputs, cacheable := preDecisionInputsForPayload(root, payload)
-	if cacheable {
-		if cached, ok := readPreDecisionCacheForInputs(root, payload, inputs); ok {
-			return adaptPreDecision(cached, permission)
-		}
+	if cacheable && cachedOK && cached.Key == inputs.key {
+		return adaptPreDecision(Result{ExitCode: cached.ExitCode, Stderr: cached.Stderr}, permission)
 	}
 
 	decision := runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root, payload, evaluator, inputs.aliasSnapshot)
@@ -278,17 +278,8 @@ func readPreDecisionCacheForInputs(
 	payload *HookPayload,
 	expected preDecisionInputs,
 ) (Result, bool) {
-	path := preDecisionCachePathForPayload(root, payload)
-	if path == "" {
-		return Result{}, false
-	}
-	body, err := boundedio.ReadRegularFile(path, maxPreDecisionCacheBytes)
-	if err != nil {
-		return Result{}, false
-	}
-	var cached preDecisionCache
-	if json.Unmarshal(body, &cached) != nil || cached.FormatVersion != preDecisionCacheVersion || cached.Key != expected.key ||
-		(cached.ExitCode != 0 && cached.ExitCode != 2) || len(cached.Stderr) > maxPreDecisionDiagnostic {
+	cached, ok := readPreDecisionCacheCandidate(root, payload)
+	if !ok || cached.Key != expected.key {
 		return Result{}, false
 	}
 	current, ok := resamplePreDecisionInputs(root, payload, expected)
@@ -296,6 +287,23 @@ func readPreDecisionCacheForInputs(
 		return Result{}, false
 	}
 	return Result{ExitCode: cached.ExitCode, Stderr: cached.Stderr}, true
+}
+
+func readPreDecisionCacheCandidate(root string, payload *HookPayload) (preDecisionCache, bool) {
+	path := preDecisionCachePathForPayload(root, payload)
+	if path == "" {
+		return preDecisionCache{}, false
+	}
+	body, err := boundedio.ReadRegularFile(path, maxPreDecisionCacheBytes)
+	if err != nil {
+		return preDecisionCache{}, false
+	}
+	var cached preDecisionCache
+	if json.Unmarshal(body, &cached) != nil || cached.FormatVersion != preDecisionCacheVersion || len(cached.Key) != sha256.Size*2 ||
+		(cached.ExitCode != 0 && cached.ExitCode != 2) || len(cached.Stderr) > maxPreDecisionDiagnostic {
+		return preDecisionCache{}, false
+	}
+	return cached, true
 }
 
 func writePreDecisionCacheForPayload(root string, payload *HookPayload, key string, decision Result) error {
