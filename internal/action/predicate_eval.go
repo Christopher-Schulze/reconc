@@ -49,7 +49,7 @@ func evaluatePredicate(
 	request Request,
 	ruleDecision Decision,
 ) predicateEvaluation {
-	return evaluatePredicateCore(predicate, request, ruleDecision, nil, true, true)
+	return evaluatePredicateCore(predicate, request, ruleDecision, nil, true, true, nil)
 }
 
 func evaluatePredicateWithRoots(
@@ -58,7 +58,7 @@ func evaluatePredicateWithRoots(
 	ruleDecision Decision,
 	roots *predicateRoots,
 ) predicateEvaluation {
-	return evaluatePredicateCore(predicate, request, ruleDecision, roots, false, true)
+	return evaluatePredicateCore(predicate, request, ruleDecision, roots, false, true, nil)
 }
 
 func evaluatePredicateCore(
@@ -68,7 +68,11 @@ func evaluatePredicateCore(
 	roots *predicateRoots,
 	validatePointer bool,
 	summaryRequired bool,
+	control *evaluationControl,
 ) predicateEvaluation {
+	if reason := control.stopReason(); reason != "" {
+		return indeterminatePredicate(reason, "", "", OperandSummary{})
+	}
 	if predicate == nil || !predicate.Predicate.Op.Valid() ||
 		!predicate.Predicate.Source.Valid() ||
 		(validatePointer && validateCompiledPointer(predicate.Tokens) != nil) {
@@ -97,7 +101,13 @@ func evaluatePredicateCore(
 			summarizePredicatePointer(predicate, selected.pointer, roots),
 		)
 	}
-	state, reason := evaluateOperator(predicate, selected.pointer)
+	state, reason := evaluateOperator(predicate, selected.pointer, control)
+	if evaluationStopped(reason) {
+		return indeterminatePredicate(reason, selected.provenance, required, OperandSummary{})
+	}
+	if stopReason := control.stopReason(); stopReason != "" {
+		return indeterminatePredicate(stopReason, selected.provenance, required, OperandSummary{})
+	}
 	summary := OperandSummary{}
 	if summaryRequired || reason != "" {
 		summary = summarizePredicatePointer(predicate, selected.pointer, roots)
@@ -224,7 +234,11 @@ func sortContext(context []ContextValue, name string) int {
 	return low
 }
 
-func evaluateOperator(predicate *CompiledPredicate, selected PointerResult) (ConditionState, ReasonCode) {
+func evaluateOperator(
+	predicate *CompiledPredicate,
+	selected PointerResult,
+	control *evaluationControl,
+) (ConditionState, ReasonCode) {
 	op := predicate.Predicate.Op
 	if state, reason, ready := operatorTargetState(predicate, selected); !ready {
 		return state, reason
@@ -238,7 +252,7 @@ func evaluateOperator(predicate *CompiledPredicate, selected PointerResult) (Con
 	case OperatorPrefix, OperatorSuffix, OperatorContains:
 		return evaluateStringOperator(op, selected.Value, want)
 	case OperatorGlob, OperatorRegex:
-		return evaluatePatternOperator(predicate, selected.Value)
+		return evaluatePatternOperator(predicate, selected.Value, control)
 	case OperatorGreater, OperatorGreaterEq, OperatorLess, OperatorLessEq:
 		return evaluateNumericOperator(op, selected.Value, want)
 	case OperatorURL:
@@ -286,14 +300,24 @@ func evaluateEqualityOperator(op Operator, target, operand Value) (ConditionStat
 	return conditionFromBool(equal), ""
 }
 
-func evaluatePatternOperator(predicate *CompiledPredicate, target Value) (ConditionState, ReasonCode) {
+func evaluatePatternOperator(
+	predicate *CompiledPredicate,
+	target Value,
+	control *evaluationControl,
+) (ConditionState, ReasonCode) {
+	if reason := control.stopReason(); reason != "" {
+		return ConditionIndeterminate, reason
+	}
 	text, ok := target.Text()
 	if predicate.Predicate.Op == OperatorGlob {
 		if !ok || predicate.Glob == nil {
 			return ConditionIndeterminate, reasonForMatcher(ok, predicate.Glob != nil)
 		}
-		matched, complete := predicate.Glob.Match(text)
+		matched, complete, reason := predicate.Glob.matchWithControl(text, control)
 		if !complete {
+			if reason != "" {
+				return ConditionIndeterminate, reason
+			}
 			return ConditionIndeterminate, ReasonLimitExceeded
 		}
 		return conditionFromBool(matched), ""
@@ -301,7 +325,11 @@ func evaluatePatternOperator(predicate *CompiledPredicate, target Value) (Condit
 	if !ok || predicate.Regex == nil {
 		return ConditionIndeterminate, reasonForMatcher(ok, predicate.Regex != nil)
 	}
-	return conditionFromBool(predicate.Regex.MatchString(text)), ""
+	matched := predicate.Regex.MatchString(text)
+	if reason := control.stopReason(); reason != "" {
+		return ConditionIndeterminate, reason
+	}
+	return conditionFromBool(matched), ""
 }
 
 func evaluateURLPredicate(predicate *CompiledPredicate, target Value) (ConditionState, ReasonCode) {

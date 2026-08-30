@@ -358,7 +358,7 @@ func (g *Gateway) consumeApproval(
 	input := g.evaluationInput(pending.snapshot, request, retry.Snapshot, consumed.Approval, evidence)
 	input.Inspection = inspection
 	input.ResampledIdentities = pending.snapshot.Evaluator.IdentitySnapshot(input)
-	decision, _ := g.evaluate(pending.snapshot.Evaluator, input)
+	decision, _ := g.evaluate(ctx, pending.snapshot.Evaluator, input)
 	call.request = request
 	call.preRequest = request
 	call.tool = tool
@@ -417,7 +417,7 @@ func (g *Gateway) refreshPreApprovalEvaluation(
 	)
 	input.Inspection = inspection
 	input.ResampledIdentities = pending.snapshot.Evaluator.IdentitySnapshot(input)
-	decision, _ := g.evaluate(pending.snapshot.Evaluator, input)
+	decision, _ := g.evaluate(ctx, pending.snapshot.Evaluator, input)
 	if decision.Failure != nil || decision.Decision != action.DecisionRequireApproval ||
 		decision.RequiredApprovalIdentity != pending.decision.RequiredApprovalIdentity {
 		return input, decision, action.ReasonApprovalInvalid
@@ -534,7 +534,7 @@ func (g *Gateway) refreshPostApprovalEvaluation(
 	)
 	input.Inspection = inspection
 	input.ResampledIdentities = pending.snapshot.Evaluator.IdentitySnapshot(input)
-	decision, _ := g.evaluate(pending.snapshot.Evaluator, input)
+	decision, _ := g.evaluate(ctx, pending.snapshot.Evaluator, input)
 	if decision.Failure != nil || decision.Decision != action.DecisionRequireApproval ||
 		decision.RequiredApprovalIdentity != pending.decision.RequiredApprovalIdentity {
 		return input, decision, action.ReasonApprovalInvalid

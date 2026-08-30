@@ -14,6 +14,7 @@ const (
 	compiledGlobBranchOverhead = 16
 	globWorkPerState           = uint64(4)
 	maxGlobMatchWork           = uint64(MaxJSONStringBytes) * globWorkPerState
+	evaluationGlobPollInterval = uint8(64)
 	maxGlobPrograms            = 1024
 	maxGlobExpansionStates     = 16 * maxGlobPrograms
 	maxGlobGroupAlternatives   = maxGlobPrograms
@@ -573,18 +574,46 @@ func (g *CompiledGlob) Match(value string) (matched bool, complete bool) {
 	return g.matchWithLimit(value, g.matchWorkLimit(len(value)))
 }
 
+func (g *CompiledGlob) matchWithControl(
+	value string,
+	control *evaluationControl,
+) (bool, bool, ReasonCode) {
+	if g == nil {
+		return false, true, ""
+	}
+	return g.matchWithWork(value, g.matchWorkLimit(len(value)), control)
+}
+
 func (g *CompiledGlob) matchWithLimit(value string, limit uint64) (bool, bool) {
-	work := globMatchWork{remaining: limit}
+	matched, complete, _ := g.matchWithWork(value, limit, nil)
+	return matched, complete
+}
+
+func (g *CompiledGlob) matchWithWork(
+	value string,
+	limit uint64,
+	control *evaluationControl,
+) (bool, bool, ReasonCode) {
+	work := globMatchWork{remaining: limit, control: control}
 	for index := range g.programs {
+		if reason := control.stopReason(); reason != "" {
+			return false, false, reason
+		}
 		matched, complete := g.programs[index].match(value, &work)
 		if !complete {
-			return false, false
+			return false, false, work.stopped
 		}
 		if matched {
-			return true, true
+			if reason := control.stopReason(); reason != "" {
+				return false, false, reason
+			}
+			return true, true, ""
 		}
 	}
-	return false, true
+	if reason := control.stopReason(); reason != "" {
+		return false, false, reason
+	}
+	return false, true, ""
 }
 
 func (g *CompiledGlob) matchWorkLimit(valueBytes int) uint64 {
@@ -608,11 +637,24 @@ func (g *CompiledGlob) matchWorkLimit(valueBytes int) uint64 {
 
 type globMatchWork struct {
 	remaining uint64
+	control   *evaluationControl
+	untilPoll uint8
+	stopped   ReasonCode
 }
 
 func (w *globMatchWork) take() bool {
 	if w == nil || w.remaining == 0 {
 		return false
+	}
+	if w.control != nil && w.untilPoll == 0 {
+		if reason := w.control.stopReason(); reason != "" {
+			w.stopped = reason
+			return false
+		}
+		w.untilPoll = evaluationGlobPollInterval
+	}
+	if w.untilPoll > 0 {
+		w.untilPoll--
 	}
 	w.remaining--
 	return true

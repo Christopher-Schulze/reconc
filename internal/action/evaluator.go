@@ -1,6 +1,7 @@
 package action
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,6 +34,7 @@ type evaluationAccumulator struct {
 	cacheNever      bool
 	completeness    Completeness
 	cacheBase       CacheResult
+	control         *evaluationControl
 }
 
 // PreparedEvaluation owns one normalized, immutable evaluation input and its
@@ -111,24 +113,46 @@ func (e *Evaluator) EvaluateRaw(raw RawRequest, input EvaluationInput) Evaluatio
 }
 
 func (e *Evaluator) Evaluate(input EvaluationInput) EvaluationResult {
+	return e.evaluate(input, nil)
+}
+
+// EvaluateContext bounds normalization and evaluation work by ctx. A reached
+// deadline or cancellation fails closed and never produces a cacheable result.
+func (e *Evaluator) EvaluateContext(ctx context.Context, input EvaluationInput) EvaluationResult {
+	control := newEvaluationControl(ctx)
+	return e.evaluate(input, &control)
+}
+
+func (e *Evaluator) evaluate(input EvaluationInput, control *evaluationControl) EvaluationResult {
 	if e == nil {
 		return failEvaluation(nil, input, ReasonPolicyMissing, "compiled action policy is unavailable")
 	}
-	normalized, requestIdentity, cacheBase, failure := e.prepareEvaluation(input)
+	normalized, requestIdentity, cacheBase, failure := e.prepareEvaluation(input, control)
 	if failure != nil {
 		return *failure
 	}
-	return evaluatePreparedInput(e, normalized, requestIdentity, cacheBase)
+	return evaluatePreparedInput(e, normalized, requestIdentity, cacheBase, control)
 }
 
 // Prepare validates and normalizes one input exactly once for a subsequent
 // cache lookup, evaluation, and store sequence.
 func (e *Evaluator) Prepare(input EvaluationInput) *PreparedEvaluation {
+	return e.prepare(input, nil)
+}
+
+// PrepareContext validates and normalizes an input within ctx before a cache
+// lookup and a matching EvaluateContext call.
+func (e *Evaluator) PrepareContext(ctx context.Context, input EvaluationInput) *PreparedEvaluation {
+	control := newEvaluationControl(ctx)
+	return e.prepare(input, &control)
+}
+
+func (e *Evaluator) prepare(input EvaluationInput, control *evaluationControl) *PreparedEvaluation {
 	if e == nil {
 		failure := failEvaluation(nil, input, ReasonPolicyMissing, "compiled action policy is unavailable")
 		return &PreparedEvaluation{failure: &failure}
 	}
-	normalized, requestIdentity, cacheBase, failure := e.prepareEvaluation(input)
+	normalized, requestIdentity, cacheBase, failure := e.prepareEvaluation(input, control)
 	if failure != nil {
 		return &PreparedEvaluation{evaluator: e, failure: failure, cache: failure.Cache}
 	}
@@ -141,6 +165,17 @@ func (e *Evaluator) Prepare(input EvaluationInput) *PreparedEvaluation {
 // Evaluate executes a prepared input without repeating normalization or cache
 // identity construction.
 func (prepared *PreparedEvaluation) Evaluate() EvaluationResult {
+	return prepared.evaluate(nil)
+}
+
+// EvaluateContext executes a prepared input within ctx without repeating
+// normalization or cache identity construction.
+func (prepared *PreparedEvaluation) EvaluateContext(ctx context.Context) EvaluationResult {
+	control := newEvaluationControl(ctx)
+	return prepared.evaluate(&control)
+}
+
+func (prepared *PreparedEvaluation) evaluate(control *evaluationControl) EvaluationResult {
 	if prepared == nil {
 		return failEvaluation(nil, EvaluationInput{}, ReasonPolicyMissing, "prepared action evaluation is unavailable")
 	}
@@ -148,7 +183,7 @@ func (prepared *PreparedEvaluation) Evaluate() EvaluationResult {
 		return cloneEvaluationResult(*prepared.failure)
 	}
 	return evaluatePreparedInput(
-		prepared.evaluator, prepared.input, prepared.requestIdentity, prepared.cache,
+		prepared.evaluator, prepared.input, prepared.requestIdentity, prepared.cache, control,
 	)
 }
 
@@ -157,9 +192,13 @@ func evaluatePreparedInput(
 	input EvaluationInput,
 	requestIdentity string,
 	cacheBase CacheResult,
+	control *evaluationControl,
 ) EvaluationResult {
+	if failure := stoppedEvaluation(evaluator, input, cacheBase, control); failure != nil {
+		return *failure
+	}
 	accumulator := newEvaluationAccumulator(
-		evaluator, input, requestIdentity, cacheBase,
+		evaluator, input, requestIdentity, cacheBase, control,
 	)
 	if failure := accumulator.addInspection(); failure != nil {
 		return *failure
@@ -178,13 +217,20 @@ func evaluatePreparedInput(
 
 func (e *Evaluator) prepareEvaluation(
 	input EvaluationInput,
+	control *evaluationControl,
 ) (EvaluationInput, string, CacheResult, *EvaluationResult) {
+	if failure := stoppedEvaluation(e, input, CacheResult{}, control); failure != nil {
+		return EvaluationInput{}, "", CacheResult{}, failure
+	}
 	normalized, err := e.normalizeEvaluationInput(input)
 	if err != nil {
 		failure := failEvaluation(e, input, err.Code, err.Message)
 		return EvaluationInput{}, "", CacheResult{}, &failure
 	}
 	input = normalized
+	if failure := stoppedEvaluation(e, input, CacheResult{}, control); failure != nil {
+		return EvaluationInput{}, "", CacheResult{}, failure
+	}
 	requestIdentity, identityErr := requestDigestValidated(input.Request)
 	if identityErr != nil {
 		failure := failEvaluation(e, input, ReasonInternalInvariant, "canonical request identity failed")
@@ -192,11 +238,28 @@ func (e *Evaluator) prepareEvaluation(
 	}
 	expected := e.expectedIdentities(input)
 	cacheBase := e.cacheIdentityNormalized(input, requestIdentity, expected)
+	if failure := stoppedEvaluation(e, input, cacheBase, control); failure != nil {
+		return EvaluationInput{}, "", CacheResult{}, failure
+	}
 	if code := e.preflightFailure(input, expected); code != "" {
 		failure := failEvaluationWithCache(e, input, code, failureMessage(code), cacheBase)
 		return EvaluationInput{}, "", CacheResult{}, &failure
 	}
 	return input, requestIdentity, cacheBase, nil
+}
+
+func stoppedEvaluation(
+	evaluator *Evaluator,
+	input EvaluationInput,
+	cache CacheResult,
+	control *evaluationControl,
+) *EvaluationResult {
+	reason := control.stopReason()
+	if reason == "" {
+		return nil
+	}
+	failure := failEvaluationWithCache(evaluator, input, reason, failureMessage(reason), cache)
+	return &failure
 }
 
 func (e *Evaluator) preflightFailure(input EvaluationInput, expected IdentitySnapshot) ReasonCode {
@@ -223,6 +286,7 @@ func newEvaluationAccumulator(
 	input EvaluationInput,
 	requestIdentity string,
 	cacheBase CacheResult,
+	control *evaluationControl,
 ) *evaluationAccumulator {
 	tool, toolID := evaluator.selectTool(input.Request)
 	return &evaluationAccumulator{
@@ -234,6 +298,7 @@ func newEvaluationAccumulator(
 		budgets:      cloneBudgetSnapshot(input.Budget).Candidates,
 		completeness: input.Request.Completeness,
 		cacheBase:    cacheBase,
+		control:      control,
 	}
 }
 
@@ -241,8 +306,17 @@ func (a *evaluationAccumulator) fail(code ReasonCode, message string) Evaluation
 	return failEvaluationWithCache(a.evaluator, a.input, code, message, a.cacheBase)
 }
 
+func (a *evaluationAccumulator) stopFailure() *EvaluationResult {
+	return stoppedEvaluation(a.evaluator, a.input, a.cacheBase, a.control)
+}
+
 func (a *evaluationAccumulator) addBudgets() *EvaluationResult {
-	for _, budget := range a.budgets {
+	for index, budget := range a.budgets {
+		if index%evaluationCollectionPollInterval == 0 {
+			if failure := a.stopFailure(); failure != nil {
+				return failure
+			}
+		}
 		if budget.Available {
 			continue
 		}
@@ -255,6 +329,9 @@ func (a *evaluationAccumulator) addBudgets() *EvaluationResult {
 }
 
 func (a *evaluationAccumulator) addInspection() *EvaluationResult {
+	if failure := a.stopFailure(); failure != nil {
+		return failure
+	}
 	if a.input.Inspection == nil {
 		return nil
 	}
@@ -273,7 +350,12 @@ func (a *evaluationAccumulator) addInspection() *EvaluationResult {
 		Decision: evidence.Decision, Reason: evidence.Reason,
 	}
 	a.candidates = append(a.candidates, candidate)
-	for _, ruleID := range evidence.RuleIDs {
+	for index, ruleID := range evidence.RuleIDs {
+		if index%evaluationCollectionPollInterval == 0 {
+			if failure := a.stopFailure(); failure != nil {
+				return failure
+			}
+		}
 		a.matched = append(a.matched, matchedRule{id: ruleID, decision: candidate.Decision})
 		a.trace.add(TraceEntry{
 			RuleID: ruleID, ToolID: a.toolID, Selector: SelectorMatched,
@@ -286,6 +368,9 @@ func (a *evaluationAccumulator) addInspection() *EvaluationResult {
 }
 
 func (a *evaluationAccumulator) addRepositoryEffect() *EvaluationResult {
+	if failure := a.stopFailure(); failure != nil {
+		return failure
+	}
 	if a.tool == nil || a.tool.Effect.Kind != EffectRepositoryRead &&
 		a.tool.Effect.Kind != EffectRepositoryWrite {
 		return nil
@@ -299,7 +384,12 @@ func (a *evaluationAccumulator) addRepositoryEffect() *EvaluationResult {
 		Decision: a.input.RepositoryEffect.Decision, Reason: a.input.RepositoryEffect.Reason,
 	}
 	a.candidates = append(a.candidates, candidate)
-	for _, ruleID := range a.input.RepositoryEffect.RuleIDs {
+	for index, ruleID := range a.input.RepositoryEffect.RuleIDs {
+		if index%evaluationCollectionPollInterval == 0 {
+			if failure := a.stopFailure(); failure != nil {
+				return failure
+			}
+		}
 		a.matched = append(a.matched, matchedRule{id: ruleID, decision: candidate.Decision})
 		a.trace.add(TraceEntry{
 			RuleID: ruleID, ToolID: a.toolID, Selector: SelectorMatched,
@@ -311,7 +401,12 @@ func (a *evaluationAccumulator) addRepositoryEffect() *EvaluationResult {
 }
 
 func (a *evaluationAccumulator) evaluateRules() *EvaluationResult {
-	for _, rule := range a.evaluator.rules {
+	for index, rule := range a.evaluator.rules {
+		if index%evaluationCollectionPollInterval == 0 {
+			if failure := a.stopFailure(); failure != nil {
+				return failure
+			}
+		}
 		if code := a.evaluateRule(rule); code != "" {
 			failure := a.fail(code, failureMessage(code))
 			return &failure
@@ -330,12 +425,23 @@ func (a *evaluationAccumulator) evaluateRule(rule CompiledRule) ReasonCode {
 		return ""
 	}
 	entry.Selector = SelectorMatched
-	condition := evaluateConditionTreeWithRoots(rule.Condition, a.input.Request, rule.Rule.Decision, 1, &a.roots)
+	if reason := a.control.stopReason(); reason != "" {
+		return reason
+	}
+	condition := evaluateConditionTreeWithRootsControl(
+		rule.Condition, a.input.Request, rule.Rule.Decision, 1, &a.roots, a.control,
+	)
+	if evaluationStopped(condition.reason) {
+		return condition.reason
+	}
 	if condition.reason == ReasonInternalInvariant {
 		return ReasonInternalInvariant
 	}
 	populateConditionTrace(&entry, condition)
 	if condition.state == ConditionFalse {
+		if reason := a.control.stopReason(); reason != "" {
+			return reason
+		}
 		a.trace.add(entry)
 		return ""
 	}
@@ -371,8 +477,14 @@ func (a *evaluationAccumulator) addRuleCandidate(rule CompiledRule, entry TraceE
 }
 
 func (a *evaluationAccumulator) result() EvaluationResult {
+	if failure := a.stopFailure(); failure != nil {
+		return *failure
+	}
 	sortCandidates(a.candidates)
 	sortMatchedRules(a.matched)
+	if failure := a.stopFailure(); failure != nil {
+		return *failure
+	}
 	decision := a.candidates[0].Decision
 	result := EvaluationResult{
 		Decision: decision, Reason: a.candidates[0].Reason, ToolID: a.toolID,
@@ -388,11 +500,17 @@ func (a *evaluationAccumulator) result() EvaluationResult {
 	if err != nil {
 		return a.fail(ReasonInternalInvariant, "trace encoding failed")
 	}
+	if failure := a.stopFailure(); failure != nil {
+		return *failure
+	}
 	result.Trace, result.TraceComplete, result.TraceOmitted = trace, traceComplete, traceOmitted
 	result.Cache = finalizeCacheResult(
 		a.cacheBase, a.cacheNever, decision, a.input.Approval, result.Completeness, false,
 	)
 	if decision == DecisionRequireApproval {
+		if failure := a.stopFailure(); failure != nil {
+			return *failure
+		}
 		identity, err := approvalRequirementIdentity(a.input, result)
 		if err != nil {
 			return a.fail(ReasonInternalInvariant, "approval identity encoding failed")

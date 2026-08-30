@@ -404,7 +404,7 @@ func (g *Gateway) inspectAndDeliver(
 	)
 	input.Inspection = inspection
 	input.ResampledIdentities = call.snapshot.Evaluator.IdentitySnapshot(input)
-	decision, _ := g.evaluate(call.snapshot.Evaluator, input)
+	decision, _ := g.evaluate(ctx, call.snapshot.Evaluator, input)
 	ledgerEvidence := inspection
 	if ledgerEvidence == nil {
 		ledgerEvidence, err = cleanLedgerInspection(schemaStatus, decoded, raw)

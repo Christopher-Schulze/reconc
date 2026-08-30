@@ -321,7 +321,7 @@ func (g *Gateway) evaluateProgress(
 	)
 	input.Inspection = inspection
 	input.ResampledIdentities = call.snapshot.Evaluator.IdentitySnapshot(input)
-	decision, cached := g.evaluate(call.snapshot.Evaluator, input)
+	decision, cached := g.evaluate(inspectionCtx, call.snapshot.Evaluator, input)
 	if inspectionCtx.Err() != nil {
 		return progressFailureDecision(call, action.ReasonDeadlineExceeded), false
 	}

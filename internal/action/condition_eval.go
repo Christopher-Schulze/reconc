@@ -16,7 +16,7 @@ func evaluateConditionTree(
 	decision Decision,
 	depth int,
 ) conditionEvaluation {
-	return evaluateConditionTreeCore(condition, request, decision, depth, nil, true, true)
+	return evaluateConditionTreeCore(condition, request, decision, depth, nil, true, true, nil)
 }
 
 func evaluateConditionTreeWithRoots(
@@ -26,7 +26,18 @@ func evaluateConditionTreeWithRoots(
 	depth int,
 	roots *predicateRoots,
 ) conditionEvaluation {
-	return evaluateConditionTreeCore(condition, request, decision, depth, roots, false, true)
+	return evaluateConditionTreeWithRootsControl(condition, request, decision, depth, roots, nil)
+}
+
+func evaluateConditionTreeWithRootsControl(
+	condition *CompiledCondition,
+	request Request,
+	decision Decision,
+	depth int,
+	roots *predicateRoots,
+	control *evaluationControl,
+) conditionEvaluation {
+	return evaluateConditionTreeCore(condition, request, decision, depth, roots, false, true, control)
 }
 
 func evaluateConditionTreeCore(
@@ -37,7 +48,11 @@ func evaluateConditionTreeCore(
 	roots *predicateRoots,
 	validatePointer bool,
 	summaryRequired bool,
+	control *evaluationControl,
 ) conditionEvaluation {
+	if reason := control.stopReason(); reason != "" {
+		return stoppedConditionEvaluation(reason)
+	}
 	if condition == nil {
 		return conditionEvaluation{state: ConditionTrue, complete: true}
 	}
@@ -47,14 +62,14 @@ func evaluateConditionTreeCore(
 	switch condition.Kind {
 	case ConditionPredicate:
 		return evaluatePredicateConditionCore(
-			condition, request, decision, roots, validatePointer, summaryRequired,
+			condition, request, decision, roots, validatePointer, summaryRequired, control,
 		)
 	case ConditionNot:
 		return evaluateNotConditionCore(
-			condition, request, decision, depth, roots, validatePointer, summaryRequired,
+			condition, request, decision, depth, roots, validatePointer, summaryRequired, control,
 		)
 	case ConditionAll, ConditionAny:
-		return evaluateLogicalConditionCore(condition, request, decision, depth, roots, validatePointer)
+		return evaluateLogicalConditionCore(condition, request, decision, depth, roots, validatePointer, control)
 	default:
 		return invalidConditionEvaluation(1)
 	}
@@ -67,12 +82,13 @@ func evaluatePredicateConditionCore(
 	roots *predicateRoots,
 	validatePointer bool,
 	summaryRequired bool,
+	control *evaluationControl,
 ) conditionEvaluation {
 	if condition.Predicate == nil || len(condition.Children) != 0 {
 		return invalidConditionEvaluation(1)
 	}
 	predicate := evaluatePredicateCore(
-		condition.Predicate, request, decision, roots, validatePointer, summaryRequired,
+		condition.Predicate, request, decision, roots, validatePointer, summaryRequired, control,
 	)
 	return conditionEvaluation{
 		state: predicate.state, reason: predicate.reason,
@@ -89,14 +105,18 @@ func evaluateNotConditionCore(
 	roots *predicateRoots,
 	validatePointer bool,
 	summaryRequired bool,
+	control *evaluationControl,
 ) conditionEvaluation {
 	if condition.Predicate != nil || len(condition.Children) != 1 {
 		return invalidConditionEvaluation(1)
 	}
 	child := evaluateConditionTreeCore(
 		condition.Children[0], request, decision, depth+1,
-		roots, validatePointer, summaryRequired,
+		roots, validatePointer, summaryRequired, control,
 	)
+	if evaluationStopped(child.reason) {
+		return child
+	}
 	child.nodes++
 	if child.nodes > MaxConditionNodes {
 		return invalidConditionEvaluation(child.nodes)
@@ -116,6 +136,7 @@ func evaluateLogicalConditionCore(
 	depth int,
 	roots *predicateRoots,
 	validatePointer bool,
+	control *evaluationControl,
 ) conditionEvaluation {
 	if condition.Predicate != nil || len(condition.Children) == 0 {
 		return invalidConditionEvaluation(1)
@@ -129,8 +150,11 @@ func evaluateLogicalConditionCore(
 	for index := 0; index < len(condition.Children); index++ {
 		child := condition.Children[index]
 		childResult := evaluateConditionTreeCore(
-			child, request, decision, depth+1, roots, validatePointer, false,
+			child, request, decision, depth+1, roots, validatePointer, false, control,
 		)
+		if evaluationStopped(childResult.reason) {
+			return childResult
+		}
 		result.nodes += childResult.nodes
 		if result.nodes > MaxConditionNodes {
 			return invalidConditionEvaluation(result.nodes)
@@ -140,7 +164,10 @@ func evaluateLogicalConditionCore(
 			continue
 		}
 		for index+1 < len(condition.Children) {
-			metadata, safe := skippedConditionMetadata(condition.Children[index+1], depth+1)
+			metadata, safe := skippedConditionMetadata(condition.Children[index+1], depth+1, control)
+			if evaluationStopped(metadata.reason) {
+				return metadata
+			}
 			if !safe || result.nodes > MaxConditionNodes-metadata.nodes {
 				break
 			}
@@ -166,7 +193,14 @@ func conditionStateDecisive(kind ConditionKind, state ConditionState) bool {
 // on request-owned values are always determinate, agent-supplied, and summary-
 // free, so a decisive parent can merge their exact metadata without evaluating
 // their truth values.
-func skippedConditionMetadata(condition *CompiledCondition, depth int) (conditionEvaluation, bool) {
+func skippedConditionMetadata(
+	condition *CompiledCondition,
+	depth int,
+	control *evaluationControl,
+) (conditionEvaluation, bool) {
+	if reason := control.stopReason(); reason != "" {
+		return stoppedConditionEvaluation(reason), false
+	}
 	if condition == nil {
 		return conditionEvaluation{complete: true}, true
 	}
@@ -189,7 +223,10 @@ func skippedConditionMetadata(condition *CompiledCondition, depth int) (conditio
 		if condition.Predicate != nil || len(condition.Children) != 1 {
 			return conditionEvaluation{}, false
 		}
-		child, safe := skippedConditionMetadata(condition.Children[0], depth+1)
+		child, safe := skippedConditionMetadata(condition.Children[0], depth+1, control)
+		if evaluationStopped(child.reason) {
+			return child, false
+		}
 		if !safe || child.nodes >= MaxConditionNodes {
 			return conditionEvaluation{}, false
 		}
@@ -201,7 +238,10 @@ func skippedConditionMetadata(condition *CompiledCondition, depth int) (conditio
 		}
 		result := conditionEvaluation{complete: true, nodes: 1}
 		for _, child := range condition.Children {
-			metadata, safe := skippedConditionMetadata(child, depth+1)
+			metadata, safe := skippedConditionMetadata(child, depth+1, control)
+			if evaluationStopped(metadata.reason) {
+				return metadata, false
+			}
 			if !safe || result.nodes > MaxConditionNodes-metadata.nodes {
 				return conditionEvaluation{}, false
 			}
@@ -251,6 +291,8 @@ func mergeConditionMetadata(target *conditionEvaluation, child conditionEvaluati
 
 func conditionReasonStrength(reason ReasonCode) int {
 	switch reason {
+	case ReasonDeadlineExceeded, ReasonCancelled:
+		return 6
 	case ReasonInternalInvariant:
 		return 5
 	case ReasonLimitExceeded:
@@ -263,6 +305,12 @@ func conditionReasonStrength(reason ReasonCode) int {
 		return 1
 	default:
 		return 0
+	}
+}
+
+func stoppedConditionEvaluation(reason ReasonCode) conditionEvaluation {
+	return conditionEvaluation{
+		state: ConditionIndeterminate, reason: reason, complete: false,
 	}
 }
 

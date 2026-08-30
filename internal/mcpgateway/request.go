@@ -304,30 +304,49 @@ func credentialLabels(credentials []actionstate.CredentialBinding) []string {
 }
 
 func (g *Gateway) evaluate(
+	ctx context.Context,
 	evaluator *action.Evaluator,
 	input action.EvaluationInput,
 ) (action.EvaluationResult, bool) {
+	evaluationCtx, cancel := context.WithTimeout(ctx, EvaluationTimeout)
+	defer cancel()
 	g.toolsMu.RLock()
 	var cache *action.DecisionCache
 	if g.published != nil {
 		cache = g.published.cache
 	}
 	g.toolsMu.RUnlock()
-	prepared := evaluator.Prepare(input)
+	prepared := evaluator.PrepareContext(evaluationCtx, input)
 	if cache != nil {
-		if cached, ok, _ := cache.LookupPrepared(prepared); ok {
+		cached, ok, _ := cache.LookupPrepared(prepared)
+		if reason := evaluationContextReason(evaluationCtx); reason != "" {
+			return gatewayFailureResult(input, reason), false
+		}
+		if ok {
 			return cached, true
 		}
 	}
-	started := time.Now()
-	result := prepared.Evaluate()
-	if time.Since(started) > EvaluationTimeout {
-		return gatewayFailureResult(input, action.ReasonDeadlineExceeded), false
+	result := prepared.EvaluateContext(evaluationCtx)
+	if reason := evaluationContextReason(evaluationCtx); reason != "" {
+		return gatewayFailureResult(input, reason), false
+	}
+	if result.Failure != nil && (result.Reason == action.ReasonDeadlineExceeded || result.Reason == action.ReasonCancelled) {
+		return gatewayFailureResult(input, result.Reason), false
 	}
 	if cache != nil {
 		cache.StorePrepared(prepared, result)
 	}
 	return result, false
+}
+
+func evaluationContextReason(ctx context.Context) action.ReasonCode {
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return action.ReasonDeadlineExceeded
+	}
+	if err := ctx.Err(); err != nil {
+		return gatewayReason(err, action.ReasonCancelled)
+	}
+	return ""
 }
 
 func gatewayFailureResult(input action.EvaluationInput, reason action.ReasonCode) action.EvaluationResult {

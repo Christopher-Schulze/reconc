@@ -224,7 +224,7 @@ func (g *Gateway) prepareCall(
 	)
 	input.Inspection = inspection
 	input.ResampledIdentities = snapshot.Evaluator.IdentitySnapshot(input)
-	decision, cached := g.evaluate(snapshot.Evaluator, input)
+	decision, cached := g.evaluate(ctx, snapshot.Evaluator, input)
 	if decision.Failure != nil {
 		g.diagnostic("pre-call evaluation blocked: " + string(decision.Failure.Code))
 	}

@@ -1,15 +1,40 @@
 package mcpgateway
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/pathidentity"
 )
+
+func TestEvaluationContextReasonDistinguishesDeadlineAndCancellation(t *testing.T) {
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, expire := context.WithDeadline(context.Background(), time.Now())
+	defer expire()
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want action.ReasonCode
+	}{
+		{name: "active", ctx: context.Background()},
+		{name: "cancelled", ctx: cancelled, want: action.ReasonCancelled},
+		{name: "deadline", ctx: expired, want: action.ReasonDeadlineExceeded},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := evaluationContextReason(test.ctx); got != test.want {
+				t.Fatalf("evaluation context reason = %s, want %s", got, test.want)
+			}
+		})
+	}
+}
 
 func TestRepositoryPathBindingsRejectSymlinkDriftAndLexicalEscape(t *testing.T) {
 	repository, err := pathidentity.ResolveExisting(t.TempDir())
