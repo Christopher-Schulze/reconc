@@ -781,7 +781,8 @@ action; JSON emits the full completion report. Exit 0 = done, 2 = blocked,
 1 = runtime/input error. `--require-clean-git` adds a clean-tree check.
 Elapsed time never proves completion. If the before/after candidate snapshots
 drift, the gate takes one fresh retry; persistent drift returns an exact
-retry-limit diagnostic after two coherent attempts.
+retry-limit diagnostic after two coherent attempts while preserving a typed
+retry-exhaustion and final drift cause for Go callers.
 
 ### `reconc proof [repo] [--format json|markdown] [--output PATH]`
 Exports the current completion state as a deterministic, portable proof bundle.

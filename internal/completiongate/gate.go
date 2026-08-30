@@ -33,6 +33,27 @@ func (e *RetryableStateDriftError) Error() string {
 	return "repository, policy, or active-session state changed during completion evaluation; retry"
 }
 
+// RetryExhaustedError identifies completion evaluation that consumed every
+// retry because candidate state kept drifting. It unwraps the last typed drift
+// cause while preserving the stable operator-facing diagnostic.
+type RetryExhaustedError struct {
+	attempts int
+	cause    error
+}
+
+func (e *RetryExhaustedError) Error() string {
+	return fmt.Sprintf(completionRetryExhaustedFormat, e.attempts)
+}
+
+func (e *RetryExhaustedError) Unwrap() error {
+	return e.cause
+}
+
+// Attempts returns the number of complete evaluations consumed.
+func (e *RetryExhaustedError) Attempts() int {
+	return e.attempts
+}
+
 type completionStateCapture func(string) (agentsession.CompletionStateSnapshot, error)
 
 type Status string
@@ -116,6 +137,7 @@ func Evaluate(repo string, options Options) (*Report, error) {
 }
 
 func evaluateWithRetries(attempt func() (*Report, error)) (*Report, error) {
+	var lastDrift error
 	for number := 1; number <= completionEvaluationAttempts; number++ {
 		report, err := attempt()
 		if err == nil {
@@ -125,11 +147,12 @@ func evaluateWithRetries(attempt func() (*Report, error)) (*Report, error) {
 		if !errors.As(err, &drift) {
 			return nil, err
 		}
+		lastDrift = err
 		if number == completionEvaluationAttempts {
-			return nil, fmt.Errorf(completionRetryExhaustedFormat, completionEvaluationAttempts)
+			return nil, &RetryExhaustedError{attempts: number, cause: lastDrift}
 		}
 	}
-	return nil, fmt.Errorf(completionRetryExhaustedFormat, completionEvaluationAttempts)
+	return nil, &RetryExhaustedError{attempts: completionEvaluationAttempts, cause: lastDrift}
 }
 
 func evaluateOnce(repo string, options Options) (*Report, error) {

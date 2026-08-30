@@ -2,6 +2,7 @@ package completiongate
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -29,15 +30,52 @@ func TestCompletionRetriesTransientStateDrift(t *testing.T) {
 	}
 }
 
+func TestCompletionReturnsFirstSuccessfulAttempt(t *testing.T) {
+	attempts := 0
+	want := &Report{Decision: "pass"}
+	got, err := evaluateWithRetries(func() (*Report, error) {
+		attempts++
+		return want, nil
+	})
+	if err != nil || got != want || attempts != 1 {
+		t.Fatalf("first-attempt success = report:%p err:%v attempts:%d, want report:%p and one attempt", got, err, attempts, want)
+	}
+}
+
 func TestCompletionExhaustsPersistentStateDrift(t *testing.T) {
 	attempts := 0
+	drift := &RetryableStateDriftError{}
+	wrapped := fmt.Errorf("capture completion state: %w", drift)
 	_, err := evaluateWithRetries(func() (*Report, error) {
 		attempts++
-		return nil, &RetryableStateDriftError{}
+		return nil, wrapped
 	})
 	want := "repository, policy, or active-session state changed during completion evaluation after 2 attempts; retry limit exhausted"
 	if err == nil || err.Error() != want || attempts != completionEvaluationAttempts {
 		t.Fatalf("persistent drift = err:%v attempts:%d, want %q after %d attempts", err, attempts, want, completionEvaluationAttempts)
+	}
+	var exhausted *RetryExhaustedError
+	if !errors.As(err, &exhausted) || exhausted.Attempts() != completionEvaluationAttempts {
+		t.Fatalf("persistent drift exhaustion identity = %#v", err)
+	}
+	var retainedDrift *RetryableStateDriftError
+	if !errors.As(err, &retainedDrift) || !errors.Is(err, drift) || !errors.Is(err, wrapped) {
+		t.Fatalf("persistent drift cause chain = %#v", err)
+	}
+}
+
+func TestCompletionRetriesWrappedStateDrift(t *testing.T) {
+	attempts := 0
+	want := &Report{Decision: "pass"}
+	got, err := evaluateWithRetries(func() (*Report, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, fmt.Errorf("capture completion state: %w", &RetryableStateDriftError{})
+		}
+		return want, nil
+	})
+	if err != nil || got != want || attempts != 2 {
+		t.Fatalf("wrapped transient drift = report:%p err:%v attempts:%d", got, err, attempts)
 	}
 }
 
