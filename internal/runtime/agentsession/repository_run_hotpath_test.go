@@ -2,6 +2,7 @@ package agentsession
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/tasklifecycle"
 )
 
@@ -453,6 +455,95 @@ func TestRepoRunExplicitInterruptReleasesCurrentStopWithoutDisabling(t *testing.
 	}
 	if !repositoryRunEnabled(state) {
 		t.Fatalf("interrupt changed durable repository run mode: %+v", state)
+	}
+}
+
+func TestRepoRunCloseFailurePreservesInterruptRelease(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	writeTaskFixture(t, repo)
+	if _, err := SetRepositoryRun(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeFailure := errors.New(strings.Repeat("close-failure", 512))
+	result := runStopResolvedWithEvaluatorCacheAndClose(
+		root,
+		[]byte(`{"session_id":"repo-run","runtime":"codex","is_interrupt":true}`),
+		"codex",
+		runtime.NewEvaluator(),
+		nil,
+		func(file *os.File) error {
+			return errors.Join(file.Close(), closeFailure)
+		},
+	)
+	if result.ExitCode != 0 || result.Stdout != "" {
+		t.Fatalf("close failure overrode authenticated interrupt: %+v", result)
+	}
+	const prefix = "reconc run: close state: "
+	if !strings.HasPrefix(result.Stderr, prefix) || len(result.Stderr) > len(prefix)+stopCloseDiagnosticMaxBytes {
+		t.Fatalf("close diagnostic is missing or unbounded: %d bytes, %q", len(result.Stderr), result.Stderr)
+	}
+}
+
+func TestApplyStopRunStateClosePreservesDecisionAuthority(t *testing.T) {
+	closeFailure := errors.New("injected close failure")
+	tests := []struct {
+		name            string
+		result          Result
+		decision        stopTerminalDecision
+		wantExit        int
+		wantStdout      string
+		wantStderrParts []string
+	}{
+		{
+			name:            "interrupt",
+			result:          Result{},
+			decision:        stopTerminalDecisionUserInterrupt,
+			wantExit:        0,
+			wantStderrParts: []string{"close state", closeFailure.Error()},
+		},
+		{
+			name:            "policy block payload",
+			result:          Result{Stdout: `{"decision":"block","reason":"policy"}`},
+			wantExit:        0,
+			wantStdout:      `{"decision":"block","reason":"policy"}`,
+			wantStderrParts: []string{"close state", closeFailure.Error()},
+		},
+		{
+			name:            "continuation payload",
+			result:          repositoryRunBlockResult("continue the TASK"),
+			wantExit:        0,
+			wantStdout:      repositoryRunBlockResult("continue the TASK").Stdout,
+			wantStderrParts: []string{"close state", closeFailure.Error()},
+		},
+		{
+			name:            "ordinary success",
+			result:          Result{},
+			wantExit:        2,
+			wantStderrParts: []string{"close state", closeFailure.Error()},
+		},
+		{
+			name:            "joined failure diagnostics",
+			result:          Result{ExitCode: 2, Stderr: "primary failure"},
+			wantExit:        2,
+			wantStderrParts: []string{"primary failure", "close state", closeFailure.Error()},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := applyStopRunStateClose(test.result, test.decision, closeFailure)
+			if got.ExitCode != test.wantExit || got.Stdout != test.wantStdout {
+				t.Fatalf("result = %+v", got)
+			}
+			for _, part := range test.wantStderrParts {
+				if !strings.Contains(got.Stderr, part) {
+					t.Fatalf("stderr %q lacks %q", got.Stderr, part)
+				}
+			}
+		})
 	}
 }
 

@@ -4144,7 +4144,9 @@ ZCode, Grok Build, and Kimi Code CLI. The agent
 runs these commands itself; users do not need to operate Reconc. Prompt text,
 runtime interrupts, compaction, session boundaries, runtime changes, and
 application restarts never mutate the switch. An interrupt releases only the
-current host invocation. `reconc run on` refuses before mutation unless live
+current host invocation, even when closing the reused run-state descriptor
+fails; that cleanup failure remains a bounded diagnostic. `reconc run on`
+refuses before mutation unless live
 policy sources, the compiled lockfile, and executable typed TASK state are
 ready; `--force` is the explicit exceptional override. `reconc run off` is the
 only normal manual disable action;

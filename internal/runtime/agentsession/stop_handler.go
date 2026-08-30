@@ -15,6 +15,14 @@ import (
 const (
 	repositoryRunCheckpointEvents   = 64
 	repositoryRunCheckpointInterval = 30 * time.Minute
+	stopCloseDiagnosticMaxBytes     = 4096
+)
+
+type stopTerminalDecision uint8
+
+const (
+	stopTerminalDecisionOrdinary stopTerminalDecision = iota
+	stopTerminalDecisionUserInterrupt
 )
 
 // RunStop checks whether any blocking invariant is still unmet at
@@ -49,6 +57,17 @@ func runStopResolvedWithEvaluatorAndCache(
 	evaluator *runtime.Evaluator,
 	stopCache *StopDecisionCache,
 ) (result Result) {
+	return runStopResolvedWithEvaluatorCacheAndClose(root, payloadBytes, runtimeName, evaluator, stopCache, (*os.File).Close)
+}
+
+func runStopResolvedWithEvaluatorCacheAndClose(
+	root string,
+	payloadBytes []byte,
+	runtimeName string,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+	closeRunFile func(*os.File) error,
+) (result Result) {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
@@ -60,20 +79,10 @@ func runStopResolvedWithEvaluatorAndCache(
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: %s", err)}
 	}
+	terminalDecision := stopTerminalDecisionOrdinary
 	if runFile != nil {
 		defer func() {
-			closeErr := runFile.Close()
-			if closeErr == nil || result.ExitCode != 0 {
-				return
-			}
-			// Never discard a computed decision payload (block report or
-			// continuation prompt); surface the close error alongside it.
-			warn := fmt.Sprintf("reconc run: close state: %s", closeErr)
-			if result.Stdout != "" {
-				result.Stderr = joinStderr(result.Stderr, warn)
-				return
-			}
-			result = Result{ExitCode: 2, Stderr: warn}
+			result = applyStopRunStateClose(result, terminalDecision, closeRunFile(runFile))
 		}()
 	}
 	runState := runSnapshot.State
@@ -81,6 +90,7 @@ func runStopResolvedWithEvaluatorAndCache(
 	// An interrupt releases only this host invocation. Durable repository run
 	// state remains enabled until `reconc run off` or terminal TASK exhaustion.
 	if isUserStopInterrupt(payload) {
+		terminalDecision = stopTerminalDecisionUserInterrupt
 		if repositoryRunEnabled(runState) {
 			err = logRunStopDecision(root, "interrupt_release", payload, runtimeName, runState, runState, false, 0)
 		}
@@ -224,6 +234,20 @@ func runStopResolvedWithEvaluatorAndCache(
 	}
 
 	return Result{ExitCode: 0}
+}
+
+func applyStopRunStateClose(result Result, terminalDecision stopTerminalDecision, closeErr error) Result {
+	if closeErr == nil {
+		return result
+	}
+	warning := "reconc run: close state: " + truncateBytes(closeErr.Error(), stopCloseDiagnosticMaxBytes)
+	if terminalDecision == stopTerminalDecisionUserInterrupt || result.Stdout != "" || result.ExitCode != 0 {
+		result.Stderr = joinStderr(result.Stderr, warning)
+		return result
+	}
+	result.ExitCode = 2
+	result.Stderr = joinStderr(result.Stderr, warning)
+	return result
 }
 
 func finalizeCleanStop(root, sessionID string, evaluated stopPolicyCheckResult) (Result, bool, error) {
