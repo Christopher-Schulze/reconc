@@ -2205,7 +2205,11 @@ Disabled and unchanged hook events do not create run state. Run decisions record
 bounded repository continuation plus material transitions without prompt
 payloads. Live session state is hard-capped at 1 MiB; every evidence
 collection has both item and byte limits, and repeated command results are
-deduplicated. Reaching a collection limit seals the complete raw evidence into
+deduplicated. Every changed mutation checks the exact normalized serialized
+state before publication. An aggregate overflow preserves the last valid state
+file, persists project-scoped taint, and returns fail-closed state instead of a
+partial write or an unrecoverable save error. Reaching a collection limit seals
+the complete raw evidence into
 an immutable bounded segment before accepting the triggering event. Segments
 bind the canonical repository and session identities, policy-lock hash, index,
 and previous segment digest; every policy, claim, CI, Stop, and completion

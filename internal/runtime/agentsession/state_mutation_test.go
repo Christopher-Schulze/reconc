@@ -1,9 +1,12 @@
 package agentsession
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -103,5 +106,94 @@ func TestSessionStateMissingFileStillForcesPublication(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Clean(path)); err != nil {
 		t.Fatalf("state was not republished: %v", err)
+	}
+}
+
+func TestAggregateSessionBudgetPersistsTaintWithoutPartialStateWrite(t *testing.T) {
+	_, repo := withStateRoot(t)
+	const sessionID = "aggregate-budget"
+	state, err := InitializeSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := sessionStatePath(state.RepoRoot, sessionID)
+	payload := strings.Repeat("x", 60*1024)
+	overflowed := false
+	for index := 0; index < maxPendingToolCalls; index++ {
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		updated, err := MutateSessionState(repo, sessionID, func(current SessionState) SessionState {
+			return PutPendingToolCall(current, fmt.Sprintf("call-%02d", index), PendingToolCall{
+				ToolName: "Read", ToolInput: map[string]interface{}{"payload": payload},
+			})
+		})
+		if err != nil {
+			t.Fatalf("aggregate mutation %d returned an unrecoverable error: %v", index, err)
+		}
+		after, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !updated.EvidenceOverflow {
+			if len(after) > MaxSessionStateBytes {
+				t.Fatalf("published state exceeded budget: %d", len(after))
+			}
+			continue
+		}
+		overflowed = true
+		if updated.EvidenceOverflowReason != "session_state" || updated.EvidenceOverflowLimit != "byte_budget" {
+			t.Fatalf("aggregate overflow marker = %s/%s", updated.EvidenceOverflowReason, updated.EvidenceOverflowLimit)
+		}
+		if !bytes.Equal(before, after) {
+			t.Fatal("aggregate overflow partially published the rejected mutation")
+		}
+		if _, err := os.Stat(evidenceTaintPath(state.RepoRoot)); err != nil {
+			t.Fatalf("aggregate overflow did not persist durable taint: %v", err)
+		}
+		loaded, err := LoadSessionState(repo, sessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !loaded.EvidenceOverflow || loaded.EvidenceOverflowReason != "session_state" {
+			t.Fatalf("durable aggregate taint was not inherited: %+v", loaded)
+		}
+		break
+	}
+	if !overflowed {
+		t.Fatal("combined pending-call state never reached the aggregate budget")
+	}
+}
+
+func TestStateMapMutatorsDoNotAliasLoadedState(t *testing.T) {
+	original := emptyState("/repo", "map-alias")
+	original.WritePaths = []string{"src/a.go"}
+	original.WriteEpochs = map[string]uint64{"src/a.go": 1}
+	original.EvidenceEpoch = 7
+	original.PendingToolCalls = map[string]PendingToolCall{"call-1": {ToolName: "Read"}}
+
+	withWrite := RecordWriteEvent(original, []string{"src/a.go"})
+	withPending := PutPendingToolCall(original, "call-2", PendingToolCall{ToolName: "Write"})
+	if original.WriteEpochs["src/a.go"] != 1 || withWrite.WriteEpochs["src/a.go"] == 1 {
+		t.Fatalf("write-epoch mutation aliased input: original=%v result=%v", original.WriteEpochs, withWrite.WriteEpochs)
+	}
+	if _, found := original.PendingToolCalls["call-2"]; found || len(withPending.PendingToolCalls) != 2 {
+		t.Fatalf("pending-call mutation aliased input: original=%v result=%v", original.PendingToolCalls, withPending.PendingToolCalls)
+	}
+}
+
+func TestCompletionExecutionInputsOwnsEmptyEpochMap(t *testing.T) {
+	root := t.TempDir()
+	state := emptyState(root, "completion-alias")
+	inputs, err := completionExecutionInputs(root, state, true, true, []string{"src/new.go"}, false, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.WriteEpochs) != 0 {
+		t.Fatalf("completion capture mutated source epochs: %v", state.WriteEpochs)
+	}
+	if inputs.WriteEpochs["src/new.go"] == 0 {
+		t.Fatalf("completion capture did not annotate dirty path: %v", inputs.WriteEpochs)
 	}
 }

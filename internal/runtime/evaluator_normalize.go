@@ -129,19 +129,24 @@ func normalizeWriteEpochsWithResolver(paths []string, epochs map[string]uint64, 
 // (the original key is kept), so epoch lookups by either spelling hit the
 // recorded value instead of silently reading zero and disabling the
 // command-after-last-edit binding.
+// The returned map is always detached from a non-nil input, including empty
+// inputs and root-resolution failures.
 func RelativizeEpochKeys(root string, epochs map[string]uint64) map[string]uint64 {
-	if len(epochs) == 0 {
-		return epochs
-	}
-	resolvedRoot, err := pathidentity.ResolveExisting(root)
-	if err != nil {
-		return epochs
+	if epochs == nil {
+		return nil
 	}
 	out := make(map[string]uint64, len(epochs)*2)
 	for key, epoch := range epochs {
-		if epoch > out[key] {
-			out[key] = epoch
-		}
+		out[key] = epoch
+	}
+	if len(epochs) == 0 {
+		return out
+	}
+	resolvedRoot, err := pathidentity.ResolveExisting(root)
+	if err != nil {
+		return out
+	}
+	for key, epoch := range epochs {
 		candidate := filepath.FromSlash(key)
 		if !filepath.IsAbs(candidate) {
 			continue

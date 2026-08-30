@@ -116,6 +116,15 @@ type SessionState struct {
 	UncertifiedTermination     bool                       `json:"uncertified_termination,omitempty"`
 }
 
+type sessionStateSizeError struct {
+	actual int
+	limit  int
+}
+
+func (err *sessionStateSizeError) Error() string {
+	return fmt.Sprintf("bounded session state is %d bytes; maximum is %d", err.actual, err.limit)
+}
+
 // emptyState builds a fresh, unpopulated state for a (repo, session).
 // The ReportPath is set up-front so callers referencing state.ReportPath
 // before any check has run still see a valid path (the file may not
@@ -347,6 +356,9 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 	}
 	// Validate identity and command-result invariants before normalizing the
 	// bounded evidence collections below.
+	if loadedLegacyPath && state.SessionID == "" {
+		return SessionState{}, fmt.Errorf("%s: legacy session state has no session_id", path)
+	}
 	if state.SessionID != "" && state.SessionID != sessionID {
 		return SessionState{}, fmt.Errorf("%s: session_id %q does not match requested session %q", path, state.SessionID, sessionID)
 	}
@@ -414,15 +426,19 @@ func saveSessionStateLockedIfChanged(state SessionState) (bool, error) {
 	if err := validateSessionID(state.SessionID); err != nil {
 		return false, err
 	}
-	path := sessionStatePath(state.RepoRoot, state.SessionID)
-	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
-		return false, fmt.Errorf("mkdir session dir: %w", err)
-	}
 	// Deterministic marshalling (sorted keys, 2-space indent, trailing
 	// newline) so diffing session state across runs is git-friendly.
 	data, err := marshalStateDeterministic(state)
 	if err != nil {
 		return false, fmt.Errorf("marshal session state: %w", err)
+	}
+	return writeSessionStateLockedIfChanged(state, data)
+}
+
+func writeSessionStateLockedIfChanged(state SessionState, data []byte) (bool, error) {
+	path := sessionStatePath(state.RepoRoot, state.SessionID)
+	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
+		return false, fmt.Errorf("mkdir session dir: %w", err)
 	}
 	result, err := atomicfile.WritePrivateIfChanged(path, data, 0o600)
 	if err != nil {
@@ -572,7 +588,22 @@ func mutateSessionStateResolved(root, sessionID string, mutate func(SessionState
 			}
 		}
 		if stateChanged {
-			if err := saveSessionStateLocked(updated); err != nil {
+			data, marshalErr := marshalStateDeterministic(updated)
+			if marshalErr != nil {
+				var sizeErr *sessionStateSizeError
+				if !errors.As(marshalErr, &sizeErr) {
+					return fmt.Errorf("marshal session state: %w", marshalErr)
+				}
+				updated = state
+				updated.EvidenceOverflow = true
+				updated.EvidenceOverflowReason = "session_state"
+				updated.EvidenceOverflowLimit = "byte_budget"
+				if err := persistEvidenceTaint(root, updated); err != nil {
+					return err
+				}
+				return writeActiveSession(root, sessionID)
+			}
+			if _, err := writeSessionStateLockedIfChanged(updated, data); err != nil {
 				return err
 			}
 		}
@@ -601,7 +632,7 @@ func marshalStateDeterministic(state SessionState) ([]byte, error) {
 	}
 	body = append(body, '\n')
 	if len(body) > MaxSessionStateBytes {
-		return nil, fmt.Errorf("bounded session state is %d bytes; maximum is %d", len(body), MaxSessionStateBytes)
+		return nil, &sessionStateSizeError{actual: len(body), limit: MaxSessionStateBytes}
 	}
 	return body, nil
 }
@@ -731,10 +762,11 @@ func observeSessionStateResolved(root, sessionID string) error {
 	canonicalPath := sessionStatePath(root, sessionID)
 	legacyPath := legacySessionStatePath(root, sessionID)
 	present := false
-	for _, path := range []string{canonicalPath, legacyPath} {
-		if path == legacyPath && legacyPath == canonicalPath {
-			continue
-		}
+	paths := []string{canonicalPath}
+	if legacyPath != canonicalPath {
+		paths = append(paths, legacyPath)
+	}
+	for _, path := range paths {
 		_, err := os.Stat(path)
 		switch {
 		case err == nil:
@@ -926,9 +958,7 @@ func RecordWriteEvent(state SessionState, paths []string) SessionState {
 	if state.EvidenceEpoch < ^uint64(0)-1 {
 		state.EvidenceEpoch++
 	}
-	if state.WriteEpochs == nil {
-		state.WriteEpochs = map[string]uint64{}
-	}
+	state.WriteEpochs = cloneWriteEpochs(state.WriteEpochs)
 	if len(paths) == 1 {
 		path := paths[0]
 		before := len(state.WritePaths)

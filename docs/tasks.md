@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 391 Harden session-state persistence boundaries -> tasks/391-harden-session-state-persistence-boundaries.md
 - [ ] 392 Reduce session and pre-decision identity work -> tasks/392-reduce-session-and-pre-decision-identity-work.md
 - [ ] 393 Sanitize adapter trust boundaries and diagnostics -> tasks/393-sanitize-adapter-trust-boundaries-and-diagnostics.md
 - [ ] 394 Consolidate adapter MCP envelope construction -> tasks/394-consolidate-adapter-mcp-envelope-construction.md
@@ -79,6 +78,7 @@
 
 ## Done
 
+- [x] 391 Harden session-state persistence boundaries -> tasks/done/391-harden-session-state-persistence-boundaries.md
 - [x] 390 Retain pre-decision and taint-resolution state -> tasks/done/390-retain-pre-decision-and-taint-resolution-state.md
 - [x] 389 Make run-log following duplicate-safe and incremental -> tasks/done/389-make-run-log-following-duplicate-safe-and-incremental.md
 - [x] 388 Harden CLI value parsing and helper implementations -> tasks/done/388-harden-cli-value-parsing-and-helper-implementations.md

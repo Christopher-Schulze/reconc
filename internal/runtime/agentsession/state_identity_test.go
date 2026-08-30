@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,6 +61,70 @@ func TestLoadSessionStateMigratesLegacyCollisionPronePath(t *testing.T) {
 	}
 	if _, err := os.Stat(sessionStatePath(root, sessionID)); err != nil {
 		t.Fatalf("collision-resistant state was not persisted: %v", err)
+	}
+}
+
+func TestLoadSessionStateRejectsUnboundLegacyIdentity(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		requested       string
+		storedSessionID string
+	}{
+		{name: "empty identity", requested: "legacy/session"},
+		{name: "colliding identity", requested: "legacy/session", storedSessionID: "legacy_session"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(StateRootEnv, t.TempDir())
+			repo := t.TempDir()
+			root, err := ResolveRepoRoot(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			legacy := emptyState(root, test.requested)
+			legacy.SessionID = test.storedSessionID
+			legacy.ReportPath = legacySessionReportPath(root, test.requested)
+			body, err := json.Marshal(legacy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			legacyPath := legacySessionStatePath(root, test.requested)
+			if err := os.MkdirAll(filepath.Dir(legacyPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(legacyPath, body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := LoadSessionState(repo, test.requested); err == nil {
+				t.Fatal("unbound legacy state was adopted")
+			}
+			if _, err := os.Lstat(sessionStatePath(root, test.requested)); !os.IsNotExist(err) {
+				t.Fatalf("canonical state was published from unbound legacy input: %v", err)
+			}
+			if _, err := os.Lstat(legacyPath); err != nil {
+				t.Fatalf("rejected legacy evidence was removed: %v", err)
+			}
+		})
+	}
+}
+
+func TestObserveSessionStateChecksCanonicalUUIDPath(t *testing.T) {
+	t.Setenv(StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	const sessionID = "123e4567-e89b-12d3-a456-426614174000"
+	state, err := InitializeSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical := sessionStatePath(state.RepoRoot, sessionID)
+	if canonical != legacySessionStatePath(state.RepoRoot, sessionID) {
+		t.Fatal("UUID fixture does not share canonical and legacy paths")
+	}
+	if err := os.WriteFile(canonical, []byte("{broken\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := observeSessionStateResolved(state.RepoRoot, sessionID); err == nil {
+		t.Fatal("passive observation skipped malformed canonical UUID state")
 	}
 }
 

@@ -129,4 +129,16 @@ func TestRelativizeEpochKeysBridgesAbsoluteAndRelativeSpellings(t *testing.T) {
 	if got := RelativizeEpochKeys(root, nil); got != nil {
 		t.Fatalf("nil epochs must stay nil, got %v", got)
 	}
+	empty := map[string]uint64{}
+	emptyCopy := RelativizeEpochKeys(root, empty)
+	emptyCopy["new.go"] = 11
+	if len(empty) != 0 {
+		t.Fatalf("empty epoch map was returned by alias: %v", empty)
+	}
+	missingRootInput := map[string]uint64{"src/a.go": 3}
+	missingRootCopy := RelativizeEpochKeys(filepath.Join(root, "missing"), missingRootInput)
+	missingRootCopy["src/b.go"] = 4
+	if _, found := missingRootInput["src/b.go"]; found {
+		t.Fatalf("root-resolution fallback returned input map by alias: %v", missingRootInput)
+	}
 }

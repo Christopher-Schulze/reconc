@@ -73,7 +73,7 @@ func normalizeSessionState(state SessionState) SessionState {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		state = PutPendingToolCall(state, key, pending[key])
+		state = putPendingToolCall(state, key, pending[key], false)
 	}
 	if overflow {
 		state.EvidenceOverflow = true
@@ -226,6 +226,10 @@ func appendBoundedCommandResultPrepared(state *SessionState, result CommandResul
 // PutPendingToolCall stores one adapter correlation record under the same
 // deterministic bounds as the rest of session state.
 func PutPendingToolCall(state SessionState, key string, call PendingToolCall) SessionState {
+	return putPendingToolCall(state, key, call, true)
+}
+
+func putPendingToolCall(state SessionState, key string, call PendingToolCall, clone bool) SessionState {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return state
@@ -245,12 +249,16 @@ func PutPendingToolCall(state SessionState, key string, call PendingToolCall) Se
 		markEvidenceOverflowWithLimit(&state, "pending_tool_calls", "item_bytes")
 		return state
 	}
-	if state.PendingToolCalls == nil {
-		state.PendingToolCalls = map[string]PendingToolCall{}
-	}
 	if _, exists := state.PendingToolCalls[key]; !exists && len(state.PendingToolCalls) >= maxPendingToolCalls {
 		markEvidenceOverflowWithLimit(&state, "pending_tool_calls", "item_count")
 		return state
+	}
+	if clone || state.PendingToolCalls == nil {
+		pending := make(map[string]PendingToolCall, len(state.PendingToolCalls)+1)
+		for currentKey, currentCall := range state.PendingToolCalls {
+			pending[currentKey] = currentCall
+		}
+		state.PendingToolCalls = pending
 	}
 	state.PendingToolCalls[key] = call
 	return state
