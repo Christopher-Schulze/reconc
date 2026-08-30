@@ -42,7 +42,10 @@ func enforceStateTotal(options Options, project, activeID string, hasActive bool
 			active := hasActive && (dir == "sessions" || dir == "reports") && entry.Name() == activeID+".json"
 			active = active || hasActive && dir == "locks" && (entry.Name() == activeID+".lock" || entry.Name() == activeID+".stop-policy.lock")
 			active = active || dir == "policy-decisions" && entry.Name() == "latest.json"
-			item := candidate{path: filepath.Join(path, entry.Name()), name: dir + "/" + entry.Name(), size: info.Size(), mtime: info.ModTime(), active: active, info: info}
+			item := candidate{
+				path: filepath.Join(path, entry.Name()), name: dir + "/" + entry.Name(), size: info.Size(), mtime: info.ModTime(),
+				active: active, probeLock: dir == "locks", info: info,
+			}
 			candidates = append(candidates, item)
 			class.BytesBefore += item.size
 		}

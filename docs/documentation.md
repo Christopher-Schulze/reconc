@@ -2243,6 +2243,9 @@ Host session IDs are validated exactly and mapped to collision-resistant file
 keys. State, reports, active pointers, and locks use bounded reads, private
 permissions, atomic publication, and cross-process locking; legacy sanitized
 paths migrate only after their stored identity and repository binding pass.
+An explicitly supplied active session remains authoritative before its first
+state write and regardless of state age. Only passive active-pointer discovery
+requires an existing session file within the lock-age window.
 Session-file reads and writes serialize on the same per-session lock. The
 repository-wide active-session pointer serializes reads, writes, and cleanup on
 its own lock, acquired only after any session lock, so native Windows sharing
@@ -2255,7 +2258,12 @@ generated audit binaries. The product-wide project
 state root is independently bounded to 256 recognized project roots, 128 MiB,
 and 30 days. Explicit prune enforces that global bound immediately; lifecycle
 passes protect the current project, live sessions, and roots touched within the
-24-hour concurrency grace. A recognized root containing a durable `action/`
+24-hour concurrency grace. Before deleting any other eligible root under the
+global project-retention lock, Reconc non-blockingly acquires its root-retention
+lock and every regular file in its `locks/` directory on the discovered
+identities. Contention preserves the root under age, count, and byte pressure;
+successful probes remain held through identity-bound removal. A recognized
+root containing a durable `action/`
 state boundary is also protected because generic retention cannot safely return
 consumed budget capacity or break action-ledger archive and transaction truth;
 action-specific bounded compaction owns that state. The ledger live file,
@@ -2306,6 +2314,10 @@ on an invalid chain or mismatched ring policy. Repo runtime is capped at 48 MiB.
 grace, retaining recent work while removing hard-kill residue before a full
 working day passes. Active session/report/lock files, live build-lock targets,
 run state/locks, and recent temp trees are never deleted to force a budget.
+Every lock-file deletion first opens the discovered identity read-write and
+acquires a non-blocking exclusive OS lock. Contention preserves the file, and a
+successful probe stays held through removal, including state-total pressure, so
+retention cannot split later owners onto a replacement lock inode.
 Retention candidates retain their discovered non-symlink identity and expected
 type. Before deletion, the parent directory is reopened as an identity-bound
 root and the candidate is revalidated; recursive removal stays inside that

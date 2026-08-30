@@ -19,13 +19,15 @@ import (
 )
 
 type candidate struct {
-	path   string
-	name   string
-	size   int64
-	mtime  time.Time
-	active bool
-	dir    bool
-	info   os.FileInfo
+	path             string
+	name             string
+	size             int64
+	mtime            time.Time
+	active           bool
+	dir              bool
+	probeLock        bool
+	probeProjectRoot bool
+	info             os.FileInfo
 }
 
 const (
@@ -269,7 +271,10 @@ func pruneProjectRoots(options Options, report *Report, preserveRecent bool) Cla
 		live := path == current || activeSession != "" || activeErr != nil || decisionPresent || decisionErr != nil ||
 			actionStatePresent || actionStateErr != nil
 		recent := preserveRecent && options.Policy.Locks.MaxAge > 0 && options.Now.Sub(latest) <= options.Policy.Locks.MaxAge
-		item := candidate{path: path, name: entry.Name(), size: size, mtime: latest, active: live || recent, dir: true, info: info}
+		item := candidate{
+			path: path, name: entry.Name(), size: size, mtime: latest,
+			active: live || recent, dir: true, probeProjectRoot: true, info: info,
+		}
 		class.BytesBefore += size
 		if item.active {
 			protected = append(protected, item)
@@ -472,7 +477,10 @@ func pruneClass(name, dir string, policy ClassPolicy, now time.Time, dryRun bool
 		if !info.Mode().IsRegular() {
 			continue
 		}
-		item := candidate{path: filepath.Join(dir, entry.Name()), name: entry.Name(), size: info.Size(), mtime: info.ModTime(), active: activeNames != nil && activeNames[entry.Name()], info: info}
+		item := candidate{
+			path: filepath.Join(dir, entry.Name()), name: entry.Name(), size: info.Size(), mtime: info.ModTime(),
+			active: activeNames != nil && activeNames[entry.Name()], probeLock: name == "locks", info: info,
+		}
 		candidates = append(candidates, item)
 		class.BytesBefore += item.size
 	}
@@ -511,9 +519,6 @@ type candidateRemovalHooks struct {
 }
 
 func removeCandidateWithHooks(item candidate, dryRun bool, report *Report, hooks candidateRemovalHooks) bool {
-	if dryRun {
-		return true
-	}
 	if item.info == nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("remove %s: missing discovered identity", item.path))
 		return false
@@ -557,6 +562,25 @@ func removeCandidateWithHooks(item candidate, dryRun bool, report *Report, hooks
 			return false
 		}
 	}
+	lease, live, leaseErr := acquireCandidateLease(root, name, item)
+	if leaseErr != nil {
+		closeErr := root.Close()
+		report.Errors = append(report.Errors, fmt.Sprintf("remove %s: validate liveness: %v", item.path, errors.Join(leaseErr, closeErr)))
+		return false
+	}
+	if live {
+		if closeErr := root.Close(); closeErr != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("remove %s: close parent after live lock probe: %v", item.path, closeErr))
+		}
+		return false
+	}
+	if dryRun {
+		if closeErr := errors.Join(lease.close(), root.Close()); closeErr != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("inspect removal of %s: %v", item.path, closeErr))
+			return false
+		}
+		return true
+	}
 	if item.dir {
 		target, openErr := root.OpenRoot(name)
 		if openErr == nil {
@@ -575,12 +599,148 @@ func removeCandidateWithHooks(item candidate, dryRun bool, report *Report, hooks
 	} else {
 		err = root.Remove(name)
 	}
+	leaseErr = lease.close()
 	closeErr := root.Close()
-	if err := errors.Join(err, closeErr); err != nil {
+	if err := errors.Join(err, leaseErr, closeErr); err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("remove %s: %v", item.path, err))
 		return false
 	}
 	return true
+}
+
+type candidateLease struct {
+	locks []heldCandidateLock
+}
+
+type heldCandidateLock struct {
+	file   *os.File
+	unlock func() error
+}
+
+func acquireCandidateLease(parent *os.Root, name string, item candidate) (*candidateLease, bool, error) {
+	lease := &candidateLease{}
+	if item.probeLock {
+		live, err := lease.tryLockCandidate(parent, name, item.info)
+		return lease, live, err
+	}
+	if !item.probeProjectRoot {
+		return lease, false, nil
+	}
+	project, err := parent.OpenRoot(name)
+	if err != nil {
+		return lease, false, err
+	}
+	live, probeErr := lease.tryLockOptionalCandidate(project, ".retention.lock")
+	if probeErr != nil || live {
+		closeErr := project.Close()
+		return lease, live, errors.Join(probeErr, closeErr, lease.close())
+	}
+	live, probeErr = lease.tryLockDirectory(project, "locks")
+	closeErr := project.Close()
+	if probeErr != nil || closeErr != nil {
+		return lease, false, errors.Join(probeErr, closeErr, lease.close())
+	}
+	if live {
+		return lease, true, lease.close()
+	}
+	return lease, false, nil
+}
+
+func (lease *candidateLease) tryLockOptionalCandidate(root *os.Root, name string) (bool, error) {
+	info, err := root.Lstat(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("%s is not a regular lock file", name)
+	}
+	return lease.tryLockCandidate(root, name, info)
+}
+
+func (lease *candidateLease) tryLockDirectory(project *os.Root, name string) (bool, error) {
+	directory, err := project.Open(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	directoryInfo, statErr := directory.Stat()
+	if statErr != nil || !directoryInfo.IsDir() {
+		return false, errors.Join(statErr, directory.Close(), fmt.Errorf("%s is not a directory", name))
+	}
+	entries, readErr := directory.ReadDir(maxRetentionDirectoryEntries + 1)
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return false, errors.Join(readErr, directory.Close())
+	}
+	if len(entries) > maxRetentionDirectoryEntries {
+		return false, errors.Join(directory.Close(), fmt.Errorf("%s exceeds %d entries", name, maxRetentionDirectoryEntries))
+	}
+	lockRoot, openErr := project.OpenRoot(name)
+	if openErr != nil {
+		return false, errors.Join(openErr, directory.Close())
+	}
+	openedInfo, openedStatErr := lockRoot.Stat(".")
+	if openedStatErr != nil || !openedInfo.IsDir() || !os.SameFile(directoryInfo, openedInfo) {
+		return false, errors.Join(openedStatErr, lockRoot.Close(), directory.Close(), fmt.Errorf("%s changed identity", name))
+	}
+	for _, entry := range entries {
+		info, infoErr := entry.Info()
+		if infoErr != nil || !info.Mode().IsRegular() {
+			return false, errors.Join(infoErr, lockRoot.Close(), directory.Close(), lease.close(), fmt.Errorf("%s/%s is not a regular lock file", name, entry.Name()))
+		}
+		live, lockErr := lease.tryLockCandidate(lockRoot, entry.Name(), info)
+		if lockErr != nil || live {
+			return live, errors.Join(lockErr, lockRoot.Close(), directory.Close())
+		}
+	}
+	currentInfo, currentErr := project.Lstat(name)
+	closeErr := errors.Join(lockRoot.Close(), directory.Close())
+	if currentErr != nil || !currentInfo.IsDir() || !os.SameFile(directoryInfo, currentInfo) {
+		return false, errors.Join(currentErr, closeErr, fmt.Errorf("%s changed identity during lock probe", name))
+	}
+	return false, closeErr
+}
+
+func (lease *candidateLease) tryLockCandidate(root *os.Root, name string, expected os.FileInfo) (bool, error) {
+	file, err := root.OpenFile(name, os.O_RDWR, 0)
+	if err != nil {
+		return false, err
+	}
+	opened, err := file.Stat()
+	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(expected, opened) {
+		return false, errors.Join(err, file.Close(), errors.New("lock identity changed before ownership probe"))
+	}
+	unlock, err := filelock.TryLock(file)
+	if err != nil {
+		closeErr := file.Close()
+		if filelock.IsContended(err) {
+			return true, closeErr
+		}
+		return false, errors.Join(err, closeErr)
+	}
+	current, statErr := root.Lstat(name)
+	if statErr != nil || !current.Mode().IsRegular() || !os.SameFile(opened, current) {
+		return false, errors.Join(statErr, unlock(), file.Close(), errors.New("lock identity changed during ownership probe"))
+	}
+	lease.locks = append(lease.locks, heldCandidateLock{file: file, unlock: unlock})
+	return false, nil
+}
+
+func (lease *candidateLease) close() error {
+	if lease == nil {
+		return nil
+	}
+	var result error
+	for index := len(lease.locks) - 1; index >= 0; index-- {
+		lock := lease.locks[index]
+		result = errors.Join(result, lock.unlock(), lock.file.Close())
+	}
+	lease.locks = nil
+	return result
 }
 
 func validateCandidateAt(root *os.Root, name string, item candidate) error {
@@ -605,28 +765,32 @@ func sameCandidateType(item candidate, info os.FileInfo) bool {
 }
 
 func liveActiveSession(project, requested string, now time.Time, maxAge time.Duration) (string, error) {
-	if requested == "" {
-		path := filepath.Join(project, "active-session.txt")
-		file, err := os.Open(path)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return "", nil
-			}
-			return "", fmt.Errorf("read %s: %w", path, err)
+	if requested != "" {
+		if err := ValidateSessionID(requested); err != nil {
+			return "", err
 		}
-		data, readErr := io.ReadAll(io.LimitReader(file, MaxSessionIDBytes+2))
-		closeErr := file.Close()
-		if readErr != nil {
-			return "", fmt.Errorf("read %s: %w", path, readErr)
-		}
-		if closeErr != nil {
-			return "", fmt.Errorf("close %s: %w", path, closeErr)
-		}
-		if len(data) > MaxSessionIDBytes+1 {
-			return "", fmt.Errorf("%s exceeds %d bytes", path, MaxSessionIDBytes+1)
-		}
-		requested = strings.TrimSuffix(string(data), "\n")
+		return requested, nil
 	}
+	path := filepath.Join(project, "active-session.txt")
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read %s: %w", path, err)
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, MaxSessionIDBytes+2))
+	closeErr := file.Close()
+	if readErr != nil {
+		return "", fmt.Errorf("read %s: %w", path, readErr)
+	}
+	if closeErr != nil {
+		return "", fmt.Errorf("close %s: %w", path, closeErr)
+	}
+	if len(data) > MaxSessionIDBytes+1 {
+		return "", fmt.Errorf("%s exceeds %d bytes", path, MaxSessionIDBytes+1)
+	}
+	requested = strings.TrimSuffix(string(data), "\n")
 	if requested == "" {
 		return "", nil
 	}
