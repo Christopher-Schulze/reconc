@@ -151,10 +151,6 @@ func archiveCandidatesContext(ctx context.Context, path string) ([]archiveCandid
 	return out, nil
 }
 
-func readArchiveDirectory(directory string) ([]os.DirEntry, error) {
-	return readArchiveDirectoryContext(context.Background(), directory)
-}
-
 func readArchiveDirectoryContext(ctx context.Context, directory string) ([]os.DirEntry, error) {
 	return readArchiveDirectoryContextWith(ctx, directory, boundedio.ReadDir)
 }

@@ -137,6 +137,7 @@ internal/
   policyproof/    tamper-evident unresolved policy-decision receipts
   presets/        bundled policy packs (embed.FS) + user overlays
   proofbundle/    deterministic portable JSON and Markdown completion evidence
+  repositorycontrol/ repository-scoped control-directory permissions and platform ownership
   repositoryignore/ canonical target-repository runtime-ignore contract
   runtime/        staged evaluation, normalization, matching, violations, remediation, Git, and subprocesses
   retention/      bounded runtime storage lifecycle + owned temp cleanup

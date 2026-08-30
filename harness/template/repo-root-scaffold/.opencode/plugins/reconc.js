@@ -211,15 +211,36 @@ const appendReconcWorkerBytes = (current, right, maxBytes) => {
   return true
 }
 
-const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessage) => {
+const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessage, options = {}) => {
   const workerProtocolVersion = 1
   const maxWorkerResponseBytes = 128 * 1024
+  const defaultStartupBackoffMilliseconds = [100, 500, 2500]
+  const configuredStartupBackoff = Array.isArray(options.startupBackoffMilliseconds)
+    ? options.startupBackoffMilliseconds.filter((value) => Number.isSafeInteger(value) && value > 0).slice(0, 8)
+    : []
+  const startupBackoffMilliseconds = configuredStartupBackoff.length > 0
+    ? configuredStartupBackoff
+    : defaultStartupBackoffMilliseconds
+  const nowMilliseconds = typeof options.nowMilliseconds === "function"
+    ? options.nowMilliseconds
+    : () => globalThis.performance?.now?.() ?? Date.now()
   let worker = undefined
-  let workerUnsupported = false
+  let workerProtocolUnsupported = false
+  let startupFailures = 0
+  let startupRetryAt = 0
   let nextRequestID = 0
   let serial = Promise.resolve()
 
   const workerError = (kind, message) => Object.assign(new Error(message), { reconcWorkerKind: kind })
+
+  const boundedWorkerText = (value, limit) => {
+    const bytes = new TextEncoder().encode(String(value))
+    let end = Math.min(bytes.length, Math.max(0, limit))
+    while (end > 0) {
+      try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes.slice(0, end)) } catch { end-- }
+    }
+    return ""
+  }
 
   const abortWorker = (current) => {
     if (!current) return
@@ -332,7 +353,10 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
 
   const startWorker = async (signal, budgetMilliseconds) => {
     if (worker) return worker
-    if (workerUnsupported) throw workerError("unsupported", "Reconc worker protocol is unavailable")
+    if (workerProtocolUnsupported) throw workerError("unsupported", "Reconc worker protocol is unavailable")
+    if (nowMilliseconds() < startupRetryAt) {
+      throw workerError("backoff", "Reconc worker startup is cooling down after a transient failure")
+    }
     let process
     let current
     try {
@@ -358,11 +382,19 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
         throw workerError("protocol", "Reconc worker handshake was not clean")
       }
       worker = current
+      startupFailures = 0
+      startupRetryAt = 0
       return current
     } catch (error) {
       if (current) abortWorker(current)
       else if (process) killReconcProcessTree(process)
-      if (error?.reconcWorkerKind !== "aborted") workerUnsupported = true
+      if (error?.reconcWorkerKind === "protocol") {
+        workerProtocolUnsupported = true
+      } else if (error?.reconcWorkerKind !== "aborted" && error?.reconcWorkerKind !== "backoff") {
+        const index = Math.min(startupFailures, startupBackoffMilliseconds.length - 1)
+        startupFailures = Math.min(startupFailures + 1, startupBackoffMilliseconds.length)
+        startupRetryAt = nowMilliseconds() + startupBackoffMilliseconds[index]
+      }
       throw error
     }
   }
@@ -373,7 +405,9 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
     if (signal?.aborted) {
       return { code: 1, stdout: "", stderr: canceledMessage, timedOut: false, aborted: true, truncated: false, invalidUTF8: false }
     }
-    if (workerUnsupported) return runOneShot(event, payload, signal, budget.timeoutMilliseconds)
+    if (workerProtocolUnsupported || nowMilliseconds() < startupRetryAt) {
+      return runOneShot(event, payload, signal, budget.timeoutMilliseconds)
+    }
     let current
     try {
       current = await startWorker(signal, budget.timeoutMilliseconds)
@@ -404,11 +438,12 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
         id,
         "response",
       )
-      if (response.error) throw workerError("protocol", response.error)
+      const acknowledgedError = response.error || ""
+      const stderr = [response.stderr || "", acknowledgedError].filter(Boolean).join("\n")
       return {
-        code: response.code,
+        code: acknowledgedError && response.code === 0 ? 1 : response.code,
         stdout: response.stdout || "",
-        stderr: response.stderr || "",
+        stderr: boundedWorkerText(stderr, budget.maxOutputBytes),
         timedOut: false,
         aborted: false,
         truncated: false,
@@ -422,12 +457,12 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
       if (error?.reconcWorkerKind === "timeout") {
         return { code: 1, stdout: "", stderr: "Reconc worker request timed out", timedOut: true, aborted: false, truncated: false, invalidUTF8: false }
       }
-      if (error?.reconcWorkerKind === "protocol") workerUnsupported = true
-      const remaining = budget.timeoutMilliseconds - (Date.now() - startedAt)
-      if (remaining <= 0) {
-        return { code: 1, stdout: "", stderr: "Reconc worker failed before a response", timedOut: true, aborted: false, truncated: false, invalidUTF8: false }
-      }
-      return runOneShot(event, payload, signal, remaining)
+      if (error?.reconcWorkerKind === "protocol") workerProtocolUnsupported = true
+      const reason = boundedWorkerText(
+        "Reconc worker delivery was ambiguous; the event was not replayed: " + (error?.message || error),
+        budget.maxOutputBytes,
+      )
+      return { code: 1, stdout: "", stderr: reason, timedOut: false, aborted: false, truncated: false, invalidUTF8: false }
     }
   }
 
@@ -458,7 +493,7 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
   const shouldBlockFailure = (event, result) => {
     const budget = routeBudgets[event] || { errorPolicy: "block", timeoutPolicy: "block" }
     if (result.timedOut) return budget.timeoutPolicy === "block"
-    if (result.invalidUTF8) return budget.errorPolicy === "block"
+    if (result.invalidUTF8 || result.truncated) return budget.errorPolicy === "block"
     return result.code !== 0 && budget.errorPolicy === "block"
   }
 

@@ -350,7 +350,7 @@ func TestEvidenceSegmentChainStreamsSixtyFourSegments(t *testing.T) {
 
 func TestEvidenceSegmentAggregateBudgetPersistsCapacityTaint(t *testing.T) {
 	_, repo := withStateRoot(t)
-	state := writeEvidenceChainFixture(t, repo, "aggregate-budget", 19, 900*1024)
+	state := writeAggregateEvidenceChainFixture(t, repo, "aggregate-budget", 36)
 	if _, err := loadCompleteSessionEvidence(state.RepoRoot, state); err == nil ||
 		!strings.Contains(err.Error(), "merged bytes") {
 		t.Fatalf("aggregate overflow result = %v", err)
@@ -365,6 +365,33 @@ func TestEvidenceSegmentAggregateBudgetPersistsCapacityTaint(t *testing.T) {
 }
 
 func writeEvidenceChainFixture(t testing.TB, repo, sessionID string, count int, commandBytes int) SessionState {
+	return writeEvidenceChainFixtureWith(t, repo, sessionID, count, func(index int) evidenceSegment {
+		command := fmt.Sprintf("%04d-%s", index, strings.Repeat("x", commandBytes))
+		return evidenceSegment{
+			Commands: []string{command}, ReadPaths: []string{}, WritePaths: []string{},
+			WriteEpochs: map[string]uint64{}, Claims: []string{}, CommandResults: []CommandResult{},
+		}
+	})
+}
+
+func writeAggregateEvidenceChainFixture(t testing.TB, repo, sessionID string, count int) SessionState {
+	return writeEvidenceChainFixtureWith(t, repo, sessionID, count, func(index int) evidenceSegment {
+		reads := make([]string, maxPathEvidenceItems)
+		for item := range reads {
+			reads[item] = fmt.Sprintf("%04d/read/%04d/%s", index, item, strings.Repeat("r", 60))
+		}
+		commands := make([]string, maxCommandEvidenceItems)
+		for item := range commands {
+			commands[item] = fmt.Sprintf("%04d-command-%04d-%s", index, item, strings.Repeat("x", 275))
+		}
+		return evidenceSegment{
+			Commands: commands, ReadPaths: reads, WritePaths: []string{},
+			WriteEpochs: map[string]uint64{}, Claims: []string{}, CommandResults: []CommandResult{},
+		}
+	})
+}
+
+func writeEvidenceChainFixtureWith(t testing.TB, repo, sessionID string, count int, payload func(int) evidenceSegment) SessionState {
 	t.Helper()
 	root, err := ResolveRepoRoot(repo)
 	if err != nil {
@@ -376,12 +403,14 @@ func writeEvidenceChainFixture(t testing.TB, repo, sessionID string, count int, 
 	}
 	previous := ""
 	for index := 1; index <= count; index++ {
-		command := fmt.Sprintf("%04d-%s", index, strings.Repeat("x", commandBytes))
-		segment := evidenceSegment{
-			FormatVersion: evidenceSegmentFormatVersion, RepoRoot: root, SessionID: sessionID,
-			Index: uint64(index), PreviousDigest: previous, Commands: []string{command},
-			ReadPaths: []string{}, WritePaths: []string{}, WriteEpochs: map[string]uint64{},
-			Claims: []string{}, CommandResults: []CommandResult{},
+		segment := payload(index)
+		segment.FormatVersion = evidenceSegmentFormatVersion
+		segment.RepoRoot = root
+		segment.SessionID = sessionID
+		segment.Index = uint64(index)
+		segment.PreviousDigest = previous
+		if err := validateEvidenceSegmentShape(segment); err != nil {
+			t.Fatalf("fixture segment %d shape: %v", index, err)
 		}
 		segment.Digest, err = evidenceSegmentDigest(segment)
 		if err != nil {

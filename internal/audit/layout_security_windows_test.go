@@ -11,13 +11,6 @@ import (
 	"reconc.dev/reconc/internal/privatefs"
 )
 
-func assertPrivateDirectorySecurity(t *testing.T, path string, _ os.FileMode) {
-	t.Helper()
-	if err := privatefs.ValidateDirectory(path); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func assertAuditRootSecurity(t *testing.T, path string, _ os.FileMode) {
 	t.Helper()
 	info, err := os.Lstat(path)

@@ -152,10 +152,6 @@ func bytesContainsLineBreak(body []byte) bool {
 	return false
 }
 
-func runLocked(options Options, forceOwnedTemp bool) Report {
-	return runLockedContext(context.Background(), options, forceOwnedTemp)
-}
-
 func runLockedContext(ctx context.Context, options Options, forceOwnedTemp bool) Report {
 	policy := options.Policy
 	report := Report{
@@ -301,10 +297,6 @@ func retentionContextError(options Options, err error) Report {
 	report := emptyReport(options, options.DryRun)
 	report.Errors = []string{fmt.Sprintf("retention context: %v", err)}
 	return report
-}
-
-func pruneProjectRootsInterval(options Options, force bool, report *Report) (ClassReport, bool) {
-	return pruneProjectRootsIntervalContext(context.Background(), options, force, report)
 }
 
 func pruneProjectRootsIntervalContext(ctx context.Context, options Options, force bool, report *Report) (ClassReport, bool) {
@@ -493,10 +485,6 @@ func projectTreeSizeAndLatest(root string, initial time.Time) (int64, time.Time,
 	return size, latest, err
 }
 
-func pruneOwnedTempRootsInterval(options Options, force bool, report *Report) (ClassReport, bool) {
-	return pruneOwnedTempRootsIntervalContext(context.Background(), options, force, report)
-}
-
 func pruneOwnedTempRootsIntervalContext(ctx context.Context, options Options, force bool, report *Report) (ClassReport, bool) {
 	class := ClassReport{Name: "abandoned-owned-temp"}
 	if err := ctx.Err(); err != nil {
@@ -562,10 +550,6 @@ func normalizeOptions(options Options) Options {
 		options.TempRoot = os.TempDir()
 	}
 	return options
-}
-
-func withPruneLock(options Options, run func() Report) Report {
-	return withPruneLockContext(context.Background(), options, run)
 }
 
 func withPruneLockContext(ctx context.Context, options Options, run func() Report) Report {
@@ -1079,10 +1063,6 @@ func enforceJSONLContext(ctx context.Context, name, path string, maxBytes int64,
 	return class
 }
 
-func enforceRunDecisionJSONL(name, path string, maxBytes int64, archives int, dryRun bool, report *Report) ClassReport {
-	return enforceRunDecisionJSONLContext(context.Background(), name, path, maxBytes, archives, dryRun, report)
-}
-
 func enforceRunDecisionJSONLContext(ctx context.Context, name, path string, maxBytes int64, archives int, dryRun bool, report *Report) ClassReport {
 	if err := ctx.Err(); err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("enforce %s: %v", name, err))
@@ -1132,10 +1112,6 @@ func enforceRunDecisionJSONLContext(ctx context.Context, name, path string, maxB
 	return class
 }
 
-func validateRunDecisionSecurity(path string) error {
-	return validateRunDecisionSecurityContext(context.Background(), path)
-}
-
 func validateRunDecisionSecurityContext(ctx context.Context, path string) error {
 	sources, err := jsonl.PathsOldestFirstContext(ctx, path, jsonl.MaxArchiveFiles)
 	if err != nil {
@@ -1164,10 +1140,6 @@ func validateRunDecisionSecurityContext(ctx context.Context, path string) error 
 	return boundedio.WithRegularFileSnapshot(lockPath, 4<<10, func(file *os.File, info os.FileInfo) error {
 		return privatefs.ValidateFile(file, info)
 	})
-}
-
-func inspectChainedAudit(name, repoRoot string, maxBytes int64, archives int, report *Report) ClassReport {
-	return inspectChainedAuditContext(context.Background(), name, repoRoot, maxBytes, archives, report)
 }
 
 func inspectChainedAuditContext(ctx context.Context, name, repoRoot string, maxBytes int64, archives int, report *Report) ClassReport {

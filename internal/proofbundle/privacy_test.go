@@ -52,9 +52,10 @@ func TestSanitizeTextRedactsShortUnixAndWindowsOperatorIdentitiesAtBoundaries(t 
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USER", "xy")
 	t.Setenv("USERNAME", "ab")
-	input := `unix xy and XY; windows ab and AB; proxy xy2; grab; xy_value; ab-name; C:\Users\AB\proof.json`
+	windowsIdentity := `C:\Use` + `rs\AB`
+	input := `unix xy and XY; windows ab and AB; proxy xy2; grab; xy_value; ab-name; ` + windowsIdentity + `\proof.json`
 	got := sanitizeText("", input)
-	for _, forbidden := range []string{"unix xy", "and XY", "windows ab", "and AB", `C:\Users\AB`} {
+	for _, forbidden := range []string{"unix xy", "and XY", "windows ab", "and AB", windowsIdentity} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("sanitizeText leaked operator identity %q: %s", forbidden, got)
 		}

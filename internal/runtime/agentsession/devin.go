@@ -95,7 +95,7 @@ func validateDevinEvent(event string, raw map[string]interface{}) error {
 		return fmt.Errorf("unsupported Devin CLI hook route %q", event)
 	}
 	if cursorFirstString(raw, "hook_event_name", "hookEventName") != binding.primary {
-		return fmt.Errorf("Devin CLI payload hook_event_name does not match the selected route")
+		return fmt.Errorf("devin CLI payload hook_event_name does not match the selected route")
 	}
 	return nil
 }

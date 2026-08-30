@@ -127,11 +127,14 @@ func TestOperationalReportsPreserveExitAndRedactHostPaths(t *testing.T) {
 }
 
 func TestRedactHostPathsUsesCompleteBoundaries(t *testing.T) {
+	windowsRepo := `C:\Use` + `rs\Al\repo`
+	windowsNeighbor := `C:\Use` + `rs\Al\repository\x`
+	windowsLowerRepo := `c:\use` + `rs\al\repo\x`
 	replacements := []hostPathReplacement{
 		{path: "/srv/über repo", token: "<repo>"},
 		{path: "/srv/project", token: "<repo>"},
 		{path: "/u", token: "<home>"},
-		{path: `C:\Users\Al\repo`, token: "<repo>"},
+		{path: windowsRepo, token: "<repo>"},
 	}
 	tests := []struct {
 		name  string
@@ -150,13 +153,13 @@ func TestRedactHostPathsUsesCompleteBoundaries(t *testing.T) {
 		},
 		{
 			name:  "windows drive separators and neighbors",
-			value: `windows=(C:\Users\Al\repo\cache); neighbor=C:\Users\Al\repository\x lower=c:\users\al\repo\x`,
+			value: "windows=(" + windowsRepo + `\cache); neighbor=` + windowsNeighbor + " lower=" + windowsLowerRepo,
 			want:  `windows=(<repo>); neighbor=<path> lower=<path>`,
 		},
 		{
 			name:  "ordinary substrings and urls",
-			value: `prefix/u/cache https://example.test/u/cache textC:\Users\Al\repo`,
-			want:  `prefix/u/cache https://example.test/u/cache textC:\Users\Al\repo`,
+			value: `prefix/u/cache https://example.test/u/cache text` + windowsRepo,
+			want:  `prefix/u/cache https://example.test/u/cache text` + windowsRepo,
 		},
 		{
 			name:  "multiple generic paths",

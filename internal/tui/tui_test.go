@@ -94,7 +94,7 @@ func TestRenderTextWidthCoversTerminalStates(t *testing.T) {
 				t.Fatal("TUI output contains ANSI control sequences")
 			}
 			for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
-				if len([]rune(line)) > test.width {
+				if displayCells(line) > test.width {
 					t.Fatalf("line exceeds width %d: %q", test.width, line)
 				}
 			}

@@ -146,7 +146,7 @@ func TestZCodeInstallSplitsMixedGroupsWithoutDroppingForeignProcesses(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Action != "updated" || len(report.DroppedUserEdits) != 1 || !strings.Contains(report.DroppedUserEdits[0], "zcode-pre-tool-use") {
+	if report.Action != "updated" || len(report.DroppedUserEdits) != 0 {
 		t.Fatalf("mixed-group install report = %+v", report)
 	}
 	installed := readJSONForZCodeTest(t, target)

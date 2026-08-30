@@ -123,9 +123,9 @@ func TestPromptValidationAndContinuationExtractionBoundaries(t *testing.T) {
 		{name: "exact raw limit", stdout: exact, wantBytes: maxPromptBytes},
 		{name: "exact JSON reason limit", stdout: string(exactJSON), wantBytes: maxPromptBytes},
 		{name: "reason limit plus one", stdout: exact + "x", wantError: "prompt exceeds 1048576 bytes"},
-		{name: "output envelope overflow", stdout: strings.Repeat("x", maxContinuationBytes+1), wantError: "Stop output exceeds 1052672 bytes"},
-		{name: "malformed structured output", stdout: `{"reason":`, wantError: "Stop output contains malformed structured continuation data"},
-		{name: "invalid UTF-8 output", stdout: string([]byte{0xff}), wantError: "Stop output must be valid UTF-8"},
+		{name: "output envelope overflow", stdout: strings.Repeat("x", maxContinuationBytes+1), wantError: "stop output exceeds 1052672 bytes"},
+		{name: "malformed structured output", stdout: `{"reason":`, wantError: "stop output contains malformed structured continuation data"},
+		{name: "invalid UTF-8 output", stdout: string([]byte{0xff}), wantError: "stop output must be valid UTF-8"},
 		{name: "structured clean stop", stdout: `{"decision":"allow"}`},
 	}
 	for _, test := range tests {

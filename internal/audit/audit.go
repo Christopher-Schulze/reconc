@@ -531,10 +531,6 @@ func VerifyContext(ctx context.Context, repoRoot string) (VerificationReport, er
 	return report, err
 }
 
-func loadAppendCheckpoint(repoRoot string) (*chainHead, *Entry, error) {
-	return loadAppendCheckpointContext(context.Background(), repoRoot)
-}
-
 func loadAppendCheckpointContext(ctx context.Context, repoRoot string) (*chainHead, *Entry, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
@@ -664,10 +660,6 @@ func appendRequiresRotation(path string, recordBytes int, maxSizeBytes int64) (b
 	return info.Size()+int64(recordBytes) > maxSizeBytes, nil
 }
 
-func rebuildChainHead(repoRoot string) error {
-	return rebuildChainHeadContext(context.Background(), repoRoot)
-}
-
 func rebuildChainHeadContext(ctx context.Context, repoRoot string) error {
 	entries, err := readAuditEntriesContext(ctx, filepath.Join(repoRoot, AuditFileRelative))
 	if err != nil {
@@ -729,10 +721,6 @@ func recoverPendingAppendContext(ctx context.Context, repoRoot string) error {
 	// A pre-private audit journal used the generic JSONL layout. Recover it
 	// explicitly once, then publish the detached head under the private layout.
 	return jsonl.RecoverContext(ctx, path, commit)
-}
-
-func readVerifiedSnapshot(repoRoot string) ([]Entry, *chainHead, error) {
-	return readVerifiedSnapshotContext(context.Background(), repoRoot)
 }
 
 func readVerifiedSnapshotContext(ctx context.Context, repoRoot string) ([]Entry, *chainHead, error) {
@@ -833,10 +821,6 @@ type auditReadError struct {
 func (e *auditReadError) Error() string { return e.err.Error() }
 
 func (e *auditReadError) Unwrap() error { return e.err }
-
-func decodeAuditFile(file *os.File, source string, entries *[]Entry) error {
-	return decodeAuditFileContext(context.Background(), file, source, entries)
-}
 
 func decodeAuditFileContext(ctx context.Context, file *os.File, source string, entries *[]Entry) error {
 	reader := bufio.NewReaderSize(file, maxRecordBytes)
@@ -1071,10 +1055,6 @@ func writeChainHeadValue(repoRoot string, head chainHead) error {
 		return fmt.Errorf("audit: write detached head: %w", err)
 	}
 	return nil
-}
-
-func withAuditLock(repoRoot string, fn func() error) error {
-	return withAuditLockContext(context.Background(), repoRoot, fn)
 }
 
 func withAuditLockContext(ctx context.Context, repoRoot string, fn func() error) error {

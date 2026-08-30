@@ -252,10 +252,6 @@ func validateAuditHead(path string) error {
 	})
 }
 
-func validateAuditContentFiles(path string, layout jsonl.Layout) error {
-	return validateAuditContentFilesContext(context.Background(), path, layout)
-}
-
 func validateAuditContentFilesContext(ctx context.Context, path string, layout jsonl.Layout) error {
 	if ctx == nil {
 		return errors.New("audit content validation context is required")

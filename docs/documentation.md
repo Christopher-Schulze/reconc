@@ -66,7 +66,9 @@ Human-readable output colors decisions, rule IDs, and `OK`/`WARN`/`FAIL` tags
 only on an interactive terminal. `NO_COLOR`, `TERM=dumb`, JSON, files, and
 pipes always remain plain.
 The dependency-free `tui` view is always plain text and bounds each line to a
-valid `COLUMNS` value, while JSON remains width-independent.
+valid `COLUMNS` value in terminal cells, preserving CJK, combining, variation,
+keycap, flag, emoji-modifier, and ZWJ display clusters. JSON remains
+width-independent.
 
 ## Evidence-Bound Completion Control
 

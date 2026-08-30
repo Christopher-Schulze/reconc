@@ -46,13 +46,13 @@ resolve_reconc_dir() {
   fi
   reconc_dir="$1"
   stable_reconc="$reconc_dir/reconc-$reconc_os-$reconc_arch$reconc_ext"
-  if [ -x "$stable_reconc" ]; then
+  if reconc_candidate_trusted "$stable_reconc"; then
     resolved_reconc="$stable_reconc"
     return 0
   fi
   reconc_matches=0
   for reconc_candidate in "$reconc_dir"/reconc-*-"${reconc_os}-${reconc_arch}${reconc_ext}"; do
-    if [ ! -x "$reconc_candidate" ]; then
+    if ! reconc_candidate_trusted "$reconc_candidate"; then
       continue
     fi
     reconc_matches=$((reconc_matches + 1))

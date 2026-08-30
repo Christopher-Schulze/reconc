@@ -301,10 +301,10 @@ func validatePrompt(prompt string) error {
 
 func continuationReason(stdout string) (string, error) {
 	if len(stdout) > maxContinuationBytes {
-		return "", fmt.Errorf("Stop output exceeds %d bytes", maxContinuationBytes)
+		return "", fmt.Errorf("stop output exceeds %d bytes", maxContinuationBytes)
 	}
 	if !utf8.ValidString(stdout) {
-		return "", errors.New("Stop output must be valid UTF-8")
+		return "", errors.New("stop output must be valid UTF-8")
 	}
 	trimmed := strings.TrimSpace(stdout)
 	if trimmed == "" {
@@ -318,7 +318,7 @@ func continuationReason(stdout string) (string, error) {
 			Message         string `json:"message"`
 		}
 		if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
-			return "", errors.New("Stop output contains malformed structured continuation data")
+			return "", errors.New("stop output contains malformed structured continuation data")
 		}
 		reason = ""
 		for _, candidate := range []string{payload.Reason, payload.FollowupMessage, payload.Message} {

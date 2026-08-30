@@ -127,6 +127,30 @@ var historicalFindingExceptions = []historicalFindingException{
 		BlobID: "c5ca06c5aaeb1fb8001186ad314d76a9d58968c3", Rule: "content/access-token", Line: 58,
 		Owner: "repository maintainer", Rationale: "TASK 218 provider-token regression corpus used literal synthetic tokens; current corpus joins non-matching fragments at test time",
 	},
+	{
+		BlobID: "1b0707541e54a2f7a7b5bf65cc8968358178e861", Rule: "content/private-path", Line: 55,
+		Owner: "repository maintainer", Rationale: "synthetic Windows path redaction fixture; current source constructs the path from non-matching fragments",
+	},
+	{
+		BlobID: "1b0707541e54a2f7a7b5bf65cc8968358178e861", Rule: "content/private-path", Line: 57,
+		Owner: "repository maintainer", Rationale: "synthetic Windows path non-persistence assertion; current source constructs the path from non-matching fragments",
+	},
+	{
+		BlobID: "227a25052a7adb0ff861970a2f6547b2743466dc", Rule: "content/private-path", Line: 134,
+		Owner: "repository maintainer", Rationale: "synthetic Windows repository-root fixture; current source constructs the path from non-matching fragments",
+	},
+	{
+		BlobID: "227a25052a7adb0ff861970a2f6547b2743466dc", Rule: "content/private-path", Line: 153,
+		Owner: "repository maintainer", Rationale: "synthetic Windows neighbor-path fixture; current source constructs the paths from non-matching fragments",
+	},
+	{
+		BlobID: "227a25052a7adb0ff861970a2f6547b2743466dc", Rule: "content/private-path", Line: 158,
+		Owner: "repository maintainer", Rationale: "synthetic Windows substring-boundary fixture; current source constructs the path from non-matching fragments",
+	},
+	{
+		BlobID: "227a25052a7adb0ff861970a2f6547b2743466dc", Rule: "content/private-path", Line: 159,
+		Owner: "repository maintainer", Rationale: "synthetic Windows substring expected value; current source constructs the path from non-matching fragments",
+	},
 }
 
 var forbiddenWordDigests = map[string]string{
@@ -147,7 +171,7 @@ var (
 	)
 	credentialURLPattern = regexp.MustCompile(`(?i)https?://[^/@\s:]+:[^/@\s]+@[^\s]+`)
 	accessTokenPattern   = regexp.MustCompile(
-		`(?:AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|xai-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{30,})`,
+		`(?:^|[^A-Za-z0-9])(?:AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|xai-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{30,})`,
 	)
 	keyAssignmentPattern = regexp.MustCompile(
 		`(?i)(?:OPENAI_API_KEY|ANTHROPIC_API_KEY|XAI_API_KEY|AWS_SECRET_ACCESS_KEY|GITHUB_TOKEN)\s*[:=]\s*["']?[A-Za-z0-9_./+-]{12,}`,

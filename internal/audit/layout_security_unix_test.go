@@ -7,10 +7,6 @@ import (
 	"testing"
 )
 
-func assertPrivateDirectorySecurity(t *testing.T, path string, want os.FileMode) {
-	assertPrivateMode(t, path, want)
-}
-
 func assertAuditRootSecurity(t *testing.T, path string, want os.FileMode) {
 	assertPrivateMode(t, path, want)
 }

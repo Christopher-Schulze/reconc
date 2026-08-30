@@ -87,8 +87,12 @@ run_reconc_hook() {
   exec "$reconc_binary" hook runtime "$event" "$repo"
 }
 
+reconc_candidate_trusted() {
+  [ -f "$1" ] && [ ! -L "$1" ] && [ -x "$1" ]
+}
+
 for dev_reconc in "$repo/tools/reconc/.build/bin/reconc" "$repo/.build/bin/reconc" "$repo/reconc"; do
-  if [ -x "$dev_reconc" ]; then
+  if reconc_candidate_trusted "$dev_reconc"; then
     run_reconc_hook "$dev_reconc"
   fi
 done
@@ -111,7 +115,7 @@ if [ -f "$target_receipt" ] && [ ! -L "$target_receipt" ]; then
 fi
 if [ -n "$reconc_target" ]; then
   direct_reconc="$repo/$reconc_target"
-  if [ -f "$direct_reconc" ] && [ ! -L "$direct_reconc" ] && [ -x "$direct_reconc" ]; then
+  if reconc_candidate_trusted "$direct_reconc"; then
     run_reconc_hook "$direct_reconc"
   fi
 fi
@@ -142,13 +146,13 @@ resolve_reconc_dir() {
   fi
   reconc_dir="$1"
   stable_reconc="$reconc_dir/reconc-$reconc_os-$reconc_arch$reconc_ext"
-  if [ -x "$stable_reconc" ]; then
+  if reconc_candidate_trusted "$stable_reconc"; then
     resolved_reconc="$stable_reconc"
     return 0
   fi
   reconc_matches=0
   for reconc_candidate in "$reconc_dir"/reconc-*-"${reconc_os}-${reconc_arch}${reconc_ext}"; do
-    if [ ! -x "$reconc_candidate" ]; then
+    if ! reconc_candidate_trusted "$reconc_candidate"; then
       continue
     fi
     reconc_matches=$((reconc_matches + 1))
@@ -177,7 +181,10 @@ for reconc_dir in "$repo/tools/reconc/dist" "$repo/dist"; do
 done
 
 if command -v reconc >/dev/null 2>&1; then
-  run_reconc_hook "$(command -v reconc)"
+  path_reconc="$(command -v reconc)"
+  if reconc_candidate_trusted "$path_reconc"; then
+    run_reconc_hook "$path_reconc"
+  fi
 fi
 
 if [ "$event" = "grok-pre-tool-use" ] || [ "$event" = "grok-stop" ]; then

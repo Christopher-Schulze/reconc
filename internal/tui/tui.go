@@ -189,9 +189,8 @@ func RenderText(view *View) string {
 }
 
 // RenderTextWidth renders View as a compact terminal dashboard and bounds
-// every line to width terminal cells. Reconc emits plain text only, and its
-// user-facing fields are overwhelmingly single-width runes, so rune-safe
-// truncation is deterministic without a terminal framework dependency.
+// every line to width terminal cells. Truncation preserves supported Unicode
+// display clusters without a terminal framework dependency.
 func RenderTextWidth(view *View, width int) string {
 	rendered := renderText(view)
 	if width <= 0 {
@@ -202,15 +201,7 @@ func RenderTextWidth(view *View, width int) string {
 	for _, line := range lines {
 		newline := strings.HasSuffix(line, "\n")
 		line = strings.TrimSuffix(line, "\n")
-		runes := []rune(line)
-		if len(runes) > width {
-			if width <= 3 {
-				runes = runes[:width]
-			} else {
-				runes = append(runes[:width-3], '.', '.', '.')
-			}
-		}
-		bounded.WriteString(string(runes))
+		bounded.WriteString(truncateTextCells(line, width))
 		if newline {
 			bounded.WriteByte('\n')
 		}

@@ -161,10 +161,6 @@ func stopDirectoryGeneration(root string) (string, bool) {
 	return "dir-generation:" + hex.EncodeToString(hasher.Sum(nil)), true
 }
 
-func stopDirectoryContentHash(root string) string {
-	return stopDirectoryContentHashObserved(root, nil)
-}
-
 func stopDirectoryContentHashObserved(root string, observe func(int64)) string {
 	hasher := sha256.New()
 	var totalBytes int64

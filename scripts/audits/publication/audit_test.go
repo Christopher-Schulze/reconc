@@ -47,6 +47,13 @@ func TestAuditTextRejectsPrivateAndSecretMaterial(t *testing.T) {
 	}
 }
 
+func TestAuditTextDoesNotReadTaskSlugsAsAccessTokens(t *testing.T) {
+	findings := auditText("docs/tasks.md", "tasks/done/395-prevent-task-section-counter-overflow.md")
+	if hasFinding(findings, "content/access-token") {
+		t.Fatalf("task slug produced an access-token finding: %#v", findings)
+	}
+}
+
 func TestAuditPathNameRejectsSensitiveArtifacts(t *testing.T) {
 	for _, path := range []string{"scripts/.gitkeep", ".env", "keys/id_ed25519", "evidence/transcript.md", "config/secrets.yaml"} {
 		if findings := auditPathName(path); len(findings) == 0 {

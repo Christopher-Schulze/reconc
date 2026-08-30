@@ -106,10 +106,6 @@ func observeRuntimeSourceFreshnessWithStats(root string, plan *runtimePlan, stat
 	return observeSourceFreshness(root, plan.sources, discovery, plan.sourceFreshness, nil, stats)
 }
 
-func observeRuntimeSourceFreshnessFromBundle(root string, plan *runtimePlan, bundle *ingest.SourceBundle) ([sha256.Size]byte, error) {
-	return observeRuntimeSourceFreshnessFromBundleWithStats(root, plan, bundle, nil)
-}
-
 func observeRuntimeSourceFreshnessFromBundleWithStats(
 	root string,
 	plan *runtimePlan,

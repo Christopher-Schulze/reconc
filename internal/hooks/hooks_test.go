@@ -1428,12 +1428,15 @@ func TestInstallSurfacesNonArrayHooksEvent(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, ClaudeCodeSettingsPath), []byte(pre), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	report, err := Install(KindClaudeCode, repo, false)
-	if err != nil {
-		t.Fatalf("install: %v", err)
+	if _, err := Install(KindClaudeCode, repo, false); err == nil || !strings.Contains(err.Error(), "pass --force") {
+		t.Fatalf("unforced install error = %v", err)
 	}
-	// The user's malformed shape is overwritten, but it must be
-	// reported via DroppedUserEdits so the CLI can warn.
+	report, err := Install(KindClaudeCode, repo, true)
+	if err != nil {
+		t.Fatalf("forced install: %v", err)
+	}
+	// Explicit force replaces the malformed shape and reports it through
+	// DroppedUserEdits so the CLI can warn.
 	found := false
 	for _, e := range report.DroppedUserEdits {
 		if strings.Contains(e, "SessionStart") && strings.Contains(e, "object") {

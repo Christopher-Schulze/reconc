@@ -22,6 +22,7 @@ import (
 	"reconc.dev/reconc/internal/gitexec"
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/runtime/agentsession"
+	"reconc.dev/reconc/internal/usercli"
 )
 
 const (
@@ -107,6 +108,17 @@ func prepareHookVerificationRepo(prefix string, stageDeniedPath bool) (string, f
 	repo := os.Getenv(hookVerificationRepoEnv)
 	if repo == "" {
 		return "", nil, fmt.Errorf("isolated verification repository is missing")
+	}
+	bareExecutable, err := exec.LookPath("reconc")
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve isolated bare executable: %w", err)
+	}
+	install, err := usercli.InstallCurrentWithReceipt(filepath.Dir(bareExecutable), usercli.InstallOptions{Version: "hook-verify"})
+	if err != nil {
+		return "", nil, fmt.Errorf("bind isolated bare executable to receipt: %w", err)
+	}
+	if install.Receipt == nil {
+		return "", nil, errors.New("isolated bare executable receipt was not published")
 	}
 	if err := initializeHookVerificationRepo(repo, stageDeniedPath); err != nil {
 		return "", nil, err

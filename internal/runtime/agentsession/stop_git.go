@@ -611,9 +611,7 @@ func stopPolicyAuditSidecar(path string) bool {
 	case "lock", "append-transaction.json":
 		return true
 	}
-	if strings.HasPrefix(suffix, "append-backup.") {
-		suffix = strings.TrimPrefix(suffix, "append-backup.")
-	}
+	suffix = strings.TrimPrefix(suffix, "append-backup.")
 	return decimalPathSuffix(suffix)
 }
 
