@@ -453,10 +453,11 @@ func installGitPreCommit(repoRoot string, force bool) (*InstallReport, error) {
 }
 
 func writeGeneratedArtifact(target, content string, executable bool, snapshot managedArtifactSnapshot) (string, error) {
-	perm := os.FileMode(0o644)
-	if executable {
-		perm = 0o755
+	var currentMode os.FileMode
+	if snapshot.exists {
+		currentMode = snapshot.info.Mode()
 	}
+	perm := managedArtifactPublicationMode(currentMode, snapshot.exists, executable)
 	action, err := publishManagedArtifact(target, []byte(content), perm, snapshot)
 	if err != nil {
 		return "", &rerrors.PolicySourceError{Message: "write " + target, Cause: err}

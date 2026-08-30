@@ -62,6 +62,20 @@ func (snapshot managedArtifactSnapshot) expectedCurrent() atomicfile.ExpectedCur
 	}
 }
 
+func managedArtifactPublicationMode(current os.FileMode, exists, executable bool) os.FileMode {
+	if !exists {
+		if executable {
+			return 0o755
+		}
+		return 0o644
+	}
+	mode := current.Perm()
+	if executable {
+		mode |= 0o100
+	}
+	return mode
+}
+
 func publishManagedArtifact(path string, content []byte, mode os.FileMode, snapshot managedArtifactSnapshot) (string, error) {
 	action := "created"
 	if snapshot.exists {

@@ -1178,9 +1178,14 @@ explicitly with one recovery command. JSON always includes `success`; a partial
 failure also includes the retained partial-state fields and `error` before the
 command exits unsuccessfully. Merge-based installers revalidate the exact
 source bytes, filesystem identity, mode, size, and modification time immediately
-before publication, and refuse concurrent edits or replacements. Managed plugin/files refuse unrelated existing
-content unless `--force` is passed. The dedicated GitHub Copilot, OMP, and Pi paths
-never overwrite a foreign file, including with `--force`.
+before publication, and refuse concurrent edits or replacements. New generated
+data and executable artifacts start at `0644` and `0755`; reinstall preserves
+all existing read/write/execute bits and adds only owner execute when an
+executable artifact lacks it. Windows preserves the corresponding
+writable/read-only mode proxy because executable intent is host-selected rather
+than POSIX-mode-based. Managed plugin/files refuse unrelated existing content
+unless `--force` is passed. The dedicated GitHub Copilot, OMP, and Pi paths never
+overwrite a foreign file, including with `--force`.
 ZCode installs all seven native events: `SessionStart`, `UserPromptSubmit`,
 `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PostToolUseFailure`, and
 `Stop`. It uses direct process arguments, native millisecond timeouts, exit 2

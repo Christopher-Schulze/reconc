@@ -3574,6 +3574,11 @@ the exact authorized bytes, filesystem identity, mode, size, and modification
 time still match. The conditional writer rechecks the opened file immediately
 before rooted atomic replacement, so a concurrent edit or same-byte identity
 replacement fails closed and stays intact.
+New generated data and executable artifacts use `0644` and `0755`; existing
+artifacts retain all read/write/execute bits across unchanged and
+content-updating reinstalls. An executable artifact missing owner execute gains
+only `0100`. Windows retains the equivalent writable/read-only proxy because
+host dispatch, not POSIX execute bits, defines executable intent there.
 Hook-install JSON always exposes an explicit `success` boolean; partial failure
 also retains the partial report and emits its error without claiming success.
 

@@ -95,6 +95,31 @@ func TestManagedArtifactPublicationRejectsConcurrentEditsAndReplacement(t *testi
 	})
 }
 
+func TestManagedArtifactPublicationModePreservesExistingPermissions(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		current    os.FileMode
+		exists     bool
+		executable bool
+		want       os.FileMode
+	}{
+		{name: "new data artifact", want: 0o644},
+		{name: "new executable artifact", executable: true, want: 0o755},
+		{name: "strict data artifact", current: 0o600, exists: true, want: 0o600},
+		{name: "strict executable artifact", current: 0o700, exists: true, executable: true, want: 0o700},
+		{name: "missing owner execute", current: 0o600, exists: true, executable: true, want: 0o700},
+		{name: "data artifact never gains execute", current: 0o600, exists: true, want: 0o600},
+		{name: "preferred data mode unchanged", current: 0o644, exists: true, want: 0o644},
+		{name: "preferred executable mode unchanged", current: 0o755, exists: true, executable: true, want: 0o755},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := managedArtifactPublicationMode(test.current, test.exists, test.executable); got != test.want {
+				t.Fatalf("publication mode = %04o, want %04o", got, test.want)
+			}
+		})
+	}
+}
+
 func TestEveryInstallableKindRejectsStalePublicationSnapshot(t *testing.T) {
 	for _, kind := range InstallableKinds() {
 		t.Run(kind, func(t *testing.T) {
