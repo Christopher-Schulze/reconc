@@ -2836,6 +2836,11 @@ Action Ledger without creating missing state. Offline simulation and retained
 fixtures remain non-enforcement evidence; only explicitly routed gateway calls
 cross the live tool-call interception boundary.
 
+Public repository-comparison actions normalize repository-root references and
+redact every boundary-delimited POSIX, Windows drive, UNC, or file-URL
+absolute-path span before JSON publication, including multiple punctuated spans
+in one token.
+
 The upstream transport rejects duplicate request IDs, reserved correlation
 metadata, malformed tool parameters, and transform-size overflow with bounded
 request-local JSON-RPC errors, without forwarding those calls or terminating

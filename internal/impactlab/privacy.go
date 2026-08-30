@@ -219,20 +219,74 @@ func sanitizeActions(repoRoot string, actions []string) ([]string, int) {
 	for _, action := range actions {
 		action = strings.ReplaceAll(action, repoRoot, ".")
 		cleaned, count := sanitizeSensitiveText(action)
-		tokens := strings.Fields(cleaned)
-		for index, token := range tokens {
-			candidate := strings.Trim(token, `"'()[]{}<>,;:`)
-			windowsPath := len(candidate) >= 3 && candidate[1] == ':' &&
-				(candidate[2] == '\\' || candidate[2] == '/')
-			if strings.HasPrefix(candidate, "/") || windowsPath {
-				tokens[index] = strings.Replace(token, candidate, "<path>", 1)
-				count++
-			}
-		}
-		out = append(out, strings.Join(tokens, " "))
+		cleaned, pathRedactions := redactActionAbsolutePaths(cleaned)
+		count += pathRedactions
+		out = append(out, boundText(cleaned))
 		redactions += count
 	}
 	return out, redactions
+}
+
+func redactActionAbsolutePaths(value string) (string, int) {
+	var output strings.Builder
+	redactions := 0
+	for index := 0; index < len(value); {
+		if end, ok := actionFileURLPathEnd(value, index); ok {
+			output.WriteString("<path>")
+			redactions++
+			index = end
+			continue
+		}
+		if actionAbsolutePathStart(value, index) {
+			end := actionAbsolutePathEnd(value, index)
+			if end > index {
+				output.WriteString("<path>")
+				redactions++
+				index = end
+				continue
+			}
+		}
+		output.WriteByte(value[index])
+		index++
+	}
+	return output.String(), redactions
+}
+
+func actionFileURLPathEnd(value string, index int) (int, bool) {
+	const prefix = "file://"
+	if index+len(prefix) >= len(value) || !physicalPathBoundary(value, index) ||
+		!strings.EqualFold(value[index:index+len(prefix)], prefix) {
+		return 0, false
+	}
+	return actionAbsolutePathEnd(value, index+len(prefix)), true
+}
+
+func actionAbsolutePathStart(value string, index int) bool {
+	if !physicalPathBoundary(value, index) {
+		return false
+	}
+	if value[index] == '/' {
+		relativePath := index > 0 && value[index-1] == '.' && physicalPathBoundary(value, index-1)
+		urlSeparator := index+1 < len(value) && index > 0 && value[index-1] == ':' && value[index+1] == '/'
+		return !relativePath && !urlSeparator
+	}
+	if value[index] == '\\' {
+		return index+1 < len(value) && value[index+1] == '\\'
+	}
+	return index+2 < len(value) && isASCIIAlpha(value[index]) && value[index+1] == ':' &&
+		(value[index+2] == '\\' || value[index+2] == '/')
+}
+
+func actionAbsolutePathEnd(value string, index int) int {
+	for offset, character := range value[index:] {
+		position := index + offset
+		if character < 0x20 || unicode.IsSpace(character) ||
+			strings.ContainsRune(`"'`+"`"+`)]}>,;`, character) ||
+			character == ':' && !(position == index+1 && isASCIIAlpha(value[index])) {
+			return position
+		}
+	}
+	return len(value)
 }
 
 func validatePrivateInputs(inputs runtime.ExecutionInputs) error {

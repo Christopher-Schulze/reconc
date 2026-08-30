@@ -8,6 +8,7 @@
 
 ## Done
 
+- [x] 464 Redact every host path in public impact actions -> tasks/done/464-redact-every-host-path-in-public-impact-actions.md
 - [x] 463 Complete the native Windows final gate -> tasks/done/463-complete-the-native-windows-final-gate.md
 - [x] 462 Restore the Windows final gate -> tasks/done/462-restore-the-windows-final-gate.md
 - [x] 461 Keep self-host runtime contracts current -> tasks/done/461-keep-self-host-runtime-contracts-current.md
