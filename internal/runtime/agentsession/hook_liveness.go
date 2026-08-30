@@ -16,12 +16,19 @@ import (
 )
 
 const (
-	hookLivenessWriteInterval = 6 * time.Hour
-	maxHookLivenessBytes      = 256 * 1024
-	maxHookLivenessRuntimes   = 64
+	hookLivenessWriteInterval  = 6 * time.Hour
+	maxHookLivenessBytes       = 256 * 1024
+	maxHookLivenessMarkerBytes = 2 * 1024
+	maxHookObservationBytes    = 16 * 1024
+	maxHookLivenessRuntimes    = 64
 	// maxHookLivenessRoutes mirrors the read-side validation cap so the
 	// writer never persists a record the next read would reject.
 	maxHookLivenessRoutes = 32
+)
+
+const (
+	hookLivenessMarkerVersion   = "hook-liveness-marker-v2"
+	hookObservationStateVersion = "hook-observation-v1"
 )
 
 // HookLiveness is rate-limited proof that a runtime executed registry routes.
@@ -45,6 +52,23 @@ type HookObservation struct {
 	ExcludeFromContext bool   `json:"exclude_from_context"`
 }
 
+type hookLivenessMarker struct {
+	FormatVersion   string `json:"format_version"`
+	Runtime         string `json:"runtime"`
+	Event           string `json:"event"`
+	RouteSeen       string `json:"route_seen"`
+	StateGeneration string `json:"state_generation"`
+}
+
+type hookObservationState struct {
+	FormatVersion     string          `json:"format_version"`
+	Runtime           string          `json:"runtime"`
+	Event             string          `json:"event"`
+	RouteSeen         string          `json:"route_seen"`
+	PreviousRouteSeen string          `json:"previous_route_seen,omitempty"`
+	Observation       HookObservation `json:"observation"`
+}
+
 func hookLivenessPath(repoRoot string) string {
 	return filepath.Join(projectDir(repoRoot), "hook-liveness.json")
 }
@@ -57,8 +81,13 @@ func hookLivenessMarkerPath(repoRoot, runtime, event string) string {
 	return filepath.Join(projectDir(repoRoot), "hook-liveness", runtime, event+".seen")
 }
 
+func hookObservationPath(repoRoot, runtime, event string) string {
+	return filepath.Join(projectDir(repoRoot), "hook-observations", runtime, event+".json")
+}
+
 // RecordHookLiveness records at most one timestamp per runtime route every six
-// hours. A tiny route marker makes the common path one stat and zero writes.
+// hours. A bounded marker and stable state generation keep the common path
+// read-only without trusting a marker for a route that has been trimmed.
 func RecordHookLiveness(repoRoot, runtime, event string) error {
 	root, err := ResolveRepoRootRef(repoRoot)
 	if err != nil {
@@ -82,12 +111,11 @@ func RecordHookLivenessResolved(root ResolvedRepoRoot, runtime, event string) er
 }
 
 func recordHookLivenessAt(root, runtime, event string, now time.Time) error {
-	markerPath := hookLivenessMarkerPath(root, runtime, event)
-	if hookLivenessMarkerCurrent(root, markerPath, now) {
+	if hookLivenessMarkerCurrent(root, runtime, event, now) {
 		return nil
 	}
 	return withStateLock(hookLivenessLockPath(root), "hook liveness", func() error {
-		records, err := readHookLivenessResolved(root)
+		records, err := readHookLivenessBaseResolved(root)
 		if err != nil {
 			return err
 		}
@@ -101,29 +129,42 @@ func recordHookLivenessAt(root, runtime, event string, now time.Time) error {
 		if routeSeen := current.Routes[event]; routeSeen != "" {
 			lastSeen, parseErr := time.Parse(time.RFC3339Nano, routeSeen)
 			if parseErr == nil && !lastSeen.After(now) && now.Sub(lastSeen) < hookLivenessWriteInterval {
-				return writeHookLivenessMarker(markerPath, routeSeen, lastSeen)
+				return writeHookLivenessMarker(root, runtime, event, routeSeen, lastSeen)
 			}
 		}
 		current.Runtime = runtime
 		current.LastSeen = now.Format(time.RFC3339Nano)
 		current.Event = event
 		current.Routes[event] = current.LastSeen
-		trimHookLivenessRoutes(&current)
+		removed := trimHookLivenessRoutes(&current, event)
 		records[runtime] = current
 		if err := writeHookLivenessRecords(root, records); err != nil {
 			return err
 		}
-		return writeHookLivenessMarker(markerPath, current.LastSeen, now)
+		if err := removeHookLivenessRouteArtifacts(root, runtime, removed); err != nil {
+			return err
+		}
+		return writeHookLivenessMarker(root, runtime, event, current.LastSeen, now)
 	})
 }
 
-func hookLivenessMarkerCurrent(root, markerPath string, now time.Time) bool {
-	marker, err := os.Lstat(markerPath)
-	if err != nil || !marker.Mode().IsRegular() || marker.ModTime().After(now) || now.Sub(marker.ModTime()) >= hookLivenessWriteInterval {
+func hookLivenessMarkerCurrent(root, runtime, event string, now time.Time) bool {
+	markerPath := hookLivenessMarkerPath(root, runtime, event)
+	body, err := boundedio.ReadRegularFile(markerPath, maxHookLivenessMarkerBytes)
+	if err != nil {
 		return false
 	}
-	state, err := os.Lstat(hookLivenessPath(root))
-	return err == nil && state.Mode().IsRegular() && !state.ModTime().Before(marker.ModTime())
+	var marker hookLivenessMarker
+	if json.Unmarshal(body, &marker) != nil || marker.FormatVersion != hookLivenessMarkerVersion ||
+		marker.Runtime != runtime || marker.Event != event {
+		return false
+	}
+	routeSeen, err := time.Parse(time.RFC3339Nano, marker.RouteSeen)
+	if err != nil || routeSeen.After(now) || now.Sub(routeSeen) >= hookLivenessWriteInterval {
+		return false
+	}
+	generation, ok := hookLivenessStateGeneration(root)
+	return ok && generation == marker.StateGeneration
 }
 
 func recordHookObservationResolved(root, runtime, event, workingDirectory string, codeBytes int, excludeFromContext bool) error {
@@ -144,7 +185,7 @@ func recordHookObservationAt(root, runtime, event, workingDirectory string, code
 		return err
 	}
 	return withStateLock(hookLivenessLockPath(root), "hook liveness", func() error {
-		records, err := readHookLivenessResolved(root)
+		records, err := readHookLivenessBaseResolved(root)
 		if err != nil {
 			return err
 		}
@@ -155,11 +196,19 @@ func recordHookObservationAt(root, runtime, event, workingDirectory string, code
 				current.Routes[current.Event] = current.LastSeen
 			}
 		}
-		if current.Observations == nil {
-			current.Observations = map[string]HookObservation{}
-		}
 		timestamp := now.Format(time.RFC3339Nano)
-		observation := current.Observations[event]
+		routeSeen := current.Routes[event]
+		routeRecorded := routeSeen != ""
+		observation := HookObservation{}
+		if routeRecorded {
+			observation, _, err = readHookObservation(root, runtime, event, routeSeen)
+			if err != nil {
+				return err
+			}
+			if observation.Count == 0 {
+				observation = current.Observations[event]
+			}
+		}
 		if observation.Count < ^uint64(0) {
 			observation.Count++
 		}
@@ -167,17 +216,36 @@ func recordHookObservationAt(root, runtime, event, workingDirectory string, code
 		observation.WorkingDirectory = relativeDirectory
 		observation.CodeBytes = codeBytes
 		observation.ExcludeFromContext = excludeFromContext
-		current.Observations[event] = observation
-		current.Runtime = runtime
-		current.LastSeen = timestamp
-		current.Event = event
-		current.Routes[event] = timestamp
-		trimHookLivenessRoutes(&current)
-		records[runtime] = current
-		if err := writeHookLivenessRecords(root, records); err != nil {
-			return err
+		routeTime, parseErr := time.Parse(time.RFC3339Nano, routeSeen)
+		routeCurrent := parseErr == nil && !routeTime.After(now) && now.Sub(routeTime) < hookLivenessWriteInterval
+		if !routeCurrent {
+			previousRouteSeen := routeSeen
+			if routeRecorded {
+				if err := writeHookObservation(root, runtime, event, timestamp, previousRouteSeen, observation); err != nil {
+					return err
+				}
+			}
+			current.Runtime = runtime
+			current.LastSeen = timestamp
+			current.Event = event
+			current.Routes[event] = timestamp
+			removed := trimHookLivenessRoutes(&current, event)
+			records[runtime] = current
+			if err := writeHookLivenessRecords(root, records); err != nil {
+				return err
+			}
+			if err := removeHookLivenessRouteArtifacts(root, runtime, removed); err != nil {
+				return err
+			}
+			routeSeen = timestamp
+			routeTime = now
 		}
-		return writeHookLivenessMarker(hookLivenessMarkerPath(root, runtime, event), timestamp, now)
+		if !routeRecorded || routeCurrent {
+			if err := writeHookObservation(root, runtime, event, routeSeen, "", observation); err != nil {
+				return err
+			}
+		}
+		return writeHookLivenessMarker(root, runtime, event, routeSeen, routeTime)
 	})
 }
 
@@ -204,17 +272,23 @@ func relativeHookObservationDirectory(root, workingDirectory string) (string, er
 	return relative, nil
 }
 
-func trimHookLivenessRoutes(record *HookLiveness) {
+func trimHookLivenessRoutes(record *HookLiveness, preserveEvent string) []string {
+	var removed []string
 	for len(record.Routes) > maxHookLivenessRoutes {
 		oldestEvent, oldestSeen := "", ""
 		for routeEvent, seen := range record.Routes {
+			if routeEvent == preserveEvent {
+				continue
+			}
 			if oldestEvent == "" || seen < oldestSeen {
 				oldestEvent, oldestSeen = routeEvent, seen
 			}
 		}
 		delete(record.Routes, oldestEvent)
 		delete(record.Observations, oldestEvent)
+		removed = append(removed, oldestEvent)
 	}
+	return removed
 }
 
 func writeHookLivenessRecords(root string, records map[string]HookLiveness) error {
@@ -232,11 +306,29 @@ func writeHookLivenessRecords(root string, records map[string]HookLiveness) erro
 	return nil
 }
 
-func writeHookLivenessMarker(markerPath, timestamp string, modTime time.Time) error {
+func writeHookLivenessMarker(root, runtime, event, timestamp string, modTime time.Time) error {
+	markerPath := hookLivenessMarkerPath(root, runtime, event)
+	generation, ok := hookLivenessStateGeneration(root)
+	if !ok {
+		if err := os.Remove(markerPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove unverifiable hook-liveness marker: %w", err)
+		}
+		return nil
+	}
 	if err := os.MkdirAll(filepath.Dir(markerPath), 0o700); err != nil {
 		return fmt.Errorf("create hook-liveness marker directory: %w", err)
 	}
-	markerBody := []byte(timestamp + "\n")
+	markerBody, err := json.Marshal(hookLivenessMarker{
+		FormatVersion: hookLivenessMarkerVersion, Runtime: runtime, Event: event,
+		RouteSeen: timestamp, StateGeneration: generation,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal hook-liveness marker: %w", err)
+	}
+	markerBody = append(markerBody, '\n')
+	if len(markerBody) > maxHookLivenessMarkerBytes {
+		return fmt.Errorf("hook-liveness marker exceeds %d bytes", maxHookLivenessMarkerBytes)
+	}
 	if _, err := atomicfile.WritePrivateIfChanged(markerPath, markerBody, 0o600); err != nil {
 		return fmt.Errorf("write hook-liveness marker: %w", err)
 	}
@@ -244,6 +336,103 @@ func writeHookLivenessMarker(markerPath, timestamp string, modTime time.Time) er
 		return fmt.Errorf("timestamp hook-liveness marker: %w", err)
 	}
 	return nil
+}
+
+func hookLivenessStateGeneration(root string) (string, bool) {
+	path := hookLivenessPath(root)
+	before, err := os.Lstat(path)
+	if err != nil || before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
+		return "", false
+	}
+	generation, ok := stopPathMetadataGeneration(path, before)
+	if !ok {
+		return "", false
+	}
+	after, err := os.Lstat(path)
+	if err != nil || !os.SameFile(before, after) || before.Mode() != after.Mode() ||
+		before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) {
+		return "", false
+	}
+	afterGeneration, ok := stopPathMetadataGeneration(path, after)
+	return generation, ok && generation == afterGeneration
+}
+
+func removeHookLivenessRouteArtifacts(root, runtime string, events []string) error {
+	for _, event := range events {
+		if err := os.Remove(hookLivenessMarkerPath(root, runtime, event)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove trimmed hook-liveness marker: %w", err)
+		}
+		if err := os.Remove(hookObservationPath(root, runtime, event)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove trimmed hook observation: %w", err)
+		}
+	}
+	return nil
+}
+
+func writeHookObservation(root, runtime, event, routeSeen, previousRouteSeen string, observation HookObservation) error {
+	path := hookObservationPath(root, runtime, event)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create hook-observation directory: %w", err)
+	}
+	body, err := json.Marshal(hookObservationState{
+		FormatVersion:     hookObservationStateVersion,
+		Runtime:           runtime,
+		Event:             event,
+		RouteSeen:         routeSeen,
+		PreviousRouteSeen: previousRouteSeen,
+		Observation:       observation,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal hook observation: %w", err)
+	}
+	body = append(body, '\n')
+	if len(body) > maxHookObservationBytes {
+		return fmt.Errorf("hook observation exceeds %d bytes", maxHookObservationBytes)
+	}
+	if _, err := atomicfile.WritePrivateIfChanged(path, body, 0o600); err != nil {
+		return fmt.Errorf("write hook observation: %w", err)
+	}
+	return nil
+}
+
+func readHookObservation(root, runtime, event, routeSeen string) (HookObservation, bool, error) {
+	body, err := boundedio.ReadRegularFile(hookObservationPath(root, runtime, event), maxHookObservationBytes)
+	if errors.Is(err, os.ErrNotExist) {
+		return HookObservation{}, false, nil
+	}
+	if err != nil {
+		return HookObservation{}, false, fmt.Errorf("read hook observation: %w", err)
+	}
+	var state hookObservationState
+	if err := json.Unmarshal(body, &state); err != nil {
+		return HookObservation{}, false, fmt.Errorf("parse hook observation: %w", err)
+	}
+	if state.FormatVersion != hookObservationStateVersion || state.Runtime != runtime || state.Event != event ||
+		!validHookObservation(state.Observation) {
+		return HookObservation{}, false, fmt.Errorf("invalid hook observation for %q route %q", runtime, event)
+	}
+	if state.RouteSeen != routeSeen && state.PreviousRouteSeen != routeSeen {
+		return HookObservation{}, false, nil
+	}
+	if _, err := time.Parse(time.RFC3339Nano, state.RouteSeen); err != nil {
+		return HookObservation{}, false, fmt.Errorf("invalid hook-observation route timestamp for %q route %q", runtime, event)
+	}
+	if state.PreviousRouteSeen != "" {
+		if _, err := time.Parse(time.RFC3339Nano, state.PreviousRouteSeen); err != nil {
+			return HookObservation{}, false, fmt.Errorf("invalid previous hook-observation route timestamp for %q route %q", runtime, event)
+		}
+	}
+	return state.Observation, true, nil
+}
+
+func validHookObservation(observation HookObservation) bool {
+	if observation.Count == 0 || observation.CodeBytes < 0 || observation.WorkingDirectory == "" ||
+		len(observation.WorkingDirectory) > maxPathBytes || pathidentity.Rooted(observation.WorkingDirectory) ||
+		pathidentity.EscapesLexically(observation.WorkingDirectory) {
+		return false
+	}
+	_, err := time.Parse(time.RFC3339Nano, observation.LastSeen)
+	return err == nil
 }
 
 func validLivenessComponent(value string) bool {
@@ -269,6 +458,34 @@ func ReadHookLiveness(repoRoot string) (map[string]HookLiveness, error) {
 }
 
 func readHookLivenessResolved(root string) (map[string]HookLiveness, error) {
+	records, err := readHookLivenessBaseResolved(root)
+	if err != nil {
+		return nil, err
+	}
+	for runtime, record := range records {
+		for event := range record.Routes {
+			observation, exists, err := readHookObservation(root, runtime, event, record.Routes[event])
+			if err != nil {
+				return nil, err
+			}
+			if !exists {
+				continue
+			}
+			if record.Observations == nil {
+				record.Observations = map[string]HookObservation{}
+			}
+			record.Observations[event] = observation
+			if observation.LastSeen > record.LastSeen {
+				record.LastSeen = observation.LastSeen
+				record.Event = event
+			}
+		}
+		records[runtime] = record
+	}
+	return records, nil
+}
+
+func readHookLivenessBaseResolved(root string) (map[string]HookLiveness, error) {
 	records := map[string]HookLiveness{}
 	body, err := boundedio.ReadRegularFile(hookLivenessPath(root), maxHookLivenessBytes)
 	if os.IsNotExist(err) {
@@ -308,13 +525,8 @@ func readHookLivenessResolved(root string) (map[string]HookLiveness, error) {
 			return nil, fmt.Errorf("hook observations exceed %d routes for %q", maxHookLivenessRoutes, key)
 		}
 		for route, observation := range record.Observations {
-			if !validLivenessComponent(route) || observation.Count == 0 || observation.CodeBytes < 0 ||
-				observation.WorkingDirectory == "" || len(observation.WorkingDirectory) > maxPathBytes ||
-				pathidentity.Rooted(observation.WorkingDirectory) || pathidentity.EscapesLexically(observation.WorkingDirectory) {
+			if !validLivenessComponent(route) || !validHookObservation(observation) {
 				return nil, fmt.Errorf("invalid hook observation for %q route %q", key, route)
-			}
-			if _, err := time.Parse(time.RFC3339Nano, observation.LastSeen); err != nil {
-				return nil, fmt.Errorf("invalid hook observation timestamp for %q route %q", key, route)
 			}
 			if _, exists := record.Routes[route]; !exists {
 				return nil, fmt.Errorf("hook observation for %q route %q has no liveness route", key, route)

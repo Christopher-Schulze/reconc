@@ -3491,7 +3491,11 @@ different facts. Reconc uses these terms consistently:
 complete artifact coverage, and live truth separate. Its `observations` map
 exposes only bounded, source-free metadata for observational routes; OMP
 `user_python` reports count, latest timestamp, repository-relative working
-directory, code byte size, and context-exclusion flag. `reconc hook verify`
+directory, code byte size, and context-exclusion flag. Route markers bind the
+exact liveness-state generation that still contains their route. Bounded
+per-route observation files update high-frequency metadata without rewriting
+unrelated liveness state; route trimming removes their marker and observation
+file, and orphan observation files are never surfaced. `reconc hook verify`
 owns the same registry-derived matrix. Its default offline mode creates a
 disposable repository and separately verifies artifact generation,
 configuration, generated wrapper or Bun-adapter transport, a real synthetic
