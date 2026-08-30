@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -86,8 +87,70 @@ func TestAgentMemoryWritePathRefusesSymlinkedMemoryEscape(t *testing.T) {
 		}
 		t.Fatal(err)
 	}
-	if agentMemoryWritePath(repo, filepath.Join(project, "memory", "MEMORY.md")) {
+	memoryPath := filepath.Join(project, "memory", "MEMORY.md")
+	if agentMemoryWritePath(repo, memoryPath) {
 		t.Fatal("symlinked memory dir must not bypass the write policy")
+	}
+	matcherLoads := 0
+	got := filterAgentMemoryPaths(filepath.Join(home, ".claude", "projects"), []string{memoryPath}, func() claudeProjectKeyMatcher {
+		matcherLoads++
+		return expectedClaudeProjectKeys(repo)
+	})
+	if len(got) != 1 || got[0] != memoryPath || matcherLoads != 0 {
+		t.Fatalf("symlink escape filter=%q matcher loads=%d, want unchanged path and no identity lookup", got, matcherLoads)
+	}
+}
+
+func TestAgentMemoryPathPreflightDefersCommonDirDiscovery(t *testing.T) {
+	home := setTestHome(t)
+	projectsRoot := filepath.Join(home, ".claude", "projects")
+	primary := filepath.Join(home, "workspace", "primary")
+	worktree := filepath.Join(home, "workspace", "worktree")
+	for _, path := range []string{projectsRoot, primary, worktree} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: ../primary/.git/worktrees/worktree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	commonDirCalls := 0
+	matcherLoads := 0
+	loadMatcher := func() claudeProjectKeyMatcher {
+		matcherLoads++
+		return expectedClaudeProjectKeysWithCommonDir(worktree, func(string) (string, bool) {
+			commonDirCalls++
+			return filepath.Join(primary, ".git"), true
+		})
+	}
+	ordinary := []string{"src/file.go", filepath.Join(worktree, "README.md"), filepath.Join(home, "notes.md")}
+	if got := filterAgentMemoryPaths(projectsRoot, ordinary, loadMatcher); strings.Join(got, "\x00") != strings.Join(ordinary, "\x00") {
+		t.Fatalf("ordinary paths changed: got=%q want=%q", got, ordinary)
+	}
+	if matcherLoads != 0 || commonDirCalls != 0 {
+		t.Fatalf("ordinary paths loaded matcher=%d common-dir=%d, want zero", matcherLoads, commonDirCalls)
+	}
+
+	primaryMemory := filepath.Join(projectsRoot, claudeProjectKey(primary), "memory")
+	worktreeMemory := filepath.Join(projectsRoot, claudeProjectKey(worktree), "memory")
+	otherMemory := filepath.Join(projectsRoot, claudeProjectKey(filepath.Join(home, "other")), "memory")
+	for _, path := range []string{primaryMemory, worktreeMemory, otherMemory} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	otherFile := filepath.Join(otherMemory, "MEMORY.md")
+	got := filterAgentMemoryPaths(projectsRoot, []string{
+		filepath.Join(primaryMemory, "MEMORY.md"),
+		filepath.Join(worktreeMemory, "MEMORY.md"),
+		otherFile,
+	}, loadMatcher)
+	if len(got) != 1 || got[0] != otherFile {
+		t.Fatalf("worktree/common-dir filtering = %q, want only %q", got, otherFile)
+	}
+	if matcherLoads != 1 || commonDirCalls != 1 {
+		t.Fatalf("candidate paths loaded matcher=%d common-dir=%d, want exactly once", matcherLoads, commonDirCalls)
 	}
 }
 
@@ -136,4 +199,57 @@ func TestAgentMemoryWritePathHonorsClaudeConfigDir(t *testing.T) {
 	if !agentMemoryWritePath(repo, memoryFile) {
 		t.Fatalf("current project memory under CLAUDE_CONFIG_DIR must be allowed: %s", memoryFile)
 	}
+}
+
+var benchmarkAgentMemoryPaths []string
+
+func BenchmarkAgentMemoryPathPreflight(b *testing.B) {
+	root := b.TempDir()
+	projectsRoot := filepath.Join(root, "claude", "projects")
+	repo := filepath.Join(root, "worktree")
+	if err := os.MkdirAll(projectsRoot, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".git"), []byte("gitdir: ../missing\n"), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	paths := []string{"src/file.go", "docs/documentation.md", filepath.Join(repo, "README.md")}
+
+	b.Run("preflight", func(b *testing.B) {
+		gitInvocations := 0
+		b.ReportAllocs()
+		b.ResetTimer()
+		for range b.N {
+			benchmarkAgentMemoryPaths = filterAgentMemoryPaths(projectsRoot, paths, func() claudeProjectKeyMatcher {
+				return expectedClaudeProjectKeysWithCommonDir(repo, func(root string) (string, bool) {
+					gitInvocations++
+					return resolveGitCommonDir(root)
+				})
+			})
+		}
+		b.ReportMetric(float64(gitInvocations)/float64(b.N), "git-invocations/op")
+	})
+
+	b.Run("eager-baseline", func(b *testing.B) {
+		gitInvocations := 0
+		b.ReportAllocs()
+		b.ResetTimer()
+		for range b.N {
+			matcher := expectedClaudeProjectKeysWithCommonDir(repo, func(root string) (string, bool) {
+				gitInvocations++
+				return resolveGitCommonDir(root)
+			})
+			out := make([]string, 0, len(paths))
+			for _, path := range paths {
+				if !agentMemoryWritePathInProjects(projectsRoot, matcher, path) {
+					out = append(out, path)
+				}
+			}
+			benchmarkAgentMemoryPaths = out
+		}
+		b.ReportMetric(float64(gitInvocations)/float64(b.N), "git-invocations/op")
+	})
 }

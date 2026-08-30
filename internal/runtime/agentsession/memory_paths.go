@@ -30,24 +30,28 @@ func agentMemoryWritePath(repoRoot, raw string) bool {
 		return false
 	}
 	projectsRoot := filepath.Join(configRoot, "projects")
-	return agentMemoryWritePathInProjects(projectsRoot, expectedClaudeProjectKeys(repoRoot), raw)
+	projectKey, ok := agentMemoryProjectKeyInProjects(projectsRoot, raw)
+	return ok && expectedClaudeProjectKeys(repoRoot).allows(projectKey)
 }
 
 func agentMemoryWritePathInProjects(projectsRoot string, allowedProjectKeys claudeProjectKeyMatcher, raw string) bool {
-	path := raw
-	if path == "" || !filepath.IsAbs(path) {
-		return false
+	projectKey, ok := agentMemoryProjectKeyInProjects(projectsRoot, raw)
+	return ok && allowedProjectKeys.allows(projectKey)
+}
+
+func agentMemoryProjectKeyInProjects(projectsRoot, raw string) (string, bool) {
+	if raw == "" || !filepath.IsAbs(raw) {
+		return "", false
 	}
 	resolvedRoot, err := pathidentity.ResolveExisting(projectsRoot)
 	if err != nil {
-		return false
+		return "", false
 	}
-	resolved, err := pathidentity.ResolveProspective(filepath.Clean(path))
+	resolved, err := pathidentity.ResolveProspective(filepath.Clean(raw))
 	if err != nil {
-		return false
+		return "", false
 	}
-	projectKey, ok := agentMemoryProjectKey(resolvedRoot, resolved)
-	return ok && allowedProjectKeys.allows(projectKey)
+	return agentMemoryProjectKey(resolvedRoot, resolved)
 }
 
 func claudeConfigRoot() (string, bool) {
@@ -120,6 +124,10 @@ func (matcher *claudeProjectKeyMatcher) addRoot(root string) {
 }
 
 func expectedClaudeProjectKeys(repoRoot string) claudeProjectKeyMatcher {
+	return expectedClaudeProjectKeysWithCommonDir(repoRoot, resolveGitCommonDir)
+}
+
+func expectedClaudeProjectKeysWithCommonDir(repoRoot string, commonDirFor func(string) (string, bool)) claudeProjectKeyMatcher {
 	matcher := claudeProjectKeyMatcher{exact: map[string]bool{}}
 	if root, err := filepath.Abs(repoRoot); err == nil {
 		matcher.addRoot(root)
@@ -130,11 +138,8 @@ func expectedClaudeProjectKeys(repoRoot string) claudeProjectKeyMatcher {
 	// Claude shares project memory across Git worktrees. The common Git
 	// directory identifies the primary worktree without allowing any unrelated
 	// ~/.claude/projects entry.
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	command := gitexec.CommandContext(ctx, repoRoot, nil, "rev-parse", "--git-common-dir")
-	if output, err := boundedexec.Output(command, maxGitControlFileBytes); err == nil {
-		common := filepath.Clean(strings.TrimSpace(string(output)))
+	if common, ok := commonDirFor(repoRoot); ok {
+		common = filepath.Clean(common)
 		if !filepath.IsAbs(common) {
 			common = filepath.Join(repoRoot, common)
 		}
@@ -143,6 +148,17 @@ func expectedClaudeProjectKeys(repoRoot string) claudeProjectKeyMatcher {
 		}
 	}
 	return matcher
+}
+
+func resolveGitCommonDir(repoRoot string) (string, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	command := gitexec.CommandContext(ctx, repoRoot, nil, "rev-parse", "--git-common-dir")
+	output, err := boundedexec.Output(command, maxGitControlFileBytes)
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(output)), true
 }
 
 func addClaudeProjectKey(keys map[string]bool, root string) {
@@ -177,10 +193,26 @@ func withoutAgentMemoryPaths(repoRoot string, paths []string) []string {
 		return append([]string(nil), paths...)
 	}
 	projectsRoot := filepath.Join(configRoot, "projects")
-	allowedProjectKeys := expectedClaudeProjectKeys(repoRoot)
+	return filterAgentMemoryPaths(projectsRoot, paths, func() claudeProjectKeyMatcher {
+		return expectedClaudeProjectKeys(repoRoot)
+	})
+}
+
+func filterAgentMemoryPaths(projectsRoot string, paths []string, loadProjectKeys func() claudeProjectKeyMatcher) []string {
 	out := make([]string, 0, len(paths))
+	var allowedProjectKeys claudeProjectKeyMatcher
+	loadedProjectKeys := false
 	for _, path := range paths {
-		if agentMemoryWritePathInProjects(projectsRoot, allowedProjectKeys, path) {
+		projectKey, candidate := agentMemoryProjectKeyInProjects(projectsRoot, path)
+		if !candidate {
+			out = append(out, path)
+			continue
+		}
+		if !loadedProjectKeys {
+			allowedProjectKeys = loadProjectKeys()
+			loadedProjectKeys = true
+		}
+		if allowedProjectKeys.allows(projectKey) {
 			continue
 		}
 		out = append(out, path)
