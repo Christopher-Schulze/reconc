@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"reconc.dev/reconc/internal/filelock"
+	"reconc.dev/reconc/internal/repositorycontrol"
 )
 
 // CompileLockRelativePath is where the advisory compile lock lives.
@@ -35,14 +36,9 @@ func AcquireCompileLock(repoRoot string) (release func() error, err error) {
 	closeRepository := func(cause error) error {
 		return errors.Join(cause, repository.Close())
 	}
-	if err := repository.Mkdir(".reconc", 0o755); err != nil && !errors.Is(err, os.ErrExist) {
+	directoryInfo, _, err := repositorycontrol.EnsurePublicDirectory(repository, repositorycontrol.RootName)
+	if err != nil {
 		return nil, closeRepository(fmt.Errorf("create compile lock directory: %w", err))
-	}
-	directoryInfo, err := repository.Lstat(".reconc")
-	if err != nil || directoryInfo.Mode()&os.ModeSymlink != 0 || !directoryInfo.IsDir() {
-		return nil, closeRepository(errors.Join(
-			fmt.Errorf("compile lock parent must be a non-symlink directory"), err,
-		))
 	}
 	directory, err := repository.OpenRoot(".reconc")
 	if err != nil {
@@ -61,6 +57,7 @@ func AcquireCompileLock(repoRoot string) (release func() error, err error) {
 		))
 	}
 	lockName := filepath.Base(CompileLockRelativePath)
+	lockMode := repositorycontrol.CoordinationFileMode(directoryInfo)
 	before, err := directory.Lstat(lockName)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, closeRoots(fmt.Errorf("inspect compile lock: %w", err))
@@ -71,7 +68,7 @@ func AcquireCompileLock(repoRoot string) (release func() error, err error) {
 	if errors.Is(err, os.ErrNotExist) {
 		before = nil
 	}
-	file, err := openCompileLockFile(directory, lockName, before)
+	file, err := openCompileLockFile(directory, lockName, before, lockMode)
 	if err != nil {
 		return nil, closeRoots(err)
 	}
@@ -93,12 +90,12 @@ func AcquireCompileLock(repoRoot string) (release func() error, err error) {
 	}, nil
 }
 
-func openCompileLockFile(directory *os.Root, name string, before os.FileInfo) (*os.File, error) {
+func openCompileLockFile(directory *os.Root, name string, before os.FileInfo, createMode os.FileMode) (*os.File, error) {
 	flags := os.O_RDWR
 	if before == nil {
 		flags |= os.O_CREATE | os.O_EXCL
 	}
-	file, err := directory.OpenFile(name, flags, 0o600)
+	file, err := directory.OpenFile(name, flags, createMode)
 	if before == nil && errors.Is(err, os.ErrExist) {
 		before, err = directory.Lstat(name)
 		if err == nil && (before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular()) {
@@ -110,6 +107,11 @@ func openCompileLockFile(directory *os.Root, name string, before os.FileInfo) (*
 	}
 	if err != nil {
 		return nil, fmt.Errorf("open compile lock: %w", err)
+	}
+	if before == nil {
+		if err := file.Chmod(createMode); err != nil {
+			return nil, errors.Join(fmt.Errorf("secure compile lock mode: %w", err), file.Close())
+		}
 	}
 	opened, statErr := file.Stat()
 	current, lstatErr := directory.Lstat(name)

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 )
 
 // ErrCurrentChanged reports that a conditional publication target no longer
@@ -27,13 +28,30 @@ type ExpectedCurrent struct {
 // WriteIfChanged atomically replaces path with data only when its current
 // bytes differ and reports the exact publication boundary reached.
 func WriteIfChanged(path string, data []byte, mode os.FileMode) (PublicationResult, error) {
-	return writeIfChanged(path, data, mode, PublicParentMode)
+	return writeIfChanged(path, data, mode, PublicParentMode, nil)
 }
 
 // WritePrivateIfChanged is WriteIfChanged with private permissions for every
 // parent directory that must be created.
 func WritePrivateIfChanged(path string, data []byte, mode os.FileMode) (PublicationResult, error) {
-	return writeIfChanged(path, data, mode, PrivateParentMode)
+	return writeIfChanged(path, data, mode, PrivateParentMode, nil)
+}
+
+// WritePreparedIfChanged is WriteIfChanged with a caller-owned preparation
+// step applied to an existing target before comparison and to a temporary file
+// before any payload bytes are written. Preparation must preserve the regular
+// file identity at path. It lets platform-native security descriptors be
+// installed before atomic publication into a shared parent directory.
+func WritePreparedIfChanged(
+	path string,
+	data []byte,
+	mode os.FileMode,
+	prepare func(string) error,
+) (PublicationResult, error) {
+	if prepare == nil {
+		return PublicationResult{}, errors.New("publication preparation callback is required")
+	}
+	return writeIfChanged(path, data, mode, PublicParentMode, prepare)
 }
 
 // WriteIfCurrent publishes data only while path still has the exact bytes,
@@ -186,7 +204,12 @@ func SecureExistingIfMatches(path string, data []byte, mode os.FileMode) (matche
 	return true, nil
 }
 
-func writeIfChanged(path string, data []byte, mode, parentMode os.FileMode) (result PublicationResult, err error) {
+func writeIfChanged(
+	path string,
+	data []byte,
+	mode, parentMode os.FileMode,
+	prepare func(string) error,
+) (result PublicationResult, err error) {
 	parent, name, err := bindParent(path, parentMode)
 	if err != nil {
 		return PublicationResult{}, err
@@ -198,6 +221,15 @@ func writeIfChanged(path string, data []byte, mode, parentMode os.FileMode) (res
 		return PublicationResult{}, err
 	}
 	if currentFile != nil {
+		if prepare != nil {
+			if err := prepare(path); err != nil {
+				return PublicationResult{}, errors.Join(fmt.Errorf("prepare current %s: %w", path, err), currentFile.Close())
+			}
+			currentInfo, err = validatePreparedFile(directory, name, currentFile, currentInfo)
+			if err != nil {
+				return PublicationResult{}, errors.Join(fmt.Errorf("validate prepared current %s: %w", path, err), currentFile.Close())
+			}
+		}
 		identical, compareErr := compareCurrent(directory, name, path, currentFile, currentInfo, data)
 		if compareErr != nil {
 			return PublicationResult{}, compareErr
@@ -245,6 +277,15 @@ func writeIfChanged(path string, data []byte, mode, parentMode os.FileMode) (res
 	if err := tmpFile.Chmod(mode); err != nil {
 		return PublicationResult{}, errors.Join(fmt.Errorf("chmod temp for %s: %w", path, err), cleanup())
 	}
+	if prepare != nil {
+		temporaryPath := filepath.Join(filepath.Dir(path), tmp)
+		if err := prepare(temporaryPath); err != nil {
+			return PublicationResult{}, errors.Join(fmt.Errorf("prepare temp for %s: %w", path, err), cleanup())
+		}
+		if _, err := validatePreparedFile(directory, tmp, tmpFile, nil); err != nil {
+			return PublicationResult{}, errors.Join(fmt.Errorf("validate prepared temp for %s: %w", path, err), cleanup())
+		}
+	}
 	if _, err := tmpFile.Write(data); err != nil {
 		return PublicationResult{}, errors.Join(fmt.Errorf("write temp for %s: %w", path, err), cleanup())
 	}
@@ -281,6 +322,18 @@ func writeIfChanged(path string, data []byte, mode, parentMode os.FileMode) (res
 	}
 	result.markDurable()
 	return result, nil
+}
+
+func validatePreparedFile(directory *os.Root, name string, file *os.File, expected os.FileInfo) (os.FileInfo, error) {
+	opened, statErr := file.Stat()
+	current, lstatErr := directory.Lstat(name)
+	if statErr != nil || lstatErr != nil || opened == nil || current == nil ||
+		!opened.Mode().IsRegular() || current.Mode()&os.ModeSymlink != 0 ||
+		!current.Mode().IsRegular() || !os.SameFile(opened, current) ||
+		expected != nil && !os.SameFile(expected, opened) {
+		return nil, errors.Join(errors.New("prepared publication file changed identity"), statErr, lstatErr)
+	}
+	return opened, nil
 }
 
 func replaceTemporary(directory *os.Root, temporary, target string) error {

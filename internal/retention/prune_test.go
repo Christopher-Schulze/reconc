@@ -136,7 +136,7 @@ func TestRunCoversLogsBinariesAndOwnedTemp(t *testing.T) {
 		if index > 0 {
 			path = fmt.Sprintf("%s.%d", runDecisions, index)
 		}
-		writeTimed(t, path, repeatedJSONL(80), now.Add(-2*time.Hour))
+		writePrivateTimed(t, path, repeatedJSONL(80), now.Add(-2*time.Hour))
 	}
 	cache := filepath.Join(repo, ".reconc", "cache")
 	for index := 0; index < 3; index++ {
@@ -509,6 +509,25 @@ func writeTimed(t *testing.T, path string, body []byte, modTime time.Time) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, modTime, modTime); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writePrivateTimed(t *testing.T, path string, body []byte, modTime time.Time) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(path, modTime, modTime); err != nil {

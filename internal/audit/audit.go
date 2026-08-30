@@ -31,8 +31,8 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
-	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/jsonl"
 	"reconc.dev/reconc/internal/privatefs"
 )
@@ -934,7 +934,9 @@ func writeChainHeadValue(repoRoot string, head chainHead) error {
 		return fmt.Errorf("audit: marshal detached head: %w", err)
 	}
 	body = append(body, '\n')
-	if _, err := privatefs.WritePrivateIfChanged(filepath.Join(repoRoot, AuditHeadRelative), body, 0o600); err != nil {
+	if _, err := atomicfile.WritePreparedIfChanged(
+		filepath.Join(repoRoot, AuditHeadRelative), body, 0o600, secureAuditPublication,
+	); err != nil {
 		return fmt.Errorf("audit: write detached head: %w", err)
 	}
 	return nil
@@ -945,24 +947,17 @@ func withAuditLock(repoRoot string, fn func() error) error {
 	if err != nil {
 		return err
 	}
-	lock, err := privatefs.OpenLock(layout.LockPath)
+	return jsonl.ReadSnapshotContextWithLayout(
+		context.Background(), filepath.Join(repoRoot, AuditFileRelative), layout, nil, fn,
+	)
+}
+
+func secureAuditPublication(path string) error {
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
 		return err
 	}
-	defer lock.Close()
-	unlock, err := filelock.LockContext(context.Background(), lock, layout.LockTimeout)
-	if err != nil {
-		return err
-	}
-	fnErr := fn()
-	unlockErr := unlock()
-	if fnErr != nil {
-		return fnErr
-	}
-	if unlockErr != nil {
-		return fmt.Errorf("audit: unlock: %w", unlockErr)
-	}
-	return nil
+	return errors.Join(privatefs.SecureFile(file), file.Close())
 }
 
 func normalizeEntry(entry Entry) Entry {

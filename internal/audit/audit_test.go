@@ -151,6 +151,9 @@ func TestTailRecoversPublishedAuditTransaction(t *testing.T) {
 
 func TestRecoverPendingAppendDoesNotFallbackForLookalikeError(t *testing.T) {
 	repo := filepath.Join(t.TempDir(), "belongs to a different layout")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(repo, AuditFileRelative)
 	layout, err := prepareAuditLayout(repo)
 	if err != nil {

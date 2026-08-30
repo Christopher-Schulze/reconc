@@ -266,7 +266,7 @@ func validateLayoutDirectory(path string, layout Layout) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return fmt.Errorf("jsonl parent must be a non-symlink directory: %s", directory)
 	}
-	if !layoutIsDefault(path, layout) && runtime.GOOS != "windows" &&
+	if !layoutIsDefault(path, layout) && layout.Security == nil && runtime.GOOS != "windows" &&
 		info.Mode().Perm() != layout.DirectoryMode.Perm() {
 		return fmt.Errorf(
 			"jsonl parent has mode %o; want %o", info.Mode().Perm(), layout.DirectoryMode.Perm(),

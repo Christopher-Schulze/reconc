@@ -193,7 +193,7 @@ func TestRepositoryRunStoreIgnoresRemovedRunloopPath(t *testing.T) {
 func TestRepositoryRunStoreRejectsOversizedState(t *testing.T) {
 	repo := t.TempDir()
 	path := filepath.Join(repo, ".reconc", "run", "state.bin")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, make([]byte, repositoryRunSlotSize*2+1), 0o600); err != nil {
@@ -239,7 +239,7 @@ func TestRepositoryRunStateRejectsForeignRootAndResetPreservesLog(t *testing.T) 
 	}
 	sourcePath, _ := repositoryRunStatePath(source)
 	targetPath, _ := repositoryRunStatePath(target)
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	body, err := os.ReadFile(sourcePath)
@@ -274,10 +274,10 @@ func TestRepositoryRunStateRejectsForeignRootAndResetPreservesLog(t *testing.T) 
 func TestRepositoryRunResetRecoversFullyCorruptState(t *testing.T) {
 	repo := t.TempDir()
 	path := filepath.Join(repo, ".reconc", "run", "state.bin")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("both slots are corrupt"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("both slots are corrupt"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadRepositoryRunStatus(repo); err == nil || !strings.Contains(err.Error(), "run reset") {
@@ -307,7 +307,7 @@ func TestRepositoryRunResetRejectsSymlinkedStateWithoutTouchingTarget(t *testing
 		t.Fatal(err)
 	}
 	path := filepath.Join(repo, ".reconc", "run", "state.bin")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(victim, path); err != nil {

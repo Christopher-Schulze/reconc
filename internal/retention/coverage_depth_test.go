@@ -22,6 +22,10 @@ func TestRepositoryRuntimeBudgetRemovesOldestInactiveOwnedArtifacts(t *testing.T
 		auditArchive: "audit-archive", current: "current",
 		decisionArchive: "decision-archive",
 	} {
+		if path == decisionArchive {
+			writePrivateTimed(t, path, []byte(body), now.Add(-4*time.Hour))
+			continue
+		}
 		writeTimed(t, path, []byte(body), now.Add(-4*time.Hour))
 	}
 	writeTimed(t, activeBinary+".build.lock", nil, now)
@@ -72,7 +76,7 @@ func TestRepositoryRuntimeBudgetNeverRemovesAuditArchives(t *testing.T) {
 	auditArchive := filepath.Join(repo, ".reconc", "audit.jsonl.1")
 	decisionArchive := filepath.Join(repo, ".reconc", "run", "decisions.jsonl.1")
 	writeTimed(t, auditArchive, []byte("audit-archive"), now.Add(-4*time.Hour))
-	writeTimed(t, decisionArchive, []byte("decision-archive"), now.Add(-3*time.Hour))
+	writePrivateTimed(t, decisionArchive, []byte("decision-archive"), now.Add(-3*time.Hour))
 	policy := DefaultPolicy()
 	policy.RepoRuntimeBytes = 0
 	report := Report{}

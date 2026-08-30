@@ -12,9 +12,10 @@ import (
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/jsonl"
 	"reconc.dev/reconc/internal/privatefs"
+	"reconc.dev/reconc/internal/repositorycontrol"
 )
 
-const auditDirectoryMode os.FileMode = 0o700
+const auditDirectoryMode os.FileMode = repositorycontrol.PublicDirectoryMode
 
 type auditLayoutSecurity struct {
 	lockPath string
@@ -23,22 +24,19 @@ type auditLayoutSecurity struct {
 func (auditLayoutSecurity) JSONLSecurityIdentity() string { return "reconc-audit-private-jsonl-v1" }
 
 func (security auditLayoutSecurity) ValidateJSONLDirectory(path string) error {
-	return privatefs.ValidateDirectory(path)
+	return repositorycontrol.ValidateRoot(path)
 }
 
 func (security auditLayoutSecurity) SecureJSONLFile(path string) error {
-	if path == security.lockPath {
-		file, err := privatefs.OpenExistingLock(path)
-		if err != nil {
-			return err
-		}
-		return file.Close()
-	}
-	file, err := privatefs.OpenExistingPrivateFile(path)
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
 		return err
 	}
-	return file.Close()
+	secure := privatefs.SecureFileAllowLinks
+	if path == security.lockPath {
+		secure = privatefs.SecureFile
+	}
+	return errors.Join(secure(file), file.Close())
 }
 
 func (security auditLayoutSecurity) ValidateJSONLFile(path string, maximum int64) error {
@@ -165,20 +163,8 @@ func prepareAuditLayout(repoRoot string) (jsonl.Layout, error) {
 		}
 		preparedAuditDirectories.Delete(directory)
 	}
-	if info, err := os.Lstat(directory); errors.Is(err, os.ErrNotExist) {
-		if err := privatefs.RepairDirectory(directory); err != nil {
-			return jsonl.Layout{}, fmt.Errorf("secure audit directory: %w", err)
-		}
-	} else if err != nil {
-		return jsonl.Layout{}, fmt.Errorf("inspect audit directory: %w", err)
-	} else if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return jsonl.Layout{}, fmt.Errorf("audit directory must be a non-symlink directory")
-	} else if info.Mode().Perm() == auditDirectoryMode.Perm() {
-		if err := privatefs.ValidateDirectory(directory); err != nil {
-			return jsonl.Layout{}, fmt.Errorf("validate audit directory: %w", err)
-		}
-	} else if err := privatefs.RepairDirectory(directory); err != nil {
-		return jsonl.Layout{}, fmt.Errorf("migrate audit directory: %w", err)
+	if err := repositorycontrol.EnsureRoot(repoRoot); err != nil {
+		return jsonl.Layout{}, fmt.Errorf("prepare audit control root: %w", err)
 	}
 	for _, candidate := range auditLayoutFiles(path, layout) {
 		if err := migrateAuditFile(candidate, candidate == layout.LockPath); err != nil {
@@ -191,20 +177,11 @@ func prepareAuditLayout(repoRoot string) (jsonl.Layout, error) {
 
 func refreshPreparedAuditLayout(path string, layout jsonl.Layout) (bool, error) {
 	directory := filepath.Dir(path)
-	info, err := os.Lstat(directory)
-	if errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(directory); errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
-	if err != nil {
-		return false, fmt.Errorf("inspect audit directory: %w", err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return false, fmt.Errorf("audit directory must be a non-symlink directory")
-	}
-	if info.Mode().Perm() != auditDirectoryMode.Perm() {
-		if err := privatefs.RepairDirectory(directory); err != nil {
-			return false, fmt.Errorf("migrate audit directory: %w", err)
-		}
+	if err := repositorycontrol.ValidateRoot(directory); err != nil {
+		return false, fmt.Errorf("validate audit control root: %w", err)
 	}
 	for _, candidate := range auditLayoutFiles(path, layout) {
 		if err := migrateAuditFile(candidate, candidate == layout.LockPath); err != nil {
@@ -236,19 +213,27 @@ func migrateAuditFile(path string, lock bool) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return fmt.Errorf("audit layout file must be a non-symlink regular file: %s", path)
 	}
-	if info.Mode().Perm() == 0o600 {
+	if auditFileAccessReady(info) {
 		return nil
 	}
-	var file *os.File
-	if lock {
-		file, err = privatefs.OpenExistingLock(path)
-	} else {
-		file, err = privatefs.OpenExistingPrivateFile(path)
-	}
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
 		return fmt.Errorf("migrate audit layout file %s: %w", path, err)
 	}
-	return file.Close()
+	opened, statErr := file.Stat()
+	if statErr != nil {
+		return errors.Join(statErr, file.Close())
+	}
+	validate := privatefs.ValidateFileAllowLinks
+	secure := privatefs.SecureFileAllowLinks
+	if lock {
+		validate = privatefs.ValidateFile
+		secure = privatefs.SecureFile
+	}
+	if err := validate(file, opened); err == nil {
+		return file.Close()
+	}
+	return errors.Join(secure(file), file.Close())
 }
 
 func validateAuditHead(path string) error {
@@ -262,11 +247,9 @@ func validateAuditHead(path string) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return fmt.Errorf("audit detached head must be a non-symlink regular file")
 	}
-	file, err := privatefs.OpenExistingPrivateFile(path)
-	if err != nil {
-		return err
-	}
-	return file.Close()
+	return boundedio.WithRegularFileSnapshot(path, auditHeadMaxBytes, func(file *os.File, info os.FileInfo) error {
+		return privatefs.ValidateFileAllowLinks(file, info)
+	})
 }
 
 func validateAuditContentFiles(path string, layout jsonl.Layout) error {

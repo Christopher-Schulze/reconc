@@ -117,7 +117,7 @@ func assertAuditAppendGatesEmpty(t *testing.T) {
 	}
 }
 
-func TestAppendPublishesPrivateAuditLayoutAndMigratesLegacyModes(t *testing.T) {
+func TestAppendKeepsSharedRootAndPublishesPrivateAuditFiles(t *testing.T) {
 	repo := t.TempDir()
 	directory := filepath.Join(repo, ".reconc")
 	if err := os.Mkdir(directory, 0o755); err != nil {
@@ -126,7 +126,7 @@ func TestAppendPublishesPrivateAuditLayoutAndMigratesLegacyModes(t *testing.T) {
 	if err := Append(repo, Entry{Event: "legacy", Decision: "pass"}, 0); err != nil {
 		t.Fatal(err)
 	}
-	assertPrivateDirectorySecurity(t, directory, 0o700)
+	assertAuditRootSecurity(t, directory, 0o755)
 	for _, path := range []string{
 		filepath.Join(repo, AuditFileRelative),
 		filepath.Join(repo, AuditFileRelative+".lock"),
@@ -135,15 +135,31 @@ func TestAppendPublishesPrivateAuditLayoutAndMigratesLegacyModes(t *testing.T) {
 		assertPrivateFileSecurity(t, path, 0o600)
 	}
 	driftPrivateFileSecurity(t, filepath.Join(repo, AuditFileRelative), 0o644)
-	driftPrivateDirectorySecurity(t, directory, 0o755)
 	if err := Append(repo, Entry{Event: "migrated", Decision: "warn"}, 0); err != nil {
 		t.Fatal(err)
 	}
-	assertPrivateDirectorySecurity(t, directory, 0o700)
+	assertAuditRootSecurity(t, directory, 0o755)
 	assertPrivateFileSecurity(t, filepath.Join(repo, AuditFileRelative), 0o600)
 	if entries, err := Tail(repo, TailOptions{}); err != nil || len(entries) != 2 {
 		t.Fatalf("migrated audit entries = %d, err=%v", len(entries), err)
 	}
+}
+
+func TestAppendPreservesExistingStricterControlRoot(t *testing.T) {
+	repo := t.TempDir()
+	directory := filepath.Join(repo, ".reconc")
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := Append(repo, Entry{Event: "strict-root", Decision: "pass"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	assertAuditRootSecurity(t, directory, 0o700)
+	assertPrivateFileSecurity(t, filepath.Join(repo, AuditFileRelative), 0o600)
+	assertPrivateFileSecurity(t, filepath.Join(repo, AuditHeadRelative), 0o600)
 }
 
 func TestAppendRejectsHostileAuditLockSymlink(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/jsonl"
 	"reconc.dev/reconc/internal/privatefs"
+	"reconc.dev/reconc/internal/repositorycontrol"
 )
 
 type candidate struct {
@@ -146,7 +147,7 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 	runDecisionPath := filepath.Join(options.RepoRoot, ".reconc", "run", "decisions.jsonl")
 	report.Classes = append(report.Classes,
 		inspectChainedAudit("audit", options.RepoRoot, policy.AuditFileBytes, policy.AuditArchives, &report),
-		enforceJSONL("run-decisions", runDecisionPath, policy.RunDecisionFileBytes, policy.RunDecisionArchives, options.DryRun, &report),
+		enforceRunDecisionJSONL("run-decisions", runDecisionPath, policy.RunDecisionFileBytes, policy.RunDecisionArchives, options.DryRun, &report),
 	)
 	cacheDir := filepath.Join(options.RepoRoot, ".reconc", "cache")
 	generatedActive, generatedActiveErr := generatedBinaryActiveNames(cacheDir, options.Now, policy.AbandonedTempAge)
@@ -903,6 +904,77 @@ func enforceJSONL(name, path string, maxBytes int64, archives int, dryRun bool, 
 		class.InspectionStatus = InspectionComplete
 	}
 	return class
+}
+
+func enforceRunDecisionJSONL(name, path string, maxBytes int64, archives int, dryRun bool, report *Report) ClassReport {
+	if _, err := os.Lstat(filepath.Dir(path)); errors.Is(err, os.ErrNotExist) {
+		return ClassReport{Name: name, InspectionStatus: InspectionComplete}
+	} else if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("inspect %s directory: %v", name, err))
+		return ClassReport{Name: name, InspectionStatus: InspectionUnknown}
+	}
+	if err := repositorycontrol.ValidateRunDirectory(filepath.Dir(path)); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("validate %s directory: %v", name, err))
+		return ClassReport{Name: name, InspectionStatus: InspectionUnknown}
+	}
+	if err := validateRunDecisionSecurity(path); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("validate %s access: %v", name, err))
+		return ClassReport{Name: name, InspectionStatus: InspectionUnknown}
+	}
+	if dryRun {
+		return enforceJSONL(name, path, maxBytes, archives, true, report)
+	}
+	class := ClassReport{Name: name, InspectionStatus: InspectionUnknown}
+	var err error
+	class.BytesBefore, class.FilesKept, err = jsonl.RingSize(path, jsonl.MaxArchiveFiles)
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("inspect %s ring: %v", name, err))
+		return class
+	}
+	result, enforceErr := jsonl.EnforceWithLayout(
+		path,
+		jsonl.Policy{MaxBytes: maxBytes, MaxArchives: archives},
+		repositorycontrol.RunDecisionLayout(path, 0),
+	)
+	if enforceErr != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("enforce %s: %v", name, enforceErr))
+	}
+	class.BytesFreed = result.BytesFreed
+	class.FilesDeleted = result.FilesRemoved
+	class.BytesAfter, class.FilesKept, err = jsonl.RingSize(path, archives)
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("inspect enforced %s ring: %v", name, err))
+	} else if enforceErr == nil {
+		class.InspectionStatus = InspectionComplete
+	}
+	return class
+}
+
+func validateRunDecisionSecurity(path string) error {
+	sources, err := jsonl.PathsOldestFirst(path, jsonl.MaxArchiveFiles)
+	if err != nil {
+		return err
+	}
+	for _, source := range sources {
+		info, err := os.Lstat(source)
+		if err != nil {
+			return err
+		}
+		if err := boundedio.WithRegularFileSnapshot(source, max(info.Size(), 1), func(file *os.File, info os.FileInfo) error {
+			return privatefs.ValidateFileAllowLinks(file, info)
+		}); err != nil {
+			return err
+		}
+	}
+	lockPath := path + ".lock"
+	if _, err := os.Lstat(lockPath); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	return boundedio.WithRegularFileSnapshot(lockPath, 4<<10, func(file *os.File, info os.FileInfo) error {
+		return privatefs.ValidateFile(file, info)
+	})
 }
 
 func inspectChainedAudit(name, repoRoot string, maxBytes int64, archives int, report *Report) ClassReport {

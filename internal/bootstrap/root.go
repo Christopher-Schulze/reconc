@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"reconc.dev/reconc/internal/repositorycontrol"
 )
 
 type bootstrapRootRef struct {
@@ -123,21 +125,13 @@ func createSafeParentsWithRoot(
 		if err != nil {
 			return nil, nil, created, err
 		}
-		before, err := parent.Lstat(component)
-		createdHere := false
-		if errors.Is(err, os.ErrNotExist) {
-			mkdirErr := parent.Mkdir(component, 0o755)
-			if mkdirErr != nil && !errors.Is(mkdirErr, os.ErrExist) {
-				return nil, nil, created, fmt.Errorf("create bootstrap parent %s: %w", component, mkdirErr)
-			}
-			createdHere = mkdirErr == nil
-			before, err = parent.Lstat(component)
-		}
+		before, createdHere, err := repositorycontrol.EnsurePublicDirectory(parent, component)
 		if err != nil {
-			return nil, nil, created, fmt.Errorf("inspect bootstrap parent %s: %w", component, err)
-		}
-		if before.Mode()&os.ModeSymlink != 0 || !before.IsDir() {
-			return nil, nil, created, fmt.Errorf("bootstrap parent is not a real directory: %s", component)
+			if info, inspectErr := parent.Lstat(component); inspectErr == nil &&
+				(info.Mode()&os.ModeSymlink != 0 || !info.IsDir()) {
+				return nil, nil, created, fmt.Errorf("bootstrap parent is not a real directory: %s", component)
+			}
+			return nil, nil, created, fmt.Errorf("create bootstrap parent %s: %w", component, err)
 		}
 		child, err := parent.OpenRoot(component)
 		if err != nil {

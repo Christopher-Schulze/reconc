@@ -77,6 +77,16 @@ func ValidateFile(file *os.File, info os.FileInfo) error {
 // The path and descriptor identities are checked before and after permission
 // changes so callers can safely use this for same-directory transaction files.
 func SecureFile(file *os.File) error {
+	return secureFile(file, false)
+}
+
+// SecureFileAllowLinks is SecureFile for content files whose atomic rotation
+// can temporarily retain more than one hard-link name for the same identity.
+func SecureFileAllowLinks(file *os.File) error {
+	return secureFile(file, true)
+}
+
+func secureFile(file *os.File, allowLinks bool) error {
 	if file == nil {
 		return fmt.Errorf("private file handle is unavailable")
 	}
@@ -101,6 +111,9 @@ func SecureFile(file *os.File) error {
 		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
 		!os.SameFile(before, secured) || !os.SameFile(secured, current) {
 		return errors.Join(fmt.Errorf("private file changed identity while securing"), statErr, lstatErr)
+	}
+	if allowLinks {
+		return validatePrivateFileAllowLinks(file, secured)
 	}
 	return validatePrivateFile(file, secured)
 }

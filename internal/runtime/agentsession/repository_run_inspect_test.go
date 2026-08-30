@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/jsonl"
+	"reconc.dev/reconc/internal/repositorycontrol"
 )
 
 func TestReadRunDecisionsMissingIsEmpty(t *testing.T) {
@@ -105,6 +106,9 @@ func TestReadRunDecisionsRejectsOversizeAndSymlinkFiles(t *testing.T) {
 	if err := file.Truncate(runDecisionMaxBytes + 1); err != nil {
 		t.Fatal(err)
 	}
+	if err := file.Chmod(0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -162,10 +166,10 @@ func TestReadRunDecisionsRejectsUnknownField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("{\"event\":\"stop\",\"unexpected\":true}\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("{\"event\":\"stop\",\"unexpected\":true}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadRunDecisions(repo, 0); err == nil {
@@ -179,10 +183,10 @@ func TestReadRunDecisionsRejectsTruncatedRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"event":"stop"}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"event":"stop"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadRunDecisions(repo, 0); err == nil {
@@ -326,7 +330,14 @@ func appendRunDecisionTestRecord(t testing.TB, repo string, decision RunDecision
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := jsonl.Append(path, body, jsonl.Policy{MaxBytes: runDecisionMaxBytes, MaxArchives: runDecisionMaxArchives}); err != nil {
+	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
+		t.Fatal(err)
+	}
+	if err := jsonl.AppendWithLayout(
+		path, body,
+		jsonl.Policy{MaxBytes: runDecisionMaxBytes, MaxArchives: runDecisionMaxArchives},
+		repositorycontrol.RunDecisionLayout(path, agentSessionLockTimeout),
+	); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -372,6 +383,9 @@ func writeRunDecisionBenchmarkFixture(b *testing.B, repo string, count int) {
 		b.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
 		b.Fatal(err)
 	}
 	var body strings.Builder

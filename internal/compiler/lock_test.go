@@ -193,7 +193,7 @@ func TestOpenCompileLockFileRejectsIdentitySwapBeforeLocking(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, name), []byte("replacement"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if file, err := openCompileLockFile(directory, name, before); err == nil {
+	if file, err := openCompileLockFile(directory, name, before, 0o600); err == nil {
 		_ = file.Close()
 		t.Fatal("compile lock identity swap was accepted")
 	}

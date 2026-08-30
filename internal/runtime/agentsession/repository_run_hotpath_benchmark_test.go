@@ -43,7 +43,7 @@ func writeRunControlBenchmarkTask(tb testing.TB, repo string) {
 	}
 	for rel, body := range files {
 		path := filepath.Join(repo, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			tb.Fatal(err)
 		}
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {

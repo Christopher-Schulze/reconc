@@ -14,6 +14,8 @@ import (
 
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/jsonl"
+	"reconc.dev/reconc/internal/privatefs"
+	"reconc.dev/reconc/internal/repositorycontrol"
 )
 
 const reconcHookRuntimeEnv = "RECONC_HOOK_RUNTIME"
@@ -197,13 +199,21 @@ func runDecisionLogPathResolved(root string) string {
 }
 
 func appendRunDecisionResolved(root string, decision RunDecision) error {
+	if err := repositorycontrol.EnsureRunDirectory(root); err != nil {
+		return err
+	}
 	decision.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
 	decision = boundedRunDecision(decision)
 	body, err := json.Marshal(decision)
 	if err != nil {
 		return err
 	}
-	return jsonl.Append(runDecisionLogPathResolved(root), body, jsonl.Policy{MaxBytes: runDecisionMaxBytes, MaxArchives: runDecisionMaxArchives})
+	path := runDecisionLogPathResolved(root)
+	return jsonl.AppendWithLayout(
+		path, body,
+		jsonl.Policy{MaxBytes: runDecisionMaxBytes, MaxArchives: runDecisionMaxArchives},
+		repositorycontrol.RunDecisionLayout(path, agentSessionLockTimeout),
+	)
 }
 
 func boundedRunDecision(decision RunDecision) RunDecision {
@@ -255,6 +265,16 @@ func openRepositoryRunStateResolved(root string) (*os.File, repositoryRunSnapsho
 	if err != nil {
 		return nil, repositoryRunSnapshot{}, fmt.Errorf("read repository run state: %w", err)
 	}
+	info, err := file.Stat()
+	if err != nil {
+		return nil, repositoryRunSnapshot{}, errors.Join(err, file.Close())
+	}
+	if err := repositorycontrol.ValidateRunDirectory(filepath.Dir(path)); err != nil {
+		return nil, repositoryRunSnapshot{}, errors.Join(err, file.Close())
+	}
+	if err := privatefs.ValidateFile(file, info); err != nil {
+		return nil, repositoryRunSnapshot{}, errors.Join(err, file.Close())
+	}
 	snapshot, err := readRepositoryRunSnapshotShared(file)
 	if err != nil {
 		return nil, repositoryRunSnapshot{}, errors.Join(
@@ -297,10 +317,10 @@ func withRepositoryRunFileResolved(root string, fn func(*os.File) error) error {
 	if err := validateRepositoryRunStatePath(root, path); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("mkdir repository run state dir: %w", err)
+	if err := repositorycontrol.EnsureRunDirectory(root); err != nil {
+		return err
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	file, err := privatefs.OpenLock(path)
 	if err != nil {
 		return fmt.Errorf("open repository run state: %w", err)
 	}

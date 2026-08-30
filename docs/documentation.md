@@ -206,8 +206,8 @@ partial audit, run-log, checksum, release, or provenance snapshot.
 | Policy and deep doctor sources | 8 MiB per source, 64 MiB aggregate, at most 4,096 policy sources. One rooted filesystem handle anchors each complete policy-source load; every opened file is revalidated against that root and its stable identity before and after the bounded read. Runtime-plan freshness independently derives digest, size, mode, modification time, filesystem identity, and aggregate-byte admission from one stable opened snapshot; path replacement after open invalidates the observation. Deep doctor derives freshness, parsed rules, conflicts, and references from one immutable snapshot. If full loading fails, a narrower bounded raw-reference fallback keeps source, preset, and template errors independently reportable. |
 | CLI lockfiles, reports, and extraction | Lockfile summaries are capped at 16 MiB; saved `why` reports at 32 MiB; session-briefing reports at 1 MiB; `extract --from` at 8 MiB and repository-relative only. |
 | Adoption and overlays | Root manifests are capped at 1 MiB, `.reconc.yml`, user presets, and user templates at 8 MiB; workflow, preset, and template directories stop at 4,096 entries and report incomplete inspection. Manifest marker detection searches the already validated byte snapshots directly without copying each complete input into a string. |
-| Run decisions | Each live or archived JSONL file is capped at 2 MiB and each record at 32 KiB. Two archives are retained. `run log -n N` validates the full retained ring while keeping only the requested tail in memory. Follow mode validates one complete baseline, then reuses unchanged file identities and decodes only appended suffixes or changed ring members. Its cursor binds the exact file occurrence, byte range, and record digest; retained rotations remain continuous, while a lost or modified cursor fails closed. |
-| Audit evidence | Each live or archived JSONL file is capped at 2 MiB, each record at 32 KiB, the detached head at 16 KiB, and the ring at two archives. Audit parent directories use `0700`; live/archive/head/lock/journal/backup members use `0600` and are identity- and security-validated before reads or writes. Layout security validation receives the same opened descriptor whose bounded snapshot supplies the bytes, and post-read identity checks reject replacement or symlink substitution. Existing legacy modes are migrated in place only after regular-file checks; symlinks, special files, wrong owners, and invalid lock aliases are rejected without discarding evidence. Same-process append bursts serialize per audit directory before the bounded cross-process lock; the file lock remains authoritative across processes, and its descriptor-to-path lease is revalidated before protected mutations and release so lock unlink/replacement fails closed. Snapshot readers decode archives incrementally with 32 KiB line, 2 MiB file, and 6 MiB aggregate bounds; strict JSON decoding rejects duplicate object keys at every nesting level before chain and digest verification; final-newline and source-line diagnostics remain deterministic. Export streams only after the complete chain verifies and preserves valid source bytes. Portable workflow-audit files are strict non-symlink regular reads capped at 64 MiB; directory walks stop at 100,000 entries, task schemas and legacy prune policies at 1 MiB, and legacy retention directories at 4,096 entries. |
+| Run decisions | Each live or archived JSONL file is capped at 2 MiB and each record at 32 KiB. Two archives are retained. `.reconc/run` uses `0700`, and state, live, archive, lock, journal, and backup files use `0600`; Windows applies the protected current-user-only DACL contract to the directory and every file. Existing exposed run directories fail closed without permission repair or data movement. `run log -n N` validates the full retained ring while keeping only the requested tail in memory. Follow mode validates one complete baseline, then reuses unchanged file identities and decodes only appended suffixes or changed ring members. Its cursor binds the exact file occurrence, byte range, and record digest; retained rotations remain continuous, while a lost or modified cursor fails closed. |
+| Audit evidence | Each live or archived JSONL file is capped at 2 MiB, each record at 32 KiB, the detached head at 16 KiB, and the ring at two archives. Audit files remain direct children of the shareable `.reconc` root; live/archive/head/lock/journal/backup members use `0600` and protected current-user-only Windows DACLs installed before publication. They are identity- and security-validated before reads or writes. Layout security validation receives the same opened descriptor whose bounded snapshot supplies the bytes, and post-read identity checks reject replacement or symlink substitution. Existing legacy file modes and ACLs are migrated in place only after regular-file checks; the root directory is never narrowed. Symlinks, special files, wrong owners, and invalid lock aliases are rejected without discarding evidence. Same-process append bursts serialize per audit directory before the bounded cross-process lock; the file lock remains authoritative across processes, and its descriptor-to-path lease is revalidated before protected mutations and release so lock unlink/replacement fails closed. Snapshot readers decode archives incrementally with 32 KiB line, 2 MiB file, and 6 MiB aggregate bounds; strict JSON decoding rejects duplicate object keys at every nesting level before chain and digest verification; final-newline and source-line diagnostics remain deterministic. Export streams only after the complete chain verifies and preserves valid source bytes. Portable workflow-audit files are strict non-symlink regular reads capped at 64 MiB; directory walks stop at 100,000 entries, task schemas and legacy prune policies at 1 MiB, and legacy retention directories at 4,096 entries. |
 | Bootstrap and repository sync | Managed text is capped at 16 MiB; bootstrap plans at 4 MiB; sync plans at 8 MiB; portable receipts at 4 MiB; rollback before-images at 64 MiB aggregate; journals at 96 MiB; binary artifacts at 256 MiB. Writes remain create-only or atomic and preserve user-owned bytes. Historical bootstrap retention validates both members before deleting a pair, rolls back a first deletion when the second boundary fails, and reports any unrecoverable pair state as a bounded warning. |
 | Build provenance | Binary marker inspection streams at most 256 MiB without executing or retaining the binary. Production source hashing accepts at most 16,384 real files, 64 MiB per file, and 512 MiB aggregate. |
 | Command proofs and owned state | Each command proof is capped at 16 KiB and its directory at 4,096 entries; unresolved-policy proofs and workflow-audit cache state are capped at 8 MiB. All are strict regular-file reads that reject links and special files. Retention directories and tree walks have explicit entry ceilings and abort without deleting from a partial inventory. |
@@ -601,6 +601,22 @@ command without changing the published schema shape.
 Binary update and rollback temporaries reuse the file-only form of this
 boundary in the executable directory: the temporary identity becomes private
 without changing the directory's public traversal contract.
+Repository-local storage has a separate mixed-access contract. A newly created
+`.reconc` root uses exact `0755` on Unix regardless of umask; its `locks` child
+inherits the root access class, so the default remains `0755` while an existing
+group-managed root produces a group-managed lock directory and lock files.
+Windows leaves their inherited repository ACL intact. Existing roots,
+including `0700` single-owner and group-managed shared-repository directories,
+are identity-validated but never widened, narrowed, re-owned, or assigned a
+replacement ACL. Bootstrap receipts, generated policy, runtime manifests, and
+coordination locks live at that boundary. Sensitive
+run state is isolated under private `.reconc/run`; audit evidence stays at its
+stable direct-child paths but each file receives the private file contract
+before atomic publication. A shared checkout can therefore retain its
+administrator-selected root ACL without making session identifiers,
+transaction backups, or runtime state public. An existing non-private `run`
+directory is rejected with its contents untouched; the operator must inspect
+ownership and data before any explicit migration.
 The portable legacy pruner canonicalizes the existing repository filesystem
 identity before deriving both the runtime-compatible project key and the
 repo-local JSONL path, so symlink and on-disk case aliases cannot split cleanup
@@ -1242,7 +1258,9 @@ Windows cannot represent POSIX permission bits: Reconc validates protected
 current-user-only DACLs for private state and uses the readonly attribute as
 the representable atomic-file mode boundary. Private binary backup and update
 temporaries use the protected DACL contract without re-permissioning their
-public executable directory. An opened Windows identity may prevent rename or
+public executable directory. Repository `.reconc` roots inherit the checkout's
+ACL for shared access, while `.reconc/run` and individual audit files use the
+protected current-user-only DACL. An opened Windows identity may prevent rename or
 replacement entirely; this is a successful identity-boundary outcome rather
 than missing POSIX mode behavior. The Windows candidate job runs a
 focused four-minute native filesystem, hook, and runtime preflight immediately
@@ -1775,6 +1793,9 @@ no-follow directory handles. The opened lock descriptor and repository,
 `.reconc`, and `locks` identities remain a lease through journal publication,
 file and move mutations, recovery cleanup, and release; replacement, unlink,
 symlink, or parent identity drift fails closed before the next mutation.
+Missing `.reconc` and `locks` directories are created as deterministic public
+repository coordination boundaries; existing stricter or shared modes are
+preserved.
 The terminal gate reuses the single Git status snapshot already built for Stop;
 it adds no Git process to routine executable continuations.
 All Git evidence processes share one hermetic environment. Ambient repository,
@@ -2102,6 +2123,9 @@ standalone product repository does not carry either file and must exercise
 policy compilation only
 inside isolated test repositories. Its ignore patterns remain as a defensive
 boundary against accidental local state and for nested bootstrap fixtures.
+Compiler-first and bootstrap-first creation both establish the same public
+`.reconc` access class, including under a restrictive Unix umask; neither path
+changes an existing directory's access policy.
 
 Policy authoring is strict. Unknown keys at the document, scope, rule,
 evidence, composite-check, and TASK-lifecycle levels fail compilation instead
@@ -4003,6 +4027,11 @@ unchanged mutations skip both write and sync. Write, sync, unlock, and close
 failures remain joined so an acknowledged transition never masks a durability
 failure. There is no legacy mode discriminator, marker cleanup, or
 `.reconc/runloop/` compatibility read.
+The `run` directory and `state.bin` use the private directory/file contract;
+decision JSONL live, archive, lock, journal, and backup members use the same
+contract. Reads and retention validate it, writers secure new objects before
+payload publication, and legacy public directories fail closed without an
+implicit chmod or ACL rewrite.
 
 `awaiting_continuation` is not a hard stop reason by itself. Reads and unrelated
 hook events do not clear it. Each session owns its no-progress counter and

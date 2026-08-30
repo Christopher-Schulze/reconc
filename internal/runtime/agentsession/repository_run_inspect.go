@@ -15,6 +15,8 @@ import (
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/jsonl"
+	"reconc.dev/reconc/internal/privatefs"
+	"reconc.dev/reconc/internal/repositorycontrol"
 	"reconc.dev/reconc/internal/tasklifecycle"
 )
 
@@ -192,14 +194,36 @@ func withRunDecisionLogLock(path string, use func() error) error {
 	if directoryInfo.Mode()&os.ModeSymlink != 0 || !directoryInfo.IsDir() {
 		return fmt.Errorf("repository run log parent must be a non-symlink directory")
 	}
+	if err := repositorycontrol.ValidateRunDirectory(filepath.Dir(path)); err != nil {
+		return err
+	}
 	lockPath := path + ".lock"
-	if info, lstatErr := os.Lstat(lockPath); lstatErr == nil && (info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()) {
+	lockInfo, lstatErr := os.Lstat(lockPath)
+	if lstatErr == nil && (lockInfo.Mode()&os.ModeSymlink != 0 || !lockInfo.Mode().IsRegular()) {
 		return fmt.Errorf("repository run log lock must be a non-symlink regular file")
 	} else if lstatErr != nil && !errors.Is(lstatErr, os.ErrNotExist) {
 		return lstatErr
 	}
-	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	var lock *os.File
+	if errors.Is(lstatErr, os.ErrNotExist) {
+		lock, err = privatefs.OpenLock(lockPath)
+	} else {
+		lock, err = os.OpenFile(lockPath, os.O_RDWR, 0)
+		if err == nil {
+			opened, statErr := lock.Stat()
+			current, currentErr := os.Lstat(lockPath)
+			if statErr != nil || currentErr != nil || !os.SameFile(lockInfo, opened) ||
+				!os.SameFile(opened, current) {
+				err = errors.Join(fmt.Errorf("repository run log lock changed identity while opening"), statErr, currentErr)
+			} else {
+				err = privatefs.ValidateFile(lock, opened)
+			}
+		}
+	}
 	if err != nil {
+		if lock != nil {
+			err = errors.Join(err, lock.Close())
+		}
 		return err
 	}
 	unlock, err := filelock.LockContext(context.Background(), lock, agentSessionLockTimeout)
@@ -282,6 +306,9 @@ type runDecisionOccurrence struct {
 func readRunDecisionMember(path string, previous []runDecisionLogMember) (runDecisionLogMember, error) {
 	var member runDecisionLogMember
 	err := boundedio.WithRegularFileSnapshot(path, runDecisionMaxBytes, func(file *os.File, info os.FileInfo) error {
+		if err := privatefs.ValidateFileAllowLinks(file, info); err != nil {
+			return fmt.Errorf("validate repository run decision security: %w", err)
+		}
 		member.info = info
 		prior := matchingRunDecisionMember(previous, info)
 		if prior != nil && sameRunDecisionMetadata(prior.info, info) {

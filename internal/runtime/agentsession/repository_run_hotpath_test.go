@@ -77,11 +77,11 @@ func TestUnchangedRepositoryRunStateIsNotRewritten(t *testing.T) {
 func TestRunControlFailsClosedWithoutReplacingCorruptState(t *testing.T) {
 	repo := t.TempDir()
 	path := filepath.Join(repo, ".reconc", "run", "state.bin")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	corrupt := []byte("{not-json\n")
-	if err := os.WriteFile(path, corrupt, 0o644); err != nil {
+	if err := os.WriteFile(path, corrupt, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := SetRepositoryRun(repo, true); err == nil {

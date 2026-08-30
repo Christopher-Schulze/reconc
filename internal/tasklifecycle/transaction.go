@@ -19,6 +19,7 @@ import (
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
+	"reconc.dev/reconc/internal/repositorycontrol"
 )
 
 const (
@@ -176,12 +177,9 @@ func openTaskMutationLock(repoRoot string) (*taskMutationLockLease, error) {
 	if err := captureTaskMutationRootIdentity(lease); err != nil {
 		return closeOnError(err)
 	}
-	if err := repository.Mkdir(".reconc", 0o755); err != nil && !errors.Is(err, os.ErrExist) {
+	reconcInfo, _, err := repositorycontrol.EnsurePublicDirectory(repository, repositorycontrol.RootName)
+	if err != nil {
 		return closeOnError(fmt.Errorf("create TASK lock root directory: %w", err))
-	}
-	reconcInfo, err := repository.Lstat(".reconc")
-	if err != nil || reconcInfo.Mode()&os.ModeSymlink != 0 || !reconcInfo.IsDir() {
-		return closeOnError(errors.Join(fmt.Errorf("TASK lock parent must be a non-symlink directory"), err))
 	}
 	reconcDirectory, err := repository.OpenRoot(".reconc")
 	if err != nil {
@@ -192,12 +190,9 @@ func openTaskMutationLock(repoRoot string) (*taskMutationLockLease, error) {
 	if err := validateTaskMutationDirectory(lease.reconcPath, reconcDirectory, reconcInfo); err != nil {
 		return closeOnError(err)
 	}
-	if err := reconcDirectory.Mkdir("locks", 0o755); err != nil && !errors.Is(err, os.ErrExist) {
+	lockDirectoryInfo, _, err := repositorycontrol.EnsureInheritedDirectory(reconcDirectory, "locks")
+	if err != nil {
 		return closeOnError(fmt.Errorf("create TASK lock directory: %w", err))
-	}
-	lockDirectoryInfo, err := reconcDirectory.Lstat("locks")
-	if err != nil || lockDirectoryInfo.Mode()&os.ModeSymlink != 0 || !lockDirectoryInfo.IsDir() {
-		return closeOnError(errors.Join(fmt.Errorf("TASK lock directory must be a non-symlink directory"), err))
 	}
 	lockDirectory, err := reconcDirectory.OpenRoot("locks")
 	if err != nil {
@@ -218,7 +213,8 @@ func openTaskMutationLock(repoRoot string) (*taskMutationLockLease, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		before = nil
 	}
-	file, err := openTaskMutationLockFile(lockDirectory, lease.lockName, before)
+	lockMode := repositorycontrol.CoordinationFileMode(lockDirectoryInfo)
+	file, err := openTaskMutationLockFile(lockDirectory, lease.lockName, before, lockMode)
 	if err != nil {
 		return closeOnError(err)
 	}
@@ -309,12 +305,12 @@ func removeTransactionPathWithLease(path string, lease *taskMutationLockLease) e
 	return os.Remove(path)
 }
 
-func openTaskMutationLockFile(directory *os.Root, name string, before os.FileInfo) (*os.File, error) {
+func openTaskMutationLockFile(directory *os.Root, name string, before os.FileInfo, createMode os.FileMode) (*os.File, error) {
 	flags := os.O_RDWR
 	if before == nil {
 		flags |= os.O_CREATE | os.O_EXCL
 	}
-	file, err := directory.OpenFile(name, flags, 0o644)
+	file, err := directory.OpenFile(name, flags, createMode)
 	if before == nil && errors.Is(err, os.ErrExist) {
 		before, err = directory.Lstat(name)
 		if err == nil && (before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular()) {
@@ -326,6 +322,11 @@ func openTaskMutationLockFile(directory *os.Root, name string, before os.FileInf
 	}
 	if err != nil {
 		return nil, fmt.Errorf("open TASK lock: %w", err)
+	}
+	if before == nil {
+		if err := file.Chmod(createMode); err != nil {
+			return nil, errors.Join(fmt.Errorf("secure TASK lock mode: %w", err), file.Close())
+		}
 	}
 	opened, statErr := file.Stat()
 	current, lstatErr := directory.Lstat(name)

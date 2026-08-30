@@ -9,8 +9,11 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 
 	"reconc.dev/reconc/internal/filelock"
+	"reconc.dev/reconc/internal/privatefs"
+	"reconc.dev/reconc/internal/repositorycontrol"
 )
 
 const (
@@ -39,6 +42,16 @@ func readRepositoryRunSnapshot(path string) (repositoryRunSnapshot, error) {
 	}
 	if err != nil {
 		return repositoryRunSnapshot{}, fmt.Errorf("read repository run state: %w", err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return repositoryRunSnapshot{}, errors.Join(err, file.Close())
+	}
+	if err := repositorycontrol.ValidateRunDirectory(filepath.Dir(path)); err != nil {
+		return repositoryRunSnapshot{}, errors.Join(err, file.Close())
+	}
+	if err := privatefs.ValidateFile(file, info); err != nil {
+		return repositoryRunSnapshot{}, errors.Join(err, file.Close())
 	}
 	snapshot, readErr := readRepositoryRunSnapshotShared(file)
 	closeErr := file.Close()

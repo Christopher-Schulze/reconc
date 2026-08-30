@@ -18,6 +18,14 @@ func assertPrivateDirectorySecurity(t *testing.T, path string, _ os.FileMode) {
 	}
 }
 
+func assertAuditRootSecurity(t *testing.T, path string, _ os.FileMode) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		t.Fatalf("audit root is not a stable directory: info=%v err=%v", info, err)
+	}
+}
+
 func assertPrivateFileSecurity(t *testing.T, path string, _ os.FileMode) {
 	t.Helper()
 	file, err := privatefs.OpenExistingPrivateFile(path)

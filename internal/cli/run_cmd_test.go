@@ -35,7 +35,7 @@ func appendRunDecisionRaw(t *testing.T, repo string, d agentsession.RunDecision)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestFollowRunLogTailsNewRecords(t *testing.T) {
 func writeRunDecisions(t *testing.T, repo string, ds []agentsession.RunDecision) {
 	t.Helper()
 	dir := filepath.Join(repo, ".reconc", "run")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	var b strings.Builder
@@ -118,7 +118,7 @@ func writeRunDecisions(t *testing.T, repo string, ds []agentsession.RunDecision)
 		b.Write(line)
 		b.WriteByte('\n')
 	}
-	if err := os.WriteFile(filepath.Join(dir, "decisions.jsonl"), []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "decisions.jsonl"), []byte(b.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -401,7 +401,7 @@ func TestRunStatusVerboseKeepsDefaultAndJSONContracts(t *testing.T) {
 func TestRunResetCLIRecoversCorruptState(t *testing.T) {
 	repo := t.TempDir()
 	path := filepath.Join(repo, ".reconc", "run", "state.bin")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte("corrupt"), 0o600); err != nil {
