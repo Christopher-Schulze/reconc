@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
@@ -19,6 +20,7 @@ import (
 const (
 	defaultMaxContinuations = 32
 	maxPromptBytes          = 1 << 20
+	maxContinuationBytes    = maxPromptBytes + (4 << 10)
 )
 
 // Options configures one strict Grok ACP session.
@@ -80,11 +82,8 @@ func run(ctx context.Context, options Options, dependencies runnerDependencies) 
 	if options.MaxContinuations < 1 {
 		return fmt.Errorf("max continuations must be at least 1")
 	}
-	if len(options.Prompt) > maxPromptBytes {
-		return fmt.Errorf("prompt exceeds %d bytes", maxPromptBytes)
-	}
-	if strings.TrimSpace(options.Prompt) == "" {
-		return fmt.Errorf("prompt must be non-empty")
+	if err := validatePrompt(options.Prompt); err != nil {
+		return err
 	}
 	root, err := agentsession.ResolveRepoRoot(options.RepoRoot)
 	if err != nil {
@@ -235,7 +234,10 @@ func run(ctx context.Context, options Options, dependencies runnerDependencies) 
 		if stopResult.ExitCode != 0 {
 			return fmt.Errorf("evaluate strict Grok Stop gate: %s", strings.TrimSpace(stopResult.Stderr))
 		}
-		reason := continuationReason(stopResult.Stdout)
+		reason, err := continuationReason(stopResult.Stdout)
+		if err != nil {
+			return fmt.Errorf("validate Grok continuation: %w", err)
+		}
 		if reason == "" {
 			return nil
 		}
@@ -284,20 +286,55 @@ func selectAuthMethod(methods []struct {
 	return ""
 }
 
-func continuationReason(stdout string) string {
-	if strings.TrimSpace(stdout) == "" {
-		return ""
+func validatePrompt(prompt string) error {
+	if len(prompt) > maxPromptBytes {
+		return fmt.Errorf("prompt exceeds %d bytes", maxPromptBytes)
 	}
-	var payload map[string]interface{}
-	if json.Unmarshal([]byte(stdout), &payload) != nil {
-		return strings.TrimSpace(stdout)
+	if !utf8.ValidString(prompt) {
+		return errors.New("prompt must be valid UTF-8")
 	}
-	for _, key := range []string{"reason", "followup_message", "message"} {
-		if reason, _ := payload[key].(string); strings.TrimSpace(reason) != "" {
-			return strings.TrimSpace(reason)
+	if strings.TrimSpace(prompt) == "" {
+		return errors.New("prompt must be non-empty")
+	}
+	return nil
+}
+
+func continuationReason(stdout string) (string, error) {
+	if len(stdout) > maxContinuationBytes {
+		return "", fmt.Errorf("Stop output exceeds %d bytes", maxContinuationBytes)
+	}
+	if !utf8.ValidString(stdout) {
+		return "", errors.New("Stop output must be valid UTF-8")
+	}
+	trimmed := strings.TrimSpace(stdout)
+	if trimmed == "" {
+		return "", nil
+	}
+	reason := trimmed
+	if trimmed[0] == '{' {
+		var payload struct {
+			Reason          string `json:"reason"`
+			FollowupMessage string `json:"followup_message"`
+			Message         string `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+			return "", errors.New("Stop output contains malformed structured continuation data")
+		}
+		reason = ""
+		for _, candidate := range []string{payload.Reason, payload.FollowupMessage, payload.Message} {
+			if strings.TrimSpace(candidate) != "" {
+				reason = strings.TrimSpace(candidate)
+				break
+			}
 		}
 	}
-	return ""
+	if reason == "" {
+		return "", nil
+	}
+	if err := validatePrompt(reason); err != nil {
+		return "", err
+	}
+	return reason, nil
 }
 
 func stopAgentProcess(stdin io.Closer, cmd *exec.Cmd, wait <-chan error) error {

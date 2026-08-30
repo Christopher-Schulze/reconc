@@ -4064,6 +4064,11 @@ only delivered interjections in one no-progress series; a changed material
 session-event snapshot or a clean Stop resets it. Diagnostic and
 block-reason wording changes do not count as progress. Every spawned child gets
 exactly one `RECONC_GROK_STEER=0` entry after inherited duplicates are removed.
+Initial ACP prompts and every raw or structured Stop-derived continuation must
+be non-empty valid UTF-8 capped at 1 MiB. Stop output is capped at that prompt
+budget plus a 4 KiB JSON-envelope allowance before decoding; malformed
+structured output and oversized reasons fail closed before ACP request or
+leader-interjection construction and produce only fixed bounded diagnostics.
 Multiple endpoints divide the
 three-second budget fairly and framed messages complete short writes.
 `RECONC_GROK_STEER=0` disables only leader steering; PreToolUse remains hard

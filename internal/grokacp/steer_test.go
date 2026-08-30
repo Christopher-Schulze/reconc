@@ -195,6 +195,32 @@ func TestSteerTUIStopInterjectsAndCounts(t *testing.T) {
 	}
 }
 
+func TestSteerTUIStopRejectsOversizedReasonBeforeLeader(t *testing.T) {
+	repo := steerTestRepo(t)
+	leader := newFakeLeader(t, serveInterject(`{"jsonrpc":"2.0","id":1,"result":{"status":"queued"}}`))
+	t.Setenv(leaderSocketEnv, leader.socket)
+	steerSession(t, "s-oversized")
+
+	note := SteerTUIStop(
+		repo,
+		steerPayload("s-oversized", false),
+		agentsession.Result{Stdout: strings.Repeat("x", maxPromptBytes+1)},
+	)
+	if !strings.Contains(note, "prompt exceeds 1048576 bytes") {
+		t.Fatalf("oversized steer note = %q", note)
+	}
+	if got := len(leader.messages()); got != 0 {
+		t.Fatalf("oversized continuation reached leader: %d messages", got)
+	}
+	state, err := agentsession.LoadSessionState(repo, "s-oversized")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.GrokSteerAttempts != 0 {
+		t.Fatalf("oversized continuation consumed steer budget: %d", state.GrokSteerAttempts)
+	}
+}
+
 func TestSteerTUIStopReasonChangesDoNotResetNoProgressBudget(t *testing.T) {
 	repo := steerTestRepo(t)
 	leader := newFakeLeader(t, serveInterject(`{"jsonrpc":"2.0","id":1,"result":{"status":"queued"}}`))

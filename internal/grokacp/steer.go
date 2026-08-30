@@ -56,7 +56,10 @@ func SteerTUIStop(repoRoot string, payloadBytes []byte, stopResult agentsession.
 	if err != nil || payload == nil {
 		return ""
 	}
-	reason := continuationReason(stopResult.Stdout)
+	reason, err := continuationReason(stopResult.Stdout)
+	if err != nil {
+		return "reconc grok steer: " + err.Error()
+	}
 	if reason == "" {
 		if err := resetSteerBudget(repoRoot, payload.SessionID); err != nil {
 			return "reconc grok steer: " + err.Error()

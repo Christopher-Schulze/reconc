@@ -41,8 +41,11 @@ func TestRunContinuesSameGrokACPSessionUntilReconcIsClean(t *testing.T) {
 		if body["session_id"] != "grok-test" || body["strict_continuation"] != true {
 			t.Fatalf("strict stop payload = %#v", body)
 		}
-		if stops.Add(1) == 1 {
+		switch stops.Add(1) {
+		case 1:
 			return agentsession.Result{Stdout: `{"decision":"block","reason":"continue the exact task"}`}
+		case 2:
+			return agentsession.Result{Stdout: "continue once more"}
 		}
 		return agentsession.Result{}
 	}
@@ -51,17 +54,17 @@ func TestRunContinuesSameGrokACPSessionUntilReconcIsClean(t *testing.T) {
 		RepoRoot:         repo,
 		GrokBinary:       fake,
 		Prompt:           "do the work",
-		MaxContinuations: 2,
+		MaxContinuations: 3,
 		Stdout:           &stdout,
 		Stderr:           &stderr,
 	}, dependencies)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stops.Load() != 2 {
-		t.Fatalf("Stop checks = %d, want 2", stops.Load())
+	if stops.Load() != 3 {
+		t.Fatalf("Stop checks = %d, want 3", stops.Load())
 	}
-	if stdout.String() != "first turn\nsecond turn\n" {
+	if stdout.String() != "first turn\nsecond turn\nthird turn\n" {
 		t.Fatalf("streamed output = %q", stdout.String())
 	}
 	steerEntries := 0
@@ -73,8 +76,109 @@ func TestRunContinuesSameGrokACPSessionUntilReconcIsClean(t *testing.T) {
 	if steerEntries != 1 {
 		t.Fatalf("spawned agent must receive exactly one %s=0 so hooks never leader-steer, env=%v", SteerEnv, agentCmd.Env)
 	}
-	if !strings.Contains(stderr.String(), "continuation 1/2") {
+	if !strings.Contains(stderr.String(), "continuation 1/3") || !strings.Contains(stderr.String(), "continuation 2/3") {
 		t.Fatalf("continuation status missing: %q", stderr.String())
+	}
+}
+
+func TestPromptValidationAndContinuationExtractionBoundaries(t *testing.T) {
+	exact := strings.Repeat("x", maxPromptBytes)
+	if err := validatePrompt(exact); err != nil {
+		t.Fatalf("exact prompt boundary: %v", err)
+	}
+	if err := validatePrompt(strings.Repeat("é", maxPromptBytes/2)); err != nil {
+		t.Fatalf("exact multibyte UTF-8 prompt boundary: %v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		prompt string
+		want   string
+	}{
+		{name: "limit plus one", prompt: exact + "x", want: "prompt exceeds 1048576 bytes"},
+		{name: "empty", prompt: " \n\t", want: "prompt must be non-empty"},
+		{name: "invalid UTF-8", prompt: string([]byte{0xff}), want: "prompt must be valid UTF-8"},
+	} {
+		t.Run("prompt "+test.name, func(t *testing.T) {
+			if err := validatePrompt(test.prompt); err == nil || err.Error() != test.want {
+				t.Fatalf("validatePrompt() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+
+	exactJSON, err := json.Marshal(map[string]string{"reason": exact})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name       string
+		stdout     string
+		wantReason string
+		wantBytes  int
+		wantError  string
+	}{
+		{name: "raw reason", stdout: "  continue raw  ", wantReason: "continue raw"},
+		{name: "JSON reason", stdout: `{"reason":"continue JSON"}`, wantReason: "continue JSON"},
+		{name: "JSON followup", stdout: `{"followup_message":"continue followup"}`, wantReason: "continue followup"},
+		{name: "JSON message", stdout: `{"message":"continue message"}`, wantReason: "continue message"},
+		{name: "exact raw limit", stdout: exact, wantBytes: maxPromptBytes},
+		{name: "exact JSON reason limit", stdout: string(exactJSON), wantBytes: maxPromptBytes},
+		{name: "reason limit plus one", stdout: exact + "x", wantError: "prompt exceeds 1048576 bytes"},
+		{name: "output envelope overflow", stdout: strings.Repeat("x", maxContinuationBytes+1), wantError: "Stop output exceeds 1052672 bytes"},
+		{name: "malformed structured output", stdout: `{"reason":`, wantError: "Stop output contains malformed structured continuation data"},
+		{name: "invalid UTF-8 output", stdout: string([]byte{0xff}), wantError: "Stop output must be valid UTF-8"},
+		{name: "structured clean stop", stdout: `{"decision":"allow"}`},
+	}
+	for _, test := range tests {
+		t.Run("continuation "+test.name, func(t *testing.T) {
+			reason, err := continuationReason(test.stdout)
+			if test.wantError != "" {
+				if err == nil || err.Error() != test.wantError || reason != "" {
+					t.Fatalf("continuationReason() = %d bytes, %v, want error %q", len(reason), err, test.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("continuationReason() error = %v", err)
+			}
+			if test.wantBytes > 0 {
+				if len(reason) != test.wantBytes || reason != exact {
+					t.Fatalf("continuationReason() = %d bytes, want %d exact bytes", len(reason), test.wantBytes)
+				}
+			} else if reason != test.wantReason {
+				t.Fatalf("continuationReason() = %q, want %q", reason, test.wantReason)
+			}
+		})
+	}
+}
+
+func TestRunRejectsOversizedContinuationBeforeSecondPrompt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake ACP executable is a POSIX script")
+	}
+	repo := configuredGrokRepo(t)
+	promptLog := filepath.Join(t.TempDir(), "prompts.log")
+	t.Setenv("GROK_PROMPT_LOG", promptLog)
+	dependencies := defaultDependencies
+	dependencies.preflight = func(context.Context, string, string, commandRunner) error { return nil }
+	var stops atomic.Int32
+	dependencies.stop = func(_ string, _ []byte) agentsession.Result {
+		stops.Add(1)
+		return agentsession.Result{Stdout: strings.Repeat("x", maxPromptBytes+1)}
+	}
+	var stdout, stderr bytes.Buffer
+	err := run(context.Background(), Options{
+		RepoRoot: repo, GrokBinary: fakeGrokBinary(t), Prompt: "do the work",
+		MaxContinuations: 2, Stdout: &stdout, Stderr: &stderr,
+	}, dependencies)
+	if err == nil || err.Error() != "validate Grok continuation: prompt exceeds 1048576 bytes" {
+		t.Fatalf("oversized continuation error = %v", err)
+	}
+	if stops.Load() != 1 || stdout.String() != "first turn\n" || stderr.Len() != 0 {
+		t.Fatalf("oversized continuation dispatch = stops:%d stdout:%q stderr:%q", stops.Load(), stdout.String(), stderr.String())
+	}
+	body, readErr := os.ReadFile(promptLog)
+	if readErr != nil || string(body) != "4\n" {
+		t.Fatalf("ACP prompt log = %q, %v, want one initial prompt", body, readErr)
 	}
 }
 
@@ -363,13 +467,20 @@ while IFS= read -r line; do
     2) printf '{"jsonrpc":"2.0","id":2,"result":{}}\n' ;;
     3) printf '{"jsonrpc":"2.0","id":3,"result":{"sessionId":"grok-test"}}\n' ;;
     4)
+	  [ -z "${GROK_PROMPT_LOG:-}" ] || printf '%s\n' "$count" >> "$GROK_PROMPT_LOG"
       printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"grok-test","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"first turn"}}}}\n'
       printf '{"jsonrpc":"2.0","id":4,"result":{"stopReason":"end_turn"}}\n'
       ;;
     5)
+	  [ -z "${GROK_PROMPT_LOG:-}" ] || printf '%s\n' "$count" >> "$GROK_PROMPT_LOG"
       printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"grok-test","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"second turn"}}}}\n'
       printf '{"jsonrpc":"2.0","id":5,"result":{"stopReason":"end_turn"}}\n'
       ;;
+    6)
+	  [ -z "${GROK_PROMPT_LOG:-}" ] || printf '%s\n' "$count" >> "$GROK_PROMPT_LOG"
+	  printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"grok-test","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"third turn"}}}}\n'
+	  printf '{"jsonrpc":"2.0","id":6,"result":{"stopReason":"end_turn"}}\n'
+	  ;;
   esac
 done
 `
