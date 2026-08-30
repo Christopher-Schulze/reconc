@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 389 Make run-log following duplicate-safe and incremental -> tasks/389-make-run-log-following-duplicate-safe-and-incremental.md
 - [ ] 390 Retain pre-decision and taint-resolution state -> tasks/390-retain-pre-decision-and-taint-resolution-state.md
 - [ ] 391 Harden session-state persistence boundaries -> tasks/391-harden-session-state-persistence-boundaries.md
 - [ ] 392 Reduce session and pre-decision identity work -> tasks/392-reduce-session-and-pre-decision-identity-work.md
@@ -81,6 +80,7 @@
 
 ## Done
 
+- [x] 389 Make run-log following duplicate-safe and incremental -> tasks/done/389-make-run-log-following-duplicate-safe-and-incremental.md
 - [x] 388 Harden CLI value parsing and helper implementations -> tasks/done/388-harden-cli-value-parsing-and-helper-implementations.md
 - [x] 387 Align JSONL writer and reader contracts -> tasks/done/387-align-jsonl-writer-and-reader-contracts.md
 - [x] 386 Protect live retention locks and sessions -> tasks/done/386-protect-live-retention-locks-and-sessions.md

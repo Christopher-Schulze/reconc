@@ -13,14 +13,17 @@ Run-log cursors hash only record content, so identical adjacent decisions share 
 
 ## Sub-Tasks
 
-- [ ] Define a cursor identity that binds record occurrence and ring position safely.
-- [ ] Implement incremental follow with rotation-aware resynchronization.
-- [ ] Add duplicate, append-race, rotation, malformed-ring, and Unicode tests.
-- [ ] Run focused CLI tests and follow benchmarks.
+- [x] Define a cursor identity that binds record occurrence and ring position safely.
+- [x] Implement incremental follow with rotation-aware resynchronization.
+- [x] Add duplicate, append-race, rotation, malformed-ring, and Unicode tests.
+- [x] Run focused CLI tests and follow benchmarks.
 
 ## Notes
 
 - Verified from findings 34, 35, and 37.
 - The original marshal-error subclaim is not actionable for the current concrete `RunDecision` shape; duplicate identity and polling cost are confirmed.
+- The follower now binds the cursor to file identity, byte range, and raw-line SHA-256. It reuses unchanged decoded members, validates their retained tail occurrence, and decodes only appended suffixes or replaced members.
+- Focused agent-session and CLI packages pass. With 2,048 retained records, the 10-iteration idle benchmark changed from 2,754,254 ns/op, 5,062,367 B/op, and 20,666 allocs/op for full snapshots to 82,783 ns/op, 7,838 B/op, and 65 allocs/op for the follower.
+- `make test-fast` passed for the root and portable-template modules; formatting and generated reference documentation are current.
 
 ## Deviations

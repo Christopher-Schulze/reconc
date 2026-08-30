@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/runtime/agentsession"
@@ -205,7 +206,10 @@ func TestFollowRunLogAfterDoesNotLoseRecordAppendedAfterSnapshot(t *testing.T) {
 	repo := t.TempDir()
 	seed := agentsession.RunDecision{Event: "stop", Branch: "seed"}
 	writeRunDecisions(t, repo, []agentsession.RunDecision{seed})
-	cursor := runDecisionCursor(seed)
+	follower, _, err := agentsession.NewRunDecisionFollower(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	appendRunDecisionRaw(t, repo, agentsession.RunDecision{Event: "stop", Branch: "between_snapshot_and_follow"})
 
 	var mu sync.Mutex
@@ -213,7 +217,7 @@ func TestFollowRunLogAfterDoesNotLoseRecordAppendedAfterSnapshot(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- followRunLogAfter(ctx, repo, "", "", false, cursor, 5*time.Millisecond, &syncWriter{mu: &mu, w: &buf})
+		done <- followRunLogAfter(ctx, follower, "", "", false, 5*time.Millisecond, &syncWriter{mu: &mu, w: &buf})
 	}()
 	deadline := time.NewTimer(2 * time.Second)
 	defer deadline.Stop()
@@ -239,13 +243,14 @@ func TestFollowRunLogAfterDoesNotLoseRecordAppendedAfterSnapshot(t *testing.T) {
 	}
 }
 
-func TestRunDecisionsAfterRejectsLostCursor(t *testing.T) {
-	_, err := runDecisionsAfter(
-		[]agentsession.RunDecision{{Event: "stop", Branch: "retained"}},
-		runDecisionCursor(agentsession.RunDecision{Event: "stop", Branch: "rotated-away"}),
-	)
-	if err == nil || !strings.Contains(err.Error(), "left the bounded decision-log window") {
-		t.Fatalf("lost cursor must fail closed, got %v", err)
+func TestShortIDTruncatesUnicodeByRunes(t *testing.T) {
+	const sessionID = "äöüß世界abc"
+	got := shortID(sessionID)
+	if got != "äöüß世界ab" {
+		t.Fatalf("shortID(%q) = %q", sessionID, got)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatalf("shortID returned invalid UTF-8: %q", got)
 	}
 }
 

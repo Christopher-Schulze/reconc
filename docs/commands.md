@@ -1513,7 +1513,11 @@ transition, policy block, no-progress release, explicit switch, and stop
 reason. Continuation records contain bounded identifiers, branch, and counter
 metadata, never prompt bodies. Disabled no-op events are not logged.
 `--branch`/`--session` filter, `-n` keeps the last N, and `--follow` tails new
-records until Ctrl-C.
+records until Ctrl-C. Follow validates one complete baseline and then decodes
+only appended suffixes or changed ring members. Its cursor binds the exact file
+occurrence, byte range, and line digest, so identical adjacent decisions remain
+distinct and retained rotations continue without replay. A missing, modified,
+malformed, or truncated cursor occurrence stops the command explicitly.
 
 ### `reconc task <subcommand>`
 Typed repository TASK control with two non-migrating profiles:
