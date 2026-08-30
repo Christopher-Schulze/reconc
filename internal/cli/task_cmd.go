@@ -364,10 +364,99 @@ func writeTaskMutation(subcommand string, result tasklifecycle.MutationResult, e
 
 func writeTaskFailure(subcommand string, err error, jsonOut bool, stdout io.Writer) error {
 	var validationErr *tasklifecycle.ValidationError
-	if jsonOut && errors.As(err, &validationErr) {
-		_ = writeTaskJSON(stdout, map[string]any{"valid": false, "issues": validationErr.Issues})
+	exitCode := 1
+	envelope := taskFailureEnvelope{
+		Valid:        false,
+		FailureClass: "operational",
+		Error:        truncateUTF8(err.Error(), taskFailureErrorMaxBytes),
 	}
-	return &CLIError{ExitCode: 2, Message: "reconc task " + subcommand + ": " + err.Error()}
+	if errors.As(err, &validationErr) {
+		exitCode = 2
+		envelope.FailureClass = "validation"
+		envelope.Error = ""
+		envelope.Issues = validationErr.Issues
+	}
+	if jsonOut {
+		if writeErr := writeTaskFailureJSON(stdout, envelope); writeErr != nil {
+			return writeErr
+		}
+	}
+	return &CLIError{ExitCode: exitCode, Message: "reconc task " + subcommand + ": " + err.Error()}
+}
+
+const (
+	taskFailureJSONMaxBytes  = 64 << 10
+	taskFailureErrorMaxBytes = 4 << 10
+	taskFailureIssueMaxBytes = 512
+)
+
+type taskFailureEnvelope struct {
+	Valid         bool                  `json:"valid"`
+	FailureClass  string                `json:"failure_class"`
+	Issues        []tasklifecycle.Issue `json:"issues,omitempty"`
+	Error         string                `json:"error,omitempty"`
+	OmittedIssues int                   `json:"omitted_issues,omitempty"`
+}
+
+func writeTaskFailureJSON(stdout io.Writer, envelope taskFailureEnvelope) error {
+	body, err := encodeTaskFailureJSON(envelope)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc task: encode failure JSON: " + err.Error()}
+	}
+	written, err := stdout.Write(body)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc task: write failure JSON: " + err.Error()}
+	}
+	if written != len(body) {
+		return &CLIError{ExitCode: 1, Message: "reconc task: write failure JSON: " + io.ErrShortWrite.Error()}
+	}
+	return nil
+}
+
+func encodeTaskFailureJSON(envelope taskFailureEnvelope) ([]byte, error) {
+	body, err := json.MarshalIndent(envelope, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	body = append(body, '\n')
+	if len(body) <= taskFailureJSONMaxBytes {
+		return body, nil
+	}
+	bounded := taskFailureEnvelope{
+		Valid:         false,
+		FailureClass:  envelope.FailureClass,
+		Error:         "TASK failure details exceeded the JSON envelope limit",
+		OmittedIssues: len(envelope.Issues),
+	}
+	if len(envelope.Issues) > 0 {
+		bounded.Issues = []tasklifecycle.Issue{boundTaskFailureIssue(envelope.Issues[0])}
+		bounded.OmittedIssues--
+	}
+	body, err = json.MarshalIndent(bounded, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	body = append(body, '\n')
+	if len(body) <= taskFailureJSONMaxBytes {
+		return body, nil
+	}
+	body, err = json.Marshal(taskFailureEnvelope{
+		Valid:        false,
+		FailureClass: envelope.FailureClass,
+		Error:        "TASK failure details could not fit the JSON envelope limit",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return append(body, '\n'), nil
+}
+
+func boundTaskFailureIssue(issue tasklifecycle.Issue) tasklifecycle.Issue {
+	issue.ID = truncateUTF8(issue.ID, taskFailureIssueMaxBytes)
+	issue.Path = truncateUTF8(issue.Path, taskFailureIssueMaxBytes)
+	issue.Message = truncateUTF8(issue.Message, taskFailureIssueMaxBytes)
+	issue.Remediation = truncateUTF8(issue.Remediation, taskFailureIssueMaxBytes)
+	return issue
 }
 
 func taskCLIError(subcommand string, err error) error {

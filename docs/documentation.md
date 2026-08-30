@@ -1827,6 +1827,12 @@ normal successor auto-claim. `split` accepts only
 pre-created child TASKs whose Why section references the parent. Promotion
 checks every Sub-Task and configured evidence field before moving the detail;
 it never fabricates evidence. A crash leaves `.reconc/task-transaction.json`.
+In `--json` mode, every lifecycle failure emits one envelope with
+`valid: false` and `failure_class: validation|operational`. Validation failures
+retain structured issues and exit 2; filesystem, decoding, locking, and other
+operational failures carry a bounded error string and exit 1. Failure envelopes
+are capped at 64 KiB, with an explicit omitted-issue count if full validation
+details exceed that boundary. An output-write failure itself remains exit 1.
 All readers fail closed while that journal exists; `reconc task recover` rolls
 back a prepared transaction only if every touched path still equals its recorded before or after
 image with its recorded regular-file type and permission mode, so an external

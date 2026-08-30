@@ -3,6 +3,10 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,6 +105,106 @@ func TestRunTaskBlockRejectsConflictingNextFlags(t *testing.T) {
 	err := runTaskBlock([]string{repo, "--reason", "pause", "--next", "002", "--no-next"}, &stdout)
 	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Fatalf("expected conflicting flag error, got %v", err)
+	}
+}
+
+func TestWriteTaskFailureClassifiesAndBoundsJSON(t *testing.T) {
+	validation := fmt.Errorf("wrapped lifecycle failure: %w", &tasklifecycle.ValidationError{Issues: []tasklifecycle.Issue{{
+		ID: "task/test", Path: "docs/tasks.md", Line: 3, Message: "invalid state", Remediation: "repair state",
+	}}})
+	tests := []struct {
+		name      string
+		err       error
+		wantCode  int
+		wantClass string
+		wantIssue string
+		wantError string
+	}{
+		{name: "wrapped validation", err: validation, wantCode: 2, wantClass: "validation", wantIssue: "task/test"},
+		{name: "permission read", err: &os.PathError{Op: "open", Path: "docs/tasks.md", Err: fs.ErrPermission}, wantCode: 1, wantClass: "operational", wantError: "permission denied"},
+		{name: "malformed state", err: errors.New("decode TASK transaction: malformed JSON at byte 7"), wantCode: 1, wantClass: "operational", wantError: "malformed JSON"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var output bytes.Buffer
+			err := writeTaskFailure("status", test.err, true, &output)
+			if ExitCode(err) != test.wantCode {
+				t.Fatalf("failure exit code = %d, want %d: %v", ExitCode(err), test.wantCode, err)
+			}
+			var envelope taskFailureEnvelope
+			decoder := json.NewDecoder(bytes.NewReader(output.Bytes()))
+			if err := decoder.Decode(&envelope); err != nil {
+				t.Fatalf("decode failure envelope: %v: %s", err, output.String())
+			}
+			var trailing json.RawMessage
+			if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+				t.Fatalf("failure output contains more than one envelope: %v", err)
+			}
+			if envelope.Valid || envelope.FailureClass != test.wantClass || len(output.Bytes()) > taskFailureJSONMaxBytes {
+				t.Fatalf("failure envelope = %+v, bytes=%d", envelope, output.Len())
+			}
+			if test.wantIssue != "" && (len(envelope.Issues) != 1 || envelope.Issues[0].ID != test.wantIssue) {
+				t.Fatalf("validation issues = %#v", envelope.Issues)
+			}
+			if test.wantError != "" && !strings.Contains(envelope.Error, test.wantError) {
+				t.Fatalf("operational error = %q, want %q", envelope.Error, test.wantError)
+			}
+		})
+	}
+
+	hugeValidation := &tasklifecycle.ValidationError{Issues: []tasklifecycle.Issue{{
+		ID: strings.Repeat("i", taskFailureJSONMaxBytes), Path: strings.Repeat("p", taskFailureJSONMaxBytes),
+		Message: strings.Repeat("m", taskFailureJSONMaxBytes), Remediation: strings.Repeat("r", taskFailureJSONMaxBytes),
+	}}}
+	var bounded bytes.Buffer
+	if err := writeTaskFailure("validate", hugeValidation, true, &bounded); ExitCode(err) != 2 {
+		t.Fatalf("bounded validation exit = %d: %v", ExitCode(err), err)
+	}
+	if bounded.Len() > taskFailureJSONMaxBytes || !json.Valid(bounded.Bytes()) {
+		t.Fatalf("bounded validation JSON bytes=%d valid=%t", bounded.Len(), json.Valid(bounded.Bytes()))
+	}
+}
+
+func TestWriteTaskFailureCoversEveryTaskSubcommandAndOutputFailure(t *testing.T) {
+	validation := &tasklifecycle.ValidationError{Issues: []tasklifecycle.Issue{{ID: "task/test", Message: "invalid"}}}
+	for _, subcommand := range []string{"status", "validate", "check-done", "new", "claim", "block", "resume", "split", "promote", "archive", "recover"} {
+		t.Run(subcommand, func(t *testing.T) {
+			var output bytes.Buffer
+			err := writeTaskFailure(subcommand, validation, true, &output)
+			if ExitCode(err) != 2 || !strings.Contains(err.Error(), "reconc task "+subcommand+":") {
+				t.Fatalf("%s failure = %v", subcommand, err)
+			}
+			var envelope taskFailureEnvelope
+			if decodeErr := json.Unmarshal(output.Bytes(), &envelope); decodeErr != nil || envelope.FailureClass != "validation" {
+				t.Fatalf("%s envelope=%+v decode=%v", subcommand, envelope, decodeErr)
+			}
+		})
+	}
+	err := writeTaskFailure("status", errors.New("read failure"), true, failingOutputWriter{})
+	if ExitCode(err) != 1 || !strings.Contains(err.Error(), "write failure JSON: output unavailable") {
+		t.Fatalf("output failure = %v", err)
+	}
+}
+
+func TestRunTaskOperationalJSONFailuresUseExitOne(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing")
+	var output bytes.Buffer
+	err := runTaskRead("status", []string{missing, "--json"}, &output)
+	if ExitCode(err) != 1 || !strings.Contains(output.String(), `"failure_class": "operational"`) {
+		t.Fatalf("missing repository = output %q, error %v", output.String(), err)
+	}
+
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".reconc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".reconc", "task-transaction.json"), []byte(`{"malformed":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	err = runTaskRecover([]string{repo, "--json"}, &output)
+	if ExitCode(err) != 1 || !strings.Contains(output.String(), `"failure_class": "operational"`) {
+		t.Fatalf("malformed transaction = output %q, error %v", output.String(), err)
 	}
 }
 

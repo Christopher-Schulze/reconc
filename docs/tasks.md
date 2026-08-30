@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 418 Separate TASK validation failures from I/O failures -> tasks/418-separate-task-validation-failures-from-io-failures.md
 - [ ] 419 Consolidate bounded subprocess capture -> tasks/419-consolidate-bounded-subprocess-capture.md
 - [ ] 420 Define deterministic repository control-directory permissions -> tasks/420-define-deterministic-repository-control-directory-permissions.md
 - [ ] 421 Return non-zero for incomplete hook verification -> tasks/421-return-non-zero-for-incomplete-hook-verification.md
@@ -52,6 +51,7 @@
 
 ## Done
 
+- [x] 418 Separate TASK validation failures from I/O failures -> tasks/done/418-separate-task-validation-failures-from-io-failures.md
 - [x] 417 Preserve exact hook output-envelope limits -> tasks/done/417-preserve-exact-hook-output-envelope-limits.md
 - [x] 416 Bound persistent hook-worker root caching -> tasks/done/416-bound-persistent-hook-worker-root-caching.md
 - [x] 415 Centralize hook-runtime failure adaptation -> tasks/done/415-centralize-hook-runtime-failure-adaptation.md
