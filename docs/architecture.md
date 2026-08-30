@@ -1183,6 +1183,13 @@ on the case-insensitive filesystems this product supports; evidence matching
 stays case-sensitive so a claim is only satisfied by the command the author
 named.
 
+Before that AST comparison, command semantic normalization uses one bounded
+state scan for line continuations, quoted and substituted regions, whitespace,
+compound separators, transparent `rtk` wrappers, and repository-root `cd`
+anchors. The scanner writes directly into one reusable byte buffer and retains
+the legacy malformed-input output exactly, avoiding segment slices and repeated
+whole-command strings on the policy hot path.
+
 Static `eval` follows the POSIX two-pass boundary exactly. After the outer
 parse removes syntactic quotes and resolves supported escapes, `eval` joins its
 resulting arguments with one space and reparses that command. Outer quote

@@ -754,15 +754,18 @@ func BenchmarkCommandEvidenceReparse(b *testing.B) {
 }
 
 func BenchmarkNormalizeCommandSemantics(b *testing.B) {
-	for _, command := range []string{
-		"go test ./...",
-		"rtk go test ./...",
-		"rtk rtk rtk go test ./... && rtk rtk git status",
+	for _, test := range []struct {
+		name    string
+		command string
+	}{
+		{name: "simple", command: "go test ./..."},
+		{name: "wrapped", command: "rtk go test ./..."},
+		{name: "complex", command: "rtk rtk rtk go test ./... && rtk rtk git status"},
 	} {
-		b.Run(command, func(b *testing.B) {
+		b.Run(test.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for range b.N {
-				if normalizeCommandSemantics(command, "/repo") == "" {
+				if normalizeCommandSemantics(test.command, "/repo") == "" {
 					b.Fatal("normalization returned empty")
 				}
 			}

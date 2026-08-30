@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 382 Streamline command semantic normalization -> tasks/382-streamline-command-semantic-normalization.md
 - [ ] 383 Remove verified runtime helper duplication -> tasks/383-remove-verified-runtime-helper-duplication.md
 - [ ] 384 Hermeticize offline hook verification -> tasks/384-hermeticize-offline-hook-verification.md
 - [ ] 385 Preserve stricter managed-artifact permissions -> tasks/385-preserve-stricter-managed-artifact-permissions.md
@@ -88,6 +87,7 @@
 
 ## Done
 
+- [x] 382 Streamline command semantic normalization -> tasks/done/382-streamline-command-semantic-normalization.md
 - [x] 381 Bind require-script execution to validated identity -> tasks/done/381-bind-require-script-execution-to-validated-identity.md
 - [x] 380 Bound violation diagnostic aggregation -> tasks/done/380-bound-violation-diagnostic-aggregation.md
 - [x] 379 Reduce lockfile serialization passes -> tasks/done/379-reduce-lockfile-serialization-passes.md

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -198,104 +199,257 @@ func normalizeWhitespace(s string) string {
 // Applied repeatedly the function is idempotent: every pass after the
 // first returns the same string.
 func normalizeCommandSemantics(cmd, repoRoot string) string {
-	cmd = normalizeShellWhitespace(cmd)
-	if cmd == "" {
-		return ""
-	}
 	repoRoot = strings.TrimRight(strings.TrimSpace(repoRoot), "/")
-	segments := splitCommandSegments(cmd)
-	for i := range segments {
-		segments[i].body = normalizeSegmentBody(segments[i].body, repoRoot)
+	normalizer := commandSemanticNormalizer{
+		output:   make([]byte, 0, len(cmd)),
+		repoRoot: repoRoot,
+		leading:  true,
 	}
-	// Drop leading `cd .` segments left by agents that anchor commands with
-	// an explicit cd into the repo root: `cd /abs/repo && X` is semantically
-	// `X` when /abs/repo IS the repo root. Only `&&` and `;` joins are safe
-	// to drop; `cd . || X` or `cd . | X` would change meaning and stay as-is.
-	for len(segments) >= 2 && segments[0].body == "cd ." &&
-		(segments[1].sep == " && " || segments[1].sep == " ; ") {
-		segments = segments[1:]
-		segments[0].sep = ""
+	if repoRoot != "" {
+		normalizer.cleanedRoot = path.Clean(repoRoot)
 	}
-	var out strings.Builder
-	for i, s := range segments {
-		if i > 0 {
-			out.WriteString(s.sep)
-		}
-		out.WriteString(s.body)
-	}
-	return normalizeShellWhitespace(out.String())
+	return normalizer.normalize(cmd)
 }
 
-// commandSegment is one slice of a normalized command between shell
-// compound boundaries. The first segment has sep == "".
-type commandSegment struct {
-	sep  string
-	body string
+type commandSemanticNormalizer struct {
+	output            []byte
+	repoRoot          string
+	cleanedRoot       string
+	segmentStart      int
+	quote             byte
+	escaped           bool
+	substitutionDepth int
+	pendingSpace      bool
+	lastSeparator     bool
+	leading           bool
 }
 
-// commandSegmentSeparators lists the shell compound boundaries that start a
-// new command position. Shell does not require surrounding whitespace, so the
-// scanner canonicalizes both `a&&b` and `a && b` without inspecting quoted
-// literal data.
-var commandSegmentSeparators = []string{"&&", "||", "|&", ";", "|", "&"}
-
-// splitCommandSegments splits a whitespace-normalized command into
-// segments at every shell compound boundary while preserving the
-// separators so the command can be reconstructed verbatim.
-func splitCommandSegments(cmd string) []commandSegment {
-	segments := make([]commandSegment, 0, 4)
-	start := 0
-	nextSeparator := ""
-	var quote byte
-	escaped := false
-	substitutionDepth := 0
-	for index := 0; index < len(cmd); index++ {
-		current := cmd[index]
-		if escaped {
-			escaped = false
+func (n *commandSemanticNormalizer) normalize(command string) string {
+	for index := 0; index < len(command); index++ {
+		current := command[index]
+		if n.consumeQuotedOrEscaped(command, &index, current) {
 			continue
 		}
-		if current == '\\' && quote != '\'' {
-			escaped = true
+		if current == '\r' || current == '\n' {
+			n.consumeNewline(command, &index, current)
 			continue
 		}
-		if quote != 0 {
-			if current == quote {
-				quote = 0
-			}
+		if current == ' ' || current == '\t' {
+			n.pendingSpace = true
 			continue
 		}
 		if current == '\'' || current == '"' || current == '`' {
-			quote = current
+			n.flushSpace()
+			n.quote = current
+			n.output = append(n.output, current)
+			n.lastSeparator = false
 			continue
 		}
-		if current == '(' && (substitutionDepth > 0 || index > 0 && cmd[index-1] == '$') {
-			substitutionDepth++
+		if n.consumeSubstitutionParen(current) {
 			continue
 		}
-		if current == ')' && substitutionDepth > 0 {
-			substitutionDepth--
-			continue
-		}
-		if substitutionDepth > 0 {
-			continue
-		}
-		for _, separator := range commandSegmentSeparators {
-			if !strings.HasPrefix(cmd[index:], separator) {
+		if n.substitutionDepth == 0 {
+			if separator, end := commandSeparatorAt(command, index, n.previousByte()); separator != "" {
+				n.finishSegment(separator)
+				index = end
 				continue
 			}
-			if separator == "&" && ((index > 0 && cmd[index-1] == '>') || (index+1 < len(cmd) && cmd[index+1] == '>')) {
-				continue
-			}
-			segments = append(segments, commandSegment{sep: nextSeparator, body: cmd[start:index]})
-			nextSeparator = " " + separator + " "
-			index += len(separator) - 1
-			start = index + 1
-			break
 		}
+		n.writeUnquoted(current)
 	}
-	segments = append(segments, commandSegment{sep: nextSeparator, body: cmd[start:]})
-	return segments
+	n.finishSegment("")
+	for len(n.output) > 0 && n.output[len(n.output)-1] == ' ' {
+		n.output = n.output[:len(n.output)-1]
+	}
+	return string(n.output)
+}
+
+func (n *commandSemanticNormalizer) consumeQuotedOrEscaped(command string, index *int, current byte) bool {
+	if n.escaped {
+		n.flushSpace()
+		n.output = append(n.output, current)
+		n.lastSeparator = false
+		n.escaped = false
+		return true
+	}
+	if n.quote == '\'' {
+		n.output = append(n.output, current)
+		n.lastSeparator = false
+		if current == '\'' {
+			n.quote = 0
+		}
+		return true
+	}
+	if current == '\\' {
+		if end, ok := lineContinuationEnd(command, *index); ok {
+			*index = end
+			return true
+		}
+		n.flushSpace()
+		n.output = append(n.output, current)
+		n.escaped = true
+		return true
+	}
+	if n.quote != 0 {
+		n.output = append(n.output, current)
+		n.lastSeparator = false
+		if current == n.quote {
+			n.quote = 0
+		}
+		return true
+	}
+	return false
+}
+
+func (n *commandSemanticNormalizer) consumeNewline(command string, index *int, current byte) {
+	if current == '\r' && *index+1 < len(command) && command[*index+1] == '\n' {
+		*index = *index + 1
+	}
+	n.pendingSpace = false
+	if n.lastSeparator || len(n.output) == 0 {
+		return
+	}
+	if n.substitutionDepth > 0 {
+		n.appendSeparator(";")
+		n.lastSeparator = true
+		return
+	}
+	n.finishSegment(";")
+}
+
+func (n *commandSemanticNormalizer) consumeSubstitutionParen(current byte) bool {
+	if current != '(' && current != ')' {
+		return false
+	}
+	n.flushSpace()
+	if current == '(' && (n.substitutionDepth > 0 || n.previousByte() == '$') {
+		n.substitutionDepth++
+	} else if current == ')' && n.substitutionDepth > 0 {
+		n.substitutionDepth--
+	}
+	n.output = append(n.output, current)
+	n.lastSeparator = false
+	return true
+}
+
+func (n *commandSemanticNormalizer) writeUnquoted(current byte) {
+	n.flushSpace()
+	n.output = append(n.output, current)
+	n.lastSeparator = current == ';' || current == '|' || current == '&'
+}
+
+func (n *commandSemanticNormalizer) flushSpace() {
+	if n.pendingSpace && len(n.output) > n.segmentStart && n.output[len(n.output)-1] != ' ' {
+		n.output = append(n.output, ' ')
+	}
+	n.pendingSpace = false
+}
+
+func (n *commandSemanticNormalizer) previousByte() byte {
+	if n.pendingSpace || len(n.output) == 0 {
+		return 0
+	}
+	return n.output[len(n.output)-1]
+}
+
+func (n *commandSemanticNormalizer) finishSegment(separator string) {
+	n.pendingSpace = false
+	n.normalizeSegment()
+	body := n.output[n.segmentStart:]
+	if n.leading && bytes.Equal(body, []byte("cd .")) && (separator == "&&" || separator == ";") {
+		n.output = n.output[:n.segmentStart]
+	} else {
+		n.leading = false
+		n.appendSeparator(separator)
+	}
+	n.segmentStart = len(n.output)
+	n.lastSeparator = separator != ""
+}
+
+func (n *commandSemanticNormalizer) normalizeSegment() {
+	body := bytes.TrimSpace(n.output[n.segmentStart:])
+	for bytes.HasPrefix(body, []byte("rtk ")) {
+		body = bytes.TrimSpace(body[len("rtk "):])
+	}
+	n.output = n.output[:n.segmentStart]
+	if n.repoRoot == "" || !bytes.HasPrefix(body, []byte("cd ")) {
+		n.output = append(n.output, body...)
+		return
+	}
+	argument := strings.TrimSpace(string(body[len("cd "):]))
+	if strings.HasPrefix(argument, "\"") || strings.HasPrefix(argument, "'") {
+		n.output = append(n.output, body...)
+		return
+	}
+	cleaned := path.Clean(argument)
+	switch {
+	case cleaned == n.cleanedRoot:
+		n.output = append(n.output, "cd ."...)
+	case strings.HasPrefix(cleaned, n.cleanedRoot+"/"):
+		n.output = append(n.output, "cd "...)
+		n.output = append(n.output, strings.TrimPrefix(cleaned, n.cleanedRoot+"/")...)
+	default:
+		n.output = append(n.output, body...)
+	}
+}
+
+func (n *commandSemanticNormalizer) appendSeparator(separator string) {
+	if separator == "" {
+		return
+	}
+	if len(n.output) > 0 && n.output[len(n.output)-1] != ' ' {
+		n.output = append(n.output, ' ')
+	}
+	n.output = append(n.output, separator...)
+	n.output = append(n.output, ' ')
+}
+
+func commandSeparatorAt(command string, index int, previous byte) (string, int) {
+	current := command[index]
+	next, nextIndex := nextCommandByte(command, index+1)
+	switch current {
+	case ';':
+		return ";", index
+	case '|':
+		if next == '|' {
+			return "||", nextIndex
+		}
+		if next == '&' {
+			return "|&", nextIndex
+		}
+		return "|", index
+	case '&':
+		if next == '&' {
+			return "&&", nextIndex
+		}
+		if previous == '>' || next == '>' {
+			return "", index
+		}
+		return "&", index
+	default:
+		return "", index
+	}
+}
+
+func nextCommandByte(command string, index int) (byte, int) {
+	for index < len(command) {
+		if end, ok := lineContinuationEnd(command, index); ok {
+			index = end + 1
+			continue
+		}
+		return command[index], index
+	}
+	return 0, index
+}
+
+func lineContinuationEnd(command string, index int) (int, bool) {
+	if index+1 < len(command) && command[index] == '\\' && command[index+1] == '\n' {
+		return index + 1, true
+	}
+	if index+2 < len(command) && command[index] == '\\' && command[index+1] == '\r' && command[index+2] == '\n' {
+		return index + 2, true
+	}
+	return index, false
 }
 
 // normalizeShellWhitespace collapses only unquoted shell whitespace. Literal
@@ -365,45 +519,6 @@ func normalizeShellWhitespace(command string) string {
 		lastUnquotedSeparator = current == ';' || current == '|' || current == '&'
 	}
 	return normalized.String()
-}
-
-// normalizeSegmentBody applies the two semantic normalisations to one
-// command segment body (the text between compound boundaries).
-//
-// The cd-arg path is cleaned via path.Clean before comparison so that
-// `cd /repo/`, `cd /repo/.`, `cd /repo//sub`, and `cd /repo/sub/..` all
-// resolve to their canonical forms relative to repoRoot. Cleaning is
-// only applied to unquoted absolute-style arguments to avoid touching
-// `cd "/path with spaces"` and similar quoted forms.
-func normalizeSegmentBody(body, repoRoot string) string {
-	body = strings.TrimSpace(body)
-	if body == "" {
-		return body
-	}
-	// Every pass consumes at least the complete four-byte "rtk " token, so
-	// the input-derived bound proves convergence even for adversarial stacks.
-	maximumWrappers := len(body) / len("rtk ")
-	for range maximumWrappers {
-		if !strings.HasPrefix(body, "rtk ") {
-			break
-		}
-		body = strings.TrimSpace(body[len("rtk "):])
-	}
-	if repoRoot != "" && strings.HasPrefix(body, "cd ") {
-		arg := strings.TrimSpace(body[len("cd "):])
-		// Skip quote-wrapped arguments — path.Clean would mishandle
-		// embedded spaces in quoted shell tokens.
-		if !strings.HasPrefix(arg, "\"") && !strings.HasPrefix(arg, "'") {
-			cleaned := path.Clean(arg)
-			cleanedRoot := path.Clean(repoRoot)
-			if cleaned == cleanedRoot {
-				body = "cd ."
-			} else if strings.HasPrefix(cleaned, cleanedRoot+"/") {
-				body = "cd " + strings.TrimPrefix(cleaned, cleanedRoot+"/")
-			}
-		}
-	}
-	return body
 }
 
 func normalizeCommands(commands []string) []string {

@@ -138,6 +138,9 @@ func FuzzNormalizeCommandSemanticsIdempotent(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, command, root string) {
 		once := normalizeCommandSemantics(command, root)
+		if legacy := legacyNormalizeCommandSemantics(command, root); once != legacy {
+			t.Fatalf("normalization drifted from the captured contract: command=%q root=%q got=%q want=%q", command, root, once, legacy)
+		}
 		if again := normalizeCommandSemantics(command, root); again != once {
 			t.Fatalf("normalization is nondeterministic: first=%q second=%q", once, again)
 		}
