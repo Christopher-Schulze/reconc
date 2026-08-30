@@ -14,10 +14,16 @@ import (
 	"reconc.dev/reconc/internal/jsonl"
 )
 
-func enforceStateTotal(options Options, project, activeID string, hasActive bool, report *Report) ClassReport {
+func enforceStateTotal(
+	options Options,
+	project, activeID string,
+	hasActive bool,
+	taintProtection taintResolutionProtection,
+	report *Report,
+) ClassReport {
 	class := ClassReport{Name: "state-total"}
 	candidates := []candidate{}
-	for _, dir := range []string{"sessions", "reports", "locks", "command-proofs", "policy-decisions"} {
+	for _, dir := range []string{"sessions", "reports", "locks", "command-proofs", "policy-decisions", "pre-decisions", "evidence-taint-resolutions"} {
 		path := filepath.Join(project, dir)
 		entries, err := boundedio.ReadDirNoSymlink(path, maxRetentionDirectoryEntries)
 		if err != nil {
@@ -42,9 +48,26 @@ func enforceStateTotal(options Options, project, activeID string, hasActive bool
 			active := hasActive && (dir == "sessions" || dir == "reports") && entry.Name() == activeID+".json"
 			active = active || hasActive && dir == "locks" && (entry.Name() == activeID+".lock" || entry.Name() == activeID+".stop-policy.lock")
 			active = active || dir == "policy-decisions" && entry.Name() == "latest.json"
+			active = active || hasActive && dir == "pre-decisions" && entry.Name() == activeID+".json"
+			active = active || dir == "evidence-taint-resolutions" && (taintProtection.all || taintProtection.names[entry.Name()])
 			item := candidate{
 				path: filepath.Join(path, entry.Name()), name: dir + "/" + entry.Name(), size: info.Size(), mtime: info.ModTime(),
 				active: active, probeLock: dir == "locks", info: info,
+			}
+			var inspect stateArtifactInspector
+			switch dir {
+			case "pre-decisions":
+				inspect = inspectPreDecisionArtifact
+			case "evidence-taint-resolutions":
+				inspect = inspectTaintResolutionArtifact(options.RepoRoot)
+			}
+			if inspect != nil && !item.active {
+				if err := inspect(item.path, entry.Name(), info); err != nil {
+					report.Errors = append(report.Errors, fmt.Sprintf("inspect state entry %s: %v", item.path, err))
+					item.active = true
+				} else {
+					item.validate = inspect
+				}
 			}
 			candidates = append(candidates, item)
 			class.BytesBefore += item.size

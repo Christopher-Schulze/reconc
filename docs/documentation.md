@@ -2258,8 +2258,13 @@ rules cannot turn concurrent hooks into lost evidence or failed publication.
 
 Default persistent budgets are 32 session files / 8 MiB / 14 days, 32 reports
 / 8 MiB / 14 days, 128 locks / 1 MiB / 24 hours, 64 staged command proofs /
-256 KiB / 24 hours, 16 MiB total external state, and 32 MiB / 14 days for
-generated audit binaries. The product-wide project
+256 KiB / 24 hours, 32 pre-decision caches / 512 KiB / 14 days, 32 evidence
+taint-resolution receipts / 512 KiB / 14 days, 16 MiB total external state,
+and 32 MiB / 14 days for generated audit binaries. The active session's
+pre-decision cache is protected. All taint-resolution receipts are protected
+while a session is active; otherwise the receipt matching the current live
+taint remains protected. An unreadable or malformed live taint or receipt is
+reported and preserved rather than guessed away. The product-wide project
 state root is independently bounded to 256 recognized project roots, 128 MiB,
 and 30 days. Explicit prune enforces that global bound immediately; lifecycle
 passes protect the current project, live sessions, and roots touched within the
@@ -2331,6 +2336,8 @@ Retention candidates retain their discovered non-symlink identity and expected
 type. Before deletion, the parent directory is reopened as an identity-bound
 root and the candidate is revalidated; recursive removal stays inside that
 root and refuses replacements, symlinks, or repopulated directories.
+Taint-resolution candidates additionally revalidate their bounded immutable
+content immediately before removal.
 Global temp and project-root scanning use independent six-hour markers, so
 multiple repos do not re-walk either tree on every session start.
 Durable publication and CLI output paths propagate write, sync, close, and

@@ -13,14 +13,17 @@ Per-project `pre-decisions` and `evidence-taint-resolutions` directories are out
 
 ## Sub-Tasks
 
-- [ ] Define retention policies and active-object predicates for both classes.
-- [ ] Integrate them into class and aggregate accounting.
-- [ ] Add adversarial retention regressions.
-- [ ] Run focused retention and agent-session tests.
+- [x] Define retention policies and active-object predicates for both classes.
+- [x] Integrate them into class and aggregate accounting.
+- [x] Add adversarial retention regressions.
+- [x] Run focused retention and agent-session tests.
 
 ## Notes
 
 - Verified from finding 39 and its duplicate finding 187.
 - Current retention classes cover sessions, reports, locks, command proofs, and policy decisions but not these two directories.
+- Added independent 32-file / 512 KiB / 14-day budgets for both classes and included them in the 16 MiB aggregate state budget.
+- Active-session pre-decisions, all resolutions during an active session, and the resolution matching a persisted live taint are protected. Malformed state fails closed.
+- Candidate removal revalidates taint-resolution structure, repository binding, token, identity, and bounded content immediately before deletion.
 
 ## Deviations

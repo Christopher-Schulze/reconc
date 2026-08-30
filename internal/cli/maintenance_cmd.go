@@ -113,7 +113,7 @@ func runPrune(args []string, stdout io.Writer) error {
 			// Hidden parser compatibility with the old harness utility.
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc prune [repo] [--dry-run] [--json]")
-			fmt.Fprintln(stdout, "Bound project state, sessions, reports, locks, audit/run JSONL, generated audit binaries, and owned temp residue.")
+			fmt.Fprintln(stdout, "Bound project state, sessions, reports, locks, decision caches, taint-resolution receipts, audit/run JSONL, generated audit binaries, and owned temp residue.")
 			return nil
 		default:
 			if strings.HasPrefix(arg, "-") {

@@ -28,6 +28,8 @@ type Policy struct {
 	Locks                ClassPolicy
 	CommandProofs        ClassPolicy
 	PolicyDecisions      ClassPolicy
+	PreDecisions         ClassPolicy
+	TaintResolutions     ClassPolicy
 	GeneratedBinaries    ClassPolicy
 	StateTotalBytes      int64
 	RepoRuntimeBytes     int64
@@ -43,6 +45,7 @@ type Policy struct {
 // DefaultPolicy keeps useful recent evidence while placing deterministic
 // ceilings on write amplification and persistent disk use.
 func DefaultPolicy() Policy {
+	stateArtifactPolicy := ClassPolicy{MaxFiles: 32, MaxBytes: 512 * 1024, MaxAge: 14 * 24 * time.Hour}
 	return Policy{
 		ProjectRoots:         ClassPolicy{MaxFiles: 256, MaxBytes: 128 * 1024 * 1024, MaxAge: 30 * 24 * time.Hour},
 		Sessions:             ClassPolicy{MaxFiles: 32, MaxBytes: 8 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
@@ -50,6 +53,8 @@ func DefaultPolicy() Policy {
 		Locks:                ClassPolicy{MaxFiles: 128, MaxBytes: 1024 * 1024, MaxAge: 24 * time.Hour},
 		CommandProofs:        ClassPolicy{MaxFiles: 64, MaxBytes: 256 * 1024, MaxAge: 24 * time.Hour},
 		PolicyDecisions:      ClassPolicy{MaxFiles: 1, MaxBytes: 8 * 1024 * 1024},
+		PreDecisions:         stateArtifactPolicy,
+		TaintResolutions:     stateArtifactPolicy,
 		GeneratedBinaries:    ClassPolicy{MaxFiles: 8, MaxBytes: 32 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
 		StateTotalBytes:      16 * 1024 * 1024,
 		RepoRuntimeBytes:     48 * 1024 * 1024,

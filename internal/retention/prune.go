@@ -28,6 +28,7 @@ type candidate struct {
 	probeLock        bool
 	probeProjectRoot bool
 	info             os.FileInfo
+	validate         candidateValidator
 }
 
 const (
@@ -97,15 +98,29 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 		stateOptions.Policy.Locks = noDelete
 		stateOptions.Policy.CommandProofs = noDelete
 		stateOptions.Policy.PolicyDecisions = noDelete
+		stateOptions.Policy.PreDecisions = noDelete
+		stateOptions.Policy.TaintResolutions = noDelete
 		stateOptions.Policy.StateTotalBytes = int64(^uint64(0) >> 1)
 	}
 	activeID := SessionFileID(active)
+	taintProtection, taintProtectionErr := resolveTaintResolutionProtection(project, options.RepoRoot)
+	if taintProtectionErr != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("resolve taint-resolution protection: %v", taintProtectionErr))
+	}
+	if active != "" || activeErr != nil {
+		taintProtection.all = true
+	}
+	if taintProtection.all {
+		stateOptions.Policy.TaintResolutions = ClassPolicy{MaxFiles: -1, MaxBytes: -1}
+	}
 
 	sessions := filepath.Join(project, "sessions")
 	reports := filepath.Join(project, "reports")
 	locks := filepath.Join(project, "locks")
 	commandProofs := filepath.Join(project, "command-proofs")
 	policyDecisions := filepath.Join(project, "policy-decisions")
+	preDecisions := filepath.Join(project, "pre-decisions")
+	taintResolutions := filepath.Join(project, "evidence-taint-resolutions")
 	report.Classes = append(report.Classes,
 		pruneClass("sessions", sessions, stateOptions.Policy.Sessions, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
 		pruneClass("reports", reports, stateOptions.Policy.Reports, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
@@ -115,9 +130,11 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 		}, nil, &report),
 		pruneClass("command-proofs", commandProofs, stateOptions.Policy.CommandProofs, options.Now, options.DryRun, nil, nil, &report),
 		pruneClass("policy-decisions", policyDecisions, stateOptions.Policy.PolicyDecisions, options.Now, options.DryRun, map[string]bool{"latest.json": true}, nil, &report),
+		pruneClassInspected("pre-decisions", preDecisions, stateOptions.Policy.PreDecisions, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, inspectPreDecisionArtifact, &report),
+		pruneClassInspected("evidence-taint-resolutions", taintResolutions, stateOptions.Policy.TaintResolutions, options.Now, options.DryRun, taintProtection.names, nil, inspectTaintResolutionArtifact(options.RepoRoot), &report),
 	)
-	projectedStateBefore, projectedStateAfter := classTotals(report.Classes, "sessions", "reports", "locks", "command-proofs", "policy-decisions")
-	stateTotal := enforceStateTotal(stateOptions, project, activeID, active != "", &report)
+	projectedStateBefore, projectedStateAfter := classTotals(report.Classes, "sessions", "reports", "locks", "command-proofs", "policy-decisions", "pre-decisions", "evidence-taint-resolutions")
+	stateTotal := enforceStateTotal(stateOptions, project, activeID, active != "", taintProtection, &report)
 	if options.DryRun {
 		stateTotal.BytesBefore = projectedStateBefore
 		stateTotal.BytesAfter = minInt64(stateTotal.BytesAfter, projectedStateAfter)
@@ -455,6 +472,23 @@ func withPruneLock(options Options, run func() Report) Report {
 }
 
 func pruneClass(name, dir string, policy ClassPolicy, now time.Time, dryRun bool, activeNames map[string]bool, include func(os.DirEntry) bool, report *Report) ClassReport {
+	return pruneClassInspected(name, dir, policy, now, dryRun, activeNames, include, nil, report)
+}
+
+type candidateValidator func(string, string, os.FileInfo) error
+
+type stateArtifactInspector = candidateValidator
+
+func pruneClassInspected(
+	name, dir string,
+	policy ClassPolicy,
+	now time.Time,
+	dryRun bool,
+	activeNames map[string]bool,
+	include func(os.DirEntry) bool,
+	inspect stateArtifactInspector,
+	report *Report,
+) ClassReport {
 	class := ClassReport{Name: name}
 	entries, err := boundedio.ReadDirNoSymlink(dir, maxRetentionDirectoryEntries)
 	if errors.Is(err, os.ErrNotExist) {
@@ -475,11 +509,22 @@ func pruneClass(name, dir string, policy ClassPolicy, now time.Time, dryRun bool
 			return class
 		}
 		if !info.Mode().IsRegular() {
+			if inspect != nil {
+				report.Errors = append(report.Errors, fmt.Sprintf("inspect %s entry %s: not a regular file", name, filepath.Join(dir, entry.Name())))
+			}
 			continue
 		}
 		item := candidate{
 			path: filepath.Join(dir, entry.Name()), name: entry.Name(), size: info.Size(), mtime: info.ModTime(),
 			active: activeNames != nil && activeNames[entry.Name()], probeLock: name == "locks", info: info,
+		}
+		if inspect != nil {
+			if err := inspect(item.path, entry.Name(), info); err != nil {
+				report.Errors = append(report.Errors, fmt.Sprintf("inspect %s entry %s: %v", name, item.path, err))
+				item.active = true
+			} else {
+				item.validate = inspect
+			}
 		}
 		candidates = append(candidates, item)
 		class.BytesBefore += item.size
@@ -550,6 +595,13 @@ func removeCandidateWithHooks(item candidate, dryRun bool, report *Report, hooks
 		report.Errors = append(report.Errors, fmt.Sprintf("remove %s: %v", item.path, errors.Join(err, closeErr)))
 		return false
 	}
+	if item.validate != nil {
+		if err := item.validate(item.path, filepath.Base(item.path), item.info); err != nil {
+			closeErr := root.Close()
+			report.Errors = append(report.Errors, fmt.Sprintf("remove %s: revalidate content: %v", item.path, errors.Join(err, closeErr)))
+			return false
+		}
+	}
 	if hooks.afterValidation != nil {
 		if err := hooks.afterValidation(item); err != nil {
 			closeErr := root.Close()
@@ -560,6 +612,13 @@ func removeCandidateWithHooks(item candidate, dryRun bool, report *Report, hooks
 			closeErr := root.Close()
 			report.Errors = append(report.Errors, fmt.Sprintf("remove %s: %v", item.path, errors.Join(err, closeErr)))
 			return false
+		}
+		if item.validate != nil {
+			if err := item.validate(item.path, filepath.Base(item.path), item.info); err != nil {
+				closeErr := root.Close()
+				report.Errors = append(report.Errors, fmt.Sprintf("remove %s: revalidate content: %v", item.path, errors.Join(err, closeErr)))
+				return false
+			}
 		}
 	}
 	lease, live, leaseErr := acquireCandidateLease(root, name, item)

@@ -168,7 +168,7 @@ func TestStateBudgetPreservesActiveAndLatestReceiptsDuringDryRun(t *testing.T) {
 	policy.StateTotalBytes = 1
 	options := Options{Policy: policy, Now: now, DryRun: true}
 	report := Report{}
-	class := enforceStateTotal(options, project, activeID, true, &report)
+	class := enforceStateTotal(options, project, activeID, true, taintResolutionProtection{}, &report)
 	if len(report.Errors) != 0 || class.FilesDeleted != 1 || class.FilesKept != 5 {
 		t.Fatalf("state budget = %+v, errors=%v", class, report.Errors)
 	}
