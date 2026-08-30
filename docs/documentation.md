@@ -551,7 +551,9 @@ reconc --version
 or `%LOCALAPPDATA%\Programs\Reconc\bin` on Windows. It atomically installs the
 exact running executable, rejects a symlink target, verifies its checksum and
 executable mode, and verifies the executable resolved by bare `reconc`. It
-never edits a shell profile or the parent process environment; when activation
+hashes the installed target once and reuses that digest only while an opened,
+metadata-stable PATH candidate proves the same filesystem identity. It never
+edits a shell profile or the parent process environment; when activation
 or ordering is incomplete, it exits non-zero with the exact durable PATH
 remediation.
 
@@ -3520,6 +3522,11 @@ controls, and Git variables are omitted. Every disposable Git command also
 disables ambient system/global configuration, hooks, prompts, and repository
 redirection. Concurrent verification therefore cannot temporarily mutate or
 incorrectly restore the parent process environment.
+The isolated child executable uses a verified hard link when available. Its
+cross-filesystem fallback streams through fixed 128 KiB buffers, hashes source
+and exclusive target, and accepts the copy only while source and target type,
+identity, size, mode, modification time, close result, and digest remain valid;
+every failed copy removes only the target it created.
 The offline `synthetic_enforced` fact is not promoted to `loaded`, `observed`,
 or live `enforced`; all expected host routes remain explicitly unproven.
 Complete hook-verification reports exit 0. Incomplete reports are fully rendered

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 const (
 	maxHookVerificationOutput     = 1 << 20
 	maxHookVerificationExecutable = 256 << 20
+	hookVerificationCopyBuffer    = 128 << 10
 	hookVerificationChildEnv      = "RECONC_HOOK_VERIFY_ISOLATED_CHILD"
 	hookVerificationRepoEnv       = "RECONC_HOOK_VERIFY_REPO"
 )
@@ -361,6 +363,27 @@ func runHookVerificationChild(workspace hookVerificationWorkspace, args ...strin
 }
 
 func linkOrCopyVerificationExecutable(source, target string) error {
+	return linkOrCopyVerificationExecutableWithOps(source, target, hookVerificationCopyOps{
+		link: os.Link,
+		openTarget: func(path string, flag int, mode os.FileMode) (hookVerificationCopyTarget, error) {
+			return os.OpenFile(path, flag, mode)
+		},
+	})
+}
+
+type hookVerificationCopyTarget interface {
+	io.Writer
+	Stat() (os.FileInfo, error)
+	Chmod(os.FileMode) error
+	Close() error
+}
+
+type hookVerificationCopyOps struct {
+	link       func(string, string) error
+	openTarget func(string, int, os.FileMode) (hookVerificationCopyTarget, error)
+}
+
+func linkOrCopyVerificationExecutableWithOps(source, target string, operations hookVerificationCopyOps) error {
 	resolved, err := filepath.EvalSymlinks(source)
 	if err != nil {
 		return fmt.Errorf("resolve running executable identity: %w", err)
@@ -373,7 +396,7 @@ func linkOrCopyVerificationExecutable(source, target string) error {
 		before.Size() <= 0 || before.Size() > maxHookVerificationExecutable {
 		return fmt.Errorf("running executable must be a non-symlink regular file within %d bytes", maxHookVerificationExecutable)
 	}
-	if err := os.Link(resolved, target); err == nil {
+	if err := operations.link(resolved, target); err == nil {
 		afterSource, sourceErr := os.Lstat(resolved)
 		targetInfo, targetErr := os.Lstat(target)
 		stable := sourceErr == nil && targetErr == nil && targetInfo.Mode().IsRegular() &&
@@ -383,37 +406,121 @@ func linkOrCopyVerificationExecutable(source, target string) error {
 		if stable {
 			return nil
 		}
-		_ = os.Remove(target)
+		if targetErr == nil && os.SameFile(before, targetInfo) {
+			_ = os.Remove(target)
+		}
 		return errors.Join(sourceErr, targetErr, errors.New("running executable changed while creating disposable hard link"))
 	}
-	body, err := boundedio.ReadRegularFile(resolved, maxHookVerificationExecutable)
+	return streamHookVerificationExecutable(resolved, target, before, operations.openTarget)
+}
+
+func streamHookVerificationExecutable(
+	sourcePath string,
+	targetPath string,
+	expectedSource os.FileInfo,
+	openTarget func(string, int, os.FileMode) (hookVerificationCopyTarget, error),
+) error {
+	var createdIdentity os.FileInfo
+	err := boundedio.WithRegularFileSnapshot(sourcePath, maxHookVerificationExecutable, func(source *os.File, sourceInfo os.FileInfo) error {
+		if !sameHookVerificationSnapshot(expectedSource, sourceInfo) {
+			return errors.New("running executable changed before streaming")
+		}
+		target, err := openTarget(targetPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
+		if err != nil {
+			return fmt.Errorf("create disposable bare executable: %w", err)
+		}
+		createdInfo, err := target.Stat()
+		if err != nil || !createdInfo.Mode().IsRegular() {
+			return errors.Join(err, errors.New("disposable bare executable is not a regular file"), target.Close())
+		}
+		createdIdentity = createdInfo
+
+		sourceHash := sha256.New()
+		limited := io.LimitReader(source, maxHookVerificationExecutable+1)
+		writer := struct{ io.Writer }{Writer: target}
+		written, copyErr := io.CopyBuffer(writer, io.TeeReader(limited, sourceHash), make([]byte, hookVerificationCopyBuffer))
+		if copyErr != nil {
+			return closeAndRemoveHookVerificationTarget(targetPath, createdInfo, target, fmt.Errorf("copy running executable: %w", copyErr))
+		}
+		if written != sourceInfo.Size() {
+			return closeAndRemoveHookVerificationTarget(targetPath, createdInfo, target, fmt.Errorf("copy running executable: wrote %d of %d bytes", written, sourceInfo.Size()))
+		}
+		if err := target.Chmod(0o700); err != nil {
+			return closeAndRemoveHookVerificationTarget(targetPath, createdInfo, target, fmt.Errorf("make disposable bare executable runnable: %w", err))
+		}
+		streamedInfo, statErr := target.Stat()
+		pathInfo, pathErr := os.Lstat(targetPath)
+		if statErr != nil || pathErr != nil || !sameHookVerificationIdentity(createdInfo, streamedInfo) ||
+			!sameHookVerificationIdentity(streamedInfo, pathInfo) || streamedInfo.Size() != written ||
+			(runtime.GOOS != "windows" && streamedInfo.Mode().Perm() != 0o700) {
+			return closeAndRemoveHookVerificationTarget(targetPath, createdInfo, target, errors.Join(statErr, pathErr, errors.New("disposable bare executable changed identity, size, or mode while streaming")))
+		}
+		if err := target.Close(); err != nil {
+			return removeHookVerificationTarget(targetPath, createdInfo, fmt.Errorf("close disposable bare executable: %w", err))
+		}
+		targetDigest, err := hashHookVerificationExecutable(targetPath, streamedInfo)
+		if err != nil {
+			return removeHookVerificationTarget(targetPath, createdInfo, err)
+		}
+		if !bytes.Equal(sourceHash.Sum(nil), targetDigest) {
+			return removeHookVerificationTarget(targetPath, createdInfo, errors.New("disposable bare executable checksum differs from running executable"))
+		}
+		return nil
+	})
+	if err != nil && createdIdentity != nil {
+		return removeHookVerificationTarget(targetPath, createdIdentity, err)
+	}
+	return err
+}
+
+func hashHookVerificationExecutable(path string, expected os.FileInfo) ([]byte, error) {
+	hash := sha256.New()
+	err := boundedio.WithRegularFileSnapshot(path, maxHookVerificationExecutable, func(file *os.File, info os.FileInfo) error {
+		if !sameHookVerificationSnapshot(expected, info) {
+			return errors.New("disposable bare executable changed identity, size, mode, or modification time before checksum verification")
+		}
+		written, err := io.CopyBuffer(hash, file, make([]byte, hookVerificationCopyBuffer))
+		if err != nil {
+			return err
+		}
+		if written != info.Size() {
+			return fmt.Errorf("hashed %d of %d bytes", written, info.Size())
+		}
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("read running executable: %w", err)
+		return nil, fmt.Errorf("verify disposable bare executable checksum: %w", err)
 	}
-	output, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
-	if err != nil {
-		return fmt.Errorf("create disposable bare executable: %w", err)
+	return hash.Sum(nil), nil
+}
+
+func closeAndRemoveHookVerificationTarget(path string, expected os.FileInfo, target hookVerificationCopyTarget, cause error) error {
+	return removeHookVerificationTarget(path, expected, errors.Join(cause, target.Close()))
+}
+
+func removeHookVerificationTarget(path string, expected os.FileInfo, cause error) error {
+	current, inspectErr := os.Lstat(path)
+	if os.IsNotExist(inspectErr) {
+		return cause
 	}
-	written, err := output.Write(body)
-	if err != nil {
-		_ = output.Close()
-		_ = os.Remove(target)
-		return fmt.Errorf("copy running executable: %w", err)
+	if inspectErr != nil {
+		return errors.Join(cause, fmt.Errorf("inspect disposable bare executable for cleanup: %w", inspectErr))
 	}
-	if written != len(body) {
-		_ = output.Close()
-		_ = os.Remove(target)
-		return errors.New("copy running executable: short write")
+	if !sameHookVerificationIdentity(expected, current) {
+		return errors.Join(cause, errors.New("disposable bare executable changed identity before cleanup; replacement was preserved"))
 	}
-	if err := output.Close(); err != nil {
-		_ = os.Remove(target)
-		return fmt.Errorf("close disposable bare executable: %w", err)
-	}
-	if err := os.Chmod(target, 0o700); err != nil {
-		_ = os.Remove(target)
-		return fmt.Errorf("make disposable bare executable runnable: %w", err)
-	}
-	return nil
+	removeErr := os.Remove(path)
+	return errors.Join(cause, removeErr)
+}
+
+func sameHookVerificationSnapshot(left, right os.FileInfo) bool {
+	return sameHookVerificationIdentity(left, right) && left.Mode() == right.Mode() &&
+		left.Size() == right.Size() && left.ModTime().Equal(right.ModTime())
+}
+
+func sameHookVerificationIdentity(left, right os.FileInfo) bool {
+	return left != nil && right != nil && left.Mode().IsRegular() && right.Mode().IsRegular() &&
+		left.Mode()&os.ModeSymlink == 0 && right.Mode()&os.ModeSymlink == 0 && os.SameFile(left, right)
 }
 
 func verifyOfflineHookKind(kind, repo string) offlineHookKindResult {

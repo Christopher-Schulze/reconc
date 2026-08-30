@@ -94,11 +94,25 @@ func InspectRunningOnPATH() (*BareStatus, error) {
 }
 
 func InspectCurrent(installDir string) (*Status, error) {
+	return inspectCurrentWithOperations(installDir, fileSHA256, inspectExecutableTarget)
+}
+
+type executableTargetSnapshot struct {
+	digest       string
+	sameResolved bool
+	resolvedErr  error
+}
+
+func inspectCurrentWithOperations(
+	installDir string,
+	hashSource func(string) (string, error),
+	inspectTarget func(string, string) (executableTargetSnapshot, error),
+) (*Status, error) {
 	source, err := currentExecutable()
 	if err != nil {
 		return nil, err
 	}
-	expected, err := fileSHA256(source)
+	expected, err := hashSource(source)
 	if err != nil {
 		return nil, err
 	}
@@ -115,13 +129,6 @@ func InspectCurrent(installDir string) (*Status, error) {
 		if info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular() {
 			status.Installed = true
 			status.Executable = runtime.GOOS == "windows" || info.Mode()&0o111 != 0
-			if digest, hashErr := fileSHA256(target); hashErr == nil {
-				status.Current = digest == expected
-			} else {
-				status.Diagnostics = append(status.Diagnostics, DiagnosticCheck{
-					Name: "target-checksum", Status: "fail", Detail: hashErr.Error(),
-				})
-			}
 		}
 	} else if !os.IsNotExist(statErr) {
 		return nil, fmt.Errorf("inspect user CLI target: %w", statErr)
@@ -130,28 +137,74 @@ func InspectCurrent(installDir string) (*Status, error) {
 	if err != nil {
 		return nil, fmt.Errorf("inspect user CLI PATH: %w", err)
 	}
-	status.Diagnostics = append(status.Diagnostics, pathDiagnostics...)
 	if len(candidates) > 0 {
-		resolved := candidates[0]
 		status.PathVisible = true
-		status.ResolvedPath = resolved
-		if targetIdentity, targetErr := pathidentity.ResolveExisting(target); targetErr == nil &&
-			samePath(resolved, targetIdentity) {
-			if digest, hashErr := fileSHA256(resolved); hashErr == nil {
-				status.Ready = digest == expected
-			} else {
+		status.ResolvedPath = candidates[0]
+	}
+	if status.Installed {
+		targetSnapshot, inspectErr := inspectTarget(target, status.ResolvedPath)
+		if inspectErr != nil {
+			status.Diagnostics = append(status.Diagnostics, DiagnosticCheck{
+				Name: "target-checksum", Status: "fail", Detail: inspectErr.Error(),
+			})
+		} else {
+			status.Current = targetSnapshot.digest == expected
+			status.Ready = targetSnapshot.sameResolved && status.Current
+			if targetSnapshot.resolvedErr != nil {
 				status.Diagnostics = append(status.Diagnostics, DiagnosticCheck{
-					Name: "resolved-checksum", Status: "fail", Detail: hashErr.Error(),
+					Name: "resolved-checksum", Status: "fail", Detail: targetSnapshot.resolvedErr.Error(),
 				})
 			}
-		} else if targetErr != nil && status.Installed {
-			status.Diagnostics = append(status.Diagnostics, DiagnosticCheck{
-				Name: "target-identity", Status: "fail", Detail: targetErr.Error(),
-			})
 		}
 	}
+	status.Diagnostics = append(status.Diagnostics, pathDiagnostics...)
 	status.NextAction = nextAction(status, directory)
 	return status, nil
+}
+
+func inspectExecutableTarget(target, resolved string) (executableTargetSnapshot, error) {
+	return inspectExecutableTargetWithHooks(target, resolved, executableTargetInspectionHooks{})
+}
+
+type executableTargetInspectionHooks struct {
+	afterHash     func()
+	contentHashed func(string, int64)
+}
+
+func inspectExecutableTargetWithHooks(target, resolved string, hooks executableTargetInspectionHooks) (executableTargetSnapshot, error) {
+	snapshot := executableTargetSnapshot{}
+	err := boundedio.WithRegularFileSnapshot(target, maxBinaryBytes, func(targetFile *os.File, targetInfo os.FileInfo) error {
+		hash := sha256.New()
+		written, err := io.CopyBuffer(hash, targetFile, make([]byte, binaryCopyBufferBytes))
+		if err != nil {
+			return err
+		}
+		if written != targetInfo.Size() {
+			return fmt.Errorf("hashed %d of %d bytes", written, targetInfo.Size())
+		}
+		snapshot.digest = hex.EncodeToString(hash.Sum(nil))
+		if hooks.contentHashed != nil {
+			hooks.contentHashed(target, written)
+		}
+		if hooks.afterHash != nil {
+			hooks.afterHash()
+		}
+		if resolved == "" {
+			return nil
+		}
+		resolvedErr := boundedio.WithRegularFileSnapshot(resolved, maxBinaryBytes, func(_ *os.File, resolvedInfo os.FileInfo) error {
+			snapshot.sameResolved = os.SameFile(targetInfo, resolvedInfo)
+			return nil
+		})
+		if resolvedErr != nil && samePath(target, resolved) {
+			snapshot.resolvedErr = fmt.Errorf("verify PATH-resolved executable identity: %w", resolvedErr)
+		}
+		return nil
+	})
+	if err != nil {
+		return executableTargetSnapshot{}, fmt.Errorf("open or hash %s for checksum: %w", target, err)
+	}
+	return snapshot, nil
 }
 
 func InstallCurrent(installDir string) (*InstallReport, error) {
