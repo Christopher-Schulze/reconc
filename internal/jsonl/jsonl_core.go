@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -92,10 +93,39 @@ func defaultLayout(path string) Layout {
 
 func layoutIsDefault(path string, layout Layout) bool {
 	want := defaultLayout(path)
+	return layoutUsesDefaultModePolicy(path, layout) && layout.LockTimeout == want.LockTimeout
+}
+
+func layoutUsesDefaultModePolicy(path string, layout Layout) bool {
+	want := defaultLayout(path)
 	return layout.Security == nil && layout.LockPath == want.LockPath &&
 		layout.JournalPath == want.JournalPath && layout.BackupPrefix == want.BackupPrefix &&
 		layout.DirectoryMode == want.DirectoryMode && layout.FileMode == want.FileMode &&
-		layout.JournalMode == want.JournalMode && layout.LockTimeout == want.LockTimeout
+		layout.JournalMode == want.JournalMode
+}
+
+func validateExistingLayoutFileMode(
+	path string,
+	layout Layout,
+	objectPath string,
+	actual os.FileMode,
+	expected os.FileMode,
+) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	actual = actual.Perm()
+	expected = expected.Perm()
+	if layoutUsesDefaultModePolicy(path, layout) {
+		if actual&0o022 != 0 {
+			return fmt.Errorf("JSONL file is group/world-writable with mode %o: %s", actual, objectPath)
+		}
+		return nil
+	}
+	if actual != expected {
+		return fmt.Errorf("JSONL file %s has mode %o; want %o", objectPath, actual, expected)
+	}
+	return nil
 }
 
 func legacyUnboundedDefaultLayoutIdentity(path string) string {

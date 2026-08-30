@@ -1,11 +1,16 @@
 package retention
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"reconc.dev/reconc/internal/jsonl"
+	"reconc.dev/reconc/internal/repositorycontrol"
 )
 
 func TestRepositoryRuntimeBudgetRemovesOldestInactiveOwnedArtifacts(t *testing.T) {
@@ -92,6 +97,76 @@ func TestRepositoryRuntimeBudgetNeverRemovesAuditArchives(t *testing.T) {
 	}
 	if _, err := os.Stat(decisionArchive); !os.IsNotExist(err) {
 		t.Fatalf("run-decision archive survived: %v", err)
+	}
+}
+
+func TestRepositoryRuntimeBudgetWaitsForJSONLWriterLock(t *testing.T) {
+	repo := t.TempDir()
+	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repo, ".reconc", "run", "decisions.jsonl")
+	layout := repositorycontrol.RunDecisionLayout(path)
+	writerPolicy := jsonl.Policy{MaxBytes: 10, MaxArchives: 1}
+	for _, record := range [][]byte{[]byte("old"), []byte("current8")} {
+		if err := jsonl.AppendContextWithLayout(t.Context(), path, record, writerPolicy, layout); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archive := path + ".1"
+	if _, err := os.Lstat(archive); err != nil {
+		t.Fatalf("rotation fixture has no archive: %v", err)
+	}
+
+	writerLocked := make(chan struct{})
+	releaseWriter := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseWriter) }) }
+	defer release()
+	writerDone := make(chan error, 1)
+	go func() {
+		writerDone <- jsonl.WithExistingLayoutLockContext(t.Context(), path, layout, func() error {
+			close(writerLocked)
+			<-releaseWriter
+			return nil
+		})
+	}()
+	select {
+	case <-writerLocked:
+	case err := <-writerDone:
+		t.Fatalf("writer lock failed before acquisition: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	retentionDone := make(chan struct{})
+	var report Report
+	var class ClassReport
+	go func() {
+		policy := DefaultPolicy()
+		policy.RepoRuntimeBytes = 0
+		class = enforceRepoTotalContext(ctx, Options{RepoRoot: repo, Policy: policy, Now: time.Now()}, &report)
+		close(retentionDone)
+	}()
+	select {
+	case <-retentionDone:
+		t.Fatal("repository retention bypassed the active JSONL writer lock")
+	case <-time.After(50 * time.Millisecond):
+	}
+	release()
+	if err := <-writerDone; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-retentionDone:
+	case <-ctx.Done():
+		t.Fatalf("repository retention did not resume: %v", ctx.Err())
+	}
+	if len(report.Errors) != 0 || class.FilesDeleted != 1 {
+		t.Fatalf("locked repository retention = %+v, errors=%v", class, report.Errors)
+	}
+	if _, err := os.Lstat(archive); !os.IsNotExist(err) {
+		t.Fatalf("archive survived serialized retention: %v", err)
 	}
 }
 

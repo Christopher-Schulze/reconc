@@ -99,6 +99,29 @@ func (parent *jsonlParent) remove(name string) (bool, error) {
 	return true, parent.syncMutation()
 }
 
+func (parent *jsonlParent) removeIfSame(name string, expected os.FileInfo) (bool, error) {
+	if err := parent.validateLockLease(); err != nil {
+		return false, err
+	}
+	if err := parent.validate(); err != nil {
+		return false, err
+	}
+	current, err := parent.root.Lstat(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("jsonl maintenance target disappeared: %s", name)
+	}
+	if err != nil {
+		return false, err
+	}
+	if !sameAppendBackupSnapshot(expected, current) {
+		return false, fmt.Errorf("jsonl maintenance target changed identity: %s", name)
+	}
+	if err := parent.root.Remove(name); err != nil {
+		return false, err
+	}
+	return true, parent.syncMutation()
+}
+
 func (parent *jsonlParent) rename(source, destination string) (bool, error) {
 	if err := parent.validateLockLease(); err != nil {
 		return false, err

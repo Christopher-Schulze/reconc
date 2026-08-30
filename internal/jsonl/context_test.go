@@ -47,6 +47,67 @@ func TestDefaultRecoveryAcceptsLegacyUnboundedLayoutIdentity(t *testing.T) {
 	}
 }
 
+func TestLegacyDefaultLayoutPreservesRestrictiveModes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	legacy := defaultLayout(path)
+	legacy.LockTimeout = 0
+	if err := os.WriteFile(path, []byte("existing\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendWithLayout(path, []byte("next"), Policy{MaxBytes: 64, MaxArchives: 1}, legacy); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("legacy default mode = %v, err=%v", info, err)
+	}
+}
+
+func TestMaintenanceRemovalSerializesConcurrentRotation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	policy := Policy{MaxBytes: 8, MaxArchives: 1}
+	for _, record := range [][]byte{[]byte("one"), []byte("two-two")} {
+		if err := Append(path, record, policy); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archive := path + ".1"
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	rotationDone := make(chan error, 1)
+	err := WithLayoutMaintenanceContext(ctx, path, defaultLayout(path), nil, func(layout Layout) error {
+		info, err := os.Lstat(archive)
+		if err != nil {
+			return err
+		}
+		go func() { rotationDone <- AppendContext(ctx, path, []byte("three"), policy) }()
+		select {
+		case err := <-rotationDone:
+			return fmt.Errorf("concurrent rotation bypassed maintenance lock: %v", err)
+		case <-time.After(50 * time.Millisecond):
+		}
+		_, err = RemoveArchiveWithLayout(path, 1, info, layout)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-rotationDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatalf("concurrent rotation did not resume: %v", ctx.Err())
+	}
+	for candidate, want := range map[string]string{path: "three\n", archive: "two-two\n"} {
+		body, err := os.ReadFile(candidate)
+		if err != nil || string(body) != want {
+			t.Fatalf("serialized rotation %s = %q, err=%v", candidate, body, err)
+		}
+	}
+}
+
 func TestAppendAndEnforceContextsCancelContendedLock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	layout := defaultLayout(path)

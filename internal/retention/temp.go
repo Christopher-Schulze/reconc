@@ -1,17 +1,20 @@
 package retention
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/jsonl"
+	"reconc.dev/reconc/internal/repositorycontrol"
 )
 
 func enforceStateTotal(
@@ -198,6 +201,10 @@ func pruneExpiredCandidates(class ClassReport, candidates []candidate, now time.
 }
 
 func enforceRepoTotal(options Options, report *Report) ClassReport {
+	return enforceRepoTotalContext(context.Background(), options, report)
+}
+
+func enforceRepoTotalContext(ctx context.Context, options Options, report *Report) ClassReport {
 	class := ClassReport{Name: "repo-runtime-total"}
 	bytesBefore, err := ownedRepoRuntimeBytes(options.RepoRoot)
 	class.BytesBefore = bytesBefore
@@ -235,48 +242,94 @@ func enforceRepoTotal(options Options, report *Report) ClassReport {
 		}
 		removable = append(removable, candidate{path: filepath.Join(cache, entry.Name()), name: entry.Name(), size: info.Size(), mtime: info.ModTime(), info: info})
 	}
-	// Only the plain run-decision ring is eligible for the repo-total budget.
-	// The audit ring is a SHA-256 hash chain with a detached head that pins the
-	// retained entry count and first/last digests; deleting any audit archive
-	// would break verifyChainHead and sequence contiguity. Audit retention is
-	// writer-owned and must never be compacted by this generic budget.
 	base := filepath.Join(options.RepoRoot, ".reconc", "run", "decisions.jsonl")
-	paths, err := jsonl.PathsOldestFirst(base, jsonl.MaxArchiveFiles)
-	if err != nil {
-		report.Errors = append(report.Errors, fmt.Sprintf("inspect runtime archive ring: %v", err))
+	maintain := func(lockedLayout *jsonl.Layout) error {
+		// Only the plain run-decision ring is eligible for the repo-total
+		// budget. The audit ring is a hash chain with a detached head and is
+		// never compacted by this generic budget.
+		paths, err := jsonl.PathsOldestFirstContext(ctx, base, jsonl.MaxArchiveFiles)
+		if err != nil {
+			return fmt.Errorf("inspect runtime archive ring: %w", err)
+		}
+		for _, path := range paths {
+			if path == base {
+				continue
+			}
+			index, err := strconv.Atoi(strings.TrimPrefix(path, base+"."))
+			if err != nil || index < 1 || index > jsonl.MaxArchiveFiles {
+				return fmt.Errorf("runtime archive has invalid canonical index: %s", path)
+			}
+			info, err := os.Lstat(path)
+			if err != nil {
+				return fmt.Errorf("stat runtime archive %s: %w", path, err)
+			}
+			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+				return fmt.Errorf("runtime archive must be a non-symlink regular file: %s", path)
+			}
+			removable = append(removable, candidate{
+				path: path, name: filepath.Base(path), size: info.Size(), mtime: info.ModTime(),
+				jsonlArchive: index, info: info,
+			})
+		}
+		sort.Slice(removable, func(i, j int) bool {
+			if removable[i].mtime.Equal(removable[j].mtime) {
+				return removable[i].name < removable[j].name
+			}
+			return removable[i].mtime.Before(removable[j].mtime)
+		})
+		for _, item := range removable {
+			if class.BytesAfter <= options.Policy.RepoRuntimeBytes {
+				break
+			}
+			if item.jsonlArchive > 0 && !options.DryRun {
+				if lockedLayout == nil {
+					return errors.New("runtime archive removal requires the JSONL maintenance lock")
+				}
+				freed, err := jsonl.RemoveArchiveWithLayout(base, item.jsonlArchive, item.info, *lockedLayout)
+				if freed > 0 {
+					class.BytesAfter -= freed
+					class.BytesFreed += freed
+					class.FilesDeleted++
+				}
+				if err != nil {
+					return fmt.Errorf("remove runtime archive %s: %w", item.path, err)
+				}
+				continue
+			}
+			if !removeCandidate(item, options.DryRun, report) {
+				continue
+			}
+			class.BytesAfter -= item.size
+			class.BytesFreed += item.size
+			class.FilesDeleted++
+		}
+		return nil
+	}
+	if options.DryRun {
+		if err := maintain(nil); err != nil {
+			report.Errors = append(report.Errors, err.Error())
+		}
 		return class
 	}
-	for _, path := range paths {
-		if path == base {
-			continue
+	runDirectory := filepath.Dir(base)
+	if _, err := os.Lstat(runDirectory); errors.Is(err, os.ErrNotExist) {
+		if err := maintain(nil); err != nil {
+			report.Errors = append(report.Errors, err.Error())
 		}
-		info, err := os.Lstat(path)
-		if err != nil {
-			report.Errors = append(report.Errors, fmt.Sprintf("stat runtime archive %s: %v", path, err))
-			return class
-		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			report.Errors = append(report.Errors, fmt.Sprintf("runtime archive must be a non-symlink regular file: %s", path))
-			return class
-		}
-		removable = append(removable, candidate{path: path, name: filepath.Base(path), size: info.Size(), mtime: info.ModTime(), info: info})
+		return class
+	} else if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("inspect runtime directory: %v", err))
+		return class
 	}
-	sort.Slice(removable, func(i, j int) bool {
-		if removable[i].mtime.Equal(removable[j].mtime) {
-			return removable[i].name < removable[j].name
-		}
-		return removable[i].mtime.Before(removable[j].mtime)
-	})
-	for _, item := range removable {
-		if class.BytesAfter <= options.Policy.RepoRuntimeBytes {
-			break
-		}
-		if !removeCandidate(item, options.DryRun, report) {
-			continue
-		}
-		class.BytesAfter -= item.size
-		class.BytesFreed += item.size
-		class.FilesDeleted++
+	err = jsonl.WithLayoutMaintenanceContext(
+		ctx,
+		base,
+		repositorycontrol.RunDecisionLayout(base),
+		nil,
+		func(lockedLayout jsonl.Layout) error { return maintain(&lockedLayout) },
+	)
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("maintain runtime archive ring: %v", err))
 	}
 	return class
 }

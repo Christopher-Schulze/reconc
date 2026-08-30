@@ -25,8 +25,8 @@ const (
 	archiveDirectoryRetryDelay = 5 * time.Millisecond
 )
 
-func trimTailWithLayout(path string, maxBytes int64, layout Layout) (int64, error) {
-	original, kept, data, mode, err := tailDataWithLayout(path, maxBytes, layout)
+func trimTailWithLayout(livePath string, path string, maxBytes int64, layout Layout) (int64, error) {
+	original, kept, data, mode, err := tailDataForLayout(livePath, path, maxBytes, layout)
 	if err != nil || original == kept {
 		return 0, err
 	}
@@ -46,10 +46,14 @@ func trimTailWithLayout(path string, maxBytes int64, layout Layout) (int64, erro
 }
 
 func tailData(path string, maxBytes int64) (int64, int64, []byte, os.FileMode, error) {
-	return tailDataWithLayout(path, maxBytes, defaultLayout(path))
+	return tailDataForLayout(path, path, maxBytes, defaultLayout(path))
 }
 
 func tailDataWithLayout(path string, maxBytes int64, layout Layout) (int64, int64, []byte, os.FileMode, error) {
+	return tailDataForLayout(path, path, maxBytes, layout)
+}
+
+func tailDataForLayout(livePath string, path string, maxBytes int64, layout Layout) (int64, int64, []byte, os.FileMode, error) {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, 0, nil, 0, nil
@@ -59,6 +63,9 @@ func tailDataWithLayout(path string, maxBytes int64, layout Layout) (int64, int6
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return 0, 0, nil, 0, fmt.Errorf("JSONL path must be a non-symlink regular file: %s", path)
+	}
+	if err := validateExistingLayoutFileMode(livePath, layout, path, info.Mode(), layout.FileMode); err != nil {
+		return 0, 0, nil, 0, err
 	}
 	if info.Size() <= maxBytes {
 		if err := validateLayoutSecurityFile(layout, path, maxBytes); err != nil {

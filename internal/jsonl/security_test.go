@@ -296,7 +296,7 @@ func TestLayoutSecurityReadRejectsReplacementDuringBoundSnapshot(t *testing.T) {
 			}
 			layout := defaultLayout(path)
 			layout.Security = security
-			body, err := readBoundedBackupWithLayout(path, 64, 0o600, layout)
+			body, err := readBoundedBackupWithLayout(path, path, 64, 0o600, layout)
 			if err == nil {
 				t.Fatal("security-validated replacement was accepted")
 			}

@@ -2362,9 +2362,15 @@ parent before the next state transition. Unix persists those directory entries
 with a directory sync; Windows preserves the rooted identity boundary without
 claiming a directory flush that its read-only handle API cannot provide. Audit
 and retention context APIs cancel lock waits and archive discovery through the
-caller lifecycle. Legacy generic JSONL entry points use the shared ten-second
-lock timeout; a pre-timeout default recovery journal remains accepted by its
-exact legacy layout identity. Archive-directory stabilization retries at most
+caller lifecycle. Repository-total retention acquires its outer retention lock
+before the run-decision writer lock, recovers any interrupted append, discovers
+and removes canonical archives while holding that exact lease, and revalidates
+the discovered archive identity immediately before rooted removal. Append,
+rotation, and recovery acquire only the writer lock and never the retention
+lock, so the ordering has no reverse edge. Legacy generic JSONL entry points
+use the shared ten-second lock timeout; a pre-timeout default recovery journal
+remains accepted by its exact legacy layout identity. Archive-directory
+stabilization retries at most
 20 snapshots separated by 5 ms, so persistent churn consumes at most 95 ms of
 waiting before the strict snapshot error is returned, and cancellation stops
 the wait immediately. Audit entries use exactly one non-whitespace record per
@@ -2372,8 +2378,13 @@ line. Generic append accepts
 an optional single LF or CRLF terminator, rejects every embedded CR or LF before
 locking or mutation, and publishes exactly one terminal LF. Audit readers reject
 empty records with source-line context. A custom audit live-file cap may reduce
-the default but cannot exceed the fixed 2 MiB reader ceiling. Audit entries
-additionally carry one contiguous sequence and SHA-256 previous/current digest
+the default but cannot exceed the fixed 2 MiB reader ceiling.
+Default-layout JSONL operations preserve existing restrictive Unix modes but
+reject group- or world-writable live, archive, lock, journal, and backup files
+without repairing or deleting them. Custom layouts continue to require their
+exact configured modes. Windows uses each layout's filesystem security contract
+instead of interpreting POSIX permission bits. Audit entries additionally
+carry one contiguous sequence and SHA-256 previous/current digest
 chain, with the latest identity stored in `.reconc/audit.head.json`. Every
 audit reader verifies all retained archives, the live file, and the detached
 head before returning data. A normal append validates the detached head and a

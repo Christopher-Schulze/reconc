@@ -28,6 +28,7 @@ type candidate struct {
 	dir              bool
 	probeLock        bool
 	probeProjectRoot bool
+	jsonlArchive     int
 	info             os.FileInfo
 	validate         candidateValidator
 }
@@ -194,7 +195,7 @@ func runLockedContext(ctx context.Context, options Options, forceOwnedTemp bool)
 	projectRootsClass, projectRootsScanned := pruneProjectRootsIntervalContext(ctx, options, forceOwnedTemp, &report)
 	report.Classes = append(report.Classes, ownedTempClass, projectRootsClass)
 	projectedRepoBefore, projectedRepoAfter := classTotals(report.Classes, "audit", "run-decisions", "generated-binaries")
-	repoTotal := enforceRepoTotal(options, &report)
+	repoTotal := enforceRepoTotalContext(ctx, options, &report)
 	if options.DryRun {
 		repoTotal.BytesBefore = projectedRepoBefore
 		repoTotal.BytesAfter = minInt64(repoTotal.BytesAfter, projectedRepoAfter)

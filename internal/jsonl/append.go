@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"runtime"
 )
 
 func Append(path string, record []byte, policy Policy) error {
@@ -230,6 +229,35 @@ func WithExistingLayoutLockContext(
 	})
 }
 
+// WithLayoutMaintenanceContext recovers interrupted append state, then runs
+// one maintenance callback under the exact writer lock and lease. Maintenance
+// callers must acquire their own outer locks before this JSONL lock; append and
+// recovery never acquire caller-owned maintenance locks. Transaction owners
+// pass the same idempotent commit callback used by AppendTransaction.
+func WithLayoutMaintenanceContext(
+	ctx context.Context,
+	path string,
+	layout Layout,
+	commit func() error,
+	maintain func(Layout) error,
+) error {
+	if ctx == nil || maintain == nil {
+		return errors.New("jsonl maintenance context and callback are required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validateLayout(path, layout); err != nil {
+		return err
+	}
+	return withLayoutLockLeaseContext(ctx, path, layout, true, func(lockedLayout Layout) error {
+		if err := recoverAppendLockedWithLayout(path, lockedLayout, commit); err != nil {
+			return err
+		}
+		return maintain(lockedLayout)
+	})
+}
+
 func appendLockedWithLayout(path string, record []byte, policy Policy, layout Layout, commit func() error) error {
 	normalized, err := normalizeRecord(record, policy.MaxBytes)
 	if err != nil {
@@ -274,17 +302,18 @@ func appendNormalizedLockedWithLayout(
 	}
 	info, err := os.Lstat(path)
 	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("jsonl live path must be a non-symlink regular file: %s", path)
+		}
 		if securityErr := validateLayoutSecurityFile(layout, path, policy.MaxBytes); securityErr != nil {
 			return securityErr
+		}
+		if modeErr := validateExistingLayoutFileMode(path, layout, path, info.Mode(), layout.FileMode); modeErr != nil {
+			return modeErr
 		}
 	}
 	rotateRequired := false
 	switch {
-	case err == nil && (info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()):
-		return fmt.Errorf("jsonl live path must be a non-symlink regular file: %s", path)
-	case err == nil && !layoutIsDefault(path, layout) && runtime.GOOS != "windows" &&
-		info.Mode().Perm() != layout.FileMode.Perm():
-		return fmt.Errorf("jsonl live path has mode %o; want %o", info.Mode().Perm(), layout.FileMode.Perm())
 	case err == nil && info.Size()+int64(len(record)) > policy.MaxBytes:
 		rotateRequired = true
 		if err := layout.validateLockLease(); err != nil {
@@ -314,7 +343,7 @@ func appendNormalizedLockedWithLayout(
 		}
 	}
 	appendLayout := layout
-	if rotateRequired && layoutIsDefault(path, layout) && journal != nil &&
+	if rotateRequired && layoutUsesDefaultModePolicy(path, layout) && journal != nil &&
 		len(journal.Backups) > 0 && journal.Backups[0].Existed {
 		appendLayout.FileMode = os.FileMode(journal.Backups[0].Mode)
 	}
@@ -404,7 +433,7 @@ func appendRecordWithLayoutHooks(path string, record []byte, layout Layout, maxi
 		if err := secureLayoutSecurityFile(layout, path, maximum); err != nil {
 			return errors.Join(err, file.Close())
 		}
-	} else if layout.Security == nil && (created || !layoutIsDefault(path, layout)) {
+	} else if layout.Security == nil && (created || !layoutUsesDefaultModePolicy(path, layout)) {
 		if err := parent.validateLockLease(); err != nil {
 			return errors.Join(err, file.Close())
 		}
@@ -492,8 +521,8 @@ func inspectAppendRecordFile(parent *jsonlParent, path string, layout Layout, ma
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil, false, fmt.Errorf("jsonl live path must be a non-symlink regular file: %s", path)
 	}
-	if !layoutIsDefault(path, layout) && runtime.GOOS != "windows" && info.Mode().Perm() != layout.FileMode.Perm() {
-		return nil, false, fmt.Errorf("jsonl live path has mode %o; want %o", info.Mode().Perm(), layout.FileMode.Perm())
+	if err := validateExistingLayoutFileMode(path, layout, path, info.Mode(), layout.FileMode); err != nil {
+		return nil, false, err
 	}
 	if err := validateLayoutSecurityFile(layout, path, maximum); err != nil {
 		return nil, false, err

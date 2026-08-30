@@ -72,7 +72,7 @@ func EnforceContextWithLayout(ctx context.Context, path string, policy Policy, l
 			if index > 0 {
 				candidate = fmt.Sprintf("%s.%d", path, index)
 			}
-			freed, err := trimTailWithLayout(candidate, policy.MaxBytes, lockedLayout)
+			freed, err := trimTailWithLayout(path, candidate, policy.MaxBytes, lockedLayout)
 			if err != nil {
 				return err
 			}
@@ -183,4 +183,36 @@ func validatePolicy(policy Policy) error {
 		return errors.New("jsonl MaxBytes must be positive")
 	}
 	return validateArchiveBound(policy.MaxArchives)
+}
+
+// RemoveArchiveWithLayout removes one discovered canonical archive while the
+// caller holds the lease supplied by WithLayoutMaintenanceContext. The exact
+// discovered identity must still own the archive name.
+func RemoveArchiveWithLayout(path string, index int, expected os.FileInfo, layout Layout) (int64, error) {
+	if index < 1 || index > MaxArchiveFiles {
+		return 0, fmt.Errorf("jsonl archive index must be between 1 and %d", MaxArchiveFiles)
+	}
+	if expected == nil {
+		return 0, errors.New("jsonl archive removal requires a discovered identity")
+	}
+	if layout.lockLease == nil {
+		return 0, errors.New("jsonl archive removal requires an active maintenance lease")
+	}
+	if err := layout.validateLockLease(); err != nil {
+		return 0, err
+	}
+	archive := archivePath(path, index)
+	if err := validateExistingLayoutFileMode(path, layout, archive, expected.Mode(), layout.FileMode); err != nil {
+		return 0, err
+	}
+	parent, err := openJSONLParentWithLayout(archive, layout)
+	if err != nil {
+		return 0, err
+	}
+	removed, removeErr := parent.removeIfSame(parent.name, expected)
+	closeErr := parent.close()
+	if !removed {
+		return 0, errors.Join(removeErr, closeErr)
+	}
+	return expected.Size(), errors.Join(removeErr, closeErr)
 }

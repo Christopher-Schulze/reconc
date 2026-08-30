@@ -250,11 +250,7 @@ func validateLayoutLockInfo(path string, layout Layout, info os.FileInfo) error 
 	if info == nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return fmt.Errorf("jsonl lock path must be a non-symlink regular file: %s", layout.LockPath)
 	}
-	if !layoutIsDefault(path, layout) && runtime.GOOS != "windows" &&
-		info.Mode().Perm() != layout.FileMode.Perm() {
-		return fmt.Errorf("jsonl lock path has mode %o; want %o", info.Mode().Perm(), layout.FileMode.Perm())
-	}
-	return nil
+	return validateExistingLayoutFileMode(path, layout, layout.LockPath, info.Mode(), layout.FileMode)
 }
 
 func validateLayoutDirectory(path string, layout Layout) error {
@@ -266,7 +262,8 @@ func validateLayoutDirectory(path string, layout Layout) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return fmt.Errorf("jsonl parent must be a non-symlink directory: %s", directory)
 	}
-	if !layoutIsDefault(path, layout) && layout.Security == nil && runtime.GOOS != "windows" &&
+	if !layoutUsesDefaultModePolicy(path, layout) && layout.Security == nil &&
+		runtime.GOOS != "windows" &&
 		info.Mode().Perm() != layout.DirectoryMode.Perm() {
 		return fmt.Errorf(
 			"jsonl parent has mode %o; want %o", info.Mode().Perm(), layout.DirectoryMode.Perm(),
