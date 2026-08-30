@@ -126,7 +126,8 @@ func evaluateLogicalConditionCore(
 	} else {
 		result.state = ConditionFalse
 	}
-	for _, child := range condition.Children {
+	for index := 0; index < len(condition.Children); index++ {
+		child := condition.Children[index]
 		childResult := evaluateConditionTreeCore(
 			child, request, decision, depth+1, roots, validatePointer, false,
 		)
@@ -135,12 +136,86 @@ func evaluateLogicalConditionCore(
 			return invalidConditionEvaluation(result.nodes)
 		}
 		combineConditionChild(&result, condition.Kind, childResult)
+		if !conditionStateDecisive(condition.Kind, result.state) {
+			continue
+		}
+		for index+1 < len(condition.Children) {
+			metadata, safe := skippedConditionMetadata(condition.Children[index+1], depth+1)
+			if !safe || result.nodes > MaxConditionNodes-metadata.nodes {
+				break
+			}
+			result.nodes += metadata.nodes
+			mergeConditionMetadata(&result, metadata)
+			index++
+		}
 	}
 	if result.state != ConditionIndeterminate {
 		result.reason = ""
 		result.complete = true
 	}
 	return result
+}
+
+func conditionStateDecisive(kind ConditionKind, state ConditionState) bool {
+	return kind == ConditionAll && state == ConditionFalse ||
+		kind == ConditionAny && state == ConditionTrue
+}
+
+// skippedConditionMetadata recognizes subtrees whose trace metadata is known
+// without resolving request values or running operators. Root existence checks
+// on request-owned values are always determinate, agent-supplied, and summary-
+// free, so a decisive parent can merge their exact metadata without evaluating
+// their truth values.
+func skippedConditionMetadata(condition *CompiledCondition, depth int) (conditionEvaluation, bool) {
+	if condition == nil {
+		return conditionEvaluation{complete: true}, true
+	}
+	if depth > MaxConditionDepth {
+		return conditionEvaluation{}, false
+	}
+	switch condition.Kind {
+	case ConditionPredicate:
+		predicate := condition.Predicate
+		if predicate == nil || len(condition.Children) != 0 ||
+			predicate.Predicate.Op != OperatorExists || len(predicate.Tokens) != 0 ||
+			!requestOwnedValueSource(predicate.Predicate.Source) {
+			return conditionEvaluation{}, false
+		}
+		return conditionEvaluation{
+			actual: ProvenanceAgentSupplied, required: predicate.Predicate.MinimumProvenance,
+			complete: true, nodes: 1,
+		}, true
+	case ConditionNot:
+		if condition.Predicate != nil || len(condition.Children) != 1 {
+			return conditionEvaluation{}, false
+		}
+		child, safe := skippedConditionMetadata(condition.Children[0], depth+1)
+		if !safe || child.nodes >= MaxConditionNodes {
+			return conditionEvaluation{}, false
+		}
+		child.nodes++
+		return child, true
+	case ConditionAll, ConditionAny:
+		if condition.Predicate != nil || len(condition.Children) == 0 {
+			return conditionEvaluation{}, false
+		}
+		result := conditionEvaluation{complete: true, nodes: 1}
+		for _, child := range condition.Children {
+			metadata, safe := skippedConditionMetadata(child, depth+1)
+			if !safe || result.nodes > MaxConditionNodes-metadata.nodes {
+				return conditionEvaluation{}, false
+			}
+			result.nodes += metadata.nodes
+			mergeConditionMetadata(&result, metadata)
+		}
+		return result, true
+	default:
+		return conditionEvaluation{}, false
+	}
+}
+
+func requestOwnedValueSource(source ValueSource) bool {
+	return source == SourceArguments || source == SourceResult || source == SourceProgress
 }
 
 func combineConditionChild(result *conditionEvaluation, kind ConditionKind, child conditionEvaluation) {

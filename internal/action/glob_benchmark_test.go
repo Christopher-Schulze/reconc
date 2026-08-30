@@ -14,6 +14,17 @@ func BenchmarkExpandGlobAlternativesMaximumLegal(b *testing.B) {
 	benchmarkGlobExpansion(b, "{a,b}{a,b}{a,b}{a,b}{a,b}{a,b}{a,b}{a,b}{a,b}{a,b}", 1024)
 }
 
+func BenchmarkExpandGlobAlternativesAdversarialRejected(b *testing.B) {
+	pattern := strings.Repeat("{"+strings.Repeat("a", 100)+","+strings.Repeat("b", 100)+"}", 15)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := expandGlobAlternatives(pattern); err == nil {
+			b.Fatal("adversarial expansion succeeded")
+		}
+	}
+}
+
 func BenchmarkCompiledGlobRepeatedDirectoryStars(b *testing.B) {
 	pattern := strings.Repeat("**/", 8) + "missing"
 	compiled, err := compileGlob(pattern)

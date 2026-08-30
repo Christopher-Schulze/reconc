@@ -14,6 +14,9 @@ const (
 	compiledGlobBranchOverhead = 16
 	globWorkPerState           = uint64(4)
 	maxGlobMatchWork           = uint64(MaxJSONStringBytes) * globWorkPerState
+	maxGlobPrograms            = 1024
+	maxGlobExpansionStates     = 16 * maxGlobPrograms
+	maxGlobGroupAlternatives   = maxGlobPrograms
 )
 
 type globTokenKind uint8
@@ -72,6 +75,9 @@ func compileGlob(pattern string) (*CompiledGlob, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(expanded) > maxGlobPrograms {
+		return nil, fmt.Errorf("compiled glob exceeds the %d-program limit", maxGlobPrograms)
+	}
 	programs := make([]globProgram, 0, len(expanded))
 	logicalBytes := len(pattern)
 	for _, candidate := range expanded {
@@ -110,29 +116,44 @@ func (g *CompiledGlob) LogicalBytes() int {
 }
 
 func expandGlobAlternatives(pattern string) ([]globExpansion, error) {
+	programs, withinLimit := countGlobExpansionPrograms(pattern, maxGlobPrograms)
+	if !withinLimit {
+		return nil, fmt.Errorf("compiled glob exceeds the %d-program brace-expansion limit", maxGlobPrograms)
+	}
 	initial := globExpansion{
 		pattern: pattern, zeroOverrides: map[int]bool{}, starOverrides: map[int]globStarShape{}, segmentResets: map[int]bool{},
 	}
 	refreshGlobExpansionKey(&initial)
-	queue := []globExpansion{initial}
-	seen := map[string]bool{initial.key: true}
+	queue := make([]globExpansion, 1, min(maxGlobExpansionStates, programs*2))
+	queue[0] = initial
+	seen := make(map[string]bool, min(maxGlobExpansionStates, programs*2))
+	seen[initial.key] = true
 	logicalBytes := globBranchCost(initial)
-	finished := make([]globExpansion, 0, 1)
+	finished := make([]globExpansion, 0, programs)
 	for index := 0; index < len(queue); index++ {
 		candidate := queue[index]
 		open, close, found := firstGlobAlternative(candidate.pattern)
 		if !found {
+			if len(finished) >= maxGlobPrograms {
+				return nil, fmt.Errorf("compiled glob exceeds the %d-program limit", maxGlobPrograms)
+			}
 			finished = append(finished, candidate)
 			continue
 		}
 		logicalBytes -= globBranchCost(candidate)
 		captureGlobPrefixState(&candidate, open)
 		alternatives := splitGlobAlternatives(candidate.pattern[open+1 : close])
+		if len(alternatives) > maxGlobGroupAlternatives {
+			return nil, fmt.Errorf("compiled glob brace group exceeds the %d-alternative limit", maxGlobGroupAlternatives)
+		}
 		for _, alternative := range alternatives {
 			expanded := replaceGlobAlternative(candidate, open, close, alternative)
 			key := expanded.key
 			if seen[key] {
 				continue
+			}
+			if len(seen) >= maxGlobExpansionStates {
+				return nil, fmt.Errorf("compiled glob exceeds the %d-state expansion limit", maxGlobExpansionStates)
 			}
 			seen[key] = true
 			logicalBytes += globBranchCost(expanded)
@@ -144,6 +165,37 @@ func expandGlobAlternatives(pattern string) ([]globExpansion, error) {
 	}
 	sort.Slice(finished, func(i, j int) bool { return finished[i].key < finished[j].key })
 	return finished, nil
+}
+
+func countGlobExpansionPrograms(pattern string, limit int) (int, bool) {
+	if limit < 1 {
+		return 0, false
+	}
+	count := 1
+	remaining := pattern
+	for {
+		open, close, found := firstGlobAlternative(remaining)
+		if !found {
+			return count, true
+		}
+		alternatives := splitGlobAlternatives(remaining[open+1 : close])
+		if len(alternatives) > maxGlobGroupAlternatives {
+			return 0, false
+		}
+		groupCount := 0
+		for _, alternative := range alternatives {
+			alternativeCount, withinLimit := countGlobExpansionPrograms(alternative, limit-groupCount)
+			if !withinLimit || alternativeCount > limit-groupCount {
+				return 0, false
+			}
+			groupCount += alternativeCount
+		}
+		if groupCount == 0 || count > limit/groupCount {
+			return 0, false
+		}
+		count *= groupCount
+		remaining = remaining[close+1:]
+	}
 }
 
 func captureGlobPrefixState(candidate *globExpansion, through int) {

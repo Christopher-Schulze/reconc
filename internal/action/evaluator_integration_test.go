@@ -317,6 +317,43 @@ func TestConditionEvaluationRejectsInvalidChild(t *testing.T) {
 	if got.state != ConditionIndeterminate || got.reason != ReasonInternalInvariant || got.complete || got.nodes != 2 {
 		t.Fatalf("invalid child evaluation = %#v, want indeterminate incomplete two-node result", got)
 	}
+
+	decisive := &CompiledCondition{
+		Kind: ConditionPredicate,
+		Predicate: compileTestPredicate(t, Predicate{
+			Source: SourceArguments, Op: OperatorExists,
+		}),
+	}
+	condition.Children = []*CompiledCondition{decisive, invalid}
+	got = evaluateConditionTree(condition, Request{}, DecisionBlock, 1)
+	if got.state != ConditionFalse || got.reason != "" || !got.complete || got.nodes != 3 {
+		t.Fatalf("masked invalid child result = %#v, want complete false three-node result", got)
+	}
+}
+
+func TestConditionShortCircuitPreservesUnsafeSuffixMetadata(t *testing.T) {
+	missing := testStringValue(t, "missing")
+	condition := &CompiledCondition{Kind: ConditionAll, Children: []*CompiledCondition{
+		{
+			Kind: ConditionPredicate,
+			Predicate: compileTestPredicate(t, Predicate{
+				Source: SourceArguments, Op: OperatorExists,
+			}),
+		},
+		{
+			Kind: ConditionPredicate,
+			Predicate: compileTestPredicate(t, Predicate{
+				Source: SourceContext, Pointer: "/role", Op: OperatorEqual, Value: &missing,
+				MinimumProvenance: ProvenanceHostObserved,
+			}),
+		},
+	}}
+	got := evaluateConditionTree(condition, Request{}, DecisionBlock, 1)
+	if got.state != ConditionFalse || !got.complete || got.reason != "" || got.nodes != 3 ||
+		got.actual != ProvenanceAgentSupplied || got.required != ProvenanceHostObserved ||
+		got.summary.PointerState != PointerMissing {
+		t.Fatalf("decisive condition metadata = %#v", got)
+	}
 }
 
 func TestEvaluatorFailureOutcomesAreFailClosed(t *testing.T) {

@@ -61,6 +61,23 @@ func BenchmarkLogicalConditionEvaluationMaximum(b *testing.B) {
 	benchmarkLogicalConditionEvaluation(b, ConditionAll, MaxConditionNodes-1, 1)
 }
 
+func BenchmarkLogicalConditionEvaluationDecisiveMaximum(b *testing.B) {
+	predicate := compileTestPredicate(b, Predicate{Source: SourceArguments, Op: OperatorExists})
+	children := make([]*CompiledCondition, MaxConditionNodes-1)
+	for index := range children {
+		children[index] = &CompiledCondition{Kind: ConditionPredicate, Predicate: predicate}
+	}
+	condition := &CompiledCondition{Kind: ConditionAll, Children: children}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		result := evaluateConditionTree(condition, Request{}, DecisionBlock, 1)
+		if result.state != ConditionFalse || result.nodes != MaxConditionNodes {
+			b.Fatalf("condition result = %#v", result)
+		}
+	}
+}
+
 func benchmarkLogicalConditionEvaluation(b *testing.B, kind ConditionKind, children, depth int) {
 	b.Helper()
 	predicate := compileTestPredicate(b, Predicate{Source: SourceArguments, Pointer: "/target", Op: OperatorExists})

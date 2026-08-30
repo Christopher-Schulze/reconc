@@ -3169,6 +3169,14 @@ an indeterminate `limit_exceeded`
 condition and applies the rule's `on_indeterminate` decision; it is never
 reported as an ordinary non-match.
 
+Brace expansion is admitted before materialization: one pattern may produce at
+most 1,024 programs, one brace group at most 1,024 alternatives, and the
+expander at most 16,384 distinct intermediate states. Its retained logical
+representation also remains inside the 24 MiB compiled-plan budget. Logical
+`all` and `any` evaluation skips only decisive suffixes whose provenance,
+completeness, operand summary, reason strength, and complete node count can be
+derived exactly without resolving request values or running operators.
+
 Canonical action values expose exact encoded size and bounded indexed reads
 without revealing mutable collection storage. Pointer traversal and redacted
 operand summaries therefore do not clone arrays, objects, or encoded JSON.

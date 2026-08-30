@@ -124,8 +124,58 @@ func TestCompiledGlobRejectsExpansionAbovePlanAdmission(t *testing.T) {
 	if len(pattern) > MaxPatternBytes {
 		t.Fatal("test pattern exceeds source boundary")
 	}
-	if _, err := compileGlob(pattern); err == nil || !strings.Contains(err.Error(), "admission limit") {
-		t.Fatalf("error = %v, want admission-limit rejection", err)
+	if _, err := compileGlob(pattern); err == nil || !strings.Contains(err.Error(), "program") {
+		t.Fatalf("error = %v, want program-limit rejection", err)
+	}
+}
+
+func TestGlobExpansionBudgetsPreserveMaximumLegalPrograms(t *testing.T) {
+	t.Parallel()
+	maximum := strings.Repeat("{a,b}", 10)
+	first, err := expandGlobAlternatives(maximum)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := expandGlobAlternatives(maximum)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != maxGlobPrograms || len(second) != maxGlobPrograms {
+		t.Fatalf("maximum expansion counts = %d and %d, want %d", len(first), len(second), maxGlobPrograms)
+	}
+	for index := range first {
+		if first[index].key != second[index].key {
+			t.Fatalf("maximum expansion key %d changed", index)
+		}
+	}
+
+	if _, err := expandGlobAlternatives(strings.Repeat("{a,b}", 11)); err == nil || !strings.Contains(err.Error(), "program") {
+		t.Fatalf("over-program error = %v", err)
+	}
+	stateAmplification := strings.Repeat("{a,b}", 10) + strings.Repeat("{a}", 20)
+	if _, err := expandGlobAlternatives(stateAmplification); err == nil || !strings.Contains(err.Error(), "state expansion") {
+		t.Fatalf("over-state error = %v", err)
+	}
+}
+
+func TestCountGlobExpansionProgramsHandlesNestedGroups(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		pattern string
+		want    int
+	}{
+		{pattern: "plain", want: 1},
+		{pattern: "{a,b}{c,d}", want: 4},
+		{pattern: "{a/{b,c},abc}", want: 3},
+		{pattern: "{a,{b,c}}{d,e}", want: 6},
+		{pattern: `[{}]{a,b}`, want: 2},
+		{pattern: `\{a,b\}`, want: 1},
+	}
+	for _, test := range tests {
+		got, withinLimit := countGlobExpansionPrograms(test.pattern, maxGlobPrograms)
+		if !withinLimit || got != test.want {
+			t.Fatalf("pattern %q count = %d within limit %t, want %d", test.pattern, got, withinLimit, test.want)
+		}
 	}
 }
 
