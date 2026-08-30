@@ -133,12 +133,7 @@ func TestWriteIfCurrentRejectsConcurrentIdentityReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := ExpectedCurrent{Data: before, Info: info, Exists: true}
-	if err := os.Rename(path, path+".old"); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, before, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	replaceWithDistinctIdentity(t, path, before, 0o600)
 	if _, err := WriteIfCurrent(path, []byte("after!\n"), 0o600, expected); !errors.Is(err, ErrCurrentChanged) {
 		t.Fatalf("concurrent replacement error = %v", err)
 	}
@@ -182,12 +177,7 @@ func TestWriteStreamIfCurrentRejectsConcurrentIdentityReplacement(t *testing.T) 
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256(before)
-	if err := os.Rename(path, path+".old"); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, before, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	replaceWithDistinctIdentity(t, path, before, 0o600)
 	_, err = WriteStreamIfCurrent(path, strings.NewReader("after stream\n"), 64, 0o755, ExpectedStream{
 		Info: info, Digest: hex.EncodeToString(digest[:]), Exists: true,
 	})
@@ -599,18 +589,38 @@ func TestTargetIdentitySwapIsRejectedWithoutTouchingReplacement(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Rename(path, path+".old"); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("replacement\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
+	replaceWithDistinctIdentity(t, path, []byte("replacement\n"), 0o640)
 	if err := validateCurrent(parent.directory(), name, info); err == nil {
 		t.Fatal("target identity swap was accepted")
 	}
 	body, err := os.ReadFile(path)
 	if err != nil || string(body) != "replacement\n" {
 		t.Fatalf("replacement target changed: body=%q err=%v", body, err)
+	}
+}
+
+func replaceWithDistinctIdentity(t *testing.T, path string, data []byte, mode os.FileMode) {
+	t.Helper()
+	replacement := path + ".replacement"
+	if err := os.WriteFile(replacement, data, mode); err != nil {
+		t.Fatal(err)
+	}
+	originalInfo, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementInfo, err := os.Lstat(replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(originalInfo, replacementInfo) {
+		t.Fatal("replacement unexpectedly shares the original identity")
+	}
+	if err := os.Rename(path, path+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, path); err != nil {
+		t.Fatal(err)
 	}
 }
 
