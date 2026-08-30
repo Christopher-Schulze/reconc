@@ -475,7 +475,7 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
   const shouldBlockFailure = (event, result) => {
     const budget = routeBudgets[event] || { errorPolicy: "block", timeoutPolicy: "block" }
     if (result.timedOut) return budget.timeoutPolicy === "block"
-    if (result.invalidUTF8) return budget.errorPolicy === "block"
+    if (result.invalidUTF8 || result.truncated) return budget.errorPolicy === "block"
     return result.code !== 0 && budget.errorPolicy === "block"
   }
 

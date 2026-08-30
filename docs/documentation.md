@@ -3666,7 +3666,9 @@ runtime timeout/error, malformed or truncated Stop JSON, and the continuation
 cap are fail-open host outcomes with bounded redacted diagnostics. The shared
 Bun runner drains stdout and stderr concurrently, enforces one combined 8 KiB
 budget, rejects invalid UTF-8, kills and awaits the timed-out subprocess, and
-never publishes truncated JSON as a decision.
+never publishes truncated JSON as a decision. Truncation follows each route's
+declared error policy: blocking pre-tool and permission routes fail closed,
+while post-tool observation routes remain fail open.
 
 MCP effects are opt-in compiler configuration:
 

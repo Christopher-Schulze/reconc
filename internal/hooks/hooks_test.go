@@ -1170,6 +1170,7 @@ func TestGenerateOpenCodePlugin(t *testing.T) {
 		`const wrapper = repo + "/tools/reconc/bin/hook"`,
 		`return [wrapper, event, repo]`,
 		`return [binary, "hook", "runtime", event, repo]`,
+		`result.invalidUTF8 || result.truncated`,
 		"Policy, session state, and continuation decisions stay in the Go runtime",
 	} {
 		if !strings.Contains(a.Content, token) {

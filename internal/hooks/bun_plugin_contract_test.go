@@ -230,7 +230,7 @@ func TestGeneratedBunPluginTransportIsCombinedAndBounded(t *testing.T) {
 		t.Fatalf("Bun is required to verify generated plugin transport: %v", err)
 	}
 	for _, kind := range []string{KindOpenCode, KindKilo} {
-		for _, mode := range []string{"large", "invalid-utf8", "timeout", "spawn-failure"} {
+		for _, mode := range []string{"exact-limit", "stdout-truncated", "stderr-truncated", "mixed-truncated", "utf8-truncated", "invalid-utf8", "nonzero", "timeout", "spawn-failure"} {
 			t.Run(kind+"/"+mode, func(t *testing.T) {
 				repo := t.TempDir()
 				artifact, err := Generate(kind)
@@ -264,19 +264,29 @@ case "$event" in
   *-session-start) exit 0 ;;
   *-pre-tool-use)
     case "$RECONC_TRANSPORT_MODE" in
-      large)
-        # One writer exercises both pipes without racing two process creations on Windows.
-        perl -e 'print "o" x 1048576; print STDERR "e" x 1048576'
-        exit 1
-        ;;
+      exact-limit) perl -e 'print "{\"ok\":true}", " " x 8181' ;;
+      stdout-truncated) perl -e 'print "o" x 8193' ;;
+      stderr-truncated) perl -e 'print STDERR "e" x 8193' ;;
+      mixed-truncated) perl -e 'print "o" x 4096; print STDERR "e" x 4097' ;;
+      utf8-truncated) perl -e 'print "a" x 8165, "\342\202\254", "b" x 25' ;;
       invalid-utf8)
         printf '\377\376broken\n' >&2
         exit 0
+        ;;
+      nonzero)
+        printf 'failure\n' >&2
+        exit 1
         ;;
       timeout)
         exec sleep 2
         ;;
     esac
+    ;;
+  *-post-tool-use)
+    [ "$RECONC_TRANSPORT_MODE" = stdout-truncated ] && perl -e 'print "o" x 8193'
+    ;;
+  *-permission-request|*-stop)
+    [ "$RECONC_TRANSPORT_MODE" = stdout-truncated ] && perl -e 'print "o" x 8193'
     ;;
 esac
 exit 0
@@ -292,7 +302,12 @@ const mode = Bun.argv[4]
 if (mode === "spawn-failure") process.env.PATH = ""
 const pluginModule = await import("file://" + pluginPath + "?transport=" + Date.now())
 const factory = kind === "opencode" ? pluginModule.ReconcOpenCodePlugin : pluginModule.default.server
-const hooks = await factory({ directory: Bun.argv[5], worktree: Bun.argv[5], client: {} })
+let continuationCalls = 0
+const client = { session: { promptAsync: async () => {
+  continuationCalls += 1
+  return { response: { ok: true, status: 204 } }
+} } }
+const hooks = await factory({ directory: Bun.argv[5], worktree: Bun.argv[5], client })
 const started = Date.now()
 let failure = ""
 try {
@@ -303,12 +318,28 @@ try {
 } catch (error) {
   failure = String(error?.message || error)
 }
-if (!failure) throw new Error("blocking transport failure was not surfaced")
+if (mode === "exact-limit") {
+  if (failure) throw new Error("exact-limit output was rejected: " + failure)
+} else if (!failure) {
+  throw new Error("blocking transport failure was not surfaced")
+}
 const size = new TextEncoder().encode(failure).length
 if (size > 8192) throw new Error("combined output exceeded route budget: " + size)
-if (mode === "large" && !failure.includes("[reconc output truncated]")) throw new Error("large output has no truncation marker")
+if (mode.endsWith("-truncated") && mode !== "utf8-truncated" && !failure.includes("[reconc output truncated]")) throw new Error("truncated output has no truncation marker")
+if (mode === "utf8-truncated" && !failure.includes("[reconc invalid UTF-8 output]")) throw new Error("truncated UTF-8 boundary was not rejected")
 if (mode === "invalid-utf8" && !failure.includes("[reconc invalid UTF-8 output]")) throw new Error("invalid UTF-8 was not rejected")
 if (mode === "timeout" && Date.now() - started > 1500) throw new Error("timeout did not kill the child promptly")
+if (mode === "stdout-truncated") {
+  await hooks["tool.execute.after"](
+    { sessionID: "ses_transport", tool: "shell", callID: "call_transport", args: { command: "true" } },
+    { metadata: { exit: 0 }, output: "" },
+  )
+  const permission = {}
+  await hooks["permission.ask"]({ sessionID: "ses_transport", type: "shell", pattern: ["true"] }, permission)
+  if (permission.status !== "deny") throw new Error("truncated permission output did not fail closed")
+  await hooks.event({ event: { type: "session.idle", properties: { sessionID: "ses_transport" } } })
+  if (continuationCalls !== 0) throw new Error("truncated Stop output submitted a continuation")
+}
 // The plugin owns a session worker for as long as a session is open. Ending
 // the session releases it; without this the driver exits its own work and then
 // waits on a live child forever.
