@@ -3478,7 +3478,7 @@ contains no second matrix.
 | Oh My Pi CLI | `.omp/extensions/reconc.ts`; native session, input, tool, user-shell, user-Python observation, approval, compaction, shutdown, and awaited main-session Stop routes | Static extension contract plus per-route liveness; `tool_call`, `user_bash`, and `session_stop` can enforce before host action, while `user_python` is observed and never decided |
 | Pi Coding Agent | `.pi/extensions/reconc.ts`; trusted-project session, input, tool, user-shell, result, compaction, settled, and shutdown routes | Static extension and saved-trust contract plus per-route liveness; `tool_call` and `user_bash` can enforce before host action, while settled continuation remains inferred |
 | ZCode CLI | `.zcode/config.json`; all seven native session, prompt, tool, permission, failure, and synchronous Stop routes through the documented process executor | Static workspace contract plus per-route liveness; pre-tool, permission, and Stop can block, while host timeouts remain fail-open |
-| Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; the 16 decision- and evidence-carrying hooks of the host's twenty dispatch through bare `reconc` and discover the current repository | Generator-exact global configuration only; no live claim without a real Kimi route observation |
+| Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; the 16 decision- and evidence-carrying hooks of the host's twenty dispatch through receipt-bound bare `reconc` and discover the current repository | Generator-exact global configuration plus installation-receipt executable identity; no live claim without a real Kimi route observation |
 
 Cursor's registry classifies all 21 current host events exactly once. Reconc
 installs 17: `sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`,
@@ -3534,9 +3534,15 @@ multiline strings, trailing comments, and indented comments remains unrelated
 content. Duplicate, nested, reversed, or unpaired structural markers fail
 closed. Uninstall removes only a generator-exact managed block.
 
-Each global Kimi command uses bare `reconc`, starts in the host-supplied
-project working directory, discovers an explicit Reconc configuration, and
-silently returns outside initialized Reconc repositories. The adapter strictly
+Each global Kimi command uses the versioned `receipt-v1` contract through bare
+`reconc`, starts in the host-supplied project working directory, discovers an
+explicit Reconc configuration, and silently returns outside initialized Reconc
+repositories. Installation and status require bare `reconc` to resolve to the
+regular executable named and checksum-bound by the installation receipt. Once
+inside an initialized repository, the runtime verifies that its own executable
+still matches that receipt before policy evaluation. Missing receipts, PATH
+precedence changes, relocation, and post-install binary replacement fail with
+`doctor --global` and `install-cli` remediation. The adapter strictly
 validates snake_case payload identity, session, current working directory,
 tool input, and error shape before entering the shared runtime. Kimi accepts
 exit code 2 as the blocking result for `PreToolUse`, `UserPromptSubmit`, and
@@ -3834,9 +3840,11 @@ persistent read or validation failures still fail closed.
 
 Claude Code, Codex, GitHub Copilot, Cursor, Devin, Antigravity, Grok, and ZCode
 generated repository configs use `tools/reconc/bin/hook` on POSIX; the wrapper
-owns repo-local binary selection and PATH `reconc` as last fallback. Kimi Code
-is global and therefore invokes bare `reconc` directly after explicit install
-verifies that PATH identity.
+owns repo-local binary selection and PATH `reconc` as last fallback. Every dev,
+direct-target, stable, versioned, and PATH candidate must be a regular,
+non-symlink executable before dispatch. Kimi Code is global and therefore
+invokes bare `reconc` through a versioned runtime contract after explicit
+installation verifies its receipt-owned path and checksum identity.
 For development and self-hosting, the wrapper checks `.build/bin/reconc` and
 root `reconc` before invoking any platform probe. A repository installation
 that owns both the wrapper and an exact current-host stable binary also owns

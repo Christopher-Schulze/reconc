@@ -639,7 +639,7 @@ func verifyGeneratedGitTransport(repo, shell string) (string, string, []string, 
 
 func verifyGeneratedKimiTransport() (string, string, []string, string) {
 	artifact, err := hooks.Generate(hooks.KindKimiCode)
-	if err != nil || !strings.Contains(artifact.Content, `command = "reconc hook kimi-runtime kimi-pre-tool-use"`) {
+	if err != nil || !strings.Contains(artifact.Content, `command = "reconc hook kimi-runtime receipt-v1 kimi-pre-tool-use"`) {
 		return "failed", "failed", nil, "generated Kimi Code command transport is incomplete"
 	}
 	return "verified", "not-applicable", nil, ""

@@ -352,8 +352,15 @@ func quote(value string) string {
 }
 
 func fileSHA256(path string) (string, error) {
+	digest, _, err := fileSHA256Snapshot(path)
+	return digest, err
+}
+
+func fileSHA256Snapshot(path string) (string, os.FileInfo, error) {
 	hash := sha256.New()
+	var opened os.FileInfo
 	err := boundedio.WithRegularFileSnapshot(path, maxBinaryBytes, func(file *os.File, info os.FileInfo) error {
+		opened = info
 		written, copyErr := io.CopyBuffer(hash, file, make([]byte, binaryCopyBufferBytes))
 		if copyErr != nil {
 			return copyErr
@@ -364,9 +371,9 @@ func fileSHA256(path string) (string, error) {
 		return nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("open or hash %s for checksum: %w", path, err)
+		return "", nil, fmt.Errorf("open or hash %s for checksum: %w", path, err)
 	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return hex.EncodeToString(hash.Sum(nil)), opened, nil
 }
 
 func ensureRealDirectory(path string) error {

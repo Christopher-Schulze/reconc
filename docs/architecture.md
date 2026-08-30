@@ -1087,10 +1087,16 @@ Material signatures deduplicate specialized write events against generic
 post-tool delivery.
 
 Kimi Code generation is registry-driven into a user-global TOML marker block
-rather than a repository artifact. Its internal entrypoint first discovers an
-explicit Reconc repository from the current working directory and otherwise
-no-ops, so global host configuration cannot turn arbitrary directories into
-Reconc targets. The adapter validates the native route name, snake_case
+rather than a repository artifact. Generated commands carry the versioned
+`receipt-v1` runtime contract. Installation and status bind bare `reconc` to
+the regular executable path and SHA-256 owned by the installation receipt; the
+internal entrypoint verifies its running executable against the same receipt
+before evaluating an initialized repository. It first discovers an explicit
+Reconc repository from the current working directory and otherwise no-ops, so
+global host configuration cannot turn arbitrary directories into Reconc
+targets. PATH precedence drift, relocation, receipt loss, or binary replacement
+fails explicitly instead of transferring runtime authority. The adapter
+validates the native route name, snake_case
 envelope, repository-contained `cwd`, session identity, tool input, and error
 shape. Kimi's control contract is exit code 2 on `PreToolUse`,
 `UserPromptSubmit`, and `Stop`; host crashes, all other non-zero exits, and

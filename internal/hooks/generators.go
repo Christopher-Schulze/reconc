@@ -440,7 +440,7 @@ func generateKimiCode() (*Artifact, error) {
 			}
 			body.WriteString("[[hooks]]\n")
 			fmt.Fprintf(&body, "event = %q\n", binding.NativeEvent)
-			fmt.Fprintf(&body, "command = %q\n", "reconc hook kimi-runtime "+binding.RuntimeEvent)
+			fmt.Fprintf(&body, "command = %q\n", "reconc hook kimi-runtime "+KimiCodeRuntimeContract+" "+binding.RuntimeEvent)
 			fmt.Fprintf(&body, "timeout = %d\n\n", capability.TimeoutSeconds)
 		}
 	}

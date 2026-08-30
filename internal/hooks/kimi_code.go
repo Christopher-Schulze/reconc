@@ -20,6 +20,7 @@ import (
 const (
 	KimiCodeManagedBlockStart = "# >>> reconc kimi-code hooks"
 	KimiCodeManagedBlockEnd   = "# <<< reconc kimi-code hooks"
+	KimiCodeRuntimeContract   = "receipt-v1"
 	kimiCodeLockName          = ".reconc-hooks.lock"
 )
 
@@ -190,47 +191,27 @@ func inspectKimiCodePlatform(platform Platform) (report PlatformStatus) {
 		report.remediation = hookInstallRemediation(platform.Kind, "", true)
 		return report
 	}
-	bareStatus, err := usercli.InspectRunningOnPATH()
+	identity, err := usercli.VerifyPATHReceiptIdentity()
 	if err != nil {
 		report.State = StateDegraded
-		report.Detail = "managed hooks are installed but bare `reconc` identity cannot be verified: " + err.Error()
-		report.remediation = hostRemediation("Repair the Reconc user CLI, then rerun hook status.", remediationCommand{})
-		return report
-	}
-	if !bareStatus.PathVisible {
-		report.State = StateInstalled
-		report.Detail = "managed hooks are installed but bare `reconc` is not visible on PATH"
-		report.remediation = hostRemediation("Install the Reconc user CLI on PATH, then restart Kimi Code CLI.", remediationCommand{})
-		return report
-	}
-	if !bareStatus.ChecksumCurrent {
-		report.State = StateDegraded
-		report.Executable = true
-		report.Detail = "managed hooks are installed but bare `reconc` resolves to different bytes: " + bareStatus.ResolvedPath
-		report.remediation = hostRemediation("Repair the user CLI, then restart Kimi Code CLI:", remediationCommand{Program: bareStatus.RunningPath, Args: []string{"install-cli"}})
+		report.Detail = "managed hooks are installed but bare `reconc` is not bound to a valid installation receipt: " + err.Error()
+		report.remediation = hostRemediation("Run `reconc doctor --global`, repair the intended user CLI with `install-cli`, then restart Kimi Code CLI.", remediationCommand{})
 		return report
 	}
 	report.State = StateConfigured
 	report.Configured = true
 	report.Executable = true
-	report.Detail = "global hook configuration is current and bare `reconc` is checksum-identical to the running build; live execution is reported separately"
+	report.Detail = "global hook configuration is current and bare `reconc` is receipt-bound at " + identity.ExecutablePath + "; live execution is reported separately"
 	report.remediation = noRemediation()
 	return report
 }
 
 func verifyKimiCodeCLIIdentity() error {
-	status, err := usercli.InspectRunningOnPATH()
+	_, err := usercli.VerifyPATHReceiptIdentity()
 	if err != nil {
-		return &rerrors.PolicySourceError{Message: "verify bare Reconc identity before Kimi Code hook installation", Cause: err}
-	}
-	if !status.PathVisible {
 		return &rerrors.PolicySourceError{
-			Message: "bare `reconc` is not visible on PATH; run `" + status.RunningPath + " install-cli` before installing global Kimi Code hooks",
-		}
-	}
-	if !status.ChecksumCurrent {
-		return &rerrors.PolicySourceError{
-			Message: "bare `reconc` resolves to different bytes at " + status.ResolvedPath + "; run `" + status.RunningPath + " install-cli` before installing global Kimi Code hooks",
+			Message: "bare `reconc` is not bound to a valid installation receipt; run `reconc doctor --global`, then run `install-cli` from the intended binary before installing global Kimi Code hooks",
+			Cause:   err,
 		}
 	}
 	return nil

@@ -1209,8 +1209,14 @@ cross-process lock, preserves unrelated TOML and file mode, refuses invalid or
 drifted configuration, and backs up the exact prior file before a forced
 managed-block replacement. Kimi is excluded from `init`, bootstrap hook
 selection, and scaffold sync because its configuration is user-global. The
-generated global commands discover the current repository and silently no-op
-outside an explicit Reconc repository.
+generated global commands use the versioned `receipt-v1` runtime contract,
+discover the current repository, and silently no-op outside an explicit Reconc
+repository. Install requires bare `reconc` to resolve to the regular,
+executable binary named by a valid installation receipt. Inside a Reconc
+repository, every invocation verifies that the running executable still has
+that receipt path and SHA-256 identity. A missing receipt, PATH precedence
+change, relocation, or binary replacement fails with `doctor --global` and
+`install-cli` remediation instead of running under mutable ambient authority.
 
 ### `reconc hook uninstall <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|pi|zcode|kimi-code> [repo] [--json] [--output PATH]`
 Remove only generator-exact dedicated artifacts or canonical Reconc-owned JSON
@@ -1321,8 +1327,9 @@ distinguish an unconfigured MCP call from a built-in/custom tool, so status
 reports that limitation without claiming enforcement.
 Default text reports seen/expected counts and the last event without listing
 every unseen route; the full unseen-event enumeration remains in `--json`.
-Kimi Code status validates its global TOML block and bare `reconc` PATH
-identity but keeps configuration separate from route liveness. Kimi blocks
+Kimi Code status validates its global TOML block and binds bare `reconc` to its
+installation receipt path and SHA-256 identity, while keeping configuration
+separate from route liveness. Kimi blocks
 only through host exit code 2 on `PreToolUse`, `UserPromptSubmit`, and `Stop`;
 other non-zero exits, crashes, and host timeouts are Kimi-owned fail-open
 boundaries.

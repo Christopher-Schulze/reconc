@@ -541,7 +541,7 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 	for _, token := range []string{
 		KimiCodeManagedBlockStart,
 		`event = "PreToolUse"`,
-		`command = "reconc hook kimi-runtime kimi-pre-tool-use"`,
+		`command = "reconc hook kimi-runtime receipt-v1 kimi-pre-tool-use"`,
 		`event = "PermissionResult"`,
 		`event = "Interrupt"`,
 		`timeout = 30`,

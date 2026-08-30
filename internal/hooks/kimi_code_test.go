@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"reconc.dev/reconc/internal/usercli"
 )
 
 func TestKimiCodeInstallIsIsolatedIdempotentAndReversible(t *testing.T) {
@@ -170,7 +172,7 @@ func TestKimiCodeDriftRequiresForceAndCreatesExactBackup(t *testing.T) {
 	}
 	drifted := bytes.Replace(
 		readKimiCodeTestFile(t, configPath),
-		[]byte("reconc hook kimi-runtime kimi-pre-tool-use"),
+		[]byte("reconc hook kimi-runtime receipt-v1 kimi-pre-tool-use"),
 		[]byte("custom-pre-tool-command"),
 		1,
 	)
@@ -279,6 +281,40 @@ func TestKimiCodeStatusSeparatesConfigurationFromLiveExecution(t *testing.T) {
 	}
 }
 
+func TestKimiCodeStatusRejectsReplacementAndAcceptsReceiptUpgrade(t *testing.T) {
+	cliInstall := enableKimiCodeCLIForTest(t)
+	home := t.TempDir()
+	t.Setenv("KIMI_CODE_HOME", home)
+	if _, err := Install(KindKimiCode, ".", false); err != nil {
+		t.Fatal(err)
+	}
+	platform, ok := PlatformForKind(KindKimiCode)
+	if !ok {
+		t.Fatal("Kimi Code platform missing")
+	}
+	if err := os.WriteFile(cliInstall.Receipt.BinaryPath, []byte("replacement"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	drifted := inspectKimiCodePlatform(platform)
+	if drifted.State != StateDegraded || !strings.Contains(drifted.Detail, "checksum changed") {
+		t.Fatalf("replacement status = %#v", drifted)
+	}
+	upgraded, err := usercli.InstallCurrentWithReceipt(
+		filepath.Dir(cliInstall.Receipt.BinaryPath),
+		usercli.InstallOptions{Version: "test-upgrade"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upgraded.Receipt == nil || upgraded.Receipt.ReceiptDigest == cliInstall.Receipt.ReceiptDigest {
+		t.Fatalf("upgrade report = %+v", upgraded)
+	}
+	healthy := inspectKimiCodePlatform(platform)
+	if healthy.State != StateConfigured || !healthy.Configured || !healthy.Executable {
+		t.Fatalf("upgraded status = %#v", healthy)
+	}
+}
+
 func TestKimiCodeStatusDistinguishesUnsafeConfigurationAndCLIStates(t *testing.T) {
 	platform, ok := PlatformForKind(KindKimiCode)
 	if !ok {
@@ -312,8 +348,8 @@ func TestKimiCodeStatusDistinguishesUnsafeConfigurationAndCLIStates(t *testing.T
 		configPath := filepath.Join(home, "config.toml")
 		body := bytes.Replace(
 			readKimiCodeTestFile(t, configPath),
-			[]byte("reconc hook kimi-runtime kimi-stop"),
-			[]byte("reconc hook kimi-runtime custom-stop"),
+			[]byte("reconc hook kimi-runtime receipt-v1 kimi-stop"),
+			[]byte("reconc hook kimi-runtime receipt-v1 custom-stop"),
 			1,
 		)
 		if err := os.WriteFile(configPath, body, 0o600); err != nil {
@@ -333,7 +369,7 @@ func TestKimiCodeStatusDistinguishesUnsafeConfigurationAndCLIStates(t *testing.T
 		}
 		t.Setenv("PATH", t.TempDir())
 		status := inspectKimiCodePlatform(platform)
-		if status.State != StateInstalled || status.Executable || !strings.Contains(status.Detail, "not visible") {
+		if status.State != StateDegraded || status.Executable || !strings.Contains(status.Detail, "not visible") {
 			t.Fatalf("missing CLI status = %#v", status)
 		}
 	})
@@ -354,7 +390,7 @@ func TestKimiCodeStatusDistinguishesUnsafeConfigurationAndCLIStates(t *testing.T
 		}
 		t.Setenv("PATH", binDir)
 		status := inspectKimiCodePlatform(platform)
-		if status.State != StateDegraded || !status.Executable || !strings.Contains(status.Detail, "different bytes") {
+		if status.State != StateDegraded || status.Executable || !strings.Contains(status.Detail, "not the receipt-owned binary") {
 			t.Fatalf("different CLI status = %#v", status)
 		}
 	})
@@ -367,11 +403,18 @@ func TestKimiCodeInstallRejectsMissingOrDifferentBareCLIWithoutMutation(t *testi
 		want  string
 	}{
 		{
-			name: "missing",
+			name: "missing PATH entry",
 			setup: func(t *testing.T) {
 				t.Setenv("PATH", t.TempDir())
 			},
 			want: "not visible on PATH",
+		},
+		{
+			name: "missing receipt",
+			setup: func(t *testing.T) {
+				t.Setenv("RECONC_HOME", t.TempDir())
+			},
+			want: "load installation receipt",
 		},
 		{
 			name: "different bytes",
@@ -386,7 +429,7 @@ func TestKimiCodeInstallRejectsMissingOrDifferentBareCLIWithoutMutation(t *testi
 				}
 				t.Setenv("PATH", binDir)
 			},
-			want: "different bytes",
+			want: "not the receipt-owned binary",
 		},
 		{
 			name: "invalid PATH",
@@ -399,6 +442,7 @@ func TestKimiCodeInstallRejectsMissingOrDifferentBareCLIWithoutMutation(t *testi
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			enableKimiCodeCLIForTest(t)
 			home := t.TempDir()
 			t.Setenv("KIMI_CODE_HOME", home)
 			test.setup(t)
@@ -542,6 +586,7 @@ func TestKimiCodeStatusRejectsUnsafeHomeAndMarkers(t *testing.T) {
 		}
 	})
 	t.Run("PATH inspection fails", func(t *testing.T) {
+		enableKimiCodeCLIForTest(t)
 		home := t.TempDir()
 		t.Setenv("KIMI_CODE_HOME", home)
 		artifact, err := generateKimiCode()
@@ -554,7 +599,7 @@ func TestKimiCodeStatusRejectsUnsafeHomeAndMarkers(t *testing.T) {
 		entry := t.TempDir() + string(os.PathListSeparator)
 		t.Setenv("PATH", strings.Repeat(entry, 1100))
 		status := inspectKimiCodePlatform(platform)
-		if status.State != StateDegraded || !strings.Contains(status.Detail, "identity cannot be verified") {
+		if status.State != StateDegraded || !strings.Contains(status.Detail, "not bound to a valid installation receipt") {
 			t.Fatalf("status = %#v", status)
 		}
 	})
@@ -589,30 +634,19 @@ func TestKimiCodePathAndLockSafetyEdges(t *testing.T) {
 	}
 }
 
-func enableKimiCodeCLIForTest(t *testing.T) {
+func enableKimiCodeCLIForTest(t *testing.T) *usercli.InstallReport {
 	t.Helper()
-	running, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Setenv("RECONC_HOME", t.TempDir())
 	binDir := t.TempDir()
-	name := "reconc"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	target := filepath.Join(binDir, name)
-	if runtime.GOOS == "windows" {
-		body, err := os.ReadFile(running)
-		if err != nil {
-			t.Fatalf("read running test executable: %v", err)
-		}
-		if err := os.WriteFile(target, body, 0o700); err != nil {
-			t.Fatalf("copy running test executable as bare reconc: %v", err)
-		}
-	} else if err := os.Link(running, target); err != nil {
-		t.Fatalf("link running test executable as bare reconc: %v", err)
-	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	report, err := usercli.InstallCurrentWithReceipt(binDir, usercli.InstallOptions{Version: "test"})
+	if err != nil {
+		t.Fatalf("install receipt-bound test CLI: %v", err)
+	}
+	if report.Receipt == nil {
+		t.Fatalf("test CLI installation did not publish a receipt: %+v", report)
+	}
+	return report
 }
 
 func readKimiCodeTestFile(t *testing.T, path string) []byte {

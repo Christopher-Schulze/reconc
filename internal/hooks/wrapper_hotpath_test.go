@@ -180,6 +180,79 @@ func TestHookWrapperInvalidDirectTargetFallsBackToPlatformResolver(t *testing.T)
 	}
 }
 
+func TestHookWrapperRejectsSymlinkedExecutableCandidates(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX wrapper execution is covered on POSIX hosts")
+	}
+	tests := []struct {
+		name      string
+		candidate func(repo, pathDirectory string) string
+	}{
+		{
+			name: "development",
+			candidate: func(repo, _ string) string {
+				return filepath.Join(repo, ".build", "bin", "reconc")
+			},
+		},
+		{
+			name: "stable distribution",
+			candidate: func(repo, _ string) string {
+				return filepath.Join(repo, "tools", "reconc", "dist", "reconc-"+runtime.GOOS+"-"+runtime.GOARCH)
+			},
+		},
+		{
+			name: "versioned distribution",
+			candidate: func(repo, _ string) string {
+				return filepath.Join(repo, "tools", "reconc", "dist", "reconc-v9.9.9-"+runtime.GOOS+"-"+runtime.GOARCH)
+			},
+		},
+		{
+			name: "PATH fallback",
+			candidate: func(_, pathDirectory string) string {
+				return filepath.Join(pathDirectory, "reconc")
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := t.TempDir()
+			wrapper := filepath.Join(repo, filepath.FromSlash(WrapperPath))
+			if err := os.MkdirAll(filepath.Dir(wrapper), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(wrapper, []byte(GenerateWrapper().Content), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			marker := filepath.Join(t.TempDir(), "executed")
+			foreign := filepath.Join(t.TempDir(), "foreign-reconc")
+			body := "#!/bin/sh\nprintf executed > \"$RECONC_UNTRUSTED_MARKER\"\n"
+			if err := os.WriteFile(foreign, []byte(body), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			pathDirectory := t.TempDir()
+			candidate := test.candidate(repo, pathDirectory)
+			if err := os.MkdirAll(filepath.Dir(candidate), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(foreign, candidate); err != nil {
+				t.Skipf("symlink unavailable: %v", err)
+			}
+			command := exec.Command("sh", wrapper, "codex-stop", repo)
+			command.Env = append(os.Environ(),
+				"PATH="+pathDirectory+string(os.PathListSeparator)+"/usr/bin:/bin",
+				"RECONC_UNTRUSTED_MARKER="+marker,
+			)
+			output, err := command.CombinedOutput()
+			if err == nil || !strings.Contains(string(output), "no executable Reconc binary found") {
+				t.Fatalf("symlinked candidate result: err=%v output=%s", err, output)
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatalf("symlinked executable ran: %v", err)
+			}
+		})
+	}
+}
+
 func BenchmarkHookWrapperDirectTarget(b *testing.B) {
 	if runtime.GOOS == "windows" {
 		b.Skip("POSIX wrapper execution is covered on POSIX hosts")

@@ -2,13 +2,17 @@ package cli
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/usercli"
 )
 
 func TestKimiCodeCLIInstallAndUninstallUseOnlyIsolatedGlobalHome(t *testing.T) {
@@ -65,7 +69,7 @@ func TestKimiCodeCLIRejectsMisleadingRepositoryArguments(t *testing.T) {
 
 func TestKimiCodeGlobalRuntimeNoOpsOutsideInitializedRepository(t *testing.T) {
 	t.Chdir(t.TempDir())
-	stdout, stderr, code := runWithStdin(t, "", "hook", "kimi-runtime", "kimi-pre-tool-use")
+	stdout, stderr, code := runWithStdin(t, "", "hook", "kimi-runtime", "receipt-v1", "kimi-pre-tool-use")
 	if code != 0 || stdout != "" || stderr != "" {
 		t.Fatalf("outside runtime = code %d stdout %q stderr %q", code, stdout, stderr)
 	}
@@ -73,6 +77,7 @@ func TestKimiCodeGlobalRuntimeNoOpsOutsideInitializedRepository(t *testing.T) {
 
 func TestKimiCodeGlobalRuntimeDiscoversAndEnforcesRepository(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
+	bindRunningKimiRuntimeForCLITest(t)
 	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte("rules: []\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -88,9 +93,27 @@ func TestKimiCodeGlobalRuntimeDiscoversAndEnforcesRepository(t *testing.T) {
 		"tool_input":{"path":"generated/x.go"},
 		"tool_call_id":"call-1"
 	}`
-	_, stderr, code := runWithStdin(t, payload, "hook", "kimi-runtime", "kimi-pre-tool-use")
+	_, stderr, code := runWithStdin(t, payload, "hook", "kimi-runtime", "receipt-v1", "kimi-pre-tool-use")
 	if code != 2 || !strings.Contains(stderr, "deny-gen") {
 		t.Fatalf("runtime = code %d stderr %q", code, stderr)
+	}
+}
+
+func TestKimiCodeGlobalRuntimeRejectsLegacyContractAndMissingReceipt(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+	err := runKimiCodeRuntime([]string{"kimi-pre-tool-use"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if ExitCode(err) != 1 || !strings.Contains(err.Error(), "reinstall Kimi Code hooks") {
+		t.Fatalf("legacy runtime error = %v", err)
+	}
+
+	t.Setenv("RECONC_HOME", t.TempDir())
+	err = runKimiCodeRuntime([]string{"receipt-v1", "kimi-pre-tool-use"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if ExitCode(err) != 2 || !strings.Contains(err.Error(), "installation receipt") || !strings.Contains(err.Error(), "install-cli") {
+		t.Fatalf("unreceipted runtime error = %v", err)
 	}
 }
 
@@ -110,26 +133,48 @@ func quotedKimiCLITestJSON(value string) string {
 
 func enableKimiCodeCLIForCLITest(t *testing.T) {
 	t.Helper()
+	t.Setenv("RECONC_HOME", t.TempDir())
+	binDir := t.TempDir()
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	report, err := usercli.InstallCurrentWithReceipt(binDir, usercli.InstallOptions{Version: "test"})
+	if err != nil {
+		t.Fatalf("install receipt-bound test CLI: %v", err)
+	}
+	if report.Receipt == nil {
+		t.Fatalf("test CLI installation did not publish a receipt: %+v", report)
+	}
+}
+
+func bindRunningKimiRuntimeForCLITest(t *testing.T) {
+	t.Helper()
+	t.Setenv("RECONC_HOME", t.TempDir())
 	running, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	binDir := t.TempDir()
-	name := "reconc"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
+	running, err = filepath.EvalSymlinks(running)
+	if err != nil {
+		t.Fatal(err)
 	}
-	target := filepath.Join(binDir, name)
-	if runtime.GOOS == "windows" {
-		body, err := os.ReadFile(running)
-		if err != nil {
-			t.Fatalf("read running test executable: %v", err)
-		}
-		if err := os.WriteFile(target, body, 0o700); err != nil {
-			t.Fatalf("copy running test executable as bare reconc: %v", err)
-		}
-	} else if err := os.Link(running, target); err != nil {
-		t.Fatalf("link running test executable as bare reconc: %v", err)
+	body, err := os.ReadFile(running)
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	digest := sha256.Sum256(body)
+	receipt, err := usercli.NewReceipt(usercli.ReceiptInput{
+		Manager: usercli.ManagerSource, Channel: usercli.ChannelSource, Version: "test",
+		SourceRepository: "local-source", ArtifactName: filepath.Base(running),
+		ArtifactSHA256: hex.EncodeToString(digest[:]), BinaryPath: running,
+		GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, SourceDigest: "unavailable",
+		ProvenanceState: usercli.ProvenanceSourceLocal, InstalledAt: time.Unix(1, 0),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := usercli.WriteReceipt(receipt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := usercli.VerifyRunningReceiptIdentity(); err != nil {
+		t.Fatalf("verify running test receipt identity: %v", err)
+	}
 }

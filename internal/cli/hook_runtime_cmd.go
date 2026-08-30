@@ -13,6 +13,7 @@ import (
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
+	"reconc.dev/reconc/internal/usercli"
 )
 
 type firstClassRouteReadiness struct {
@@ -64,13 +65,13 @@ func dedupToFirstClassRoute(readiness *firstClassRouteReadiness, root agentsessi
 // discovered root to the ordinary registry runtime.
 func runKimiCodeRuntime(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
-		fmt.Fprintln(stdout, "Usage: reconc hook kimi-runtime <event>   (internal; reads JSON from stdin)")
+		fmt.Fprintln(stdout, "Usage: reconc hook kimi-runtime receipt-v1 <event>   (internal; reads JSON from stdin)")
 		return nil
 	}
-	if len(args) != 1 {
-		return &CLIError{ExitCode: 1, Message: "reconc hook kimi-runtime: expected exactly one <event>"}
+	if len(args) != 2 || args[0] != hooks.KimiCodeRuntimeContract {
+		return &CLIError{ExitCode: 1, Message: "reconc hook kimi-runtime: expected receipt-v1 <event>; reinstall Kimi Code hooks with the intended Reconc binary"}
 	}
-	event := args[0]
+	event := args[1]
 	route, ok := hooks.RuntimeEvent(event)
 	if !ok || route.PlatformKind != hooks.KindKimiCode {
 		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook kimi-runtime: unknown Kimi Code event %q", event)}
@@ -87,6 +88,12 @@ func runKimiCodeRuntime(args []string, stdout, stderr io.Writer) error {
 	}
 	if !discovery.Discovered || discovery.ConfigPath == nil {
 		return nil
+	}
+	if _, err := usercli.VerifyRunningReceiptIdentity(); err != nil {
+		return &CLIError{
+			ExitCode: 2,
+			Message:  "reconc hook kimi-runtime: running executable is not bound to a valid installation receipt: " + err.Error() + "; run `reconc doctor --global`, repair with `install-cli`, then restart Kimi Code CLI",
+		}
 	}
 	return runHookRuntime([]string{event, discovery.RepoRoot}, stdout, stderr)
 }
