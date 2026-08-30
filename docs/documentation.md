@@ -704,6 +704,15 @@ Apply reports
 created/preserved/drifted/skipped and installed/configured/live counts, and
 prints exactly one next command. A stale saved plan prints the exact
 selection-preserving replan command with `--replace-output`.
+Canonical init JSON uses four exact statuses. `complete` means the installed
+artifacts passed the post-apply verification. `refused` means init stopped
+before a repository mutation, including when a recorded plan is unreadable,
+malformed, tampered, root-mismatched, receipt-invalid, or ambiguous.
+`drift` means review is required because candidates remain, verification found
+a mutation after apply, or rollback was incomplete. `rolled_back` is reserved
+for an apply failure whose transaction-owned changes were verified as removed.
+Init never treats an invalid recorded-plan candidate as absence and never
+creates parallel onboarding state beside it.
 The private receipt directory retains the current bootstrap plan/receipt pair
 plus the two newest independently validated historical pairs. Cleanup removes
 only strict, digest-bound, non-symlink Reconc pairs and preserves foreign,

@@ -1,20 +1,40 @@
 package bootstrap
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"reconc.dev/reconc/internal/hooks"
 	reconruntime "reconc.dev/reconc/internal/runtime"
 )
+
+type recordedInitState string
+
+const (
+	recordedInitAbsent  recordedInitState = "absent"
+	recordedInitValid   recordedInitState = "valid"
+	recordedInitInvalid recordedInitState = "invalid"
+)
+
+type recordedInitInspection struct {
+	State recordedInitState
+	Plan  *Plan
+	Path  string
+}
+
+type recordedInitPlanLoader func(string) (*Plan, error)
+
+var beforeInitVerification = func(*Plan) error { return nil }
 
 // Initialize executes the canonical inspect, select, plan, apply, and verify
 // transaction. It never prompts and never guesses a profile for a repository
 // that already has unreceipted control artifacts.
 func Initialize(request InitRequest, productVersion string) (*InitReport, error) {
 	report := &InitReport{
-		FormatVersion: InitFormatVersion, Operation: "init", Status: InitRolledBack,
+		FormatVersion: InitFormatVersion, Operation: "init", Status: InitRefused,
 		CurrentVersion: productVersion, PolicyPacks: []string{},
 		HarnessPacks: []HarnessPackSelection{}, Hooks: []string{},
 		Checks: []Check{}, Actions: []Action{}, Candidates: []string{},
@@ -45,13 +65,14 @@ func initializeLocked(request InitRequest, result *InitReport, productVersion st
 	if err != nil {
 		return fmt.Errorf("inspect repository: %w", err)
 	}
-	recordedPlan, recordedErr := recordedInitPlan(result.RepoRoot)
+	recorded, recordedErr := inspectRecordedInitPlan(result.RepoRoot)
 	if recordedErr != nil {
 		result.Status = InitRefused
 		result.Profile = suggestedExplicitProfile(inspection)
-		result.NextAction = renderInitCommand(result.RepoRoot, result.Profile, nil, nil, false)
+		result.NextAction = recordedInitRemediation(result.RepoRoot, recorded.Path)
 		return recordedErr
 	}
+	recordedPlan := recorded.Plan
 	profile := request.Profile
 	packs := append([]string{}, request.Packs...)
 	hookKinds := append([]string{}, request.Hooks...)
@@ -113,8 +134,7 @@ func initializeLocked(request InitRequest, result *InitReport, productVersion st
 
 	applyReport, err := apply(plan, productVersion, applyOptions{})
 	if err != nil {
-		result.Status = InitRolledBack
-		result.Changed = len(applyReport.Created) > 0
+		result.Status, result.Changed = classifyInitApplyFailure(applyReport, err)
 		result.Candidates = append([]string{}, applyReport.Candidates...)
 		result.NextAction = err.Error()
 		return fmt.Errorf("apply init plan: %w", err)
@@ -134,15 +154,20 @@ func initializeLocked(request InitRequest, result *InitReport, productVersion st
 			return fmt.Errorf("accept managed init candidates: %w", acceptErr)
 		}
 		result.Changed = result.Changed || len(accepted.Updated) > 0
+		acceptedPlan := plan
 		plan, err = BuildPlan(Request{
 			RepoRoot: result.RepoRoot, Profile: profile, Packs: packs, Hooks: hookKinds,
 			TrustExistingWrapper: profile == ProfileMinimal,
 		}, productVersion)
 		if err != nil {
+			result.Status = InitDrift
+			result.NextAction = initVerificationDriftNext(acceptedPlan, err.Error())
 			return fmt.Errorf("rebuild accepted init plan: %w", err)
 		}
 		applyReport, err = apply(plan, productVersion, applyOptions{})
 		if err != nil {
+			result.Status = InitDrift
+			result.NextAction = initVerificationDriftNext(plan, err.Error())
 			return fmt.Errorf("apply accepted init plan: %w", err)
 		}
 		result.Warnings = append(result.Warnings, applyReport.Summary.InspectionErrors...)
@@ -159,14 +184,21 @@ func initializeLocked(request InitRequest, result *InitReport, productVersion st
 		result.NextAction = initDriftNext(plan, applyReport)
 		return nil
 	}
+	if err := beforeInitVerification(plan); err != nil {
+		result.Status = InitDrift
+		result.NextAction = initVerificationDriftNext(plan, err.Error())
+		return fmt.Errorf("prepare init verification: %w", err)
+	}
 	verification, err := Verify(plan)
 	if err != nil {
+		result.Status = InitDrift
+		result.NextAction = initVerificationDriftNext(plan, err.Error())
 		return fmt.Errorf("verify init transaction: %w", err)
 	}
 	result.Checks = append([]Check{}, verification.Checks...)
 	if !verification.Valid {
-		result.Status = InitRolledBack
-		result.NextAction = verification.NextAction
+		result.Status = InitDrift
+		result.NextAction = initVerificationDriftNext(plan, verification.NextAction)
 		return fmt.Errorf("init verification failed: %s", verification.NextAction)
 	}
 	result.Status = InitComplete
@@ -180,30 +212,77 @@ func initializeLocked(request InitRequest, result *InitReport, productVersion st
 	return nil
 }
 
-func recordedInitPlan(root string) (*Plan, error) {
+func inspectRecordedInitPlan(root string) (recordedInitInspection, error) {
+	return inspectRecordedInitPlanWith(root, LoadPlan)
+}
+
+func inspectRecordedInitPlanWith(root string, load recordedInitPlanLoader) (recordedInitInspection, error) {
+	inspection := recordedInitInspection{State: recordedInitAbsent}
+	canonicalRoot, err := canonicalRepoRoot(root)
+	if err != nil {
+		inspection.State = recordedInitInvalid
+		return inspection, fmt.Errorf("resolve recorded init repository: %w", err)
+	}
+	root = canonicalRoot
 	pattern := filepath.Join(root, ".reconc", "bootstrap-plan-*.json")
 	paths, err := filepath.Glob(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("inspect recorded init plans: %w", err)
+		inspection.State = recordedInitInvalid
+		return inspection, fmt.Errorf("inspect recorded init plans: %w", err)
 	}
-	valid := []*Plan{}
-	for _, path := range paths {
-		plan, loadErr := LoadPlan(path)
-		if loadErr != nil || plan.RepoRoot != root {
-			continue
-		}
-		if _, _, receiptErr := loadInstallReceipt(plan); receiptErr != nil {
-			continue
-		}
-		valid = append(valid, plan)
+	if len(paths) == 0 {
+		return inspection, nil
 	}
-	if len(valid) > 1 {
-		return nil, fmt.Errorf("repository has multiple valid bootstrap transaction receipts; select an explicit profile")
+	if len(paths) > 1 {
+		inspection.State = recordedInitInvalid
+		return inspection, fmt.Errorf("repository has %d recorded init plan candidates; refusing ambiguous state", len(paths))
 	}
-	if len(valid) == 0 {
-		return nil, nil
+	path := paths[0]
+	inspection.Path = filepath.ToSlash(path)
+	plan, err := load(path)
+	if err != nil {
+		inspection.State = recordedInitInvalid
+		return inspection, fmt.Errorf("recorded init plan %s is unreadable or invalid: %w", path, err)
 	}
-	return valid[0], nil
+	if plan.RepoRoot != root {
+		inspection.State = recordedInitInvalid
+		return inspection, fmt.Errorf("recorded init plan %s belongs to %s, not %s", path, plan.RepoRoot, root)
+	}
+	if _, _, err := loadInstallReceipt(plan); err != nil {
+		inspection.State = recordedInitInvalid
+		return inspection, fmt.Errorf("recorded init plan %s has no valid matching receipt: %w", path, err)
+	}
+	inspection.State = recordedInitValid
+	inspection.Plan = plan
+	return inspection, nil
+}
+
+func recordedInitRemediation(root, path string) string {
+	target := path
+	if target == "" {
+		target = filepath.Join(root, ".reconc")
+	}
+	return "inspect and repair or remove the invalid recorded init state at " + target + ", then rerun reconc init"
+}
+
+func initVerificationDriftNext(plan *Plan, detail string) string {
+	prefix := strings.TrimSpace(detail)
+	if prefix != "" {
+		prefix += "; "
+	}
+	return prefix + "resolve the installed artifact drift, then rerun " +
+		renderInitCommand(plan.RepoRoot, plan.Selection.Profile, plan.Selection.Packs, plan.Selection.Hooks, false)
+}
+
+func classifyInitApplyFailure(report *Report, err error) (InitStatus, bool) {
+	var rollbackFailure *applyRollbackFailure
+	if errors.As(err, &rollbackFailure) {
+		return InitDrift, true
+	}
+	if report != nil && len(report.RolledBack) > 0 {
+		return InitRolledBack, false
+	}
+	return InitRefused, false
 }
 
 func hasUnreceiptedControlState(inspection *Inspection) bool {

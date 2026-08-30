@@ -1201,5 +1201,17 @@ func joinApplyRollbackError(applyErr, rollbackErr error) error {
 	}
 	// errors.Join preserves both error chains so errors.Is/As reach the
 	// primary apply failure as well as the rollback failure.
-	return errors.Join(applyErr, fmt.Errorf("automatic rollback failed: %w", rollbackErr))
+	return errors.Join(applyErr, &applyRollbackFailure{err: rollbackErr})
+}
+
+type applyRollbackFailure struct {
+	err error
+}
+
+func (failure *applyRollbackFailure) Error() string {
+	return "automatic rollback failed: " + failure.err.Error()
+}
+
+func (failure *applyRollbackFailure) Unwrap() error {
+	return failure.err
 }

@@ -533,10 +533,11 @@ func loadRepositoryOwnership(root string) (*RepositoryReceipt, bool, error) {
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, false, err
 	}
-	legacyPlan, err := recordedInitPlan(root)
+	recorded, err := inspectRecordedInitPlan(root)
 	if err != nil {
 		return nil, false, err
 	}
+	legacyPlan := recorded.Plan
 	if legacyPlan == nil {
 		return nil, false, fmt.Errorf("repository has no portable receipt or exactly one valid legacy bootstrap receipt; run reconc init explicitly")
 	}
