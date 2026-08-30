@@ -48,6 +48,11 @@ func ResolveCheckReportSchema() string {
 // silently misinterpret them.
 const CheckReportFormatVersion = "1"
 
+// MaxViolationTextBytes bounds each human-facing prose field in a Violation.
+// Identity and evidence slices retain their exact values and separate input
+// limits; only Message, Explanation, and RecommendedAction use this boundary.
+const MaxViolationTextBytes = 16 << 10
+
 // Violation describes one rule that fired during evaluation.
 //
 // "Matched" fields capture what the agent actually did that triggered
@@ -132,6 +137,9 @@ func NewEmptyReport(repoRoot, lockfilePath string, defaultMode policy.Mode, inpu
 // actions, rule_ids) from the violations slice. Call after appending
 // all violations and before returning the report.
 func (r *CheckReport) Finalize() {
+	for index := range r.Violations {
+		boundViolationText(&r.Violations[index])
+	}
 	r.ViolationCount = len(r.Violations)
 	r.BlockingViolationCount = 0
 	hasNonBlocking := false

@@ -247,10 +247,10 @@ func buildBatchScriptViolation(item workflowAuditBatchItem, scriptPath string, d
 	details := batchScriptFailureDetails(scriptPath, failures)
 	violation.Explanation = fmt.Sprintf(
 		"Write activity %s triggered require_script rule %s. %s",
-		joinForHumans(triggeredPaths), quote(violation.RuleID), strings.Join(details, "; "),
+		joinForHumans(triggeredPaths), quote(violation.RuleID), details.text(),
 	)
-	violation.RecommendedAction = batchScriptRecommendedAction(details)
-	return violation
+	violation.RecommendedAction = batchScriptRecommendedAction(details.text())
+	return boundViolationText(violation)
 }
 
 func triggeredPathsForContexts(contexts []matchContext) []string {
@@ -261,37 +261,27 @@ func triggeredPathsForContexts(contexts []matchContext) []string {
 	return paths.values()
 }
 
-func batchScriptFailureDetails(scriptPath string, failures []string) []string {
-	details := make([]string, 0, len(failures))
+func batchScriptFailureDetails(scriptPath string, failures []string) *violationTextCollector {
+	details := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
 	for _, failure := range failures {
 		failure = strings.TrimSpace(failure)
 		if failure == "" {
 			continue
 		}
-		details = append(details, fmt.Sprintf("script %s blocked: %s", scriptPath, failure))
+		details.add(fmt.Sprintf("script %s blocked: %s", scriptPath, failure))
 	}
-	if len(details) == 0 {
-		return []string{fmt.Sprintf("script %s blocked: no output", scriptPath)}
+	if details.count() == 0 {
+		details.add(fmt.Sprintf("script %s blocked: no output", scriptPath))
 	}
 	return details
 }
 
-func batchScriptRecommendedAction(details []string) string {
-	detail := strings.Join(details, "; ")
-	runes := []rune(detail)
-	if len(runes) > 600 {
-		detail = string(runes[:600]) + "..."
-	}
-	return "Resolve batch audit failure(s): " + detail
+func batchScriptRecommendedAction(detail string) string {
+	return truncateViolationText("Resolve batch audit failure(s): "+detail, MaxViolationTextBytes)
 }
 
-func scriptRecommendedAction(failures []string) string {
-	detail := strings.Join(failures, "; ")
-	runes := []rune(detail)
-	if len(runes) > 600 {
-		detail = string(runes[:600]) + "..."
-	}
-	return "Resolve script failure(s): " + detail
+func scriptRecommendedAction(detail string) string {
+	return truncateViolationText("Resolve script failure(s): "+detail, MaxViolationTextBytes)
 }
 
 // --- Path / command normalization ---

@@ -32,6 +32,8 @@ const (
 	doctorStatusWarn          = "WARN"
 	doctorStatusFail          = "FAIL"
 	doctorGrokInspectMaxBytes = 4 << 20
+	doctorExternalDetailBytes = 4 << 10
+	doctorExternalErrorBytes  = 1 << 10
 	doctorSourceMaxBytes      = 8 << 20
 	doctorSourceAggregateMax  = 64 << 20
 	mcpGatewayBoundaryDetail  = "gateway enforcement covers only explicit reconc mcp gateway routes; external client configuration is not inspected; native tools and direct downstream configurations are unenforced"
@@ -211,12 +213,7 @@ func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
 	output, err := doctorGrokInspect(ctx, discovery.RepoRoot)
 	if err != nil {
 		check.Status = doctorStatusWarn
-		check.Detail = "cannot execute `grok inspect --json`: " + err.Error()
-		if len(output) > doctorGrokInspectMaxBytes {
-			check.Detail += fmt.Sprintf("; stdout exceeds %d bytes", doctorGrokInspectMaxBytes)
-		} else if detail := strings.TrimSpace(string(output)); detail != "" {
-			check.Detail += "; stdout: " + detail
-		}
+		check.Detail = doctorGrokFailureDetail(err, output)
 		return check
 	}
 	if len(output) > doctorGrokInspectMaxBytes {
@@ -282,6 +279,41 @@ func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
 	}
 	check.Detail = fmt.Sprintf("Grok %s loaded all %d native Reconc routes from .grok/hooks/reconc.json; native no-leader Stop enforcement is active and capability-probed from %s", displayVersion, len(expected), capability.DocumentationPath)
 	return check
+}
+
+func doctorGrokFailureDetail(runErr error, output []byte) string {
+	errorText := "unknown execution failure"
+	if runErr != nil {
+		errorText = boundedDoctorExternalText(runErr.Error(), doctorExternalErrorBytes)
+	}
+	detail := "cannot execute `grok inspect --json`: " + errorText
+	if len(output) > doctorGrokInspectMaxBytes {
+		detail += fmt.Sprintf("; stdout exceeds %d bytes", doctorGrokInspectMaxBytes)
+		return boundedDoctorExternalText(detail, doctorExternalDetailBytes)
+	}
+	stdout := strings.TrimSpace(strings.ToValidUTF8(string(output), "�"))
+	if stdout == "" {
+		return boundedDoctorExternalText(detail, doctorExternalDetailBytes)
+	}
+	prefix := detail + "; stdout: "
+	stdout = boundedDoctorExternalText(stdout, doctorExternalDetailBytes-len(prefix))
+	return prefix + stdout
+}
+
+func boundedDoctorExternalText(value string, limit int) string {
+	const marker = "...[truncated]"
+	value = strings.ToValidUTF8(value, "�")
+	value = strings.Map(func(character rune) rune {
+		if character == '\n' || character == '\r' || character == '\t' {
+			return ' '
+		}
+		if character < 0x20 || character == 0x7f || character == '\ufeff' {
+			return -1
+		}
+		return character
+	}, value)
+	value = strings.Join(strings.Fields(value), " ")
+	return truncateWithSuffix(value, limit, marker)
 }
 
 func doctorPathWithin(root, candidate string) bool {

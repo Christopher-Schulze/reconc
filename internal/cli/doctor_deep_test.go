@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/grokacp"
 	"reconc.dev/reconc/internal/hooks"
@@ -132,6 +133,39 @@ func TestDoctorGrokRuntimeKeepsExecutionFailureBeforeOutputLimit(t *testing.T) {
 	}
 	if strings.Contains(check.Detail, strings.Repeat("x", 1024)) {
 		t.Fatal("oversized Grok stdout leaked into diagnostic detail")
+	}
+}
+
+func TestDoctorGrokRuntimeBoundsAdmittedExternalOutput(t *testing.T) {
+	repo := makeCheckRepo(t, "rules: []\n")
+	if _, err := hooks.Install(hooks.KindGrok, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	discovery, err := ingest.DiscoverPolicyRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := doctorGrokInspect
+	defer func() { doctorGrokInspect = original }()
+	doctorGrokInspect = func(context.Context, string) ([]byte, error) {
+		output := []byte("first\n\x1b[31m" + strings.Repeat("界", doctorGrokInspectMaxBytes/3-10))
+		output = append(output, 0xff)
+		return output, errors.New("exit status 29: " + strings.Repeat("error-", doctorExternalErrorBytes))
+	}
+	check := doctorCheckGrokRuntime(discovery)
+	if check.Status != doctorStatusWarn || !strings.Contains(check.Detail, "exit status 29") ||
+		!strings.Contains(check.Detail, "stdout:") || !strings.Contains(check.Detail, "...[truncated]") {
+		t.Fatalf("bounded Grok external detail = %+v", check)
+	}
+	if len(check.Detail) > doctorExternalDetailBytes || !utf8.ValidString(check.Detail) {
+		t.Fatalf("Grok external detail = %d bytes, valid=%t", len(check.Detail), utf8.ValidString(check.Detail))
+	}
+	if strings.ContainsAny(check.Detail, "\n\r\x1b") {
+		t.Fatalf("Grok external detail retained terminal controls: %q", check.Detail)
+	}
+	body, err := json.Marshal(doctorDeepReport{RepoRoot: repo, Deep: true, Checks: []doctorCheck{check}})
+	if err != nil || len(body) > doctorExternalDetailBytes+1024 || !utf8.Valid(body) {
+		t.Fatalf("bounded Grok JSON = %d bytes, valid=%t, err=%v", len(body), utf8.Valid(body), err)
 	}
 }
 

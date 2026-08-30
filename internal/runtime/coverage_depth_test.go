@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/policy"
@@ -77,18 +78,19 @@ func TestWorkflowAuditBatchHelpersPreserveModeAndFailureTruth(t *testing.T) {
 	if got, want := triggeredPathsForContexts(contexts), []string{"a.go", "b.go"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("triggeredPathsForContexts() = %#v, want %#v", got, want)
 	}
-	if got := batchScriptFailureDetails("audits/run-workflow-audit", []string{" ", "failure"}); !reflect.DeepEqual(got, []string{"script audits/run-workflow-audit blocked: failure"}) {
-		t.Fatalf("batchScriptFailureDetails() = %#v", got)
+	if got := batchScriptFailureDetails("audits/run-workflow-audit", []string{" ", "failure"}).text(); got != "script audits/run-workflow-audit blocked: failure" {
+		t.Fatalf("batchScriptFailureDetails() = %q", got)
 	}
-	if got := batchScriptFailureDetails("audit", nil); !reflect.DeepEqual(got, []string{"script audit blocked: no output"}) {
-		t.Fatalf("empty batchScriptFailureDetails() = %#v", got)
+	if got := batchScriptFailureDetails("audit", nil).text(); got != "script audit blocked: no output" {
+		t.Fatalf("empty batchScriptFailureDetails() = %q", got)
 	}
+	oversized := strings.Repeat("ü", MaxViolationTextBytes)
 	for _, action := range []string{
-		batchScriptRecommendedAction([]string{strings.Repeat("ü", 700)}),
-		scriptRecommendedAction([]string{strings.Repeat("ü", 700)}),
+		batchScriptRecommendedAction(oversized),
+		scriptRecommendedAction(oversized),
 	} {
-		if len([]rune(action)) > 640 || !strings.HasSuffix(action, "...") {
-			t.Fatalf("recommended action is not rune-bounded: %d runes", len([]rune(action)))
+		if len(action) > MaxViolationTextBytes || !utf8.ValidString(action) || !strings.HasSuffix(action, violationTextMarker) {
+			t.Fatalf("recommended action is not UTF-8 byte-bounded: %d bytes", len(action))
 		}
 	}
 }

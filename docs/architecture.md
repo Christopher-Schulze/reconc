@@ -774,8 +774,9 @@ and byte-compares the notice before checksums and provenance are accepted.
    - For each rule in the lockfile: applies the scope filter
      (`ruleScopeMatches`), then dispatches to the per-kind
      evaluator (`evalDenyWrite`, `evalRequireRead`, ...).
-   - Collects violations, calls `report.Finalize()` which derives
-     decision / counts / actions / rule_ids.
+   - Collects violations, calls `report.Finalize()` which reapplies the 16 KiB
+     UTF-8 boundary to every human-facing violation field and derives decision
+     / counts / actions / rule_ids without changing structured evidence.
 4. `maybeAudit("check", report, version, start)` appends one chained JSONL
    entry iff
    `RECONC_AUDIT=1`.
@@ -936,6 +937,7 @@ class of hostile input.
 | Native assurance file | **4 MiB** | Rejects oversized source, manifest, or proof inputs before allocation. |
 | Native assurance run | **4,096 files / 32 MiB reads** | Bounds aggregate source and evidence inspection across all gates. |
 | Assurance findings | **50 + omitted-count marker** | Keeps policy output useful without consuming agent context. |
+| Violation prose | **16 KiB per message, explanation, or remediation; 8 KiB per failure aggregate** | Retains first actionable failures, appends an exact omitted-count marker, and leaves decision and structured matched/required evidence unchanged. |
 | Policy source | **8 MiB each / 4,096 files / 64 MiB aggregate** | Bounds repository and fragment ingestion before compilation. |
 | Parsed policy graph | **4,096 rules / 256 checks or list items / 1 KiB patterns / 16 KiB commands / 64 KiB messages** | Bounds typed rule construction before matching; YAML depth, node, alias, expanded-node, and decoded-scalar-byte ceilings reject structural amplification. |
 | Custom runtime manifest | **256 KiB each / 32 manifests / 32 routes each** | Bounds declarative bridge compilation and prevents adapter configuration from becoming executable input. |

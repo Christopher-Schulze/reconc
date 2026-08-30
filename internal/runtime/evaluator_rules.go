@@ -43,6 +43,11 @@ func ruleScopeMatchesWithMatchers(matchers *runtimePathMatchers, rule *policy.Ru
 }
 
 func evaluateRule(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+	violation, err := evaluateRuleUnbounded(ctx, rule, defaultMode, inputs)
+	return boundViolationText(violation), err
+}
+
+func evaluateRuleUnbounded(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	if !rule.Kind.Valid() {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile contains unsupported rule kind: " + string(rule.Kind)}
 	}
@@ -149,18 +154,19 @@ func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode polic
 		return nil, nil
 	}
 	requiredPaths := newStableStringCollector([]string{})
-	details := make([]string, 0, len(findings))
+	details := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
 	for _, finding := range findings {
-		details = append(details, "["+finding.GateID+"] "+finding.Message)
+		details.add("[" + finding.GateID + "] " + finding.Message)
 		for _, path := range finding.Paths {
 			requiredPaths.add(path)
 		}
 	}
 	v := buildViolation(rule, defaultMode, triggered, reportedSuccessful.values(), nil, requiredPaths.values(), nil, nil)
-	v.Explanation = "Native assurance failed: " + strings.Join(details, "; ")
-	v.RecommendedAction = findings[0].Remediation
+	v.Explanation = "Native assurance failed: " + details.text()
+	v.RecommendedAction = truncateViolationText(findings[0].Remediation, MaxViolationTextBytes)
 	if len(findings) > 1 {
-		v.RecommendedAction += fmt.Sprintf(" Then resolve the remaining %d assurance finding(s).", len(findings)-1)
+		suffix := fmt.Sprintf(" Then resolve the remaining %d assurance finding(s).", len(findings)-1)
+		v.RecommendedAction = truncateViolationText(findings[0].Remediation, MaxViolationTextBytes-len(suffix)) + suffix
 	}
 	return v, nil
 }
@@ -186,7 +192,7 @@ func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 	timeoutSec := rule.TimeoutSec
 	killTimeoutSec := rule.KillTimeoutSec
 
-	failures := []string{}
+	failures := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
 	triggeredPaths := newStableStringCollector([]string{})
 	for _, mc := range contexts {
 		triggeredPaths.add(mc.path)
@@ -214,20 +220,20 @@ func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 		case scriptOutcomePass:
 			continue
 		case scriptOutcomeBlock:
-			failures = append(failures, fmt.Sprintf("[%s] script %s blocked: %s", mc.path, scriptPath, evaluation.detail))
+			failures.add(fmt.Sprintf("[%s] script %s blocked: %s", mc.path, scriptPath, evaluation.detail))
 		case scriptOutcomeError:
-			failures = append(failures, fmt.Sprintf("[%s] script %s error: %s", mc.path, scriptPath, evaluation.detail))
+			failures.add(fmt.Sprintf("[%s] script %s error: %s", mc.path, scriptPath, evaluation.detail))
 		}
 	}
-	if len(failures) == 0 {
+	if failures.count() == 0 {
 		return nil, nil
 	}
 	v := buildViolation(rule, defaultMode, triggeredPaths.values(), nil, nil, []string{scriptPath}, nil, nil)
 	v.Explanation = fmt.Sprintf(
 		"Write activity %s triggered require_script rule %s. %s",
-		joinForHumans(triggeredPaths.values()), quote(v.RuleID), strings.Join(failures, "; "),
+		joinForHumans(triggeredPaths.values()), quote(v.RuleID), failures.text(),
 	)
-	v.RecommendedAction = scriptRecommendedAction(failures)
+	v.RecommendedAction = scriptRecommendedAction(failures.text())
 	return v, nil
 }
 
@@ -340,7 +346,7 @@ func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy
 		return nil, nil
 	}
 
-	failures := []string{}
+	failures := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
 	requiredFiles := map[string]struct{}{}
 	triggeredPaths := newStableStringCollector([]string{})
 
@@ -374,18 +380,20 @@ func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy
 			if match.err != nil {
 				return nil, match.err
 			}
-			failures = append(failures, match.reasons...)
+			for _, reason := range match.reasons {
+				failures.add(reason)
+			}
 		}
 	}
 
-	if len(failures) == 0 {
+	if failures.count() == 0 {
 		return nil, nil
 	}
 	required := mapKeysSorted(requiredFiles)
 	v := buildViolation(rule, defaultMode, triggeredPaths.values(), nil, nil, required, nil, nil)
 	v.Explanation = fmt.Sprintf(
 		"Write activity %s triggered require_evidence rule %s. Failures: %s.",
-		joinForHumans(triggeredPaths.values()), quote(v.RuleID), strings.Join(failures, "; "),
+		joinForHumans(triggeredPaths.values()), quote(v.RuleID), failures.text(),
 	)
 	v.RecommendedAction = "Update the evidence files to satisfy the listed assertions."
 	return v, nil

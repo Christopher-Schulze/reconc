@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"reconc.dev/reconc/internal/policy"
@@ -108,6 +109,8 @@ func annotateStagedCommandViolations(report *runtime.CheckReport, repoRoot strin
 	if report == nil {
 		return
 	}
+	changed := false
+	nextActionIndex := -1
 	for i := range report.Violations {
 		violation := &report.Violations[i]
 		if violation.Kind != policy.KindRequireCommandSuccess {
@@ -118,14 +121,22 @@ func annotateStagedCommandViolations(report *runtime.CheckReport, repoRoot strin
 		if len(violation.RequiredCommands) > 0 {
 			example = violation.RequiredCommands[0]
 		}
-		violation.RecommendedAction += fmt.Sprintf(
+		example = truncateWithSuffix(strings.ToValidUTF8(example, "�"), 2<<10, "...[truncated]")
+		boundedRoot := truncateWithSuffix(strings.ToValidUTF8(repoRoot, "�"), 2<<10, "...[truncated]")
+		hint := fmt.Sprintf(
 			" Staged commits accept only index-bound command proofs, not session command history; record one with: reconc exec %s --staged --shell -- %q.",
-			repoRoot, example)
-		if i < len(report.Actions) {
-			report.Actions[i] = violation.RecommendedAction
-		}
+			boundedRoot, example)
+		violation.RecommendedAction = truncateWithSuffix(previousAction, runtime.MaxViolationTextBytes-len(hint), "...[truncated]") + hint
 		if report.NextAction == previousAction {
-			report.NextAction = violation.RecommendedAction
+			nextActionIndex = i
 		}
+		changed = true
+	}
+	if !changed {
+		return
+	}
+	report.Finalize()
+	if nextActionIndex >= 0 {
+		report.NextAction = report.Violations[nextActionIndex].RecommendedAction
 	}
 }

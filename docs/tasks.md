@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 380 Bound violation diagnostic aggregation -> tasks/380-bound-violation-diagnostic-aggregation.md
 - [ ] 381 Bind require-script execution to validated identity -> tasks/381-bind-require-script-execution-to-validated-identity.md
 - [ ] 382 Streamline command semantic normalization -> tasks/382-streamline-command-semantic-normalization.md
 - [ ] 383 Remove verified runtime helper duplication -> tasks/383-remove-verified-runtime-helper-duplication.md
@@ -90,6 +89,7 @@
 
 ## Done
 
+- [x] 380 Bound violation diagnostic aggregation -> tasks/done/380-bound-violation-diagnostic-aggregation.md
 - [x] 379 Reduce lockfile serialization passes -> tasks/done/379-reduce-lockfile-serialization-passes.md
 - [x] 378 Stream source-freshness identity construction -> tasks/done/378-stream-source-freshness-identity-construction.md
 - [x] 377 Align matched-rule traces with enforcement -> tasks/done/377-align-matched-rule-traces-with-enforcement.md

@@ -1,9 +1,11 @@
 package runtime
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/policy"
 )
@@ -92,6 +94,38 @@ func TestRequireAssuranceReportsRawSuccessfulCommandOnce(t *testing.T) {
 	commands := report.Violations[0].MatchedCommands
 	if len(commands) != 1 || commands[0] != "rtk go test ./..." {
 		t.Fatalf("report must keep one raw command instead of raw+normalized duplicates: %v", commands)
+	}
+}
+
+func TestRequireAssuranceBoundsMaximumFindingDetails(t *testing.T) {
+	withRECONCHome(t)
+	const gateCount = 50
+	command := "verify-" + strings.Repeat("界", 2048)
+	var policyYAML strings.Builder
+	policyYAML.WriteString("rules:\n  - id: native-assurance-bounds\n    kind: require_assurance\n    mode: block\n    when_paths: [\"**/*.go\"]\n    message: native assurance required\n    assurance:\n")
+	for index := range gateCount {
+		policyYAML.WriteString(fmt.Sprintf("      - id: gate-%03d\n        type: live_verification\n        commands: [%q]\n", index, command+fmt.Sprintf("-%03d", index)))
+	}
+	repo := makeRepo(t, "# project\n", "", policyYAML.String())
+	inputs := Empty()
+	inputs.WritePaths = []string{"src/main.go"}
+
+	report, err := CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Decision != DecisionBlock || len(report.Violations) != 1 {
+		t.Fatalf("assurance decision = %s, violations=%d", report.Decision, len(report.Violations))
+	}
+	violation := report.Violations[0]
+	if len(violation.Explanation) > MaxViolationTextBytes || !utf8.ValidString(violation.Explanation) ||
+		!strings.Contains(violation.Explanation, "[gate-000]") ||
+		!strings.Contains(violation.Explanation, "...[49 additional failures omitted]") {
+		t.Fatalf("bounded assurance explanation = %d bytes: %q", len(violation.Explanation), violation.Explanation)
+	}
+	if len(violation.RecommendedAction) > MaxViolationTextBytes || !utf8.ValidString(violation.RecommendedAction) ||
+		!strings.HasSuffix(violation.RecommendedAction, "Then resolve the remaining 49 assurance finding(s).") {
+		t.Fatalf("bounded assurance remediation = %d bytes: %q", len(violation.RecommendedAction), violation.RecommendedAction)
 	}
 }
 

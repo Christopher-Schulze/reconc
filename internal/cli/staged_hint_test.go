@@ -3,6 +3,7 @@ package cli
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/runtime"
@@ -39,6 +40,16 @@ func TestAnnotateStagedCommandViolationsNamesTheProofCommand(t *testing.T) {
 	}
 	if strings.Contains(report.Violations[1].RecommendedAction, "reconc exec") {
 		t.Fatalf("non-command violations must stay untouched, got %q", report.Violations[1].RecommendedAction)
+	}
+
+	report.Violations[0].RecommendedAction = strings.Repeat("界", runtime.MaxViolationTextBytes)
+	report.Violations[0].RequiredCommands = []string{strings.Repeat("界", runtime.MaxViolationTextBytes)}
+	report.NextAction = report.Violations[0].RecommendedAction
+	annotateStagedCommandViolations(report, "/workspace/repo")
+	commandAction = report.Violations[0].RecommendedAction
+	if len(commandAction) > runtime.MaxViolationTextBytes || !utf8.ValidString(commandAction) ||
+		!strings.Contains(commandAction, "index-bound") || commandAction != report.Actions[0] || commandAction != report.NextAction {
+		t.Fatalf("bounded staged hint = %d bytes, valid=%t, actions=%t, next=%t", len(commandAction), utf8.ValidString(commandAction), commandAction == report.Actions[0], commandAction == report.NextAction)
 	}
 
 	annotateStagedCommandViolations(nil, "/workspace/repo")

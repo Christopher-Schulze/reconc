@@ -3,9 +3,106 @@ package runtime
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/policy"
 )
+
+const (
+	maxViolationAggregateBytes = 8 << 10
+	maxViolationListBytes      = 4 << 10
+	violationTextMarker        = "...[truncated]"
+	violationOmissionReserve   = 96
+)
+
+type violationTextCollector struct {
+	items     []string
+	bytes     int
+	limit     int
+	separator string
+	noun      string
+	omitted   int
+	sealed    bool
+}
+
+func newViolationTextCollector(limit int, separator, noun string) *violationTextCollector {
+	return &violationTextCollector{limit: limit, separator: separator, noun: noun}
+}
+
+func (c *violationTextCollector) add(value string) {
+	value = strings.ToValidUTF8(value, "�")
+	if c.sealed {
+		c.omitted++
+		return
+	}
+	separatorBytes := 0
+	if len(c.items) > 0 {
+		separatorBytes = len(c.separator)
+	}
+	contentLimit := c.limit - violationOmissionReserve
+	if c.bytes+separatorBytes+len(value) <= contentLimit {
+		c.items = append(c.items, value)
+		c.bytes += separatorBytes + len(value)
+		return
+	}
+	if len(c.items) == 0 {
+		c.items = append(c.items, truncateViolationText(value, contentLimit))
+		c.bytes = len(c.items[0])
+	} else {
+		c.omitted++
+	}
+	c.sealed = true
+}
+
+func (c *violationTextCollector) count() int {
+	return len(c.items) + c.omitted
+}
+
+func (c *violationTextCollector) text() string {
+	text := strings.Join(c.items, c.separator)
+	if c.omitted == 0 {
+		return text
+	}
+	marker := fmt.Sprintf("...[%d additional %s omitted]", c.omitted, c.noun)
+	if text == "" {
+		return marker
+	}
+	return text + c.separator + marker
+}
+
+func boundViolationText(violation *Violation) *Violation {
+	if violation == nil {
+		return nil
+	}
+	violation.Message = truncateViolationText(violation.Message, MaxViolationTextBytes)
+	violation.Explanation = truncateViolationText(violation.Explanation, MaxViolationTextBytes)
+	violation.RecommendedAction = truncateViolationText(violation.RecommendedAction, MaxViolationTextBytes)
+	return violation
+}
+
+func truncateViolationText(value string, limit int) string {
+	value = strings.ToValidUTF8(value, "�")
+	if len(value) <= limit {
+		return value
+	}
+	if limit <= len(violationTextMarker) {
+		return truncateViolationUTF8(value, limit)
+	}
+	return truncateViolationUTF8(value, limit-len(violationTextMarker)) + violationTextMarker
+}
+
+func truncateViolationUTF8(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if len(value) <= limit {
+		return value
+	}
+	for limit > 0 && !utf8.RuneStart(value[limit]) {
+		limit--
+	}
+	return value[:limit]
+}
 
 func buildViolation(
 	rule *policy.Rule,
@@ -23,7 +120,7 @@ func buildViolation(
 		requiredPaths, requiredCommands, requiredClaims,
 	)
 
-	return &Violation{
+	return boundViolationText(&Violation{
 		RuleID:            rule.ID,
 		Kind:              rule.Kind,
 		Mode:              mode,
@@ -38,7 +135,7 @@ func buildViolation(
 		RequiredClaims:    coalesce(requiredClaims),
 		SourcePath:        rule.SourcePath,
 		SourceBlockID:     rule.SourceBlockID,
-	}
+	})
 }
 
 func coalesce(s []string) []string {
@@ -118,10 +215,11 @@ func joinForHumans(values []string) string {
 	if len(values) == 0 {
 		return "<none>"
 	}
-	if len(values) == 1 {
-		return values[0]
+	collector := newViolationTextCollector(maxViolationListBytes, ", ", "values")
+	for _, value := range values {
+		collector.add(value)
 	}
-	return strings.Join(values, ", ")
+	return collector.text()
 }
 
 func nextActionForViolations(violations []Violation) string {

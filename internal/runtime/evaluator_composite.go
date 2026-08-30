@@ -3,7 +3,6 @@ package runtime
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	rerrors "reconc.dev/reconc/internal/errors"
@@ -35,7 +34,7 @@ func evalAllOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inp
 	if err != nil || len(contexts) == 0 || len(checks) == 0 {
 		return nil, err
 	}
-	failures := []string{}
+	failures := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
 	for _, mc := range contexts {
 		for i, c := range checks {
 			ok, reason, err := evalCheck(ctx, c, mc.captures, inputs, inputs.WriteEpochs[mc.path])
@@ -47,11 +46,11 @@ func evalAllOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inp
 				ok, reason = false, evalErr.reason
 			}
 			if !ok {
-				failures = append(failures, fmt.Sprintf("[%s][check #%d %s] %s", mc.path, i+1, c.Kind, reason))
+				failures.add(fmt.Sprintf("[%s][check #%d %s] %s", mc.path, i+1, c.Kind, reason))
 			}
 		}
 	}
-	if len(failures) == 0 {
+	if failures.count() == 0 {
 		return nil, nil
 	}
 	return buildCompositeViolation(rule, defaultMode, contexts, "all_of", failures), nil
@@ -62,10 +61,10 @@ func evalAnyOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inp
 	if err != nil || len(contexts) == 0 || len(checks) == 0 {
 		return nil, err
 	}
-	contextFailures := []string{}
+	contextFailures := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
 	for _, mc := range contexts {
 		anyPassed := false
-		perCheckReasons := []string{}
+		perCheckReasons := newViolationTextCollector(maxViolationListBytes, "; ", "sub-checks")
 		for i, c := range checks {
 			ok, reason, err := evalCheck(ctx, c, mc.captures, inputs, inputs.WriteEpochs[mc.path])
 			if err != nil {
@@ -79,13 +78,13 @@ func evalAnyOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inp
 				anyPassed = true
 				break
 			}
-			perCheckReasons = append(perCheckReasons, fmt.Sprintf("check #%d %s: %s", i+1, c.Kind, reason))
+			perCheckReasons.add(fmt.Sprintf("check #%d %s: %s", i+1, c.Kind, reason))
 		}
 		if !anyPassed {
-			contextFailures = append(contextFailures, fmt.Sprintf("[%s] %s", mc.path, strings.Join(perCheckReasons, "; ")))
+			contextFailures.add(fmt.Sprintf("[%s] %s", mc.path, perCheckReasons.text()))
 		}
 	}
-	if len(contextFailures) == 0 {
+	if contextFailures.count() == 0 {
 		return nil, nil
 	}
 	return buildCompositeViolation(rule, defaultMode, contexts, "any_of", contextFailures), nil
@@ -101,7 +100,7 @@ func evalNot(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, input
 			Message: "compiled lockfile rule '" + ruleIDOf(rule) + "' (kind not) must have exactly one check",
 		}
 	}
-	failures := []string{}
+	failures := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
 	for _, mc := range contexts {
 		ok, _, err := evalCheck(ctx, checks[0], mc.captures, inputs, inputs.WriteEpochs[mc.path])
 		if err != nil {
@@ -112,15 +111,15 @@ func evalNot(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, input
 			// An inner check that could not be evaluated (missing or
 			// crashing script) must fail closed: treating it as "did
 			// not pass" would make `not` succeed on broken tooling.
-			failures = append(failures, fmt.Sprintf("[%s] inner check could not be evaluated (%s); not fails closed", mc.path, evalErr.reason))
+			failures.add(fmt.Sprintf("[%s] inner check could not be evaluated (%s); not fails closed", mc.path, evalErr.reason))
 			continue
 		}
 		if ok {
 			// `not` fails when the inner check passes.
-			failures = append(failures, fmt.Sprintf("[%s] inner check passed (must NOT pass)", mc.path))
+			failures.add(fmt.Sprintf("[%s] inner check passed (must NOT pass)", mc.path))
 		}
 	}
-	if len(failures) == 0 {
+	if failures.count() == 0 {
 		return nil, nil
 	}
 	return buildCompositeViolation(rule, defaultMode, contexts, "not", failures), nil
@@ -305,7 +304,7 @@ func evalCheckRequireClaim(c policy.Check, inputs ExecutionInputs) (bool, string
 	if len(matched) > 0 {
 		return true, "", nil
 	}
-	return false, "no required claim asserted; expected one of: " + strings.Join(c.Claims, ", "), nil
+	return false, "no required claim asserted; expected one of: " + joinForHumans(c.Claims), nil
 }
 
 func evalCheckRequireCommand(ctx *evalContext, c policy.Check, inputs ExecutionInputs, requireSuccess bool, minimumEpoch uint64) (bool, string, error) {
@@ -323,7 +322,7 @@ func evalCheckRequireCommand(ctx *evalContext, c policy.Check, inputs ExecutionI
 	if requireSuccess {
 		verb = "completed successfully (after the triggering write)"
 	}
-	return false, fmt.Sprintf("no required command %s; expected one of: %s", verb, strings.Join(c.Commands, ", ")), nil
+	return false, fmt.Sprintf("no required command %s; expected one of: %s", verb, joinForHumans(c.Commands)), nil
 }
 
 func evalCheckForbidCommand(ctx *evalContext, c policy.Check, inputs ExecutionInputs) (bool, string, error) {
@@ -331,7 +330,7 @@ func evalCheckForbidCommand(ctx *evalContext, c policy.Check, inputs ExecutionIn
 	if len(hit) == 0 {
 		return true, "", nil
 	}
-	return false, "forbidden command(s) ran: " + strings.Join(hit, ", "), nil
+	return false, "forbidden command(s) ran: " + joinForHumans(hit), nil
 }
 
 func evalCheckDenyWrite(ctx *evalContext, c policy.Check, inputs ExecutionInputs) (bool, string, error) {
@@ -342,12 +341,12 @@ func evalCheckDenyWrite(ctx *evalContext, c policy.Check, inputs ExecutionInputs
 	if len(matched) == 0 {
 		return true, "", nil
 	}
-	return false, "writes to forbidden paths: " + strings.Join(matched, ", "), nil
+	return false, "writes to forbidden paths: " + joinForHumans(matched), nil
 }
 
 // buildCompositeViolation is the violation builder for composite rules.
 // Aggregates triggered paths and failure reasons across all contexts.
-func buildCompositeViolation(rule *policy.Rule, defaultMode policy.Mode, contexts []matchContext, op string, failures []string) *Violation {
+func buildCompositeViolation(rule *policy.Rule, defaultMode policy.Mode, contexts []matchContext, op string, failures *violationTextCollector) *Violation {
 	triggered := newStableStringCollector([]string{})
 	for _, mc := range contexts {
 		triggered.add(mc.path)
@@ -355,8 +354,8 @@ func buildCompositeViolation(rule *policy.Rule, defaultMode policy.Mode, context
 	v := buildViolation(rule, defaultMode, triggered.values(), nil, nil, nil, nil, nil)
 	v.Explanation = fmt.Sprintf(
 		"Composite rule '%s' (%s) failed on %d context(s): %s",
-		v.RuleID, op, len(contexts), strings.Join(failures, "; "),
+		v.RuleID, op, len(contexts), failures.text(),
 	)
 	v.RecommendedAction = "Satisfy the listed sub-checks for each affected write path."
-	return v
+	return boundViolationText(v)
 }
