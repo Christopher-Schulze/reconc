@@ -211,7 +211,8 @@ func ValidatePlan(plan *Plan) error {
 	if err := presets.ValidateSelection(plan.Selection.Packs); err != nil {
 		return fmt.Errorf("validate bootstrap plan packs: %w", err)
 	}
-	if err := validateHarnessPackSelections(plan.Selection); err != nil {
+	harnessPack, err := validatedHarnessPack(plan.Selection, plan.ProductVersion)
+	if err != nil {
 		return err
 	}
 	for index, kind := range plan.Selection.Hooks {
@@ -267,6 +268,9 @@ func ValidatePlan(plan *Plan) error {
 				return err
 			}
 		}
+	}
+	if err := validateHarnessPackActions(harnessPack, plan.Actions); err != nil {
+		return err
 	}
 	digest, err := computePlanDigest(plan)
 	if err != nil {

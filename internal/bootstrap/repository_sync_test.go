@@ -1038,24 +1038,17 @@ func TestRepositorySyncImportsOneLegacyReceipt(t *testing.T) {
 	}
 }
 
-func TestRepositorySyncImportsHistoricalAdvancedReceipt(t *testing.T) {
+func TestRepositorySyncRejectsHistoricalAdvancedPlanWithoutEmbeddedPackBinding(t *testing.T) {
 	repo, receipt := initializeSyncFixture(t, ProfileAdvanced)
 	currentPlanPath := filepath.ToSlash(filepath.Join(".reconc", "bootstrap-plan-"+receipt.PlanDigest+".json"))
 	currentPlan, err := LoadPlan(filepath.Join(repo, filepath.FromSlash(currentPlanPath)))
 	if err != nil {
 		t.Fatalf("load current bootstrap plan: %v", err)
 	}
-	privateReceipt, currentReceiptPath, err := loadInstallReceipt(currentPlan)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Remove(filepath.Join(repo, filepath.FromSlash(RepositoryReceiptRelativePath))); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(repo, filepath.FromSlash(recordedPlanPath(currentPlan)))); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(filepath.Join(repo, filepath.FromSlash(currentReceiptPath))); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1069,51 +1062,21 @@ func TestRepositorySyncImportsHistoricalAdvancedReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyBody, err := encodePlan(&legacy)
+	legacyBody, err := json.MarshalIndent(&legacy, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
+	legacyBody = append(legacyBody, '\n')
 	legacyPlanPath := recordedPlanPath(&legacy)
 	if err := os.WriteFile(filepath.Join(repo, filepath.FromSlash(legacyPlanPath)), legacyBody, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	privateReceipt.ProductVersion = legacy.ProductVersion
-	privateReceipt.PlanDigest = legacy.PlanDigest
-	privateReceipt.HarnessPacks = append([]HarnessPackSelection{}, legacy.Selection.HarnessPacks...)
-	for index := range privateReceipt.Entries {
-		if privateReceipt.Entries[index].Path == recordedPlanPath(currentPlan) {
-			privateReceipt.Entries[index].Path = legacyPlanPath
-			privateReceipt.Entries[index].SHA256 = bytesSHA256(legacyBody)
-		}
+	if _, err := LoadPlan(filepath.Join(repo, filepath.FromSlash(legacyPlanPath))); err == nil ||
+		!strings.Contains(err.Error(), "supports Reconc >=0.9.0 and <1.0.0, not 0.8.8") {
+		t.Fatalf("historical bootstrap plan load error = %v", err)
 	}
-	privateReceipt.Digest = ""
-	privateReceipt.Digest, err = computeInstallReceiptDigest(privateReceipt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	privateBody, err := json.MarshalIndent(privateReceipt, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	privateBody = append(privateBody, '\n')
-	if err := os.WriteFile(
-		filepath.Join(repo, filepath.FromSlash(installReceiptPath(legacy.PlanDigest))),
-		privateBody,
-		0o600,
-	); err != nil {
-		t.Fatal(err)
-	}
-	loadedLegacy, err := LoadPlan(filepath.Join(repo, filepath.FromSlash(legacyPlanPath)))
-	if err != nil {
-		t.Fatalf("load historical bootstrap plan: %v", err)
-	}
-	if _, _, err := loadInstallReceipt(loadedLegacy); err != nil {
-		t.Fatalf("load historical bootstrap receipt: %v", err)
-	}
-
-	if _, err := BuildSyncPlan(repo, syncTestVersion); err == nil ||
-		!strings.Contains(err.Error(), "not bound to an embedded pack") {
+	if _, err := BuildSyncPlan(repo, syncTestVersion); err == nil {
 		t.Fatalf("unbound historical harness compatibility was accepted: %v", err)
 	}
 }

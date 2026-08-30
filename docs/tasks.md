@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 402 Bind validated plans to embedded harness packs -> tasks/402-bind-validated-plans-to-embedded-harness-packs.md
 - [ ] 403 Surface corrupt and drifted init state truthfully -> tasks/403-surface-corrupt-and-drifted-init-state-truthfully.md
 - [ ] 404 Validate receipt digests before path construction -> tasks/404-validate-receipt-digests-before-path-construction.md
 - [ ] 405 Bind bootstrap removal to parent handles -> tasks/405-bind-bootstrap-removal-to-parent-handles.md
@@ -68,6 +67,7 @@
 
 ## Done
 
+- [x] 402 Bind validated plans to embedded harness packs -> tasks/done/402-bind-validated-plans-to-embedded-harness-packs.md
 - [x] 401 Verify bootstrap file modes on Windows -> tasks/done/401-verify-bootstrap-file-modes-on-windows.md
 - [x] 400 Reject ambiguous YAML merge semantics -> tasks/done/400-reject-ambiguous-yaml-merge-semantics.md
 - [x] 399 Make compiler discovery and source paths deterministic -> tasks/done/399-make-compiler-discovery-and-source-paths-deterministic.md
