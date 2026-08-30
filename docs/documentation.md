@@ -2811,6 +2811,12 @@ Action Ledger without creating missing state. Offline simulation and retained
 fixtures remain non-enforcement evidence; only explicitly routed gateway calls
 cross the live tool-call interception boundary.
 
+The upstream transport rejects duplicate request IDs, reserved correlation
+metadata, malformed tool parameters, and transform-size overflow with bounded
+request-local JSON-RPC errors, without forwarding those calls or terminating
+later valid traffic. Framing corruption, transport failure, and exhausted
+internal correlation identity remain connection-fatal.
+
 The same v0.9.7 implementation provides trusted operator and host context
 bindings, domain-separated HMAC identities, explicit key leases and rotation
 blocking, compiled cumulative budgets, evaluator budget snapshots, and a

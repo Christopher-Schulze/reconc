@@ -280,6 +280,7 @@ type strictFrameReader struct {
 	closer      io.Closer
 	observer    func(validatedFrame) error
 	transformer func(validatedFrame) ([]byte, error)
+	rejector    func(validatedFrame, error) (bool, error)
 	current     *bytes.Reader
 	currentBody []byte
 	reusable    []byte
@@ -293,9 +294,11 @@ func newStrictFrameReader(reader io.ReadCloser, observer func(validatedFrame) er
 func newStrictTransformingFrameReader(
 	reader io.ReadCloser,
 	transformer func(validatedFrame) ([]byte, error),
+	rejector func(validatedFrame, error) (bool, error),
 ) *strictFrameReader {
 	return &strictFrameReader{
-		reader: bufio.NewReaderSize(reader, 64<<10), closer: reader, transformer: transformer,
+		reader: bufio.NewReaderSize(reader, 64<<10), closer: reader,
+		transformer: transformer, rejector: rejector,
 	}
 }
 
@@ -305,7 +308,7 @@ func (r *strictFrameReader) Read(output []byte) (int, error) {
 	if r.failed != nil {
 		return 0, r.failed
 	}
-	if r.current == nil || r.current.Len() == 0 {
+	for r.current == nil || r.current.Len() == 0 {
 		r.releaseCurrent()
 		frame, err := readFrame(r.reader, r.reusable)
 		r.reusable = nil
@@ -328,6 +331,19 @@ func (r *strictFrameReader) Read(output []byte) (int, error) {
 		if r.transformer != nil {
 			transformed, transformErr := r.transformer(parsed)
 			if transformErr != nil {
+				if r.rejector != nil {
+					handled, rejectErr := r.rejector(parsed, transformErr)
+					if rejectErr != nil {
+						err = errors.Join(transformErr, rejectErr)
+						r.failed = err
+						return 0, err
+					}
+					if handled {
+						r.currentBody = frame
+						r.releaseCurrent()
+						continue
+					}
+				}
 				r.failed = transformErr
 				return 0, transformErr
 			}
@@ -409,6 +425,34 @@ type strictFrameWriter struct {
 	observer func(validatedFrame) error
 	pending  []byte
 	failed   error
+}
+
+func (w *strictFrameWriter) writeUnobservedFrame(frame []byte) error {
+	parsed, err := parseFrameJSON(frame)
+	if err != nil {
+		return err
+	}
+	if parsed.method != "" || len(parsed.id) == 0 || len(parsed.err) == 0 {
+		return fmt.Errorf("local MCP response is not a JSON-RPC error")
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.failed != nil {
+		return w.failed
+	}
+	framed := append(bytes.Clone(frame), '\n')
+	count, writeErr := w.writer.Write(framed)
+	if count < 0 || count > len(framed) {
+		writeErr = errors.Join(writeErr, fmt.Errorf("MCP writer returned an invalid byte count"))
+	}
+	if writeErr == nil && count != len(framed) {
+		writeErr = io.ErrShortWrite
+	}
+	clear(framed)
+	if writeErr != nil {
+		w.failed = writeErr
+	}
+	return writeErr
 }
 
 func newStrictFrameWriter(writer io.WriteCloser, observer func(validatedFrame) error) *strictFrameWriter {

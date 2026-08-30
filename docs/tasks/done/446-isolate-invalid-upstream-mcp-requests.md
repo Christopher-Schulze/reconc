@@ -13,13 +13,15 @@ The strict transforming frame reader permanently latches every transformer error
 
 ## Sub-Tasks
 
-- [ ] Classify transformer failures as request-local or connection-fatal.
-- [ ] Add a bounded response path that preserves stream ordering and correlation state.
-- [ ] Add multi-request protocol regressions.
-- [ ] Run focused MCP frame and interoperability tests.
+- [x] Classify transformer failures as request-local or connection-fatal.
+- [x] Add a bounded response path that preserves stream ordering and correlation state.
+- [x] Add multi-request protocol regressions.
+- [x] Run focused MCP frame and upstream protocol tests.
 
 ## Notes
 
 - Verified from finding 183 in `internal/mcpgateway/frame.go` and `upstream.go`.
+- Request-local transform errors carry only a standard code and static bounded message. The strict reader writes them through the serialized upstream writer without invoking response correlation cleanup, clears the rejected frame, and continues at the next frame.
+- Duplicate IDs preserve the original active request; rejected correlation injection removes only its provisional state. Framing/parser failures and correlation-sequence exhaustion still latch the reader error and terminate the stream.
 
 ## Deviations

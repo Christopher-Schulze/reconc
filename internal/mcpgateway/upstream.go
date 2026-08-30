@@ -24,6 +24,30 @@ type upstreamWireCall struct {
 	params json.RawMessage
 }
 
+type upstreamRequestError struct {
+	code    int64
+	message string
+	cause   error
+}
+
+func (e *upstreamRequestError) Error() string {
+	if e == nil || e.cause == nil {
+		return "invalid upstream MCP request"
+	}
+	return e.cause.Error()
+}
+
+func (e *upstreamRequestError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
+func invalidUpstreamRequest(code int64, message string, cause error) error {
+	return &upstreamRequestError{code: code, message: message, cause: cause}
+}
+
 const upstreamCorrelationMetaKey = "io.reconc/gatewayCorrelation"
 
 type upstreamObserver struct {
@@ -58,16 +82,22 @@ func (o *upstreamObserver) instrumentInboundFrame(frame validatedFrame) ([]byte,
 	}
 	id, err := canonicalProtocolID(frame.id)
 	if err != nil {
-		return nil, err
+		return nil, invalidUpstreamRequest(jsonrpc.CodeInvalidRequest, "invalid request ID", err)
 	}
 	o.mu.Lock()
 	if _, duplicate := o.active[id]; duplicate {
 		o.mu.Unlock()
-		return nil, fmt.Errorf("duplicate active upstream JSON-RPC request ID")
+		return nil, invalidUpstreamRequest(
+			jsonrpc.CodeInvalidRequest, "duplicate active request ID",
+			fmt.Errorf("duplicate active upstream JSON-RPC request ID"),
+		)
 	}
 	if len(o.active) >= MaxUpstreamRequests {
 		o.mu.Unlock()
-		return nil, fmt.Errorf("active upstream JSON-RPC requests exceed %d", MaxUpstreamRequests)
+		return nil, invalidUpstreamRequest(
+			jsonrpc.CodeInvalidRequest, "too many active requests",
+			fmt.Errorf("active upstream JSON-RPC requests exceed %d", MaxUpstreamRequests),
+		)
 	}
 	if len(o.active) == 0 {
 		o.drained = make(chan struct{})
@@ -93,7 +123,10 @@ func (o *upstreamObserver) instrumentInboundFrame(frame validatedFrame) ([]byte,
 		if err != nil {
 			return nil, err
 		}
-		return nil, fmt.Errorf("instrumented upstream MCP frame exceeds %d bytes", MaxProtocolFrameBytes)
+		return nil, invalidUpstreamRequest(
+			jsonrpc.CodeInvalidParams, "tools/call request exceeds the transformed size limit",
+			fmt.Errorf("instrumented upstream MCP frame exceeds %d bytes", MaxProtocolFrameBytes),
+		)
 	}
 	o.mu.Lock()
 	o.byCorrelation[correlation] = upstreamWireCall{
@@ -111,16 +144,25 @@ func injectUpstreamCorrelation(frame []byte, correlation string) ([]byte, error)
 	}
 	var params map[string]json.RawMessage
 	if err := json.Unmarshal(envelope["params"], &params); err != nil || params == nil {
-		return nil, fmt.Errorf("upstream tool params are not an object")
+		return nil, invalidUpstreamRequest(
+			jsonrpc.CodeInvalidParams, "invalid tools/call params",
+			fmt.Errorf("upstream tool params are not an object"),
+		)
 	}
 	metadata := make(map[string]json.RawMessage)
 	if raw, exists := params["_meta"]; exists && !bytes.Equal(raw, []byte("null")) {
 		if err := json.Unmarshal(raw, &metadata); err != nil || metadata == nil {
-			return nil, fmt.Errorf("upstream tool metadata is not an object")
+			return nil, invalidUpstreamRequest(
+				jsonrpc.CodeInvalidParams, "invalid tools/call metadata",
+				fmt.Errorf("upstream tool metadata is not an object"),
+			)
 		}
 	}
 	if _, reserved := metadata[upstreamCorrelationMetaKey]; reserved {
-		return nil, fmt.Errorf("upstream tool metadata uses a reserved Reconc correlation key")
+		return nil, invalidUpstreamRequest(
+			jsonrpc.CodeInvalidParams, "reserved tools/call metadata",
+			fmt.Errorf("upstream tool metadata uses a reserved Reconc correlation key"),
+		)
 	}
 	token, err := json.Marshal(correlation)
 	if err != nil {
@@ -291,10 +333,13 @@ func (g *Gateway) serve() error {
 		return err
 	}
 	g.upstreamMu.Unlock()
+	writer := newStrictFrameWriter(writeCloser{g.config.Output}, g.upstreamWire.outboundFrame)
 	reader := newStrictTransformingFrameReader(
 		readCloser{g.config.Input}, g.upstreamWire.instrumentInboundFrame,
+		func(frame validatedFrame, transformErr error) (bool, error) {
+			return writeUpstreamRequestError(writer, frame, transformErr)
+		},
 	)
-	writer := newStrictFrameWriter(writeCloser{g.config.Output}, g.upstreamWire.outboundFrame)
 	session, err := upstream.Connect(
 		g.ctx, &upstreamTransport{IOTransport: &mcp.IOTransport{Reader: reader, Writer: writer}}, nil,
 	)
@@ -341,6 +386,42 @@ func (g *Gateway) serve() error {
 		}
 		return errors.Join(lifecycleErr, closeLifecycleError(session.Close()))
 	}
+}
+
+func writeUpstreamRequestError(
+	writer *strictFrameWriter,
+	frame validatedFrame,
+	err error,
+) (bool, error) {
+	var requestErr *upstreamRequestError
+	if !errors.As(err, &requestErr) {
+		return false, nil
+	}
+	id := json.RawMessage("null")
+	if _, idErr := canonicalProtocolID(frame.id); idErr == nil {
+		id = bytes.Clone(frame.id)
+	}
+	response, encodeErr := json.Marshal(struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Error   struct {
+			Code    int64  `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}{
+		JSONRPC: "2.0", ID: id,
+		Error: struct {
+			Code    int64  `json:"code"`
+			Message string `json:"message"`
+		}{Code: requestErr.code, Message: requestErr.message},
+	})
+	if encodeErr != nil || len(response)+1 > MaxProtocolFrameBytes {
+		return true, errors.Join(fmt.Errorf("encode bounded upstream request error"), encodeErr)
+	}
+	if writer == nil {
+		return true, fmt.Errorf("upstream request error writer is unavailable")
+	}
+	return true, writer.writeUnobservedFrame(response)
 }
 
 func gatewayLifecycleEndError(ctx context.Context, owner string, err error) error {
