@@ -19,12 +19,36 @@ func BenchmarkActionEvaluatorMaximumLegalPlan(b *testing.B) {
 	benchmarkActionEvaluator(b, evaluatorBenchmarkRules(MaxRules, false))
 }
 
+func BenchmarkNewEvaluatorRepresentative(b *testing.B) {
+	benchmarkNewEvaluator(b, evaluatorBenchmarkRules(64, true))
+}
+
+func BenchmarkNewEvaluatorMaximumLegalPlan(b *testing.B) {
+	benchmarkNewEvaluator(b, evaluatorBenchmarkRules(MaxRules, false))
+}
+
 func BenchmarkActionEvaluatorRepresentativeCalibrated(b *testing.B) {
 	benchmarkActionEvaluatorSerial(b, evaluatorBenchmarkRules(64, true), false)
 }
 
 func BenchmarkActionEvaluatorMaximumLegalPlanCalibrated(b *testing.B) {
 	benchmarkActionEvaluatorSerial(b, evaluatorBenchmarkRules(MaxRules, false), false)
+}
+
+func benchmarkNewEvaluator(b *testing.B, rules []Rule) {
+	b.Helper()
+	compiled, err := CompilePlan(Plan{Rules: rules, Defaults: FrozenDefaults()})
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		evaluator, err := NewEvaluator(compiled)
+		if err != nil || evaluator.PlanIdentity() == "" {
+			b.Fatalf("NewEvaluator = %#v, %v", evaluator, err)
+		}
+	}
 }
 
 func BenchmarkActionContextRootPredicates(b *testing.B) {

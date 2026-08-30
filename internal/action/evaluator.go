@@ -50,28 +50,17 @@ func NewEvaluator(compiled *CompiledPlan) (*Evaluator, error) {
 	if compiled == nil {
 		return nil, fmt.Errorf("action plan is required")
 	}
-	recompiled, err := CompilePlan(compiled.Plan())
-	if err != nil {
-		return nil, fmt.Errorf("validate action plan for evaluator: %w", err)
+	if !compiled.validated || !sha256IdentityPattern.MatchString(compiled.identity) {
+		return nil, fmt.Errorf("action plan was not produced by CompilePlan")
 	}
-	plan := recompiled.Plan()
-	body, err := json.Marshal(plan)
-	if err != nil {
-		return nil, fmt.Errorf("encode action plan identity: %w", err)
+	if compiled.toolByID == nil || compiled.toolByExact == nil || compiled.rules == nil ||
+		compiled.budgets == nil || compiled.approvals == nil || compiled.detectors == nil {
+		return nil, fmt.Errorf("compiled action plan invariants are unavailable")
 	}
-	evaluator := &Evaluator{
-		plan: plan, rules: recompiled.Rules(),
-		toolByExact: make(map[string]int, len(plan.Tools)),
-		identity:    digestBytes(body),
-	}
-	for index, tool := range plan.Tools {
-		key := ToolIdentityKey(tool)
-		if _, duplicate := evaluator.toolByExact[key]; duplicate {
-			return nil, fmt.Errorf("action plan contains ambiguous tool ownership")
-		}
-		evaluator.toolByExact[key] = index
-	}
-	return evaluator, nil
+	return &Evaluator{
+		plan: compiled.plan, rules: compiled.rules,
+		toolByExact: compiled.toolByExact, identity: compiled.identity,
+	}, nil
 }
 
 func (e *Evaluator) PlanIdentity() string {

@@ -434,8 +434,10 @@ type Plan struct {
 	Defaults      Defaults             `json:"defaults"`
 }
 
-// CompiledPlan is the immutable runtime-owned form. Plan returns a defensive
-// copy; matcher and pointer programs are never serialized into the lock.
+// CompiledPlan is the immutable runtime-owned form. CompilePlan owns every
+// reachable slice, map, matcher, and pointer program; exported accessors return
+// defensive copies or read-only views. Callers must not revalidate a compiled
+// plan before use unless they explicitly call RevalidateCompiledPlan.
 type CompiledPlan struct {
 	plan        Plan
 	toolByID    map[string]int
@@ -444,6 +446,8 @@ type CompiledPlan struct {
 	budgets     []Budget
 	approvals   []ApprovalDisclosure
 	detectors   []CompiledDetectorPolicy
+	identity    string
+	validated   bool
 }
 
 type CompiledRule struct {

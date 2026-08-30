@@ -171,6 +171,7 @@ func CompilePlan(input Plan) (*CompiledPlan, error) {
 		plan: plan, toolByID: toolByID, toolByExact: toolByExact,
 		rules: compiledRules, budgets: cloneSlice(plan.Budgets),
 		approvals: cloneSlice(plan.Approvals), detectors: compiledDetectors,
+		identity: digestBytes(body), validated: true,
 	}, nil
 }
 
@@ -748,6 +749,16 @@ func (p *CompiledPlan) Plan() Plan {
 		return Plan{}
 	}
 	return clonePlan(p.plan)
+}
+
+// RevalidateCompiledPlan defensively rebuilds a compiled plan from its
+// canonical source form. Ordinary evaluator construction must not call this;
+// it exists for explicit trust-boundary diagnostics and tests.
+func RevalidateCompiledPlan(compiled *CompiledPlan) (*CompiledPlan, error) {
+	if compiled == nil {
+		return nil, fmt.Errorf("compiled action plan is unavailable")
+	}
+	return CompilePlan(compiled.Plan())
 }
 
 func (p *CompiledPlan) Rules() []CompiledRule {

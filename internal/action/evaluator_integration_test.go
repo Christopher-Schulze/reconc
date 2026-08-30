@@ -2,6 +2,7 @@ package action
 
 import (
 	"encoding/json"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -437,7 +438,7 @@ func TestEvaluatorFailureOutcomesAreFailClosed(t *testing.T) {
 	}
 }
 
-func TestNewEvaluatorRejectsMalformedCompiledPlan(t *testing.T) {
+func TestRevalidateCompiledPlanRejectsMalformedCanonicalState(t *testing.T) {
 	t.Parallel()
 	pattern := testStringValue(t, "prod-[0-9]+")
 	tests := []struct {
@@ -490,10 +491,54 @@ func TestNewEvaluatorRejectsMalformedCompiledPlan(t *testing.T) {
 				t.Fatalf("CompilePlan: %v", err)
 			}
 			test.mutate(compiled)
-			if _, err := NewEvaluator(compiled); err == nil {
+			if _, err := RevalidateCompiledPlan(compiled); err == nil {
 				t.Fatal("malformed compiled plan was accepted")
 			}
 		})
+	}
+}
+
+func TestNewEvaluatorReusesImmutableCompiledPlan(t *testing.T) {
+	t.Parallel()
+	value := testStringValue(t, "staging")
+	rule := testRule("block-staging", DecisionBlock, Predicate{
+		Source: SourceArguments, Pointer: "/target", Op: OperatorEqual, Value: &value,
+	})
+	baseline, input := testActionEvaluator(t, []Rule{rule}, Defaults{}, testExternalEffect())
+	compiled, err := CompilePlan(baseline.plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := NewEvaluator(compiled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.rules[0].Condition != compiled.rules[0].Condition ||
+		first.identity != compiled.identity {
+		t.Fatal("evaluator did not reuse validated immutable compiled state")
+	}
+
+	planCopy := compiled.Plan()
+	planCopy.Rules[0].ID = "mutated"
+	ruleCopy := compiled.Rules()
+	ruleCopy[0].Rule.ID = "mutated"
+	ruleCopy[0].Condition.Predicate.Tokens[0] = "mutated"
+	second, err := NewEvaluator(compiled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstInput, secondInput := input, input
+	refreshTestIdentities(first, &firstInput)
+	refreshTestIdentities(second, &secondInput)
+	firstResult := first.Evaluate(firstInput)
+	secondResult := second.Evaluate(secondInput)
+	if !reflect.DeepEqual(firstResult, secondResult) || firstResult.Decision != DecisionBlock ||
+		firstResult.PlanIdentity != compiled.identity {
+		t.Fatalf("reused evaluator results differ: first = %#v, second = %#v", firstResult, secondResult)
+	}
+
+	if _, err := NewEvaluator(&CompiledPlan{}); err == nil {
+		t.Fatal("unvalidated compiled plan was accepted")
 	}
 }
 

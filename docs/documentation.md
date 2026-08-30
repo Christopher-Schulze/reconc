@@ -3160,6 +3160,12 @@ constraints, JSON Pointers, and typed constants are compiled once into the
 immutable runtime plan. `reconc why action .` explains the result with operand
 values redacted.
 
+`CompilePlan` owns and validates the complete immutable action representation,
+including canonical indexes, compiled matchers, and its canonical plan
+identity. `NewEvaluator` reuses that state directly; exported plan and rule
+accessors remain defensive copies. `RevalidateCompiledPlan` is the explicit
+opt-in boundary for rebuilding and revalidating canonical source state.
+
 Budget selectors validate declaration-owned tool dimensions at compile time;
 `tool_contract_digests` remains an exact runtime constraint because policy tool
 declarations intentionally do not claim a discovered MCP contract digest. A

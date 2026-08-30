@@ -13,13 +13,15 @@
 
 ## Sub-Tasks
 
-- [ ] Document `CompiledPlan` immutability and ownership invariants.
-- [ ] Carry canonical identity and compiled indexes into evaluators safely.
-- [ ] Add mutation-resistance, parity, and malformed-construction tests.
-- [ ] Run focused action tests and benchmarks.
+- [x] Document `CompiledPlan` immutability and ownership invariants.
+- [x] Carry canonical identity and compiled indexes into evaluators safely.
+- [x] Add mutation-resistance, parity, and malformed-construction tests.
+- [x] Run focused action tests and benchmarks.
 
 ## Notes
 
 - Verified from finding 176 in `internal/action/evaluator.go`.
+- `CompilePlan` is the sole constructor of validated compiled state; all fields are package-private, inputs are deeply cloned, and exported accessors return detached values. `NewEvaluator` can therefore share the immutable plan, matcher graph, and indexes without trusting caller-owned memory.
+- Baseline to optimized `NewEvaluator`: representative plan about 165 us / 221 KB / 287 allocations to 1.25 us / 382 B / 1 allocation; maximum plan about 12.6 ms / 19.5 MB / 32,872 allocations to below 1 us / 383 B / 1 allocation.
 
 ## Deviations
