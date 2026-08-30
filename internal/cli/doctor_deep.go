@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"reconc.dev/reconc/internal/audit"
@@ -108,13 +109,14 @@ func buildDoctorDeepReport(repo string) (*doctorDeepReport, error) {
 		return nil, err
 	}
 	analysis := newDoctorAnalysisContext(discovery)
+	grokCapability := newDoctorGrokCapabilitySnapshot()
 	report := &doctorDeepReport{
 		RepoRoot: discovery.RepoRoot,
 		Deep:     true,
 		Checks: []doctorCheck{
 			doctorCheckHookRuntimeCompatibility(discovery),
-			doctorCheckGrokRuntime(discovery),
-			doctorCheckGrokLeaderSteering(discovery),
+			doctorCheckGrokRuntimeWithCapability(discovery, grokCapability),
+			doctorCheckGrokLeaderSteeringWithCapability(discovery, grokCapability),
 			doctorCheckLockfileFreshness(discovery, analysis),
 			doctorCheckMCPPolicy(discovery),
 			doctorCheckAuditSize(discovery),
@@ -188,7 +190,31 @@ var doctorGrokInspect = func(ctx context.Context, repoRoot string) ([]byte, erro
 
 var doctorProbeGrokNativeStop = grokacp.ProbeNativeStopGate
 
+type doctorGrokCapabilitySnapshot struct {
+	once   sync.Once
+	probe  func() grokacp.NativeStopGateProbe
+	result grokacp.NativeStopGateProbe
+}
+
+func newDoctorGrokCapabilitySnapshot() *doctorGrokCapabilitySnapshot {
+	return &doctorGrokCapabilitySnapshot{probe: doctorProbeGrokNativeStop}
+}
+
+func (snapshot *doctorGrokCapabilitySnapshot) nativeStop() grokacp.NativeStopGateProbe {
+	if snapshot == nil {
+		return doctorProbeGrokNativeStop()
+	}
+	snapshot.once.Do(func() {
+		snapshot.result = snapshot.probe()
+	})
+	return snapshot.result
+}
+
 func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
+	return doctorCheckGrokRuntimeWithCapability(discovery, nil)
+}
+
+func doctorCheckGrokRuntimeWithCapability(discovery ingest.DiscoveryResult, capabilitySnapshot *doctorGrokCapabilitySnapshot) doctorCheck {
 	check := doctorCheck{
 		Name:   "Grok native hook",
 		Status: doctorStatusOK,
@@ -271,7 +297,7 @@ func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
 	if displayVersion == "" {
 		displayVersion = "unknown version"
 	}
-	capability := doctorProbeGrokNativeStop()
+	capability := capabilitySnapshot.nativeStop()
 	if !capability.Supported {
 		check.Status = doctorStatusWarn
 		check.Detail = fmt.Sprintf("Grok %s loaded all %d native Reconc routes, but %s; guarded PreToolUse gates remain hard and optional leader steering supplies the strict Stop fallback", displayVersion, len(expected), capability.Detail)
@@ -328,6 +354,10 @@ func doctorPathWithin(root, candidate string) bool {
 var doctorProbeGrokLeader = grokacp.ProbeLeaderSteering
 
 func doctorCheckGrokLeaderSteering(discovery ingest.DiscoveryResult) doctorCheck {
+	return doctorCheckGrokLeaderSteeringWithCapability(discovery, nil)
+}
+
+func doctorCheckGrokLeaderSteeringWithCapability(discovery ingest.DiscoveryResult, capabilitySnapshot *doctorGrokCapabilitySnapshot) doctorCheck {
 	check := doctorCheck{
 		Name:   "Grok leader steering",
 		Status: doctorStatusOK,
@@ -360,7 +390,7 @@ func doctorCheckGrokLeaderSteering(discovery ingest.DiscoveryResult) doctorCheck
 		if binary == "" {
 			binary = "unknown"
 		}
-		if doctorProbeGrokNativeStop().Supported {
+		if capabilitySnapshot.nativeStop().Supported {
 			check.Detail = fmt.Sprintf("Grok leader compatible at %s (protocol %s, binary %s); native Stop is active and duplicate leader interjection is suppressed", probe.Endpoint, version, binary)
 		} else {
 			check.Detail = fmt.Sprintf("Grok leader compatible at %s (protocol %s, binary %s); backward-compatible TUI Stop steering is active", probe.Endpoint, version, binary)

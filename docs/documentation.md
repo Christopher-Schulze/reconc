@@ -4146,7 +4146,9 @@ three-second budget fairly and framed messages complete short writes.
 `RECONC_GROK_STEER=0` disables only leader steering; PreToolUse remains hard
 while native Stop remains dependent on the installed host capability. Deep
 doctor reports installed native Stop capability and separately probes optional
-leader protocol plus `_x.ai/interject` with a random nonexistent session.
+leader protocol plus `_x.ai/interject` with a random nonexistent session. One
+deep report reads the installed native-Stop capability at most once and shares
+that immutable result across runtime and leader-steering conclusions.
 `reconc run on|off|reset|status|log` is the canonical AI-operated repository switch.
 Its durable state applies only to the selected repository, not the whole machine.
 Repository mode persists across sessions for Claude Code, Codex, GitHub

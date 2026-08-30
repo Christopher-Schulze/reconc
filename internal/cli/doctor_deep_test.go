@@ -235,6 +235,116 @@ func TestDoctorGrokLeaderSteering(t *testing.T) {
 	})
 }
 
+func TestBuildDoctorDeepReportReusesGrokCapabilitySnapshot(t *testing.T) {
+	originalInspect := doctorGrokInspect
+	originalLeaderProbe := doctorProbeGrokLeader
+	originalCapabilityProbe := doctorProbeGrokNativeStop
+	defer func() {
+		doctorGrokInspect = originalInspect
+		doctorProbeGrokLeader = originalLeaderProbe
+		doctorProbeGrokNativeStop = originalCapabilityProbe
+	}()
+	t.Setenv(grokacp.SteerEnv, "")
+	doctorGrokInspect = func(_ context.Context, root string) ([]byte, error) {
+		loaded := make([]map[string]interface{}, 0, len(hooks.GrokRuntimeEvents()))
+		for _, event := range hooks.GrokRuntimeEvents() {
+			loaded = append(loaded, map[string]interface{}{
+				"target": "tools/reconc/bin/hook " + event + " .",
+				"source": map[string]string{"type": "project", "path": filepath.Join(root, ".grok", "hooks")},
+			})
+		}
+		return json.Marshal(map[string]interface{}{
+			"grokVersion":    "0.2.106",
+			"projectTrusted": true,
+			"hooks":          loaded,
+		})
+	}
+	protocolVersion := uint32(1)
+	doctorProbeGrokLeader = func(time.Duration) grokacp.LeaderProbe {
+		return grokacp.LeaderProbe{
+			Endpoint:        "/tmp/grok-leader.sock",
+			Reachable:       true,
+			Compatible:      true,
+			ProtocolVersion: &protocolVersion,
+			BinaryVersion:   "0.2.106",
+		}
+	}
+	findCheck := func(t *testing.T, report *doctorDeepReport, name string) doctorCheck {
+		t.Helper()
+		for _, check := range report.Checks {
+			if check.Name == name {
+				return check
+			}
+		}
+		t.Fatalf("missing doctor check %q", name)
+		return doctorCheck{}
+	}
+
+	for _, test := range []struct {
+		name         string
+		supported    bool
+		runtimeState string
+		leaderState  string
+	}{
+		{name: "supported", supported: true, runtimeState: "native no-leader Stop enforcement is active", leaderState: "duplicate leader interjection is suppressed"},
+		{name: "unsupported", runtimeState: "does not advertise blocking Stop", leaderState: "backward-compatible TUI Stop steering is active"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := makeCheckRepo(t, "rules: []\n")
+			if _, err := hooks.Install(hooks.KindGrok, repo, false); err != nil {
+				t.Fatal(err)
+			}
+			probeCalls := 0
+			doctorProbeGrokNativeStop = func() grokacp.NativeStopGateProbe {
+				probeCalls++
+				supported := test.supported
+				if probeCalls > 1 {
+					supported = !supported
+				}
+				return grokacp.NativeStopGateProbe{
+					Supported:         supported,
+					DocumentationPath: "/tmp/grok/docs/user-guide/10-hooks.md",
+					Detail:            "installed Grok hook guide does not advertise blocking Stop decision control",
+				}
+			}
+			report, err := buildDoctorDeepReport(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if probeCalls != 1 {
+				t.Fatalf("native Stop probe calls = %d, want 1", probeCalls)
+			}
+			runtimeCheck := findCheck(t, report, "Grok native hook")
+			leaderCheck := findCheck(t, report, "Grok leader steering")
+			if !strings.Contains(runtimeCheck.Detail, test.runtimeState) || !strings.Contains(leaderCheck.Detail, test.leaderState) {
+				t.Fatalf("inconsistent Grok snapshot: runtime=%+v leader=%+v", runtimeCheck, leaderCheck)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name string
+		repo func(*testing.T) string
+	}{
+		{name: "missing hook", repo: func(t *testing.T) string { return makeCheckRepo(t, "rules: []\n") }},
+		{name: "undiscovered repository", repo: func(t *testing.T) string { return t.TempDir() }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			probeCalls := 0
+			doctorProbeGrokNativeStop = func() grokacp.NativeStopGateProbe {
+				probeCalls++
+				return grokacp.NativeStopGateProbe{Supported: true}
+			}
+			if _, err := buildDoctorDeepReport(test.repo(t)); err != nil {
+				t.Fatal(err)
+			}
+			if probeCalls != 0 {
+				t.Fatalf("native Stop probe calls = %d, want 0", probeCalls)
+			}
+		})
+	}
+}
+
 func TestRunDoctorDeepOK(t *testing.T) {
 	repo := makeCheckRepo(t,
 		"rules:\n  - id: deny-generated\n    kind: deny_write\n    paths: ['generated/**']\n    mode: warn\n    message: generated files are read-only\n")

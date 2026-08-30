@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 458 Reuse the doctor Grok capability probe -> tasks/458-reuse-doctor-grok-capability-probe.md
 - [ ] 459 Stream and reuse executable verification -> tasks/459-stream-and-reuse-executable-verification.md
 - [ ] 460 Render TUI width in terminal cells -> tasks/460-render-tui-width-in-terminal-cells.md
 
@@ -12,6 +11,7 @@
 
 ## Done
 
+- [x] 458 Reuse the doctor Grok capability probe -> tasks/done/458-reuse-doctor-grok-capability-probe.md
 - [x] 457 Avoid Git discovery for ordinary write paths -> tasks/done/457-avoid-git-discovery-for-ordinary-write-paths.md
 - [x] 456 Correct namespaced MCP strict audit -> tasks/done/456-correct-namespaced-mcp-strict-audit.md
 - [x] 455 Persist repository-run terminal reasons -> tasks/done/455-persist-repository-run-terminal-reasons.md
