@@ -339,6 +339,71 @@ func TestCallProgressQueuesInOrderWithoutBlockingProducer(t *testing.T) {
 	}
 }
 
+func TestCallProgressFinishSerializesWithAdmittedEnqueue(t *testing.T) {
+	type enqueueOutcome struct {
+		err        error
+		panicValue any
+	}
+	progress := &callProgress{}
+	processed := make(chan ProgressEvent, 1)
+	progress.start(context.Background(), func(event ProgressEvent) error {
+		processed <- event
+		return nil
+	})
+	cloneStarted := make(chan struct{})
+	releaseClone := make(chan struct{})
+	progress.cloneParams = func(body []byte) []byte {
+		close(cloneStarted)
+		<-releaseClone
+		return bytes.Clone(body)
+	}
+	enqueueDone := make(chan enqueueOutcome, 1)
+	go func() {
+		outcome := enqueueOutcome{}
+		defer func() {
+			outcome.panicValue = recover()
+			enqueueDone <- outcome
+		}()
+		outcome.err = progress.enqueue(context.Background(), ProgressEvent{
+			Params: []byte(`{"progressToken":"internal","progress":1}`), FrameBytes: 1,
+		})
+	}()
+	<-cloneStarted
+	finishStarted := make(chan struct{})
+	finishDone := make(chan struct{})
+	var reason action.ReasonCode
+	var recorded bool
+	var finishErr error
+	go func() {
+		close(finishStarted)
+		reason, recorded, finishErr = progress.finish()
+		close(finishDone)
+	}()
+	<-finishStarted
+
+	if progress.mu.TryLock() {
+		progress.mu.Unlock()
+		<-finishDone
+		close(releaseClone)
+	} else {
+		close(releaseClone)
+	}
+	outcome := <-enqueueDone
+	<-finishDone
+	if outcome.panicValue != nil {
+		t.Fatalf("admitted enqueue raced queue closure: %v", outcome.panicValue)
+	}
+	if outcome.err != nil || finishErr != nil || reason != "" || recorded {
+		t.Fatalf("enqueue=%v finish=(%q, %t, %v)", outcome.err, reason, recorded, finishErr)
+	}
+	if event := <-processed; event.FrameBytes != 1 {
+		t.Fatalf("processed event = %+v", event)
+	}
+	if err := progress.enqueue(context.Background(), ProgressEvent{FrameBytes: 1}); err == nil {
+		t.Fatal("finished progress queue accepted a late event")
+	}
+}
+
 func TestCallProgressQueueSaturationFailsClosed(t *testing.T) {
 	progress := &callProgress{}
 	started := make(chan struct{})

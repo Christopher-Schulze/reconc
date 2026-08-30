@@ -65,6 +65,22 @@ func BenchmarkCallProgressAdmission(b *testing.B) {
 	}
 }
 
+func BenchmarkCallProgressQueueLifecycle(b *testing.B) {
+	params := json.RawMessage(`{"progressToken":"internal","progress":1}`)
+	event := ProgressEvent{Params: params, FrameBytes: uint64(len(params))}
+	tracker := &callProgress{queue: make(chan ProgressEvent, 1)}
+	b.ReportAllocs()
+	b.SetBytes(int64(event.FrameBytes))
+	for b.Loop() {
+		if err := tracker.enqueue(context.Background(), event); err != nil {
+			b.Fatal(err)
+		}
+		<-tracker.queue
+		tracker.events = 0
+		tracker.bytes = 0
+	}
+}
+
 func benchmarkParseFrame(b *testing.B, frame []byte) {
 	b.Helper()
 	b.ReportAllocs()

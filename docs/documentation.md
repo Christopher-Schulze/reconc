@@ -2908,8 +2908,10 @@ normalization, repository evidence, action inspection, and ledger work are not
 repeated and are never held behind the approval-transition mutex.
 Progress uses a 16-event per-call work queue inside the existing 128-event and
 1 MiB budgets. Notifications remain source-ordered, a slow upstream sink cannot
-block the transport reader, and final result processing waits for admitted
-progress to drain or cancel. LangChain launches the Go binary through LangChain's own MCP
+block the transport reader, and queue admission plus non-blocking enqueue is
+serialized with closure under one lifecycle mutex. Final result processing
+therefore waits for every admitted event to drain or cancel without allowing a
+send after closure. LangChain launches the Go binary through LangChain's own MCP
 adapter; Reconc ships no Python or TypeScript LangChain adapter.
 
 Tool discovery and refresh use one Reconc-owned immutable published generation.

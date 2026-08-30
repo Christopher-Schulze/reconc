@@ -29,6 +29,7 @@ type callProgress struct {
 	lastProgress    action.Decimal
 	hasLastProgress bool
 	stopped         bool
+	closed          bool
 	workerErr       error
 	terminalReason  action.ReasonCode
 	failureRecorded bool
@@ -132,28 +133,36 @@ func (p *callProgress) start(ctx context.Context, handle func(ProgressEvent) err
 }
 
 func (p *callProgress) enqueue(ctx context.Context, event ProgressEvent) error {
-	admitted, reason := p.prepare(ctx, event)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	admitted, reason := p.prepareLocked(ctx, event)
 	if reason != "" {
-		p.setTerminalReason(reason)
+		p.setTerminalReasonLocked(reason)
 		return fmt.Errorf("suppress downstream progress: %s", reason)
 	}
 	select {
 	case <-ctx.Done():
-		p.stop()
+		p.stopped = true
 		reason := gatewayReason(ctx.Err(), action.ReasonCancelled)
-		p.setTerminalReason(reason)
+		p.setTerminalReasonLocked(reason)
 		return fmt.Errorf("suppress downstream progress: %s", reason)
 	case p.queue <- admitted:
 		return nil
 	default:
-		p.stop()
-		p.setTerminalReason(action.ReasonLimitExceeded)
+		p.stopped = true
+		p.setTerminalReasonLocked(action.ReasonLimitExceeded)
 		return fmt.Errorf("suppress downstream progress: %s", action.ReasonLimitExceeded)
 	}
 }
 
 func (p *callProgress) prepare(ctx context.Context, event ProgressEvent) (ProgressEvent, action.ReasonCode) {
-	if reason := p.admit(ctx, event); reason != "" {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.prepareLocked(ctx, event)
+}
+
+func (p *callProgress) prepareLocked(ctx context.Context, event ProgressEvent) (ProgressEvent, action.ReasonCode) {
+	if reason := p.admitLocked(ctx, event); reason != "" {
 		return ProgressEvent{}, reason
 	}
 	cloneParams := p.cloneParams
@@ -168,7 +177,12 @@ func (p *callProgress) finish() (action.ReasonCode, bool, error) {
 	if p == nil || p.done == nil {
 		return "", false, nil
 	}
-	p.finishOnce.Do(func() { close(p.queue) })
+	p.finishOnce.Do(func() {
+		p.mu.Lock()
+		p.closed = true
+		close(p.queue)
+		p.mu.Unlock()
+	})
 	<-p.done
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -185,9 +199,7 @@ func (p *callProgress) setWorkerError(err error, failureRecorded bool) {
 	p.stopped = true
 }
 
-func (p *callProgress) setTerminalReason(reason action.ReasonCode) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (p *callProgress) setTerminalReasonLocked(reason action.ReasonCode) {
 	if !p.failureRecorded && p.terminalReason == "" {
 		p.terminalReason = reason
 	}
@@ -419,7 +431,11 @@ func progressFloat(decimal action.Decimal) (float64, error) {
 func (p *callProgress) admit(ctx context.Context, event ProgressEvent) action.ReasonCode {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.stopped {
+	return p.admitLocked(ctx, event)
+}
+
+func (p *callProgress) admitLocked(ctx context.Context, event ProgressEvent) action.ReasonCode {
+	if p.stopped || p.closed {
 		return action.ReasonLimitExceeded
 	}
 	if err := ctx.Err(); err != nil {
