@@ -86,15 +86,27 @@ func TestRenderIsDeterministicBoundedAndURISafe(t *testing.T) {
 func TestOperationalReportsPreserveExitAndRedactHostPaths(t *testing.T) {
 	fixture := loadContractFixture(t)
 	repo := filepath.Join(t.TempDir(), "private repo")
-	cause := errors.New("open " + filepath.Join(repo, "policies", "rules.yml") + ": malformed; cache=/private/other/cache; windows=C:\\private\\cache")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cause := errors.New("open " + filepath.Join(repo, "policies", "rules.yml") +
+		": malformed; home=" + filepath.Join(home, "private", "cache") +
+		"; neighbor=" + repo + "-cache/file; cache=/private/other/cache; windows=C:\\private\\cache; url=https://example.test/a")
 	model := Operational("ci", "test", repo, Candidate{}, 2, cause)
-	for _, format := range []Format{FormatSARIF, FormatJUnit} {
+	for _, expected := range []string{"<repo>", "<home>", "<path>", "https://example.test/a"} {
+		if !strings.Contains(model.OperationalError, expected) {
+			t.Errorf("operational error omitted %q: %s", expected, model.OperationalError)
+		}
+	}
+	for _, format := range []Format{FormatSARIF, FormatJUnit, FormatGitHub} {
 		body, err := Render(format, model)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if bytes.Contains(body, []byte(repo)) || bytes.Contains(body, []byte("/private/other")) ||
-			bytes.Contains(body, []byte(`C:\private`)) || !bytes.Contains(body, []byte("operational")) {
+		if bytes.Contains(body, []byte(repo)) || bytes.Contains(body, []byte(home)) || bytes.Contains(body, []byte(repo+"-cache")) ||
+			bytes.Contains(body, []byte("/private/other")) ||
+			bytes.Contains(body, []byte(`C:\private`)) || !strings.Contains(strings.ToLower(string(body)), "operational") {
 			t.Fatalf("%s operational report leaked or omitted detail:\n%s", format, body)
 		}
 	}
@@ -111,6 +123,58 @@ func TestOperationalReportsPreserveExitAndRedactHostPaths(t *testing.T) {
 	}
 	if !bytes.Contains(sarifBody, []byte(`"exitCode": 2`)) {
 		t.Fatalf("SARIF lost exit code:\n%s", sarifBody)
+	}
+}
+
+func TestRedactHostPathsUsesCompleteBoundaries(t *testing.T) {
+	replacements := []hostPathReplacement{
+		{path: "/srv/über repo", token: "<repo>"},
+		{path: "/srv/project", token: "<repo>"},
+		{path: "/u", token: "<home>"},
+		{path: `C:\Users\Al\repo`, token: "<repo>"},
+	}
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{
+			name:  "known roots with spaces unicode and punctuation",
+			value: `open "/srv/über repo/policies/rules.yml"; home=/u/cache;`,
+			want:  `open "<repo>"; home=<home>;`,
+		},
+		{
+			name:  "prefix collisions become whole generic tokens",
+			value: `/srv/projector/a /u2/cache`,
+			want:  `<path> <path>`,
+		},
+		{
+			name:  "windows drive separators and neighbors",
+			value: `windows=(C:\Users\Al\repo\cache); neighbor=C:\Users\Al\repository\x lower=c:\users\al\repo\x`,
+			want:  `windows=(<repo>); neighbor=<path> lower=<path>`,
+		},
+		{
+			name:  "ordinary substrings and urls",
+			value: `prefix/u/cache https://example.test/u/cache textC:\Users\Al\repo`,
+			want:  `prefix/u/cache https://example.test/u/cache textC:\Users\Al\repo`,
+		},
+		{
+			name:  "multiple generic paths",
+			value: `one=/private/a,next two=D:/host/b; unc=\\server\share\c colon:/var/lib/x:detail`,
+			want:  `one=<path>,next two=<path>; unc=<path> colon:<path>:detail`,
+		},
+		{
+			name:  "unicode whitespace ends short-home token",
+			value: "/u/cache\u00a0next",
+			want:  "<home>\u00a0next",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := redactHostPaths(test.value, replacements); got != test.want {
+				t.Fatalf("redactHostPaths() = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 

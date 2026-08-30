@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
 func TestCheckEmitsSARIFAndJUnitWithoutChangingDecisionExit(t *testing.T) {
@@ -48,6 +51,26 @@ func TestCheckMachineFormatMapsStalePolicyToOperationalError(t *testing.T) {
 		if bytes.Contains(stdout.Bytes(), []byte(repo)) || stderr.Len() != 0 {
 			t.Fatalf("%s operational output leaked path or stderr: %s / %s", format, stdout.String(), stderr.String())
 		}
+	}
+}
+
+func TestLegacyPolicyReportErrorsRedactHostPaths(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "private repo")
+	cause := errors.New("open " + filepath.Join(repo, "policies", "rules.yml") + ": malformed")
+	for _, format := range []policyReportFormat{reportText, reportJSON, reportTerse} {
+		t.Run(string(format), func(t *testing.T) {
+			var output bytes.Buffer
+			err := writeCINativeFailureCode(
+				"ci", "test", repo, format, "", &output,
+				agentsession.CompletionStateSnapshot{}, 1, cause,
+			)
+			if err == nil || !strings.Contains(err.Error(), "<repo>") || strings.Contains(err.Error(), repo) {
+				t.Fatalf("legacy operational error = %q", err)
+			}
+			if output.Len() != 0 {
+				t.Fatalf("legacy operational output = %q", output.String())
+			}
+		})
 	}
 }
 

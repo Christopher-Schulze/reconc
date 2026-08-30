@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 439 Redact CI host paths on boundaries -> tasks/439-redact-ci-host-paths-on-boundaries.md
 - [ ] 440 Bound Grok continuation prompts -> tasks/440-bound-grok-continuation-prompts.md
 - [ ] 441 Short-circuit conditions and bound glob expansion -> tasks/441-short-circuit-conditions-and-bound-glob-expansion.md
 - [ ] 442 Validate budget selector and tool identities -> tasks/442-validate-budget-selector-and-tool-identities.md
@@ -31,6 +30,7 @@
 
 ## Done
 
+- [x] 439 Redact CI host paths on boundaries -> tasks/done/439-redact-ci-host-paths-on-boundaries.md
 - [x] 438 Bound impact filesystem snapshots -> tasks/done/438-bound-impact-filesystem-snapshots.md
 - [x] 437 Preserve completion drift error identity -> tasks/done/437-preserve-completion-drift-error-identity.md
 - [x] 436 Record manual retention completion -> tasks/done/436-record-manual-retention-completion.md

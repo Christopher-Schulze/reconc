@@ -86,10 +86,10 @@ func writeCINativeFailure(command, version, repo string, format policyReportForm
 }
 
 func writeCINativeFailureCode(command, version, repo string, format policyReportFormat, outputPath string, output io.Writer, candidate agentsession.CompletionStateSnapshot, exitCode int, cause error) error {
-	if !format.ciNative() {
-		return &CLIError{ExitCode: exitCode, Message: "reconc " + command + ": " + cause.Error()}
-	}
 	model := cireport.Operational(command, version, repo, ciCandidate(candidate), exitCode, cause)
+	if !format.ciNative() {
+		return &CLIError{ExitCode: exitCode, Message: "reconc " + command + ": " + model.OperationalError}
+	}
 	if err := writeCINativeModel(command, format, outputPath, output, model); err != nil {
 		return err
 	}

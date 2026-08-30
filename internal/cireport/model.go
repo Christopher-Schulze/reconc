@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
 	"reconc.dev/reconc/internal/impactlab"
 	"reconc.dev/reconc/internal/runtime"
@@ -294,44 +295,130 @@ func levelForMode(mode string) string {
 }
 
 func redactHostText(value, repo string) string {
-	replacements := []string{repo}
+	replacements := []hostPathReplacement{{path: repo, token: "<repo>"}}
 	if absolute, err := filepath.Abs(repo); err == nil {
-		replacements = append(replacements, absolute)
+		replacements = append(replacements, hostPathReplacement{path: absolute, token: "<repo>"})
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		replacements = append(replacements, home)
+		replacements = append(replacements, hostPathReplacement{path: home, token: "<home>"})
 	}
-	for _, private := range replacements {
-		if private != "" && private != "." && private != string(filepath.Separator) {
-			value = strings.ReplaceAll(value, private, ".")
+	return cleanText(redactHostPaths(value, replacements))
+}
+
+type hostPathReplacement struct {
+	path  string
+	token string
+}
+
+func redactHostPaths(value string, replacements []hostPathReplacement) string {
+	unique := make(map[string]hostPathReplacement, len(replacements))
+	for _, replacement := range replacements {
+		replacement.path = strings.TrimRight(replacement.path, `/\`)
+		if replacement.path != "" && replacement.path != "." && replacement.token != "" {
+			unique[replacement.path] = replacement
 		}
 	}
-	return cleanText(redactAbsoluteTokens(value))
+	replacements = replacements[:0]
+	for _, replacement := range unique {
+		replacements = append(replacements, replacement)
+	}
+	sort.Slice(replacements, func(left, right int) bool {
+		return len(replacements[left].path) > len(replacements[right].path)
+	})
+	for _, replacement := range replacements {
+		value = redactKnownHostPath(value, replacement)
+	}
+	return redactAbsoluteTokens(value)
+}
+
+func redactKnownHostPath(value string, replacement hostPathReplacement) string {
+	var output strings.Builder
+	for offset := 0; offset < len(value); {
+		match := strings.Index(value[offset:], replacement.path)
+		if match < 0 {
+			output.WriteString(value[offset:])
+			break
+		}
+		match += offset
+		rootEnd := match + len(replacement.path)
+		if !hostPathStartBoundary(value, match) {
+			output.WriteString(value[offset : match+1])
+			offset = match + 1
+			continue
+		}
+		output.WriteString(value[offset:match])
+		if !hostPathRootEnd(value, rootEnd) {
+			output.WriteString("<path>")
+			offset = hostPathTokenEnd(value, rootEnd)
+			continue
+		}
+		output.WriteString(replacement.token)
+		offset = hostPathTokenEnd(value, rootEnd)
+	}
+	return output.String()
 }
 
 func redactAbsoluteTokens(value string) string {
-	fields := strings.Fields(value)
-	for index, field := range fields {
-		if start := absolutePathStart(field); start >= 0 {
-			prefix := field[:start]
-			suffix := strings.TrimRight(field[start:], "\"'`()[]{}<>,;:")
-			fields[index] = prefix + strings.Replace(field[start:], suffix, "<path>", 1)
+	var output strings.Builder
+	for index := 0; index < len(value); {
+		if absolutePathStart(value, index) {
+			end := hostPathTokenEnd(value, index)
+			if end > index+1 {
+				output.WriteString("<path>")
+				index = end
+				continue
+			}
 		}
+		output.WriteByte(value[index])
+		index++
 	}
-	return strings.Join(fields, " ")
+	return output.String()
 }
 
-func absolutePathStart(value string) int {
-	for index := range value {
-		if value[index] == '/' {
-			return index
-		}
-		if index+2 < len(value) && value[index+1] == ':' &&
-			(value[index+2] == '\\' || value[index+2] == '/') {
-			return index
+func absolutePathStart(value string, index int) bool {
+	if !hostPathStartBoundary(value, index) {
+		return false
+	}
+	if value[index] == '/' {
+		return index+1 < len(value) && !(index > 0 && value[index-1] == ':' && value[index+1] == '/')
+	}
+	if value[index] == '\\' {
+		return index+1 < len(value) && value[index+1] == '\\'
+	}
+	return index+2 < len(value) && isASCIILetter(value[index]) && value[index+1] == ':' &&
+		(value[index+2] == '\\' || value[index+2] == '/')
+}
+
+func hostPathStartBoundary(value string, index int) bool {
+	if index == 0 {
+		return true
+	}
+	previous := value[index-1]
+	return previous <= ' ' || strings.ContainsRune(`:="'`+"`"+`([{<,;`, rune(previous))
+}
+
+func hostPathRootEnd(value string, index int) bool {
+	if index == len(value) {
+		return true
+	}
+	next := value[index]
+	return next == '/' || next == '\\' || next <= ' ' || strings.ContainsRune(`"'`+"`"+`)]}>,;:`, rune(next))
+}
+
+func hostPathTokenEnd(value string, index int) int {
+	for offset, character := range value[index:] {
+		position := index + offset
+		if character < 0x20 || unicode.IsSpace(character) ||
+			strings.ContainsRune(`"'`+"`"+`)]}>,;`, character) ||
+			character == ':' && !(position == index+1 && isASCIILetter(value[index])) {
+			return position
 		}
 	}
-	return -1
+	return len(value)
+}
+
+func isASCIILetter(value byte) bool {
+	return value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
 }
 
 func validateModel(model Model) error {

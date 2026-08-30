@@ -889,7 +889,10 @@ paths, escape JSON/XML, URI, terminal-control, and workflow-command content,
 cap text, paths, findings, and total output, and never invent source
 coordinates. `--output` atomically writes the exact stdout bytes without human
 prefixes. Defaults and exit codes remain unchanged; report generation performs
-no network call.
+no network call. Operational errors use one boundary-aware sanitizer across
+text, JSON, terse, SARIF, and JUnit modes: complete repository and home roots
+become canonical tokens, remaining Unix, drive-letter, and UNC absolute paths
+become `<path>`, and neighboring components, punctuation, and URLs remain intact.
 
 Native consumer examples:
 

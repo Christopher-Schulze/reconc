@@ -1063,7 +1063,12 @@ locations without invented line numbers.
 The shared neutral report model includes bounded rule, mode, message,
 remediation, matched-path, candidate-fingerprint, policy-lock, worktree, and
 optional Git-range metadata. It excludes absolute host identity and escapes
-JSON, XML, URI, terminal-control, and workflow-command content. Outputs are
+JSON, XML, URI, terminal-control, and workflow-command content. Operational
+errors pass through one boundary-aware sanitizer before text bounding: complete
+repository and home roots become canonical tokens, other Unix, drive-letter,
+and UNC absolute paths become `<path>`, and neighboring components, punctuation,
+and URLs are not partially rewritten. The same sanitized error reaches legacy
+text/JSON/terse failures plus SARIF, JUnit, and GitHub output. Outputs are
 deterministic, capped at 1,024 findings and 8 MiB, make no network call, and
 are rendered to stdout and staged for `--output`; after rendering succeeds, the
 complete same bytes are atomically published. Existing text/JSON/terse defaults
