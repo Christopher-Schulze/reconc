@@ -107,6 +107,74 @@ func BenchmarkActionPointerSummaryMaximumDepth(b *testing.B) {
 	benchmarkActionPointerSummary(b, root, tokens, ValueString)
 }
 
+func BenchmarkActionMembershipMaximum(b *testing.B) {
+	values := make([]Value, MaxListValues)
+	for index := range values {
+		values[index] = testStringValue(b, fmt.Sprintf("value-%03d", index))
+	}
+	operand, err := Array(values)
+	if err != nil {
+		b.Fatal(err)
+	}
+	target := values[len(values)-1]
+	b.ReportAllocs()
+	for b.Loop() {
+		state, reason := evaluateMembership(OperatorIn, target, operand)
+		if state != ConditionTrue || reason != "" {
+			b.Fatalf("membership = %s, %s", state, reason)
+		}
+	}
+}
+
+func BenchmarkValidateRuntimeValueMaximumLegal(b *testing.B) {
+	value := benchmarkMaximumLegalValue(b)
+	b.ReportAllocs()
+	b.SetBytes(MaxArgumentBytes)
+	for b.Loop() {
+		if _, _, err := cloneRuntimeValue(value); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkActionRootPointerSummaryMultiRule(b *testing.B) {
+	rules := make([]Rule, 64)
+	for index := range rules {
+		rules[index] = Rule{
+			ID:       fmt.Sprintf("root-%03d", index),
+			Selector: Selector{Phases: []Phase{PhasePreCall}}, Decision: DecisionWarn,
+			When:           &Condition{Predicate: &Predicate{Source: SourceArguments, Op: OperatorExists}},
+			SourceIdentity: ".reconc.yml",
+		}
+	}
+	evaluator, input := testActionEvaluator(b, rules, Defaults{}, testExternalEffect())
+	arguments := benchmarkMaximumLegalValue(b)
+	input.Request.Arguments = &arguments
+	b.ReportAllocs()
+	b.SetBytes(MaxArgumentBytes)
+	for b.Loop() {
+		result := evaluator.Evaluate(input)
+		if result.Decision != DecisionWarn || len(result.Trace) != len(rules) {
+			b.Fatalf("root evaluation = %s, trace %d", result.Decision, len(result.Trace))
+		}
+	}
+}
+
+func BenchmarkActionEvaluationNormalizationFailureMaximumValue(b *testing.B) {
+	evaluator, input := testActionEvaluator(b, nil, Defaults{}, testExternalEffect())
+	arguments := benchmarkMaximumLegalValue(b)
+	input.Request.Arguments = &arguments
+	input.Principal = ""
+	b.ReportAllocs()
+	b.SetBytes(MaxArgumentBytes)
+	for b.Loop() {
+		result := evaluator.Evaluate(input)
+		if result.Failure == nil || result.Failure.Code != ReasonIdentityUnavailable {
+			b.Fatalf("failure = %#v", result.Failure)
+		}
+	}
+}
+
 func benchmarkActionPointerSummary(b *testing.B, root Value, tokens []string, want ValueKind) {
 	b.Helper()
 	b.ReportAllocs()

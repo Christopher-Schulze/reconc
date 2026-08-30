@@ -16,7 +16,7 @@ func evaluateConditionTree(
 	decision Decision,
 	depth int,
 ) conditionEvaluation {
-	return evaluateConditionTreeCore(condition, request, decision, depth, nil, true)
+	return evaluateConditionTreeCore(condition, request, decision, depth, nil, true, true)
 }
 
 func evaluateConditionTreeWithRoots(
@@ -26,7 +26,7 @@ func evaluateConditionTreeWithRoots(
 	depth int,
 	roots *predicateRoots,
 ) conditionEvaluation {
-	return evaluateConditionTreeCore(condition, request, decision, depth, roots, false)
+	return evaluateConditionTreeCore(condition, request, decision, depth, roots, false, true)
 }
 
 func evaluateConditionTreeCore(
@@ -36,6 +36,7 @@ func evaluateConditionTreeCore(
 	depth int,
 	roots *predicateRoots,
 	validatePointer bool,
+	summaryRequired bool,
 ) conditionEvaluation {
 	if condition == nil {
 		return conditionEvaluation{state: ConditionTrue, complete: true}
@@ -45,9 +46,13 @@ func evaluateConditionTreeCore(
 	}
 	switch condition.Kind {
 	case ConditionPredicate:
-		return evaluatePredicateConditionCore(condition, request, decision, roots, validatePointer)
+		return evaluatePredicateConditionCore(
+			condition, request, decision, roots, validatePointer, summaryRequired,
+		)
 	case ConditionNot:
-		return evaluateNotConditionCore(condition, request, decision, depth, roots, validatePointer)
+		return evaluateNotConditionCore(
+			condition, request, decision, depth, roots, validatePointer, summaryRequired,
+		)
 	case ConditionAll, ConditionAny:
 		return evaluateLogicalConditionCore(condition, request, decision, depth, roots, validatePointer)
 	default:
@@ -61,16 +66,14 @@ func evaluatePredicateConditionCore(
 	decision Decision,
 	roots *predicateRoots,
 	validatePointer bool,
+	summaryRequired bool,
 ) conditionEvaluation {
 	if condition.Predicate == nil || len(condition.Children) != 0 {
 		return invalidConditionEvaluation(1)
 	}
-	var predicate predicateEvaluation
-	if validatePointer {
-		predicate = evaluatePredicate(condition.Predicate, request, decision)
-	} else {
-		predicate = evaluatePredicateWithRoots(condition.Predicate, request, decision, roots)
-	}
+	predicate := evaluatePredicateCore(
+		condition.Predicate, request, decision, roots, validatePointer, summaryRequired,
+	)
 	return conditionEvaluation{
 		state: predicate.state, reason: predicate.reason,
 		actual: predicate.actual, required: predicate.required,
@@ -85,11 +88,15 @@ func evaluateNotConditionCore(
 	depth int,
 	roots *predicateRoots,
 	validatePointer bool,
+	summaryRequired bool,
 ) conditionEvaluation {
 	if condition.Predicate != nil || len(condition.Children) != 1 {
 		return invalidConditionEvaluation(1)
 	}
-	child := evaluateConditionTreeCore(condition.Children[0], request, decision, depth+1, roots, validatePointer)
+	child := evaluateConditionTreeCore(
+		condition.Children[0], request, decision, depth+1,
+		roots, validatePointer, summaryRequired,
+	)
 	child.nodes++
 	if child.nodes > MaxConditionNodes {
 		return invalidConditionEvaluation(child.nodes)
@@ -120,7 +127,9 @@ func evaluateLogicalConditionCore(
 		result.state = ConditionFalse
 	}
 	for _, child := range condition.Children {
-		childResult := evaluateConditionTreeCore(child, request, decision, depth+1, roots, validatePointer)
+		childResult := evaluateConditionTreeCore(
+			child, request, decision, depth+1, roots, validatePointer, false,
+		)
 		result.nodes += childResult.nodes
 		if result.nodes > MaxConditionNodes {
 			return invalidConditionEvaluation(result.nodes)

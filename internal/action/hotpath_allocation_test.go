@@ -157,3 +157,33 @@ func TestPointerTraversalAndSummaryDoNotAllocate(t *testing.T) {
 		t.Fatalf("pointer traversal and summary allocated %.2f times per run", allocations)
 	}
 }
+
+func TestMembershipAndMaximumRuntimeSizingDoNotAllocate(t *testing.T) {
+	values := make([]Value, MaxListValues)
+	for index := range values {
+		values[index] = testStringValue(t, strconv.Itoa(index))
+	}
+	operand, err := Array(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := values[len(values)-1]
+	if allocations := testing.AllocsPerRun(1_000, func() {
+		state, reason := evaluateMembership(OperatorIn, target, operand)
+		if state != ConditionTrue || reason != "" {
+			panic("membership changed")
+		}
+	}); allocations != 0 {
+		t.Fatalf("maximum membership allocated %.2f times per run", allocations)
+	}
+
+	maximum := benchmarkMaximumLegalValue(t)
+	if allocations := testing.AllocsPerRun(3, func() {
+		_, size, cloneErr := cloneRuntimeValue(maximum)
+		if cloneErr != nil || size != MaxArgumentBytes {
+			panic("runtime value sizing changed")
+		}
+	}); allocations != 0 {
+		t.Fatalf("maximum runtime sizing allocated %.2f times per run", allocations)
+	}
+}

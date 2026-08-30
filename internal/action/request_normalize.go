@@ -208,10 +208,11 @@ func validateAndCloneRequest(input Request) (Request, error) {
 	if err := validateRequestMetadata(request); err != nil {
 		return Request{}, err
 	}
-	if err := validatePhasePayload(&request); err != nil {
+	phaseBytes, err := validatePhasePayload(&request)
+	if err != nil {
 		return Request{}, err
 	}
-	context, err := cloneContextValues(request.Context, phaseValueBytes(request))
+	context, err := cloneContextValues(request.Context, phaseBytes)
 	if err != nil {
 		return Request{}, err
 	}
@@ -271,16 +272,15 @@ func cloneContextValues(input []ContextValue, valueBytes int) ([]ContextValue, e
 			context[index] = ContextValue{Name: entry.Name, Provenance: entry.Provenance}
 			continue
 		}
-		value, err := cloneRuntimeValue(entry.Value)
+		value, size, err := cloneRuntimeValue(entry.Value)
 		if err != nil {
 			return nil, err
 		}
 		context[index] = ContextValue{Name: entry.Name, Value: value, Provenance: entry.Provenance, Available: true}
-		body, _ := value.MarshalJSON()
-		if len(body) > MaxArgumentBytes-valueBytes {
+		if size > MaxArgumentBytes-valueBytes {
 			return nil, &RequestError{Code: ReasonLimitExceeded, Message: "request values exceed the aggregate byte limit"}
 		}
-		valueBytes += len(body)
+		valueBytes += size
 	}
 	sort.Slice(context, func(i, j int) bool { return context[i].Name < context[j].Name })
 	for index := 1; index < len(context); index++ {
@@ -291,73 +291,66 @@ func cloneContextValues(input []ContextValue, valueBytes int) ([]ContextValue, e
 	return context, nil
 }
 
-func phaseValueBytes(request Request) int {
-	for _, value := range []*Value{request.Arguments, request.Result, request.Progress} {
-		if value != nil {
-			body, _ := value.MarshalJSON()
-			return len(body)
-		}
-	}
-	return 0
-}
-
-func validatePhasePayload(request *Request) error {
+func validatePhasePayload(request *Request) (int, error) {
 	switch request.Phase {
 	case PhasePreCall:
 		if request.Arguments == nil || request.Result != nil || request.Progress != nil {
-			return &RequestError{Code: ReasonUnsupportedPhase, Message: "pre-call payload shape is invalid"}
+			return 0, &RequestError{Code: ReasonUnsupportedPhase, Message: "pre-call payload shape is invalid"}
 		}
-		value, err := cloneRuntimeValue(*request.Arguments)
+		value, size, err := cloneRuntimeValue(*request.Arguments)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if value.Kind() != ValueObject {
-			return &RequestError{Code: ReasonInvalidRequest, Message: "arguments must contain one object"}
+			return 0, &RequestError{Code: ReasonInvalidRequest, Message: "arguments must contain one object"}
 		}
 		request.Arguments = &value
+		return size, nil
 	case PhasePostResult:
 		if request.Arguments != nil || request.Result == nil || request.Progress != nil {
-			return &RequestError{Code: ReasonUnsupportedPhase, Message: "post-result payload shape is invalid"}
+			return 0, &RequestError{Code: ReasonUnsupportedPhase, Message: "post-result payload shape is invalid"}
 		}
-		value, err := cloneRuntimeValue(*request.Result)
+		value, size, err := cloneRuntimeValue(*request.Result)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		request.Result = &value
+		return size, nil
 	case PhaseProgress:
 		if request.Arguments != nil || request.Result != nil || request.Progress == nil {
-			return &RequestError{Code: ReasonUnsupportedPhase, Message: "progress payload shape is invalid"}
+			return 0, &RequestError{Code: ReasonUnsupportedPhase, Message: "progress payload shape is invalid"}
 		}
-		value, err := cloneRuntimeValue(*request.Progress)
+		value, size, err := cloneRuntimeValue(*request.Progress)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		request.Progress = &value
+		return size, nil
 	case PhaseObservation:
 		if request.Arguments != nil || request.Result != nil || request.Progress != nil {
-			return &RequestError{Code: ReasonUnsupportedPhase, Message: "observation payload shape is invalid"}
+			return 0, &RequestError{Code: ReasonUnsupportedPhase, Message: "observation payload shape is invalid"}
 		}
+		return 0, nil
 	default:
-		return &RequestError{Code: ReasonUnsupportedPhase, Message: "request phase is unsupported"}
+		return 0, &RequestError{Code: ReasonUnsupportedPhase, Message: "request phase is unsupported"}
 	}
-	return nil
 }
 
-func cloneRuntimeValue(value Value) (Value, error) {
+func cloneRuntimeValue(value Value) (Value, int, error) {
 	items := 0
 	if err := validateRuntimeValue(value, 0, &items); err != nil {
-		return Value{}, err
+		return Value{}, 0, err
 	}
-	body, err := value.MarshalJSON()
+	size, err := value.CanonicalJSONSize()
 	if err != nil {
-		return Value{}, &RequestError{Code: ReasonInvalidRequest, Message: "normalized value is invalid"}
+		return Value{}, 0, &RequestError{Code: ReasonInvalidRequest, Message: "normalized value is invalid"}
 	}
-	if len(body) > MaxArgumentBytes {
-		return Value{}, &RequestError{Code: ReasonLimitExceeded, Message: "normalized value exceeds the byte limit"}
+	if size > MaxArgumentBytes {
+		return Value{}, 0, &RequestError{Code: ReasonLimitExceeded, Message: "normalized value exceeds the byte limit"}
 	}
 	// Value owns a closed representation. Its slices are private and every
 	// accessor returns a copy, so a validated value copy is immutable to callers.
-	return value, nil
+	return value, size, nil
 }
 
 func validateRuntimeValue(value Value, depth int, items *int) error {

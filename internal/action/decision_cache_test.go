@@ -445,3 +445,26 @@ func TestPreparedDecisionCacheBindsOneImmutableEvaluation(t *testing.T) {
 		t.Fatal("prepared store accepted a result bound to another identity")
 	}
 }
+
+func TestEvaluationFailuresReuseOrRejectPreparedCacheIdentity(t *testing.T) {
+	t.Parallel()
+	evaluator, input := testActionEvaluator(t, nil, Defaults{}, testExternalEffect())
+
+	cancelled := input
+	cancelled.Lifecycle = LifecycleCancelled
+	want := evaluator.CacheIdentity(cancelled)
+	result := evaluator.Evaluate(cancelled)
+	if result.Failure == nil || result.Failure.Code != ReasonCancelled ||
+		result.Cache.Eligible || result.Cache.Reason != want.Reason ||
+		result.Cache.Identity != want.Identity {
+		t.Fatalf("prepared lifecycle failure cache = %#v, want %#v", result, want)
+	}
+
+	invalid := input
+	invalid.Principal = ""
+	result = evaluator.Evaluate(invalid)
+	if result.Failure == nil || result.Cache.Eligible ||
+		result.Cache.Reason != CacheIdentityMissing || result.Cache.Identity != "" {
+		t.Fatalf("normalization failure cache = %#v", result)
+	}
+}

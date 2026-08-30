@@ -125,11 +125,10 @@ func (e *Evaluator) Evaluate(input EvaluationInput) EvaluationResult {
 	if e == nil {
 		return failEvaluation(nil, input, ReasonPolicyMissing, "compiled action policy is unavailable")
 	}
-	normalized, requestIdentity, expected, failure := e.prepareEvaluation(input)
+	normalized, requestIdentity, cacheBase, failure := e.prepareEvaluation(input)
 	if failure != nil {
 		return *failure
 	}
-	cacheBase := e.cacheIdentityNormalized(normalized, requestIdentity, expected)
 	return evaluatePreparedInput(e, normalized, requestIdentity, cacheBase)
 }
 
@@ -140,13 +139,13 @@ func (e *Evaluator) Prepare(input EvaluationInput) *PreparedEvaluation {
 		failure := failEvaluation(nil, input, ReasonPolicyMissing, "compiled action policy is unavailable")
 		return &PreparedEvaluation{failure: &failure}
 	}
-	normalized, requestIdentity, expected, failure := e.prepareEvaluation(input)
+	normalized, requestIdentity, cacheBase, failure := e.prepareEvaluation(input)
 	if failure != nil {
 		return &PreparedEvaluation{evaluator: e, failure: failure, cache: failure.Cache}
 	}
 	return &PreparedEvaluation{
 		evaluator: e, input: normalized, requestIdentity: requestIdentity,
-		cache: e.cacheIdentityNormalized(normalized, requestIdentity, expected),
+		cache: cacheBase,
 	}
 }
 
@@ -190,24 +189,25 @@ func evaluatePreparedInput(
 
 func (e *Evaluator) prepareEvaluation(
 	input EvaluationInput,
-) (EvaluationInput, string, IdentitySnapshot, *EvaluationResult) {
+) (EvaluationInput, string, CacheResult, *EvaluationResult) {
 	normalized, err := e.normalizeEvaluationInput(input)
 	if err != nil {
 		failure := failEvaluation(e, input, err.Code, err.Message)
-		return EvaluationInput{}, "", IdentitySnapshot{}, &failure
+		return EvaluationInput{}, "", CacheResult{}, &failure
 	}
 	input = normalized
 	requestIdentity, identityErr := requestDigestValidated(input.Request)
 	if identityErr != nil {
 		failure := failEvaluation(e, input, ReasonInternalInvariant, "canonical request identity failed")
-		return EvaluationInput{}, "", IdentitySnapshot{}, &failure
+		return EvaluationInput{}, "", CacheResult{}, &failure
 	}
 	expected := e.expectedIdentities(input)
+	cacheBase := e.cacheIdentityNormalized(input, requestIdentity, expected)
 	if code := e.preflightFailure(input, expected); code != "" {
-		failure := failEvaluation(e, input, code, failureMessage(code))
-		return EvaluationInput{}, "", IdentitySnapshot{}, &failure
+		failure := failEvaluationWithCache(e, input, code, failureMessage(code), cacheBase)
+		return EvaluationInput{}, "", CacheResult{}, &failure
 	}
-	return input, requestIdentity, expected, nil
+	return input, requestIdentity, cacheBase, nil
 }
 
 func (e *Evaluator) preflightFailure(input EvaluationInput, expected IdentitySnapshot) ReasonCode {
@@ -248,6 +248,10 @@ func newEvaluationAccumulator(
 	}
 }
 
+func (a *evaluationAccumulator) fail(code ReasonCode, message string) EvaluationResult {
+	return failEvaluationWithCache(a.evaluator, a.input, code, message, a.cacheBase)
+}
+
 func (a *evaluationAccumulator) addBudgets() *EvaluationResult {
 	for _, budget := range a.budgets {
 		if budget.Available {
@@ -269,7 +273,7 @@ func (a *evaluationAccumulator) addInspection() *EvaluationResult {
 	if evidence.Status == InspectionIncomplete {
 		markEvaluationIncomplete(&a.completeness, evidence.Reason)
 		a.input.Request.Completeness = a.completeness
-		failure := failEvaluation(a.evaluator, a.input, evidence.Reason, "content inspection did not complete safely")
+		failure := a.fail(evidence.Reason, "content inspection did not complete safely")
 		return &failure
 	}
 	if evidence.Status != InspectionMatched {
@@ -298,7 +302,7 @@ func (a *evaluationAccumulator) addRepositoryEffect() *EvaluationResult {
 		return nil
 	}
 	if a.input.RepositoryEffect == nil || !a.input.RepositoryEffect.Complete {
-		failure := failEvaluation(a.evaluator, a.input, ReasonInspectionIncomplete, "repository effect evidence is incomplete")
+		failure := a.fail(ReasonInspectionIncomplete, "repository effect evidence is incomplete")
 		return &failure
 	}
 	candidate := Candidate{
@@ -320,7 +324,7 @@ func (a *evaluationAccumulator) addRepositoryEffect() *EvaluationResult {
 func (a *evaluationAccumulator) evaluateRules() *EvaluationResult {
 	for _, rule := range a.evaluator.rules {
 		if code := a.evaluateRule(rule); code != "" {
-			failure := failEvaluation(a.evaluator, a.input, code, failureMessage(code))
+			failure := a.fail(code, failureMessage(code))
 			return &failure
 		}
 	}
@@ -393,7 +397,7 @@ func (a *evaluationAccumulator) result() EvaluationResult {
 	}
 	trace, traceComplete, traceOmitted, err := a.trace.finish()
 	if err != nil {
-		return failEvaluation(a.evaluator, a.input, ReasonInternalInvariant, "trace encoding failed")
+		return a.fail(ReasonInternalInvariant, "trace encoding failed")
 	}
 	result.Trace, result.TraceComplete, result.TraceOmitted = trace, traceComplete, traceOmitted
 	result.Cache = finalizeCacheResult(
@@ -402,7 +406,7 @@ func (a *evaluationAccumulator) result() EvaluationResult {
 	if decision == DecisionRequireApproval {
 		identity, err := approvalRequirementIdentity(a.input, result)
 		if err != nil {
-			return failEvaluation(a.evaluator, a.input, ReasonInternalInvariant, "approval identity encoding failed")
+			return a.fail(ReasonInternalInvariant, "approval identity encoding failed")
 		}
 		result.RequiredApprovalIdentity = identity
 	}
@@ -882,6 +886,18 @@ func failEvaluation(
 	code ReasonCode,
 	message string,
 ) EvaluationResult {
+	return failEvaluationWithCache(
+		e, input, code, message, CacheResult{Reason: CacheIdentityMissing},
+	)
+}
+
+func failEvaluationWithCache(
+	e *Evaluator,
+	input EvaluationInput,
+	code ReasonCode,
+	message string,
+	cache CacheResult,
+) EvaluationResult {
 	planIdentity := ""
 	if e != nil {
 		planIdentity = e.identity
@@ -894,15 +910,18 @@ func failEvaluation(
 		TraceComplete:    true, Completeness: input.Request.Completeness,
 		PolicyDigest: input.Request.PolicyDigest, LockDigest: input.Request.LockDigest,
 		PlanIdentity: planIdentity, SourceIdentity: input.SourceIdentity,
-		Cache:        CacheResult{Reason: CacheFailureResult},
+		Cache:        cache,
 		PhaseOutcome: phaseOutcome(phase, DecisionBlock),
 		Failure:      &Failure{Code: code, Message: message},
 		Inspection:   cloneInspectionEvidence(input.Inspection),
 	}
-	if e != nil {
-		result.Cache = e.CacheIdentity(input)
-		result.Cache.Eligible = false
-		if result.Cache.Reason == CacheEligible {
+	result.Cache.Eligible = false
+	if result.Cache.Reason == "" {
+		result.Cache.Reason = CacheIdentityMissing
+	} else if result.Cache.Reason == CacheEligible {
+		if !input.Request.Completeness.Complete() {
+			result.Cache.Reason = CacheEvidenceIncomplete
+		} else {
 			result.Cache.Reason = CacheFailureResult
 		}
 	}

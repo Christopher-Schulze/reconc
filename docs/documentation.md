@@ -3100,6 +3100,18 @@ maximum legal action plan reduced allocations from 810 to 806 in the calibrated
 run; prepared cache lookup and store each avoid normalization and retain only
 the required defensive result copy.
 
+The follow-up action hot-path pass removes the defensive 32 KiB operand copy
+from maximum 256-item membership checks, validates and sizes an 8 MiB canonical
+runtime value with zero heap allocation, computes normal logical-condition
+summaries only when a trace can use them, and memoizes exact root sizes within
+one evaluation. Three focused Apple M1 samples moved a 64-rule 8 MiB root
+evaluation from about 1.89 seconds and 48.2 MiB/op to about 105 milliseconds and
+31.4 MiB/op. A late normalization failure moved from about 147 milliseconds and
+33.6 MiB/op to about 28 milliseconds and a 13.7 KiB/op median because failure
+construction no longer repeats normalization or cache-identity work. These
+latencies are local observations; the allocation and single-pass contracts are
+the portable result.
+
 Independent enforcement requires an operator-supplied expected lock digest.
 An explicit repository-managed mode is available with lower provenance and a
 visible policy-tampering boundary. Repository policy can never select the

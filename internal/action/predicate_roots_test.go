@@ -90,3 +90,32 @@ func TestPredicateRootsPreserveNonRootPointerResolution(t *testing.T) {
 		})
 	}
 }
+
+func TestPredicateRootsMemoizeOnlyRequiredRootSummaries(t *testing.T) {
+	t.Parallel()
+	arguments := mustTestValue(t, `{"name":"alpha","items":[1,2,3]}`)
+	request := Request{Arguments: &arguments}
+	exists := compileTestPredicate(t, Predicate{Source: SourceArguments, Op: OperatorExists})
+
+	roots := predicateRoots{}
+	first := evaluatePredicateWithRoots(exists, request, DecisionBlock, &roots)
+	second := evaluatePredicateWithRoots(exists, request, DecisionBlock, &roots)
+	wantSize, err := arguments.CanonicalJSONSize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !roots.argumentSize.ready || !roots.argumentSize.valid ||
+		first.summary.ByteLength != wantSize || second.summary != first.summary {
+		t.Fatalf("memoized root summaries = %#v, %#v; memo = %#v", first.summary, second.summary, roots.argumentSize)
+	}
+
+	logicalRoots := predicateRoots{}
+	condition := &CompiledCondition{Kind: ConditionAll, Children: []*CompiledCondition{
+		{Kind: ConditionPredicate, Predicate: exists},
+		{Kind: ConditionPredicate, Predicate: exists},
+	}}
+	result := evaluateConditionTreeWithRoots(condition, request, DecisionBlock, 1, &logicalRoots)
+	if result.state != ConditionTrue || result.summary != (OperandSummary{}) || logicalRoots.argumentSize.ready {
+		t.Fatalf("unused logical summary = %#v; memo = %#v", result, logicalRoots.argumentSize)
+	}
+}

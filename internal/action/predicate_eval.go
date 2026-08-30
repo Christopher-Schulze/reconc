@@ -32,6 +32,16 @@ type predicateRoots struct {
 	contextValue  selectedValue
 	contextReady  bool
 	contextBuilds uint32
+	argumentSize  canonicalSizeMemo
+	contextSize   canonicalSizeMemo
+	resultSize    canonicalSizeMemo
+	progressSize  canonicalSizeMemo
+}
+
+type canonicalSizeMemo struct {
+	ready bool
+	valid bool
+	size  int
 }
 
 func evaluatePredicate(
@@ -39,7 +49,7 @@ func evaluatePredicate(
 	request Request,
 	ruleDecision Decision,
 ) predicateEvaluation {
-	return evaluatePredicateCore(predicate, request, ruleDecision, nil, true)
+	return evaluatePredicateCore(predicate, request, ruleDecision, nil, true, true)
 }
 
 func evaluatePredicateWithRoots(
@@ -48,7 +58,7 @@ func evaluatePredicateWithRoots(
 	ruleDecision Decision,
 	roots *predicateRoots,
 ) predicateEvaluation {
-	return evaluatePredicateCore(predicate, request, ruleDecision, roots, false)
+	return evaluatePredicateCore(predicate, request, ruleDecision, roots, false, true)
 }
 
 func evaluatePredicateCore(
@@ -57,6 +67,7 @@ func evaluatePredicateCore(
 	ruleDecision Decision,
 	roots *predicateRoots,
 	validatePointer bool,
+	summaryRequired bool,
 ) predicateEvaluation {
 	if predicate == nil || !predicate.Predicate.Op.Valid() ||
 		!predicate.Predicate.Source.Valid() ||
@@ -64,21 +75,33 @@ func evaluatePredicateCore(
 		return indeterminatePredicate(ReasonInternalInvariant, "", "", OperandSummary{})
 	}
 	selected := selectPredicateValueWithRoots(predicate, request, roots)
-	summary := summarizePointer(selected.pointer)
 	required := predicate.Predicate.MinimumProvenance
 	if predicate.Predicate.Source == SourceContext {
 		if !selected.available {
-			return indeterminatePredicate(ReasonConditionIndeterminate, selected.provenance, required, summary)
+			return indeterminatePredicate(
+				ReasonConditionIndeterminate, selected.provenance, required,
+				summarizePredicatePointer(predicate, selected.pointer, roots),
+			)
 		}
 		if selected.provenance.Rank() < required.Rank() {
-			return indeterminatePredicate(ReasonContextUntrusted, selected.provenance, required, summary)
+			return indeterminatePredicate(
+				ReasonContextUntrusted, selected.provenance, required,
+				summarizePredicatePointer(predicate, selected.pointer, roots),
+			)
 		}
 	}
 	if predicate.Predicate.Op == OperatorPathWithin && ruleDecision == DecisionAllow &&
 		selected.provenance.Rank() < ProvenanceHostObserved.Rank() {
-		return indeterminatePredicate(ReasonContextUntrusted, selected.provenance, ProvenanceHostObserved, summary)
+		return indeterminatePredicate(
+			ReasonContextUntrusted, selected.provenance, ProvenanceHostObserved,
+			summarizePredicatePointer(predicate, selected.pointer, roots),
+		)
 	}
 	state, reason := evaluateOperator(predicate, selected.pointer)
+	summary := OperandSummary{}
+	if summaryRequired || reason != "" {
+		summary = summarizePredicatePointer(predicate, selected.pointer, roots)
+	}
 	return predicateEvaluation{
 		state: state, reason: reason, actual: selected.provenance,
 		required: required, complete: state != ConditionIndeterminate,
@@ -305,12 +328,16 @@ func evaluateMembership(op Operator, target, operand Value) (ConditionState, Rea
 	if !target.Scalar() || target.Kind() == ValueNull {
 		return ConditionIndeterminate, ReasonConditionIndeterminate
 	}
-	items, ok := operand.Items()
-	if !ok || len(items) == 0 || len(items) > MaxListValues {
+	length, ok := operand.ArrayLen()
+	if !ok || length == 0 || length > MaxListValues {
 		return ConditionIndeterminate, ReasonInternalInvariant
 	}
 	matched := false
-	for _, item := range items {
+	for index := 0; index < length; index++ {
+		item, exists := operand.ArrayItem(index)
+		if !exists {
+			return ConditionIndeterminate, ReasonInternalInvariant
+		}
 		if !item.Scalar() || item.Kind() != target.Kind() {
 			return ConditionIndeterminate, ReasonInternalInvariant
 		}
@@ -639,13 +666,29 @@ func indeterminatePredicate(
 }
 
 func summarizePointer(pointer PointerResult) OperandSummary {
+	return summarizePointerMemoized(pointer, nil)
+}
+
+func summarizePredicatePointer(
+	predicate *CompiledPredicate,
+	pointer PointerResult,
+	roots *predicateRoots,
+) OperandSummary {
+	var memo *canonicalSizeMemo
+	if roots != nil && len(predicate.Tokens) == 0 {
+		memo = roots.sizeMemo(predicate.Predicate.Source)
+	}
+	return summarizePointerMemoized(pointer, memo)
+}
+
+func summarizePointerMemoized(pointer PointerResult, memo *canonicalSizeMemo) OperandSummary {
 	summary := OperandSummary{PointerState: pointer.State}
 	if pointer.State != PointerPresent && pointer.State != PointerNull {
 		return summary
 	}
 	summary.Kind = pointer.Value.Kind()
-	encodedSize, err := pointer.Value.CanonicalJSONSize()
-	if err == nil {
+	encodedSize, valid := canonicalSize(pointer.Value, memo)
+	if valid {
 		summary.ByteLength = encodedSize
 	}
 	if length, ok := pointer.Value.ArrayLen(); ok {
@@ -655,4 +698,31 @@ func summarizePointer(pointer PointerResult) OperandSummary {
 		summary.ItemCount = length
 	}
 	return summary
+}
+
+func (r *predicateRoots) sizeMemo(source ValueSource) *canonicalSizeMemo {
+	switch source {
+	case SourceArguments:
+		return &r.argumentSize
+	case SourceContext:
+		return &r.contextSize
+	case SourceResult:
+		return &r.resultSize
+	case SourceProgress:
+		return &r.progressSize
+	default:
+		return nil
+	}
+}
+
+func canonicalSize(value Value, memo *canonicalSizeMemo) (int, bool) {
+	if memo == nil {
+		size, err := value.CanonicalJSONSize()
+		return size, err == nil
+	}
+	if !memo.ready {
+		memo.size, memo.valid = canonicalSize(value, nil)
+		memo.ready = true
+	}
+	return memo.size, memo.valid
 }
