@@ -3717,7 +3717,12 @@ Shutdown closes the worker, and stdin EOF prevents orphans if the host exits.
 The worker reuses a revalidated operating-system repository identity and an
 immutable typed policy plan. Resolution eagerly freezes the filesystem object
 ID before caching, including Go's otherwise lazy Windows file ID, so replacing
-a repository at the same lexical path invalidates the cached handle. Each request
+a repository at the same lexical path invalidates the cached handle. The root
+cache retains at most eight request keys and clears deterministically before a
+ninth distinct key is inserted. Concurrent resolutions share one cache lock;
+every hit revalidates the cached filesystem object, while non-canonical aliases
+are also re-resolved so a rebound symlink or Windows junction cannot keep the
+former target alive through the cache. Each request
 still reads bounded lock bytes and the complete source bundle identity:
 lock-byte drift rebuilds the plan, while source drift invalidates it and fails
 closed. A cached plan owns the sorted, unique, validated include-pattern recipe

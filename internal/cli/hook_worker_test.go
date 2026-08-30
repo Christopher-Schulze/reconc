@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	policyruntime "reconc.dev/reconc/internal/runtime"
@@ -270,6 +272,171 @@ func TestHookWorkerRootCacheRefreshesReplacedRepositoryIdentity(t *testing.T) {
 	}
 	if err := second.Revalidate(); err != nil {
 		t.Fatalf("refreshed identity did not revalidate: %v", err)
+	}
+}
+
+func TestHookWorkerRootCacheRevalidatesReboundAlias(t *testing.T) {
+	parent := t.TempDir()
+	first := filepath.Join(parent, "first")
+	second := filepath.Join(parent, "second")
+	alias := filepath.Join(parent, "alias")
+	for _, directory := range []string{first, second} {
+		if err := os.Mkdir(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	createHookWorkerDirectoryAliasForTest(t, first, alias)
+	cache := hookWorkerRootCache{roots: make(map[string]agentsession.ResolvedRepoRoot)}
+	resolvedFirst, err := cache.resolve(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	createHookWorkerDirectoryAliasForTest(t, second, alias)
+	resolvedSecond, err := cache.resolve(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSecond, err := agentsession.ResolveRepoRootRef(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolvedFirst.Path() == resolvedSecond.Path() || resolvedSecond.Path() != wantSecond.Path() {
+		t.Fatalf("rebound alias resolved first=%q second=%q want=%q", resolvedFirst.Path(), resolvedSecond.Path(), wantSecond.Path())
+	}
+}
+
+func TestHookWorkerRootCacheBoundsHostileCardinalityAndEviction(t *testing.T) {
+	parent := t.TempDir()
+	cache := hookWorkerRootCache{}
+	paths := make([]string, hookWorkerRootCacheLimit*3+1)
+	for index := range paths {
+		paths[index] = filepath.Join(parent, fmt.Sprintf("repo-%02d", index))
+		if err := os.Mkdir(paths[index], 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cache.resolve(paths[index]); err != nil {
+			t.Fatal(err)
+		}
+		if len(cache.roots) > hookWorkerRootCacheLimit {
+			t.Fatalf("root cache retained %d entries after %d distinct roots", len(cache.roots), index+1)
+		}
+	}
+	if len(cache.roots) != 1 {
+		t.Fatalf("clear-on-overflow retained %d entries, want 1", len(cache.roots))
+	}
+	if _, retained := cache.roots[paths[0]]; retained {
+		t.Fatal("evicted root remained cached")
+	}
+	replaced := filepath.Join(parent, "repo-00-replaced")
+	if err := os.Rename(paths[0], replaced); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(paths[0], 0o755); err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := cache.resolve(paths[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := refreshed.Revalidate(); err != nil {
+		t.Fatalf("evicted root resolved stale identity: %v", err)
+	}
+	missing := filepath.Join(parent, "missing")
+	if _, err := cache.resolve(missing); err == nil {
+		t.Fatal("malformed missing root was accepted")
+	}
+	if _, retained := cache.roots[missing]; retained {
+		t.Fatal("malformed root was retained")
+	}
+}
+
+func TestHookWorkerRootCacheConcurrentResolutionStaysBounded(t *testing.T) {
+	parent := t.TempDir()
+	paths := make([]string, hookWorkerRootCacheLimit*2)
+	for index := range paths {
+		paths[index] = filepath.Join(parent, fmt.Sprintf("repo-%02d", index))
+		if err := os.Mkdir(paths[index], 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cache := hookWorkerRootCache{}
+	start := make(chan struct{})
+	errorsByWorker := make(chan error, len(paths)*2)
+	var workers sync.WaitGroup
+	for worker := 0; worker < len(paths)*2; worker++ {
+		worker := worker
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			for request := 0; request < len(paths); request++ {
+				if _, err := cache.resolve(paths[(worker+request)%len(paths)]); err != nil {
+					errorsByWorker <- err
+					return
+				}
+			}
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(errorsByWorker)
+	for err := range errorsByWorker {
+		t.Fatal(err)
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if len(cache.roots) > hookWorkerRootCacheLimit {
+		t.Fatalf("concurrent root cache retained %d entries", len(cache.roots))
+	}
+	for key, root := range cache.roots {
+		if err := root.Revalidate(); err != nil {
+			t.Errorf("cached root %q failed revalidation: %v", key, err)
+		}
+	}
+}
+
+func TestHookWorkerRootCacheAllocationBounds(t *testing.T) {
+	singleRepo := t.TempDir()
+	singleCache := hookWorkerRootCache{}
+	if _, err := singleCache.resolve(singleRepo); err != nil {
+		t.Fatal(err)
+	}
+	var allocationErr error
+	hitAllocations := testing.AllocsPerRun(100, func() {
+		_, allocationErr = singleCache.resolve(singleRepo)
+	})
+	if allocationErr != nil {
+		t.Fatal(allocationErr)
+	}
+	if hitAllocations > 128 {
+		t.Fatalf("single-repository cache hit allocations = %.1f, want <= 128", hitAllocations)
+	}
+
+	paths := make([]string, hookWorkerRootCacheLimit+1)
+	for index := range paths {
+		paths[index] = t.TempDir()
+	}
+	hostileCache := hookWorkerRootCache{}
+	hostileAllocations := testing.AllocsPerRun(25, func() {
+		for _, path := range paths {
+			_, allocationErr = hostileCache.resolve(path)
+			if allocationErr != nil {
+				return
+			}
+		}
+	})
+	if allocationErr != nil {
+		t.Fatal(allocationErr)
+	}
+	hostileAllocationLimit := float64(128 * len(paths))
+	if hostileAllocations > hostileAllocationLimit {
+		t.Fatalf("high-cardinality cache cycle allocations = %.1f, want <= %.0f", hostileAllocations, hostileAllocationLimit)
+	}
+	if len(hostileCache.roots) > hookWorkerRootCacheLimit {
+		t.Fatalf("allocation run retained %d roots", len(hostileCache.roots))
 	}
 }
 

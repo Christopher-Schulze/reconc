@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/boundedexec"
@@ -16,15 +17,16 @@ import (
 )
 
 const (
-	hookWorkerFormatVersion = 1
-	hookWorkerFrameOverhead = 64 << 10
-	hookWorkerMaxIDBytes    = 128
-	hookWorkerMaxEventBytes = 128
-	hookWorkerMaxRepoBytes  = 16 << 10
-	maxHookRuntimeCapture   = 8 << 10
-	maxHookWorkerDrainBytes = 2 * (agentsession.MaxPayloadBytes + hookWorkerFrameOverhead)
-	hookWorkerReadBuffer    = 64 << 10
-	hookWorkerGrowthWindow  = 4
+	hookWorkerFormatVersion  = 1
+	hookWorkerFrameOverhead  = 64 << 10
+	hookWorkerMaxIDBytes     = 128
+	hookWorkerMaxEventBytes  = 128
+	hookWorkerMaxRepoBytes   = 16 << 10
+	maxHookRuntimeCapture    = 8 << 10
+	maxHookWorkerDrainBytes  = 2 * (agentsession.MaxPayloadBytes + hookWorkerFrameOverhead)
+	hookWorkerReadBuffer     = 64 << 10
+	hookWorkerGrowthWindow   = 4
+	hookWorkerRootCacheLimit = 8
 )
 
 var errHookWorkerFrameTooLarge = errors.New("hook worker frame exceeds the bounded protocol limit")
@@ -50,6 +52,7 @@ type hookWorkerResponse struct {
 }
 
 type hookWorkerRootCache struct {
+	mu        sync.Mutex
 	roots     map[string]agentsession.ResolvedRepoRoot
 	evaluator *policyruntime.Evaluator
 	stopCache *agentsession.StopDecisionCache
@@ -269,13 +272,30 @@ func validHookWorkerToken(value string, limit int) bool {
 }
 
 func (cache *hookWorkerRootCache) resolve(repo string) (agentsession.ResolvedRepoRoot, error) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
 	if root, ok := cache.roots[repo]; ok && root.Revalidate() == nil {
-		return root, nil
+		if repo == root.Path() {
+			return root, nil
+		}
+		resolved, err := agentsession.ResolveRepoRootRef(repo)
+		if err != nil {
+			delete(cache.roots, repo)
+			return agentsession.ResolvedRepoRoot{}, err
+		}
+		cache.roots[repo] = resolved
+		return resolved, nil
 	}
 	root, err := agentsession.ResolveRepoRootRef(repo)
 	if err != nil {
 		delete(cache.roots, repo)
 		return agentsession.ResolvedRepoRoot{}, err
+	}
+	if cache.roots == nil {
+		cache.roots = make(map[string]agentsession.ResolvedRepoRoot, hookWorkerRootCacheLimit)
+	}
+	if _, exists := cache.roots[repo]; !exists && len(cache.roots) >= hookWorkerRootCacheLimit {
+		clear(cache.roots)
 	}
 	cache.roots[repo] = root
 	return root, nil

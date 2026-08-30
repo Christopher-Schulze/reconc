@@ -7,7 +7,53 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"reconc.dev/reconc/internal/runtime/agentsession"
 )
+
+var hookWorkerRootBenchmarkSink agentsession.ResolvedRepoRoot
+
+func BenchmarkHookWorkerRootCache(b *testing.B) {
+	b.Run("single-repository-hit", func(b *testing.B) {
+		repo := b.TempDir()
+		cache := hookWorkerRootCache{}
+		if _, err := cache.resolve(repo); err != nil {
+			b.Fatal(err)
+		}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			root, err := cache.resolve(repo)
+			if err != nil {
+				b.Fatal(err)
+			}
+			hookWorkerRootBenchmarkSink = root
+		}
+	})
+
+	b.Run("hostile-cardinality", func(b *testing.B) {
+		paths := make([]string, hookWorkerRootCacheLimit+1)
+		for index := range paths {
+			paths[index] = b.TempDir()
+		}
+		cache := hookWorkerRootCache{}
+		index := 0
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			root, err := cache.resolve(paths[index%len(paths)])
+			if err != nil {
+				b.Fatal(err)
+			}
+			hookWorkerRootBenchmarkSink = root
+			index++
+		}
+		b.StopTimer()
+		if len(cache.roots) > hookWorkerRootCacheLimit {
+			b.Fatalf("root cache retained %d entries", len(cache.roots))
+		}
+	})
+}
 
 func BenchmarkHookRuntimeTransport(b *testing.B) {
 	if testing.Short() {
