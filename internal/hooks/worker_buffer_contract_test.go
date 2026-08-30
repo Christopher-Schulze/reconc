@@ -133,13 +133,39 @@ assert((await transport.run("restart", {}, undefined)).stdout === "restart", "wo
 await transport.close()
 
 const overflowTransport = createReconcWorkerTransport(process.cwd(), commandFor, runOneShot, "canceled")
-assert((await overflowTransport.run("overflow", {}, undefined)).stdout === "fallback:overflow", "overflow did not use one-shot fallback")
+const overflow = await overflowTransport.run("overflow", {}, undefined)
+assert(overflow.code === 1 && overflow.stderr.includes("delivery was ambiguous"), "overflow was not reported as ambiguous delivery")
 await overflowTransport.close()
-assert(fallbackEvents.length === 1 && fallbackEvents[0] === "overflow", "unexpected fallback events: " + fallbackEvents)
+
+const appliedErrorTransport = createReconcWorkerTransport(process.cwd(), commandFor, runOneShot, "canceled")
+const appliedError = await appliedErrorTransport.run("applied-error", {}, undefined)
+assert(appliedError.code === 1 && appliedError.stderr.includes("applied failure"), "acknowledged execution error drifted")
+await appliedErrorTransport.close()
+
+const malformedTransport = createReconcWorkerTransport(process.cwd(), commandFor, runOneShot, "canceled")
+const malformed = await malformedTransport.run("malformed", {}, undefined)
+assert(malformed.code === 1 && malformed.stderr.includes("delivery was ambiguous"), "malformed response was replayable")
+await malformedTransport.close()
+
+const crashBeforeAckTransport = createReconcWorkerTransport(process.cwd(), commandFor, runOneShot, "canceled")
+const crashBeforeAck = await crashBeforeAckTransport.run("crash-before-ack", {}, undefined)
+assert(crashBeforeAck.code === 1 && crashBeforeAck.stderr.includes("delivery was ambiguous"), "pre-ack crash was replayed")
+await crashBeforeAckTransport.close()
+
+const crashAfterAckTransport = createReconcWorkerTransport(process.cwd(), commandFor, runOneShot, "canceled")
+const crashAfterAck = await crashAfterAckTransport.run("crash-after-ack", {}, undefined)
+assert(crashAfterAck.code === 0 && crashAfterAck.stdout === "acknowledged", "acknowledged response was lost")
+await Bun.sleep(30)
+await crashAfterAckTransport.close()
+
+assert(fallbackEvents.length === 0, "ambiguous delivery was replayed through one-shot: " + fallbackEvents)
 
 const records = (await Bun.file(logPath).text()).trim().split("\n").map((line) => JSON.parse(line))
-assert(records.filter((record) => record.record === "start").length === 3, "worker start/restart count drifted")
-assert(records.filter((record) => record.record === "shutdown").length === 1, "clean shutdown count drifted")
+assert(records.filter((record) => record.record === "start").length === 7, "worker start/restart count drifted")
+assert(records.filter((record) => record.record === "shutdown").length === 2, "clean shutdown count drifted")
+for (const event of ["applied-error", "malformed", "crash-before-ack", "crash-after-ack"]) {
+  assert(records.filter((record) => record.record === "applied" && record.event === event).length === 1, event + " was not applied exactly once")
+}
 `
 
 const workerStartupContractDriver = `
@@ -150,8 +176,39 @@ let kills = 0
 let ends = 0
 let cancels = 0
 let fallbacks = 0
+let now = 1000
+const encoder = new TextEncoder()
 Bun.spawn = () => {
   spawns++
+  if (spawns > 1) {
+    const responses = []
+    return {
+      stdin: {
+        write: (value) => {
+          const frame = JSON.parse(String(value).trim())
+          const response = {
+            format_version: 1,
+            type: frame.type === "shutdown" ? "shutdown" : "response",
+            id: frame.id,
+            code: 0,
+            ...(frame.type === "request" ? { stdout: "worker:" + frame.event } : {}),
+          }
+          responses.push(encoder.encode(JSON.stringify(response) + "\n"))
+        },
+        end: () => { ends++ },
+      },
+      stdout: {
+        getReader: () => ({
+          read: async () => responses.length > 0 ? { done: false, value: responses.shift() } : { done: true },
+          cancel: () => { cancels++ },
+        }),
+      },
+      stderr: {
+        getReader: () => ({ read: async () => ({ done: true }) }),
+      },
+      kill: () => { kills++ },
+    }
+  }
   return {
     stdin: {
       write: () => { throw new Error("synchronous pipe failure") },
@@ -178,12 +235,15 @@ try {
       return { code: 0, stdout: "fallback:" + event, stderr: "", timedOut: false, aborted: false, truncated: false, invalidUTF8: false }
     },
     "canceled",
+    { nowMilliseconds: () => now, startupBackoffMilliseconds: [50, 100] },
   )
   assert((await transport.run("first", {}, undefined)).stdout === "fallback:first", "first fallback failed")
   assert((await transport.run("second", {}, undefined)).stdout === "fallback:second", "second fallback failed")
+  now += 50
+  assert((await transport.run("third", {}, undefined)).stdout === "worker:third", "worker did not recover after startup backoff")
   await transport.close()
-  assert(spawns === 1, "failed startup was retried or cached: " + spawns)
-  assert(kills === 1 && ends === 1 && cancels === 1, "failed startup cleanup drifted")
+  assert(spawns === 2, "transient startup recovery count drifted: " + spawns)
+  assert(kills === 2 && ends === 2 && cancels === 2, "startup recovery cleanup drifted")
   assert(fallbacks === 2, "one-shot fallback count drifted: " + fallbacks)
 } finally {
   Bun.spawn = originalSpawn
@@ -264,6 +324,26 @@ for await (const chunk of Bun.stdin.stream()) {
       bytes[bytes.length - 1] = 10
       process.stdout.write(bytes)
       continue
+    }
+    if (frame.event === "applied-error") {
+      record({ record: "applied", event: frame.event })
+      process.stdout.write(JSON.stringify({ ...response(frame), code: 1, error: "applied failure" }) + "\n")
+      continue
+    }
+    if (frame.event === "malformed") {
+      record({ record: "applied", event: frame.event })
+      process.stdout.write("{malformed\n")
+      continue
+    }
+    if (frame.event === "crash-before-ack") {
+      record({ record: "applied", event: frame.event })
+      process.exit(17)
+    }
+    if (frame.event === "crash-after-ack") {
+      record({ record: "applied", event: frame.event })
+      await writeResponse(frame, "acknowledged")
+      await Bun.sleep(10)
+      process.exit(0)
     }
     await writeResponse(frame, frame.event)
   }

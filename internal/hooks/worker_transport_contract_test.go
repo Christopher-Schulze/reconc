@@ -87,7 +87,7 @@ func TestPersistentAdaptersReuseOneSessionOwnedWorker(t *testing.T) {
 	}
 }
 
-func TestPersistentAdapterCrashFallsBackAndRestarts(t *testing.T) {
+func TestPersistentAdapterAmbiguousCrashIsNotReplayedAndNextEventRestarts(t *testing.T) {
 	bun, err := exec.LookPath("bun")
 	if err != nil {
 		t.Fatalf("Bun is required to verify worker crash recovery: %v", err)
@@ -133,6 +133,7 @@ func TestPersistentAdapterCrashFallsBackAndRestarts(t *testing.T) {
 	starts := 0
 	fallbacks := 0
 	shutdowns := 0
+	requestIDs := map[string]struct{}{}
 	for _, record := range records {
 		switch record["record"] {
 		case "start":
@@ -141,9 +142,18 @@ func TestPersistentAdapterCrashFallsBackAndRestarts(t *testing.T) {
 			fallbacks++
 		case "shutdown":
 			shutdowns++
+		case "crash", "request":
+			id := record["id"]
+			if id == "" {
+				t.Fatalf("worker request lost its bounded delivery identity: %v", record)
+			}
+			if _, exists := requestIDs[id]; exists {
+				t.Fatalf("worker request identity repeated across restart: %q", id)
+			}
+			requestIDs[id] = struct{}{}
 		}
 	}
-	if starts != 2 || fallbacks != 1 || shutdowns != 1 {
+	if starts != 2 || fallbacks != 0 || shutdowns != 1 {
 		t.Fatalf("crash lifecycle starts=%d fallbacks=%d shutdowns=%d records=%v", starts, fallbacks, shutdowns, records)
 	}
 }
@@ -261,10 +271,10 @@ for await (const chunk of Bun.stdin.stream()) {
     }
     if (frame.type === "request" && frame.event === "opencode-pre-tool-use" && !existsSync(process.env.RECONC_WORKER_CRASH_MARKER)) {
       appendFileSync(process.env.RECONC_WORKER_CRASH_MARKER, "crashed\n")
-      record({ record: "crash", event: frame.event })
+      record({ record: "crash", event: frame.event, id: frame.id })
       process.exit(17)
     }
-    if (frame.type === "request") record({ record: "request", event: frame.event })
+    if (frame.type === "request") record({ record: "request", event: frame.event, id: frame.id })
     console.log(JSON.stringify({ format_version: 1, type: "response", id: frame.id, code: 0 }))
   }
 }
@@ -281,9 +291,9 @@ try {
     {},
   )
 } catch (error) {
-  blocked = String(error?.message || error).includes("one-shot fallback denied the tool")
+  blocked = String(error?.message || error).includes("delivery was ambiguous")
 }
-if (!blocked) throw new Error("worker crash did not preserve fail-closed one-shot fallback")
+if (!blocked) throw new Error("ambiguous worker crash did not fail closed without replay")
 await hooks["tool.execute.after"](
   { sessionID: "ses_crash", tool: "read", callID: "call-2", args: { path: "README.md" } },
   { title: "read", output: "ok", metadata: {} },

@@ -1294,11 +1294,17 @@ tool payloads do not distinguish an unconfigured MCP call from a built-in or
 custom tool.
 OpenCode, Kilo Code, OMP, and Pi keep one session-owned Reconc stdio worker per
 plugin repository. Requests are bounded format-1 JSON frames and retain the
-registry route timeout and error policy. Startup, crash, or protocol failure
-falls back to one-shot execution within the remaining route budget; cancellation
-and timeout kill the child. Session shutdown or parent stdin closure prevents an
-orphan. This is an internal transport optimization, not a daemon or public
-network API. The worker owns an immutable typed policy-plan cache: unchanged
+registry route timeout and error policy. A failure before an event request is
+written may use one-shot execution within the remaining route budget. Transient
+startup failures use capped 100 ms, 500 ms, and 2.5 s retry delays; a proven
+handshake mismatch disables worker reuse for that plugin instance. Once a
+request write starts, only a bounded response with the exact request ID
+acknowledges delivery. Crash, malformed response, or protocol loss after that
+boundary returns an ambiguous-delivery failure and never replays the event.
+Cancellation and timeout kill the child without a second evaluation. Session
+shutdown or parent stdin closure prevents an orphan. This is an internal
+transport optimization, not a daemon or public network API. The worker owns an
+immutable typed policy-plan cache: unchanged
 lock bytes reuse the decoded and indexed plan, while every request still
 recomputes the bounded source-bundle identity. Lock drift rebuilds; source drift
 fails closed until explicit refresh.

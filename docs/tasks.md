@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 428 Make hook-worker retries idempotent -> tasks/428-make-hook-worker-retries-idempotent.md
 - [ ] 429 Parse Kimi managed blocks structurally -> tasks/429-parse-kimi-managed-blocks-structurally.md
 - [ ] 430 Share builtin secret-detector programs -> tasks/430-share-builtin-secret-detector-programs.md
 - [ ] 431 Fail closed on truncated adapter output -> tasks/431-fail-closed-on-truncated-adapter-output.md
@@ -42,6 +41,7 @@
 
 ## Done
 
+- [x] 428 Make hook-worker retries idempotent -> tasks/done/428-make-hook-worker-retries-idempotent.md
 - [x] 427 Serialize JSONL retention and validate modes -> tasks/done/427-serialize-jsonl-retention-and-validate-modes.md
 - [x] 426 Preserve JSONL data through recovery -> tasks/done/426-preserve-jsonl-data-through-recovery.md
 - [x] 425 Make JSONL locking bounded and cancellable -> tasks/done/425-make-jsonl-locking-bounded-and-cancellable.md

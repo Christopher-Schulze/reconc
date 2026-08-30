@@ -3775,9 +3775,15 @@ OpenCode, Kilo Code, OMP, and Pi keep one repository-owned `reconc hook worker`
 child for the lifetime of their plugin instance. Format-1 newline-framed JSON
 requests carry bounded IDs, event, repository, and payload fields and are
 processed in deterministic order. Cancellation or route timeout kills the
-child; startup, crash, or protocol failure uses the remaining route budget for
-the existing one-shot path. Protocol drift disables reuse for that plugin
-instance, while a later plugin instance picks up an installed binary upgrade.
+child without re-evaluating the event. Failure before an event frame is written
+may use the remaining route budget for the existing one-shot path. Transient
+startup failures retry worker startup after capped 100 ms, 500 ms, and 2.5 s
+delays; a proven handshake mismatch disables reuse for that plugin instance.
+After an event write begins, only a valid bounded response carrying the exact
+request ID acknowledges delivery. Crash, malformed response, or protocol loss
+after that boundary returns an ambiguous-delivery failure and never replays the
+event. A post-handshake crash can restart the worker for the next event, while
+a later plugin instance picks up an installed binary upgrade.
 Shutdown closes the worker, and stdin EOF prevents orphans if the host exits.
 The worker reuses a revalidated operating-system repository identity and an
 immutable typed policy plan. Resolution eagerly freezes the filesystem object
@@ -3804,7 +3810,7 @@ Oversized newline frames are discarded with bounded retained memory and a
 bounded drain budget. A fully terminated oversized frame gets one deterministic
 protocol error and the same worker continues with the next frame; missing
 terminators or drain-budget exhaustion terminate the worker, preserving the
-existing one-shot fallback only for genuine protocol loss.
+one-shot fallback only when no event request has reached the worker.
 Response bytes are accumulated in the generated adapter with geometric growth,
 so one-byte or irregular pipe chunks perform linear total copying. After a
 response, only the unread remainder survives and the buffer remains bounded by

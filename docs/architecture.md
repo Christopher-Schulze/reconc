@@ -1011,11 +1011,16 @@ printable request IDs, explicit event and repository fields, one object payload,
 strict UTF-8/JSON decoding, and sequential response order. The adapter serializes
 concurrent host callbacks. Cancellation kills the worker and yields to the host;
 a route timeout kills it and applies that route's timeout policy without a second
-evaluation. Startup failure, protocol mismatch, or a crash before a response
-uses the remaining route budget for the existing one-shot path. Protocol drift
-disables reuse for that plugin instance; a post-handshake crash can restart on
-the next event. Shutdown sends a bounded acknowledgement and kills any child
-that does not exit; parent stdin closure also terminates the worker. A running
+evaluation. Startup failure before an event write may use the remaining route
+budget for the existing one-shot path. Transient startup failures use capped
+100 ms, 500 ms, and 2.5 s retry delays; a proven handshake mismatch disables
+reuse for that plugin instance. After an event write begins, only a valid
+bounded response with the exact request ID acknowledges delivery. Crash,
+malformed response, or protocol loss after that boundary returns an
+ambiguous-delivery failure and never replays the event. A post-handshake crash
+can restart on the next event. Shutdown sends a bounded acknowledgement and
+kills any child that does not exit; parent stdin closure also terminates the
+worker. A running
 worker keeps its current binary until plugin shutdown, so an installed upgrade
 is picked up by the next plugin instance without mutating an in-flight request.
 The worker caches `ResolvedRepoRoot` plus an immutable typed policy plan. Root
