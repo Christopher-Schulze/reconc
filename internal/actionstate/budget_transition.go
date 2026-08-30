@@ -176,15 +176,18 @@ func (s *Store) ReconcileIndeterminate(
 		if err != nil || !constantIdentityEqual(reconciliation.AuthorizationIdentity, wantAuthorization) {
 			return stateError(action.ReasonAuthorityUnavailable, "reconciliation authority does not bind the exact operation", err)
 		}
-		actual := reconciliation.ActualResultBytes
 		if reconciliation.Outcome == OutcomeIndeterminateCommitted {
-			actual = maximumReservedResult(state.Reservations[index])
-		}
-		if exceedsReservedResult(state.Reservations[index], actual) {
-			return stateError(action.ReasonStateCorrupt, "reconciled result exceeds the reserved maximum", nil)
-		}
-		if err := commitResult(&state, index, actual); err != nil {
-			return err
+			if err := commitReservedResults(&state, index); err != nil {
+				return err
+			}
+		} else {
+			actual := reconciliation.ActualResultBytes
+			if exceedsReservedResult(state.Reservations[index], actual) {
+				return stateError(action.ReasonStateCorrupt, "reconciled result exceeds the reserved maximum", nil)
+			}
+			if err := commitResult(&state, index, actual); err != nil {
+				return err
+			}
 		}
 		terminal := TerminalCall{
 			CallID: state.Reservations[index].CallID, ReservationIdentity: reservation,
@@ -344,6 +347,28 @@ func commitResult(state *State, reservationIndex int, actual uint64) error {
 	return nil
 }
 
+func commitReservedResults(state *State, reservationIndex int) error {
+	reservation := &state.Reservations[reservationIndex]
+	for _, charge := range reservation.Charges {
+		record := budgetRecordForLineage(state.Budgets, charge.LineageIdentity)
+		if record == nil {
+			return stateError(action.ReasonStateCorrupt, "reservation budget record is absent", nil)
+		}
+		if charge.Reserved.ResultBytes == 0 {
+			continue
+		}
+		consumed, overflow := checkedUsageAdd(
+			record.Consumed,
+			action.BudgetUsage{ResultBytes: charge.Reserved.ResultBytes},
+		)
+		if overflow {
+			return stateError(action.ReasonStateCorrupt, "budget counter overflowed during settlement", nil)
+		}
+		record.Consumed = consumed
+	}
+	return nil
+}
+
 func removeReservationAndRecord(state *State, index int, terminal TerminalCall) error {
 	if len(state.TerminalCalls) >= MaxTerminalCallRecords {
 		return stateError(action.ReasonStateUnavailable, "terminal call record capacity is exhausted", nil)
@@ -361,16 +386,6 @@ func exceedsReservedResult(reservation Reservation, actual uint64) bool {
 		}
 	}
 	return false
-}
-
-func maximumReservedResult(reservation Reservation) uint64 {
-	maximum := uint64(0)
-	for _, charge := range reservation.Charges {
-		if charge.Reserved.ResultBytes > maximum {
-			maximum = charge.Reserved.ResultBytes
-		}
-	}
-	return maximum
 }
 
 func reservationIndex(reservations []Reservation, identity string) int {

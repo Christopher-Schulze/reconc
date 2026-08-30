@@ -2756,7 +2756,10 @@ be integers from 1 through 8 MiB, and an explicit zero is invalid. A
 `result_bytes` budget may select only a tool with that declaration. Its
 pre-dispatch reservation charges the exact declared maximum; terminal
 settlement may reduce the charge to the actual result size, while excess raw
-result bytes are withheld.
+result bytes are withheld. If an operator conservatively reconciles an
+indeterminate result as committed without a known byte count, each applicable
+budget consumes its own reserved result-byte ceiling independently; a narrower
+scope is never charged another scope's wider reservation.
 
 Each state transaction is read through one private regular-file snapshot and
 retains that exact file identity through recovery. Final journal cleanup opens
