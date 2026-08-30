@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 444 Keep existing identity-key reads read-only -> tasks/444-keep-existing-identity-key-reads-read-only.md
 - [ ] 445 Add concurrent action-state read paths -> tasks/445-add-concurrent-action-state-read-paths.md
 - [ ] 446 Isolate invalid upstream MCP requests -> tasks/446-isolate-invalid-upstream-mcp-requests.md
 - [ ] 447 Bound Git process cancellation -> tasks/447-bound-git-process-cancellation.md
@@ -26,6 +25,7 @@
 
 ## Done
 
+- [x] 444 Keep existing identity-key reads read-only -> tasks/done/444-keep-existing-identity-key-reads-read-only.md
 - [x] 443 Reuse validated compiled action plans -> tasks/done/443-reuse-validated-compiled-action-plans.md
 - [x] 442 Validate budget selector and tool identities -> tasks/done/442-validate-budget-selector-and-tool-identities.md
 - [x] 441 Short-circuit conditions and bound glob expansion -> tasks/done/441-short-circuit-conditions-and-bound-glob-expansion.md

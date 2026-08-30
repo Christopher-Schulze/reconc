@@ -195,7 +195,7 @@ func openPrivateLockFile(path string) (*os.File, error) {
 }
 
 func openExistingPrivateLockFile(path string) (*os.File, error) {
-	return privatefs.OpenExistingLock(path)
+	return privatefs.OpenExistingLockReadOnly(path)
 }
 
 func securePublishedPrivateFile(path string) error {

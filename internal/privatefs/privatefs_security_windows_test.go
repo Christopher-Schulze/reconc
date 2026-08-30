@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"testing"
 
+	"reconc.dev/reconc/internal/filelock"
+
 	"golang.org/x/sys/windows"
 )
 
@@ -148,6 +150,64 @@ func TestOpenLockRejectsWindowsReparsePointWithoutMutatingTargetACL(t *testing.T
 	}
 	if after := windowsTestSecurityDescriptor(t, target); after != before {
 		t.Fatalf("rejected reparse point changed target security: before=%q after=%q", before, after)
+	}
+}
+
+func TestOpenExistingLockReadOnlyPreservesWindowsSecurityOnSuccess(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "private")
+	if err := RepairDirectory(directory); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "state.lock")
+	file, err := OpenLock(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before := windowsTestSecurityDescriptor(t, path)
+	file, err = OpenExistingLockReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := filelock.TryRLock(file)
+	if err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := unlock(); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if after := windowsTestSecurityDescriptor(t, path); after != before {
+		t.Fatalf("read-only shared lock changed security: before=%q after=%q", before, after)
+	}
+}
+
+func TestOpenExistingLockReadOnlyRejectsWindowsSecurityWithoutMutation(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "private")
+	if err := RepairDirectory(directory); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "state.lock")
+	file, err := OpenLock(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	setUnsafeWindowsTestDACL(t, path)
+	before := windowsTestSecurityDescriptor(t, path)
+	if _, err := OpenExistingLockReadOnly(path); err == nil {
+		t.Fatal("read-only lock open accepted an insecure DACL")
+	}
+	if after := windowsTestSecurityDescriptor(t, path); after != before {
+		t.Fatalf("rejected read-only lock changed security: before=%q after=%q", before, after)
 	}
 }
 

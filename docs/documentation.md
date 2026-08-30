@@ -1329,8 +1329,12 @@ For a LangChain gateway launch, initialize the selected private operator state
 once with `reconc action key init --reconc-home /private/operator/reconc-home`.
 An existing key is never replaced. `identity-key.json` missing means the
 operator initialization step was skipped; a repeat-init error means a valid
-generation already exists and must be preserved. The pinned legacy LangChain
-client can complete approval only through standard MCP form elicitation by
+generation already exists and must be preserved. Read-only ledger inspection
+validates the existing home, action directory,
+identity key, and shared-lock descriptor without creating or repairing them;
+insecure permissions or ACLs fail closed and remain unchanged. The pinned
+legacy LangChain client can complete approval only through standard MCP form
+elicitation by
 returning an externally signed receipt from the configured authority. A client
 without the required elicitation capability, callback, or valid receipt fails
 closed and does not dispatch the downstream tool. Policy or lock drift is

@@ -13,13 +13,14 @@
 
 ## Sub-Tasks
 
-- [ ] Route existing shared locks through the existing validate-only privatefs primitive.
-- [ ] Verify platform lock semantics and retain bounded cancellation.
-- [ ] Add non-mutation and insecure-mode regressions.
-- [ ] Run focused action-state/privatefs tests.
+- [x] Route existing shared locks through the existing validate-only privatefs primitive.
+- [x] Verify platform lock semantics and retain bounded cancellation.
+- [x] Add non-mutation and insecure-mode regressions.
+- [x] Run focused action-state/privatefs tests.
 
 ## Notes
 
 - Verified from finding 180; `privatefs.OpenExistingLockReadOnly` already provides the intended primitive.
+- `AcquireExistingIdentityKey` now opens its shared lock through the validate-only read descriptor. Success, cancellation under contention, insecure Unix modes, and insecure Windows DACLs retain pre-call metadata; the platform-neutral shared-lock regression exercises the descriptor contract on every CI platform.
 
 ## Deviations

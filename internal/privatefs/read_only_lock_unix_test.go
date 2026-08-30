@@ -5,6 +5,7 @@ package privatefs
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -17,14 +18,12 @@ func TestOpenExistingLockReadOnlyDoesNotRepairMode(t *testing.T) {
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	before := readOnlyLockMetadataForTest(t, path)
 	if _, err := OpenExistingLockReadOnly(path); err == nil {
 		t.Fatal("read-only lock open accepted insecure mode")
 	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o644 {
-		t.Fatalf("read-only lock open repaired mode to %04o", info.Mode().Perm())
+	after := readOnlyLockMetadataForTest(t, path)
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("rejected read-only lock changed metadata: before=%#v after=%#v", before, after)
 	}
 }
