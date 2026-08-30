@@ -1,9 +1,11 @@
 package mcpgateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -126,6 +128,54 @@ func TestCallProgressEnforcesSequenceAndAggregateBounds(t *testing.T) {
 	})
 }
 
+func TestCallProgressPreparesPayloadOnlyAfterAdmission(t *testing.T) {
+	t.Run("oversized", func(t *testing.T) {
+		params := make([]byte, MaxProtocolFrameBytes)
+		cloneCalls := 0
+		tracker := &callProgress{cloneParams: func(body []byte) []byte {
+			cloneCalls++
+			return bytes.Clone(body)
+		}}
+		admitted, reason := tracker.prepare(context.Background(), ProgressEvent{
+			Params: params, FrameBytes: MaxProgressEventBytes + 1,
+		})
+		if reason != action.ReasonLimitExceeded || admitted.Params != nil || cloneCalls != 0 {
+			t.Fatalf("oversized admission = %#v, %s, clone calls=%d", admitted, reason, cloneCalls)
+		}
+	})
+
+	t.Run("accepted clone", func(t *testing.T) {
+		cloneCalls := 0
+		tracker := &callProgress{cloneParams: func(body []byte) []byte {
+			cloneCalls++
+			return bytes.Clone(body)
+		}}
+		params := json.RawMessage(`{"progressToken":"internal","progress":1}`)
+		admitted, reason := tracker.prepare(context.Background(), ProgressEvent{
+			Params: params, FrameBytes: uint64(len(params)),
+		})
+		if reason != "" {
+			t.Fatalf("accepted admission reason = %s", reason)
+		}
+		params[0] = '['
+		if cloneCalls != 1 || admitted.Params[0] != '{' {
+			t.Fatal("accepted progress did not own its payload clone")
+		}
+	})
+
+	t.Run("cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		tracker := &callProgress{}
+		admitted, reason := tracker.prepare(ctx, ProgressEvent{
+			Params: []byte(`{"progressToken":"internal","progress":1}`), FrameBytes: 1,
+		})
+		if reason != action.ReasonCancelled || admitted.Params != nil {
+			t.Fatalf("cancelled admission = %#v, %s", admitted, reason)
+		}
+	})
+}
+
 func TestSDKDownstreamRoutesOnlyExactActiveProgressToken(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -188,6 +238,66 @@ func TestSDKDownstreamStopsRouteAfterSinkFailure(t *testing.T) {
 	downstream.progressMu.Unlock()
 	if active {
 		t.Fatal("failed progress sink remained active")
+	}
+}
+
+func TestSDKDownstreamDropsProgressAfterUnregister(t *testing.T) {
+	deliveries := 0
+	downstream := &sdkDownstream{progress: make(map[string]ProgressSink)}
+	token, err := downstream.registerProgress(func(context.Context, ProgressEvent) error {
+		deliveries++
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	downstream.unregisterProgress(token)
+	downstream.routeProgress([]byte(fmt.Sprintf(
+		`{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":%q,"progress":1}}`,
+		token,
+	)))
+	if deliveries != 0 {
+		t.Fatalf("late progress deliveries = %d, want 0", deliveries)
+	}
+}
+
+func TestSDKDownstreamRejectsOversizedProgressBeforeQueue(t *testing.T) {
+	progress := &callProgress{queue: make(chan ProgressEvent, 1)}
+	downstream := &sdkDownstream{progress: map[string]ProgressSink{
+		"internal": progress.enqueue,
+	}}
+	params := json.RawMessage(`{"progressToken":"internal","progress":1}`)
+	downstream.routeProgressFrame(validatedFrame{
+		raw: make([]byte, MaxProgressEventBytes+1), method: "notifications/progress", params: params,
+	})
+	if len(progress.queue) != 0 {
+		t.Fatal("oversized progress reached the queue")
+	}
+	downstream.progressMu.Lock()
+	_, active := downstream.progress["internal"]
+	downstream.progressMu.Unlock()
+	if active {
+		t.Fatal("oversized progress route remained active")
+	}
+}
+
+func TestProgressSinkUsesLiveCallCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	progress := &callProgress{}
+	call := &gatewayCall{progress: progress}
+	gateway := &Gateway{}
+	sink := gateway.progressSink(ctx, call)
+	cancel()
+	if err := sink(context.Background(), ProgressEvent{
+		Params: []byte(`{"progressToken":"internal","progress":1}`), FrameBytes: 1,
+	}); err == nil {
+		t.Fatal("cancelled call admitted late progress")
+	}
+	if len(progress.queue) != 0 {
+		t.Fatal("cancelled call queued late progress")
+	}
+	if _, _, err := progress.finish(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled progress finish = %v", err)
 	}
 }
 

@@ -1,6 +1,7 @@
 package mcpgateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -31,6 +32,7 @@ type callProgress struct {
 	workerErr       error
 	terminalReason  action.ReasonCode
 	failureRecorded bool
+	cloneParams     func([]byte) []byte
 }
 
 type normalizedProgress struct {
@@ -110,6 +112,13 @@ func (p *callProgress) start(ctx context.Context, handle func(ProgressEvent) err
 					return
 				case event, ok := <-p.queue:
 					if !ok {
+						if err := ctx.Err(); err != nil {
+							p.setWorkerError(err, false)
+						}
+						return
+					}
+					if err := ctx.Err(); err != nil {
+						p.setWorkerError(err, false)
 						return
 					}
 					if err := handle(event); err != nil {
@@ -123,18 +132,36 @@ func (p *callProgress) start(ctx context.Context, handle func(ProgressEvent) err
 }
 
 func (p *callProgress) enqueue(ctx context.Context, event ProgressEvent) error {
-	if reason := p.admit(ctx, event); reason != "" {
+	admitted, reason := p.prepare(ctx, event)
+	if reason != "" {
 		p.setTerminalReason(reason)
 		return fmt.Errorf("suppress downstream progress: %s", reason)
 	}
 	select {
-	case p.queue <- event:
+	case <-ctx.Done():
+		p.stop()
+		reason := gatewayReason(ctx.Err(), action.ReasonCancelled)
+		p.setTerminalReason(reason)
+		return fmt.Errorf("suppress downstream progress: %s", reason)
+	case p.queue <- admitted:
 		return nil
 	default:
 		p.stop()
 		p.setTerminalReason(action.ReasonLimitExceeded)
 		return fmt.Errorf("suppress downstream progress: %s", action.ReasonLimitExceeded)
 	}
+}
+
+func (p *callProgress) prepare(ctx context.Context, event ProgressEvent) (ProgressEvent, action.ReasonCode) {
+	if reason := p.admit(ctx, event); reason != "" {
+		return ProgressEvent{}, reason
+	}
+	cloneParams := p.cloneParams
+	if cloneParams == nil {
+		cloneParams = bytes.Clone
+	}
+	event.Params = cloneParams(event.Params)
+	return event, ""
 }
 
 func (p *callProgress) finish() (action.ReasonCode, bool, error) {

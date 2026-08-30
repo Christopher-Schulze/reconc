@@ -43,6 +43,28 @@ func BenchmarkParseFrameRepresentative(b *testing.B) {
 	benchmarkParseFrame(b, []byte(`{"jsonrpc":"2.0","id":"request","method":"tools/call","params":{"name":"echo","arguments":{"value":"payload","items":[1,2,3,4]}}}`))
 }
 
+func BenchmarkCallProgressAdmission(b *testing.B) {
+	for _, test := range []struct {
+		name       string
+		frameBytes uint64
+	}{
+		{name: "accepted", frameBytes: MaxProgressEventBytes},
+		{name: "oversized", frameBytes: MaxProgressEventBytes + 1},
+	} {
+		b.Run(test.name, func(b *testing.B) {
+			params := make([]byte, MaxProgressEventBytes)
+			b.ReportAllocs()
+			b.SetBytes(int64(test.frameBytes))
+			for b.Loop() {
+				tracker := &callProgress{}
+				_, _ = tracker.prepare(context.Background(), ProgressEvent{
+					Params: params, FrameBytes: test.frameBytes,
+				})
+			}
+		})
+	}
+}
+
 func benchmarkParseFrame(b *testing.B, frame []byte) {
 	b.Helper()
 	b.ReportAllocs()

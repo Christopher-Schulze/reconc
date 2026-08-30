@@ -149,9 +149,7 @@ func startGateway(parent context.Context, config Config) (*Gateway, error) {
 	if err := validateConfig(config); err != nil {
 		return nil, err
 	}
-	if config.CallTimeout == 0 {
-		config.CallTimeout = DefaultCallTimeout
-	}
+	config.CallTimeout = effectiveCallTimeout(config.CallTimeout)
 	config.Arguments = append([]string(nil), config.Arguments...)
 	config.CredentialLabels = append([]string(nil), config.CredentialLabels...)
 	config.InheritedEnvNames = append([]string(nil), config.InheritedEnvNames...)
@@ -354,16 +352,21 @@ func validateConfig(config Config) error {
 	if config.Principal == "" {
 		return fmt.Errorf("gateway principal is required")
 	}
-	if config.CallTimeout == 0 {
-		config.CallTimeout = DefaultCallTimeout
-	}
-	if config.CallTimeout < time.Millisecond || config.CallTimeout > MaximumCallTimeout {
+	if config.CallTimeout != 0 &&
+		(config.CallTimeout < time.Millisecond || config.CallTimeout > MaximumCallTimeout) {
 		return fmt.Errorf("gateway timeout must be between 1ms and %s", MaximumCallTimeout)
 	}
 	if (config.ApprovalAuthorities == "") != (config.ApprovalPolicyID == "") {
 		return fmt.Errorf("approval authorities and approval policy must be configured together")
 	}
 	return nil
+}
+
+func effectiveCallTimeout(timeout time.Duration) time.Duration {
+	if timeout == 0 {
+		return DefaultCallTimeout
+	}
+	return timeout
 }
 
 func validatePolicySnapshot(snapshot PolicySnapshot) error {
@@ -595,10 +598,11 @@ func (g *Gateway) callContext(requestCtx context.Context) (context.Context, cont
 	if requestCtx == nil {
 		requestCtx = context.Background()
 	}
-	timeout := DefaultCallTimeout
-	if g != nil && g.config.CallTimeout > 0 {
+	timeout := time.Duration(0)
+	if g != nil {
 		timeout = g.config.CallTimeout
 	}
+	timeout = effectiveCallTimeout(timeout)
 	callCtx, cancel := context.WithTimeout(requestCtx, timeout)
 	if g == nil || g.ctx == nil {
 		return callCtx, cancel

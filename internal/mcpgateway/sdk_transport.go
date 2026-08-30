@@ -1,7 +1,6 @@
 package mcpgateway
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -214,7 +213,7 @@ func (d *sdkDownstream) routeProgressFrame(frame validatedFrame) {
 		return
 	}
 	if err := sink(context.Background(), ProgressEvent{
-		Params: bytes.Clone(frame.params), FrameBytes: uint64(len(frame.raw)),
+		Params: frame.params, FrameBytes: uint64(len(frame.raw)),
 	}); err != nil {
 		d.unregisterProgress(token)
 	}

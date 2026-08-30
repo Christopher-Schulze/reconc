@@ -47,6 +47,17 @@ func TestValidateConfigRejectsIncompleteOrAmbiguousLaunch(t *testing.T) {
 	if err := validateConfig(valid); err != nil {
 		t.Fatalf("valid config: %v", err)
 	}
+	defaulted := valid
+	defaulted.CallTimeout = 0
+	if err := validateConfig(defaulted); err != nil {
+		t.Fatalf("zero timeout default marker was rejected: %v", err)
+	}
+	if got := effectiveCallTimeout(0); got != DefaultCallTimeout {
+		t.Fatalf("default timeout = %s, want %s", got, DefaultCallTimeout)
+	}
+	if got := effectiveCallTimeout(time.Second); got != time.Second {
+		t.Fatalf("explicit timeout = %s, want 1s", got)
+	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			config := valid
