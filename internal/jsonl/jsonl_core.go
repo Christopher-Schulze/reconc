@@ -2,6 +2,7 @@
 package jsonl
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/boundedio"
+	"reconc.dev/reconc/internal/filelock"
 )
 
 const (
@@ -28,6 +30,10 @@ const (
 	// writer. Callers that inspect a ring use this bound for historical files
 	// even when their current policy retains fewer archives.
 	MaxArchiveFiles = 32
+	// DefaultLockTimeout bounds legacy entry points that do not accept a
+	// caller context. Context-aware entry points apply both this layout budget
+	// and the caller lifecycle.
+	DefaultLockTimeout = filelock.DefaultTimeout
 )
 
 // ErrTransactionCommitRequired means recovery reached a transaction whose
@@ -76,7 +82,7 @@ func defaultLayout(path string) Layout {
 	return Layout{
 		LockPath: path + ".lock", JournalPath: path + ".append-transaction.json",
 		BackupPrefix: path + ".append-backup", DirectoryMode: 0o755, FileMode: 0o644,
-		JournalMode: 0o600,
+		JournalMode: 0o600, LockTimeout: DefaultLockTimeout,
 	}
 }
 
@@ -86,6 +92,12 @@ func layoutIsDefault(path string, layout Layout) bool {
 		layout.JournalPath == want.JournalPath && layout.BackupPrefix == want.BackupPrefix &&
 		layout.DirectoryMode == want.DirectoryMode && layout.FileMode == want.FileMode &&
 		layout.JournalMode == want.JournalMode && layout.LockTimeout == want.LockTimeout
+}
+
+func legacyUnboundedDefaultLayoutIdentity(path string) string {
+	legacy := defaultLayout(path)
+	legacy.LockTimeout = 0
+	return layoutIdentity(path, legacy)
 }
 
 func validateLayout(path string, layout Layout) error {
@@ -233,11 +245,23 @@ type appendJournalBackup struct {
 // Inspect reports the cleanup Enforce would perform against the current
 // snapshot without creating locks, temp files, or other filesystem state.
 func Inspect(path string, policy Policy) (EnforceResult, error) {
+	return InspectContext(context.Background(), path, policy)
+}
+
+// InspectContext reports the cleanup Enforce would perform under the caller
+// lifecycle without creating locks or mutating filesystem state.
+func InspectContext(ctx context.Context, path string, policy Policy) (EnforceResult, error) {
+	if ctx == nil {
+		return EnforceResult{}, errors.New("jsonl inspection context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return EnforceResult{}, err
+	}
 	if err := validatePolicy(policy); err != nil {
 		return EnforceResult{}, err
 	}
 	result := EnforceResult{}
-	candidates, err := archiveCandidates(path)
+	candidates, err := archiveCandidatesContext(ctx, path)
 	if err != nil {
 		return result, err
 	}
@@ -258,6 +282,9 @@ func Inspect(path string, policy Policy) (EnforceResult, error) {
 		}
 	}
 	for index := policy.MaxArchives; index >= 0; index-- {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		candidate := path
 		if index > 0 {
 			candidate = fmt.Sprintf("%s.%d", path, index)

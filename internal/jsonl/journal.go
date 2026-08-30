@@ -533,7 +533,9 @@ func readAppendJournalWithLayout(path string, layout Layout) (*appendJournal, er
 		}
 	} else if journal.LayoutIdentity != wantLayout {
 		legacyIdentity := layoutIdentityWithSecurity(path, layout, false)
-		if layout.Security == nil || journal.LayoutIdentity != legacyIdentity {
+		legacyDefault := layoutIsDefault(path, layout) && journal.LayoutIdentity == legacyUnboundedDefaultLayoutIdentity(path)
+		legacySecurity := layout.Security != nil && journal.LayoutIdentity == legacyIdentity
+		if !legacyDefault && !legacySecurity {
 			return nil, fmt.Errorf("JSONL append journal %s: %w", layout.JournalPath, ErrLayoutMismatch)
 		}
 	}

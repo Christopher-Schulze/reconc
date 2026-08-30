@@ -212,7 +212,7 @@ func appendRunDecisionResolved(root string, decision RunDecision) error {
 	return jsonl.AppendWithLayout(
 		path, body,
 		jsonl.Policy{MaxBytes: runDecisionMaxBytes, MaxArchives: runDecisionMaxArchives},
-		repositorycontrol.RunDecisionLayout(path, agentSessionLockTimeout),
+		repositorycontrol.RunDecisionLayout(path),
 	)
 }
 

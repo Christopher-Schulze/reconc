@@ -253,7 +253,17 @@ func validateAuditHead(path string) error {
 }
 
 func validateAuditContentFiles(path string, layout jsonl.Layout) error {
-	sources, err := jsonl.PathsOldestFirst(path, MaxArchiveFiles)
+	return validateAuditContentFilesContext(context.Background(), path, layout)
+}
+
+func validateAuditContentFilesContext(ctx context.Context, path string, layout jsonl.Layout) error {
+	if ctx == nil {
+		return errors.New("audit content validation context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	sources, err := jsonl.PathsOldestFirstContext(ctx, path, MaxArchiveFiles)
 	if err != nil {
 		return err
 	}
@@ -262,6 +272,9 @@ func validateAuditContentFiles(path string, layout jsonl.Layout) error {
 		return errors.New("audit layout security contract is unavailable")
 	}
 	for _, source := range sources {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := boundedio.WithRegularFileSnapshot(source, DefaultMaxSizeBytes, func(file *os.File, info os.FileInfo) error {
 			return security.ValidateOpenedJSONLFile(file, info, DefaultMaxSizeBytes)
 		}); err != nil {

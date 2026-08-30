@@ -12,6 +12,10 @@ import (
 	"reconc.dev/reconc/internal/privatefs"
 )
 
+// RunDecisionLockTimeout is the shared finite writer and retention budget for
+// the repository-run JSONL ring.
+const RunDecisionLockTimeout = 30 * time.Second
+
 // EnsureRunDirectory establishes the current-user-only repository runtime
 // boundary below the shareable .reconc root. Existing insecure directories
 // fail closed and are never repaired implicitly.
@@ -34,13 +38,13 @@ func ValidateRunDirectory(path string) error {
 
 // RunDecisionLayout defines the private JSONL access contract shared by the
 // repository-run writer and retention owner.
-func RunDecisionLayout(path string, lockTimeout time.Duration) jsonl.Layout {
+func RunDecisionLayout(path string) jsonl.Layout {
 	lockPath := path + ".lock"
 	return jsonl.Layout{
 		LockPath: lockPath, JournalPath: path + ".append-transaction.json",
 		BackupPrefix: path + ".append-backup", DirectoryMode: privatefs.PrivateDirectoryMode,
 		FileMode: privatefs.PrivateFileMode, JournalMode: privatefs.PrivateFileMode,
-		LockTimeout: lockTimeout, Security: privateJSONLSecurity{lockPath: lockPath},
+		LockTimeout: RunDecisionLockTimeout, Security: privateJSONLSecurity{lockPath: lockPath},
 	}
 }
 

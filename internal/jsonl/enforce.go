@@ -8,12 +8,29 @@ import (
 )
 
 func Enforce(path string, policy Policy) (EnforceResult, error) {
-	return EnforceWithLayout(path, policy, defaultLayout(path))
+	return EnforceContext(context.Background(), path, policy)
+}
+
+// EnforceContext applies retention under the caller lifecycle and the default
+// lock timeout.
+func EnforceContext(ctx context.Context, path string, policy Policy) (EnforceResult, error) {
+	return EnforceContextWithLayout(ctx, path, policy, defaultLayout(path))
 }
 
 // EnforceWithLayout is Enforce with the same auxiliary layout used by the
 // writer.
 func EnforceWithLayout(path string, policy Policy, layout Layout) (EnforceResult, error) {
+	return EnforceContextWithLayout(context.Background(), path, policy, layout)
+}
+
+// EnforceContextWithLayout is EnforceWithLayout under the caller lifecycle.
+func EnforceContextWithLayout(ctx context.Context, path string, policy Policy, layout Layout) (EnforceResult, error) {
+	if ctx == nil {
+		return EnforceResult{}, errors.New("jsonl enforcement context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return EnforceResult{}, err
+	}
 	if err := validatePolicy(policy); err != nil {
 		return EnforceResult{}, err
 	}
@@ -21,11 +38,11 @@ func EnforceWithLayout(path string, policy Policy, layout Layout) (EnforceResult
 		return EnforceResult{}, err
 	}
 	result := EnforceResult{}
-	err := withLayoutLockLeaseContext(context.Background(), path, layout, true, func(lockedLayout Layout) error {
+	err := withLayoutLockLeaseContext(ctx, path, layout, true, func(lockedLayout Layout) error {
 		if err := recoverAppendLockedWithLayout(path, lockedLayout, nil); err != nil {
 			return err
 		}
-		candidates, err := archiveCandidates(path)
+		candidates, err := archiveCandidatesContext(ctx, path)
 		if err != nil {
 			return err
 		}
@@ -48,6 +65,9 @@ func EnforceWithLayout(path string, policy Policy, layout Layout) (EnforceResult
 			}
 		}
 		for index := policy.MaxArchives; index >= 0; index-- {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			candidate := path
 			if index > 0 {
 				candidate = fmt.Sprintf("%s.%d", path, index)
@@ -66,10 +86,21 @@ func EnforceWithLayout(path string, policy Policy, layout Layout) (EnforceResult
 // PathsOldestFirst returns existing bounded-ring files in chronological
 // order, then the live file. Readers use this to preserve append order.
 func PathsOldestFirst(path string, maxArchives int) ([]string, error) {
+	return PathsOldestFirstContext(context.Background(), path, maxArchives)
+}
+
+// PathsOldestFirstContext is PathsOldestFirst under the caller lifecycle.
+func PathsOldestFirstContext(ctx context.Context, path string, maxArchives int) ([]string, error) {
+	if ctx == nil {
+		return nil, errors.New("jsonl ring context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := validateArchiveBound(maxArchives); err != nil {
 		return nil, err
 	}
-	candidates, err := archiveCandidates(path)
+	candidates, err := archiveCandidatesContext(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +111,9 @@ func PathsOldestFirst(path string, maxArchives int) ([]string, error) {
 	}
 	paths := make([]string, 0, maxArchives+1)
 	for index := maxArchives; index >= 1; index-- {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		candidate := fmt.Sprintf("%s.%d", path, index)
 		if info, err := os.Lstat(candidate); err == nil {
 			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
@@ -106,13 +140,21 @@ func PathsOldestFirst(path string, maxArchives int) ([]string, error) {
 // bytes to a cleanup decision. The bound includes the live file and archives
 // through maxArchives.
 func RingSize(path string, maxArchives int) (int64, int, error) {
-	paths, err := PathsOldestFirst(path, maxArchives)
+	return RingSizeContext(context.Background(), path, maxArchives)
+}
+
+// RingSizeContext is RingSize under the caller lifecycle.
+func RingSizeContext(ctx context.Context, path string, maxArchives int) (int64, int, error) {
+	paths, err := PathsOldestFirstContext(ctx, path, maxArchives)
 	if err != nil {
 		return 0, 0, err
 	}
 	var bytes int64
 	files := 0
 	for _, candidate := range paths {
+		if err := ctx.Err(); err != nil {
+			return bytes, files, err
+		}
 		info, err := os.Lstat(candidate)
 		if errors.Is(err, os.ErrNotExist) {
 			continue

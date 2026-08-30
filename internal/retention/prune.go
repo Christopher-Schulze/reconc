@@ -42,32 +42,54 @@ const (
 
 // Run executes an immediate, cross-process-serialized retention pass.
 func Run(options Options) Report {
+	return RunContext(context.Background(), options)
+}
+
+// RunContext executes an immediate retention pass under the caller lifecycle.
+func RunContext(ctx context.Context, options Options) Report {
 	options = normalizeOptions(options)
-	if options.DryRun {
-		return runLocked(options, true)
+	if ctx == nil {
+		return retentionContextError(options, errors.New("retention context is required"))
 	}
-	return withPruneLock(options, func() Report {
-		return runLocked(options, true)
+	if err := ctx.Err(); err != nil {
+		return retentionContextError(options, err)
+	}
+	if options.DryRun {
+		return runLockedContext(ctx, options, true)
+	}
+	return withPruneLockContext(ctx, options, func() Report {
+		return runLockedContext(ctx, options, true)
 	})
 }
 
 // RunIfDue executes at most once per Policy.Interval. A not-due call performs
 // one stat and one lock round-trip but writes nothing.
 func RunIfDue(options Options) Report {
+	return RunIfDueContext(context.Background(), options)
+}
+
+// RunIfDueContext executes a due retention pass under the caller lifecycle.
+func RunIfDueContext(ctx context.Context, options Options) Report {
 	options = normalizeOptions(options)
+	if ctx == nil {
+		return retentionContextError(options, errors.New("retention context is required"))
+	}
+	if err := ctx.Err(); err != nil {
+		return retentionContextError(options, err)
+	}
 	if options.DryRun {
 		marker := filepath.Join(ProjectDir(options.StateRoot, options.RepoRoot), ".last-retention")
 		if info, err := os.Stat(marker); err == nil && options.Now.Sub(info.ModTime()) < options.Policy.Interval {
 			return emptyReport(options, true)
 		}
-		return runLocked(options, false)
+		return runLockedContext(ctx, options, false)
 	}
-	return withPruneLock(options, func() Report {
+	return withPruneLockContext(ctx, options, func() Report {
 		marker := filepath.Join(ProjectDir(options.StateRoot, options.RepoRoot), ".last-retention")
 		if info, err := os.Stat(marker); err == nil && options.Now.Sub(info.ModTime()) < options.Policy.Interval {
 			return emptyReport(options, options.DryRun)
 		}
-		report := runLocked(options, false)
+		report := runLockedContext(ctx, options, false)
 		if !options.DryRun {
 			body := []byte(options.Now.UTC().Format(time.RFC3339Nano) + "\n")
 			if _, err := privatefs.WritePrivateIfChanged(marker, body, 0o600); err != nil {
@@ -79,6 +101,10 @@ func RunIfDue(options Options) Report {
 }
 
 func runLocked(options Options, forceOwnedTemp bool) Report {
+	return runLockedContext(context.Background(), options, forceOwnedTemp)
+}
+
+func runLockedContext(ctx context.Context, options Options, forceOwnedTemp bool) Report {
 	policy := options.Policy
 	report := Report{
 		Ran:                true,
@@ -87,6 +113,10 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 		StateByteBudget:    policy.StateTotalBytes,
 		RepoByteBudget:     policy.RepoRuntimeBytes,
 		OwnedTempBudget:    policy.OwnedTempTotalBytes,
+	}
+	if err := ctx.Err(); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("retention canceled: %v", err))
+		return report
 	}
 	project := ProjectDir(options.StateRoot, options.RepoRoot)
 	active, activeErr := liveActiveSession(project, options.ActiveSession, options.Now, policy.Locks.MaxAge)
@@ -146,8 +176,8 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 
 	runDecisionPath := filepath.Join(options.RepoRoot, ".reconc", "run", "decisions.jsonl")
 	report.Classes = append(report.Classes,
-		inspectChainedAudit("audit", options.RepoRoot, policy.AuditFileBytes, policy.AuditArchives, &report),
-		enforceRunDecisionJSONL("run-decisions", runDecisionPath, policy.RunDecisionFileBytes, policy.RunDecisionArchives, options.DryRun, &report),
+		inspectChainedAuditContext(ctx, "audit", options.RepoRoot, policy.AuditFileBytes, policy.AuditArchives, &report),
+		enforceRunDecisionJSONLContext(ctx, "run-decisions", runDecisionPath, policy.RunDecisionFileBytes, policy.RunDecisionArchives, options.DryRun, &report),
 	)
 	cacheDir := filepath.Join(options.RepoRoot, ".reconc", "cache")
 	generatedActive, generatedActiveErr := generatedBinaryActiveNames(cacheDir, options.Now, policy.AbandonedTempAge)
@@ -160,8 +190,8 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 		pruneClass("generated-binaries", cacheDir, generatedPolicy, options.Now, options.DryRun, generatedActive, isGeneratedBinary, &report),
 		pruneRepoTemps(options, &report),
 	)
-	ownedTempClass, ownedTempScanned := pruneOwnedTempRootsInterval(options, forceOwnedTemp, &report)
-	projectRootsClass, projectRootsScanned := pruneProjectRootsInterval(options, forceOwnedTemp, &report)
+	ownedTempClass, ownedTempScanned := pruneOwnedTempRootsIntervalContext(ctx, options, forceOwnedTemp, &report)
+	projectRootsClass, projectRootsScanned := pruneProjectRootsIntervalContext(ctx, options, forceOwnedTemp, &report)
 	report.Classes = append(report.Classes, ownedTempClass, projectRootsClass)
 	projectedRepoBefore, projectedRepoAfter := classTotals(report.Classes, "audit", "run-decisions", "generated-binaries")
 	repoTotal := enforceRepoTotal(options, &report)
@@ -205,8 +235,22 @@ func emptyReport(options Options, dryRun bool) Report {
 	}
 }
 
+func retentionContextError(options Options, err error) Report {
+	report := emptyReport(options, options.DryRun)
+	report.Errors = []string{fmt.Sprintf("retention context: %v", err)}
+	return report
+}
+
 func pruneProjectRootsInterval(options Options, force bool, report *Report) (ClassReport, bool) {
+	return pruneProjectRootsIntervalContext(context.Background(), options, force, report)
+}
+
+func pruneProjectRootsIntervalContext(ctx context.Context, options Options, force bool, report *Report) (ClassReport, bool) {
 	class := ClassReport{Name: "project-state-roots"}
+	if err := ctx.Err(); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("project retention canceled: %v", err))
+		return class, false
+	}
 	if options.DryRun {
 		return pruneProjectRoots(options, report, !force), true
 	}
@@ -221,7 +265,7 @@ func pruneProjectRootsInterval(options Options, force bool, report *Report) (Cla
 		return class, false
 	}
 	defer lock.Close()
-	unlock, err := filelock.LockContext(context.Background(), lock, filelock.DefaultTimeout)
+	unlock, err := filelock.LockContext(ctx, lock, filelock.DefaultTimeout)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("lock project retention: %v", err))
 		return class, false
@@ -388,7 +432,15 @@ func projectTreeSizeAndLatest(root string, initial time.Time) (int64, time.Time,
 }
 
 func pruneOwnedTempRootsInterval(options Options, force bool, report *Report) (ClassReport, bool) {
+	return pruneOwnedTempRootsIntervalContext(context.Background(), options, force, report)
+}
+
+func pruneOwnedTempRootsIntervalContext(ctx context.Context, options Options, force bool, report *Report) (ClassReport, bool) {
 	class := ClassReport{Name: "abandoned-owned-temp"}
+	if err := ctx.Err(); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("owned-temp retention canceled: %v", err))
+		return class, false
+	}
 	if options.DryRun {
 		return pruneOwnedTempRoots(options, report), true
 	}
@@ -403,7 +455,7 @@ func pruneOwnedTempRootsInterval(options Options, force bool, report *Report) (C
 		return class, false
 	}
 	defer lock.Close()
-	unlock, err := filelock.LockContext(context.Background(), lock, filelock.DefaultTimeout)
+	unlock, err := filelock.LockContext(ctx, lock, filelock.DefaultTimeout)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("lock global retention: %v", err))
 		return class, false
@@ -451,6 +503,13 @@ func normalizeOptions(options Options) Options {
 }
 
 func withPruneLock(options Options, run func() Report) Report {
+	return withPruneLockContext(context.Background(), options, run)
+}
+
+func withPruneLockContext(ctx context.Context, options Options, run func() Report) Report {
+	if ctx == nil {
+		return retentionContextError(options, errors.New("retention context is required"))
+	}
 	project := ProjectDir(options.StateRoot, options.RepoRoot)
 	if err := privatefs.RepairDirectory(project); err != nil {
 		return Report{Errors: []string{fmt.Sprintf("create retention project dir: %v", err)}}
@@ -461,7 +520,7 @@ func withPruneLock(options Options, run func() Report) Report {
 		return Report{Errors: []string{fmt.Sprintf("open retention lock: %v", err)}}
 	}
 	defer lock.Close()
-	unlock, err := filelock.LockContext(context.Background(), lock, filelock.DefaultTimeout)
+	unlock, err := filelock.LockContext(ctx, lock, filelock.DefaultTimeout)
 	if err != nil {
 		return Report{Errors: []string{fmt.Sprintf("lock retention: %v", err)}}
 	}
@@ -871,15 +930,19 @@ func liveActiveSession(project, requested string, now time.Time, maxAge time.Dur
 }
 
 func enforceJSONL(name, path string, maxBytes int64, archives int, dryRun bool, report *Report) ClassReport {
+	return enforceJSONLContext(context.Background(), name, path, maxBytes, archives, dryRun, report)
+}
+
+func enforceJSONLContext(ctx context.Context, name, path string, maxBytes int64, archives int, dryRun bool, report *Report) ClassReport {
 	class := ClassReport{Name: name, InspectionStatus: InspectionUnknown}
 	var err error
-	class.BytesBefore, class.FilesKept, err = jsonl.RingSize(path, jsonl.MaxArchiveFiles)
+	class.BytesBefore, class.FilesKept, err = jsonl.RingSizeContext(ctx, path, jsonl.MaxArchiveFiles)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("inspect %s ring: %v", name, err))
 		return class
 	}
 	if dryRun {
-		result, err := jsonl.Inspect(path, jsonl.Policy{MaxBytes: maxBytes, MaxArchives: archives})
+		result, err := jsonl.InspectContext(ctx, path, jsonl.Policy{MaxBytes: maxBytes, MaxArchives: archives})
 		if err != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("inspect %s: %v", name, err))
 			return class
@@ -891,13 +954,13 @@ func enforceJSONL(name, path string, maxBytes int64, archives int, dryRun bool, 
 		class.FilesKept -= result.FilesRemoved
 		return class
 	}
-	result, enforceErr := jsonl.Enforce(path, jsonl.Policy{MaxBytes: maxBytes, MaxArchives: archives})
+	result, enforceErr := jsonl.EnforceContext(ctx, path, jsonl.Policy{MaxBytes: maxBytes, MaxArchives: archives})
 	if enforceErr != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("enforce %s: %v", name, enforceErr))
 	}
 	class.BytesFreed = result.BytesFreed
 	class.FilesDeleted = result.FilesRemoved
-	class.BytesAfter, class.FilesKept, err = jsonl.RingSize(path, archives)
+	class.BytesAfter, class.FilesKept, err = jsonl.RingSizeContext(ctx, path, archives)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("inspect enforced %s ring: %v", name, err))
 	} else if enforceErr == nil {
@@ -907,6 +970,14 @@ func enforceJSONL(name, path string, maxBytes int64, archives int, dryRun bool, 
 }
 
 func enforceRunDecisionJSONL(name, path string, maxBytes int64, archives int, dryRun bool, report *Report) ClassReport {
+	return enforceRunDecisionJSONLContext(context.Background(), name, path, maxBytes, archives, dryRun, report)
+}
+
+func enforceRunDecisionJSONLContext(ctx context.Context, name, path string, maxBytes int64, archives int, dryRun bool, report *Report) ClassReport {
+	if err := ctx.Err(); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("enforce %s: %v", name, err))
+		return ClassReport{Name: name, InspectionStatus: InspectionUnknown}
+	}
 	if _, err := os.Lstat(filepath.Dir(path)); errors.Is(err, os.ErrNotExist) {
 		return ClassReport{Name: name, InspectionStatus: InspectionComplete}
 	} else if err != nil {
@@ -917,31 +988,32 @@ func enforceRunDecisionJSONL(name, path string, maxBytes int64, archives int, dr
 		report.Errors = append(report.Errors, fmt.Sprintf("validate %s directory: %v", name, err))
 		return ClassReport{Name: name, InspectionStatus: InspectionUnknown}
 	}
-	if err := validateRunDecisionSecurity(path); err != nil {
+	if err := validateRunDecisionSecurityContext(ctx, path); err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("validate %s access: %v", name, err))
 		return ClassReport{Name: name, InspectionStatus: InspectionUnknown}
 	}
 	if dryRun {
-		return enforceJSONL(name, path, maxBytes, archives, true, report)
+		return enforceJSONLContext(ctx, name, path, maxBytes, archives, true, report)
 	}
 	class := ClassReport{Name: name, InspectionStatus: InspectionUnknown}
 	var err error
-	class.BytesBefore, class.FilesKept, err = jsonl.RingSize(path, jsonl.MaxArchiveFiles)
+	class.BytesBefore, class.FilesKept, err = jsonl.RingSizeContext(ctx, path, jsonl.MaxArchiveFiles)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("inspect %s ring: %v", name, err))
 		return class
 	}
-	result, enforceErr := jsonl.EnforceWithLayout(
+	result, enforceErr := jsonl.EnforceContextWithLayout(
+		ctx,
 		path,
 		jsonl.Policy{MaxBytes: maxBytes, MaxArchives: archives},
-		repositorycontrol.RunDecisionLayout(path, 0),
+		repositorycontrol.RunDecisionLayout(path),
 	)
 	if enforceErr != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("enforce %s: %v", name, enforceErr))
 	}
 	class.BytesFreed = result.BytesFreed
 	class.FilesDeleted = result.FilesRemoved
-	class.BytesAfter, class.FilesKept, err = jsonl.RingSize(path, archives)
+	class.BytesAfter, class.FilesKept, err = jsonl.RingSizeContext(ctx, path, archives)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("inspect enforced %s ring: %v", name, err))
 	} else if enforceErr == nil {
@@ -951,11 +1023,18 @@ func enforceRunDecisionJSONL(name, path string, maxBytes int64, archives int, dr
 }
 
 func validateRunDecisionSecurity(path string) error {
-	sources, err := jsonl.PathsOldestFirst(path, jsonl.MaxArchiveFiles)
+	return validateRunDecisionSecurityContext(context.Background(), path)
+}
+
+func validateRunDecisionSecurityContext(ctx context.Context, path string) error {
+	sources, err := jsonl.PathsOldestFirstContext(ctx, path, jsonl.MaxArchiveFiles)
 	if err != nil {
 		return err
 	}
 	for _, source := range sources {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		info, err := os.Lstat(source)
 		if err != nil {
 			return err
@@ -978,10 +1057,14 @@ func validateRunDecisionSecurity(path string) error {
 }
 
 func inspectChainedAudit(name, repoRoot string, maxBytes int64, archives int, report *Report) ClassReport {
+	return inspectChainedAuditContext(context.Background(), name, repoRoot, maxBytes, archives, report)
+}
+
+func inspectChainedAuditContext(ctx context.Context, name, repoRoot string, maxBytes int64, archives int, report *Report) ClassReport {
 	path := filepath.Join(repoRoot, audit.AuditFileRelative)
 	class := ClassReport{Name: name}
 	var err error
-	class.BytesBefore, class.FilesKept, err = jsonl.RingSize(path, audit.MaxArchiveFiles)
+	class.BytesBefore, class.FilesKept, err = jsonl.RingSizeContext(ctx, path, audit.MaxArchiveFiles)
 	class.BytesAfter = class.BytesBefore
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("inspect %s ring: %v", name, err))
@@ -994,7 +1077,7 @@ func inspectChainedAudit(name, repoRoot string, maxBytes int64, archives int, re
 		))
 		return class
 	}
-	pendingCleanup, err := audit.InspectRetention(repoRoot)
+	pendingCleanup, err := audit.InspectRetentionContext(ctx, repoRoot)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("verify %s chain: %v", name, err))
 		return class

@@ -124,6 +124,17 @@ func Enabled(repoRoot string, configEnabled bool) bool {
 // cross-process file lock and rotates before append, so files never overshoot
 // the cap without a lock-polling storm.
 func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
+	return AppendContext(context.Background(), repoRoot, entry, maxSizeBytes)
+}
+
+// AppendContext writes one chained audit entry under the caller lifecycle.
+func AppendContext(ctx context.Context, repoRoot string, entry Entry, maxSizeBytes int64) error {
+	if ctx == nil {
+		return errors.New("audit: append context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if repoRoot == "" {
 		return nil
 	}
@@ -137,7 +148,7 @@ func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 	if maxSizeBytes > DefaultMaxSizeBytes {
 		return fmt.Errorf("audit: max size %d exceeds the %d-byte reader limit", maxSizeBytes, DefaultMaxSizeBytes)
 	}
-	releaseAppendGate, err := acquireAuditAppendGate(context.Background(), repoRoot, auditAppendGateTimeout)
+	releaseAppendGate, err := acquireAuditAppendGate(ctx, repoRoot, auditAppendGateTimeout)
 	if err != nil {
 		return fmt.Errorf("audit: append serialization: %w", err)
 	}
@@ -153,7 +164,7 @@ func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 	var rebuildHead bool
 	var previousHead *chainHead
 	prepare := func() ([]byte, error) {
-		head, last, err := loadAppendCheckpoint(repoRoot)
+		head, last, err := loadAppendCheckpointContext(ctx, repoRoot)
 		if err != nil {
 			return nil, err
 		}
@@ -189,7 +200,7 @@ func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 			return nil, err
 		}
 		if rotation {
-			if _, _, err := loadVerifiedSnapshot(repoRoot); err != nil {
+			if _, _, err := loadVerifiedSnapshotContext(ctx, repoRoot); err != nil {
 				return nil, err
 			}
 		}
@@ -200,11 +211,11 @@ func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 	}
 	commit := func() error {
 		if !prepared || rebuildHead {
-			return rebuildChainHead(repoRoot)
+			return rebuildChainHeadContext(ctx, repoRoot)
 		}
 		return advanceChainHead(repoRoot, previousHead, entry)
 	}
-	if err := jsonl.AppendTransactionWithLayout(path, policy, layout, prepare, commit); err != nil {
+	if err := jsonl.AppendTransactionContextWithLayout(ctx, path, policy, layout, prepare, commit); err != nil {
 		return fmt.Errorf("audit: append: %w", err)
 	}
 	return nil
@@ -214,7 +225,13 @@ func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 // evidence. Append owns rotation and detached-head publication; a generic
 // JSONL compactor cannot safely rewrite this chained format.
 func EnforceRetention(repoRoot string) (jsonl.EnforceResult, error) {
-	if _, err := Verify(repoRoot); err != nil {
+	return EnforceRetentionContext(context.Background(), repoRoot)
+}
+
+// EnforceRetentionContext verifies writer-owned retention under the caller
+// lifecycle.
+func EnforceRetentionContext(ctx context.Context, repoRoot string) (jsonl.EnforceResult, error) {
+	if _, err := VerifyContext(ctx, repoRoot); err != nil {
 		return jsonl.EnforceResult{}, err
 	}
 	return jsonl.EnforceResult{}, nil
@@ -224,16 +241,25 @@ func EnforceRetention(repoRoot string) (jsonl.EnforceResult, error) {
 // JSONL cleanup that would be possible, while holding the audit lock for the
 // complete validated snapshot and inspection.
 func InspectRetention(repoRoot string) (jsonl.EnforceResult, error) {
-	if err := recoverPendingAppend(repoRoot); err != nil {
+	return InspectRetentionContext(context.Background(), repoRoot)
+}
+
+// InspectRetentionContext validates and inspects the audit ring under the
+// caller lifecycle.
+func InspectRetentionContext(ctx context.Context, repoRoot string) (jsonl.EnforceResult, error) {
+	if ctx == nil {
+		return jsonl.EnforceResult{}, errors.New("audit: retention context is required")
+	}
+	if err := recoverPendingAppendContext(ctx, repoRoot); err != nil {
 		return jsonl.EnforceResult{}, err
 	}
 	var result jsonl.EnforceResult
-	err := withAuditLock(repoRoot, func() error {
-		if _, _, err := loadVerifiedSnapshot(repoRoot); err != nil {
+	err := withAuditLockContext(ctx, repoRoot, func() error {
+		if _, _, err := loadVerifiedSnapshotContext(ctx, repoRoot); err != nil {
 			return err
 		}
 		var err error
-		result, err = jsonl.Inspect(filepath.Join(repoRoot, AuditFileRelative), jsonl.Policy{
+		result, err = jsonl.InspectContext(ctx, filepath.Join(repoRoot, AuditFileRelative), jsonl.Policy{
 			MaxBytes: DefaultMaxSizeBytes, MaxArchives: MaxArchiveFiles,
 		})
 		return err
@@ -260,10 +286,22 @@ type TailOptions struct {
 // append-only JSONL is self-describing and the cost-of-read is bounded
 // by the rotation cap.
 func Tail(repoRoot string, opts TailOptions) ([]Entry, error) {
+	return TailContext(context.Background(), repoRoot, opts)
+}
+
+// TailContext reads and filters the retained audit chain under the caller
+// lifecycle.
+func TailContext(ctx context.Context, repoRoot string, opts TailOptions) ([]Entry, error) {
+	if ctx == nil {
+		return nil, errors.New("audit: tail context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if repoRoot == "" {
 		return nil, nil
 	}
-	if err := recoverPendingAppend(repoRoot); err != nil {
+	if err := recoverPendingAppendContext(ctx, repoRoot); err != nil {
 		return nil, err
 	}
 	var since *time.Time
@@ -274,12 +312,15 @@ func Tail(repoRoot string, opts TailOptions) ([]Entry, error) {
 		}
 		since = &parsed
 	}
-	all, _, err := readVerifiedSnapshot(repoRoot)
+	all, _, err := readVerifiedSnapshotContext(ctx, repoRoot)
 	if err != nil {
 		return nil, err
 	}
 	filtered := make([]Entry, 0, len(all))
 	for _, entry := range all {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if matchesFilters(entry, opts, since) {
 			filtered = append(filtered, entry)
 		}
@@ -340,7 +381,13 @@ type RuleCount struct {
 // Stats scans the full log and aggregates a StatsReport. Deterministic
 // ordering (top rules sorted by count desc, then id asc).
 func Stats(repoRoot string) (*StatsReport, error) {
-	entries, err := Tail(repoRoot, TailOptions{})
+	return StatsContext(context.Background(), repoRoot)
+}
+
+// StatsContext aggregates the retained audit chain under the caller
+// lifecycle.
+func StatsContext(ctx context.Context, repoRoot string) (*StatsReport, error) {
+	entries, err := TailContext(ctx, repoRoot, TailOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -354,6 +401,9 @@ func Stats(repoRoot string) (*StatsReport, error) {
 	hourAgo := now.Add(-time.Hour)
 	dayAgo := now.Add(-24 * time.Hour)
 	for i, e := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if i == 0 {
 			out.FirstTS = e.Timestamp
 		}
@@ -396,19 +446,34 @@ func Stats(repoRoot string) (*StatsReport, error) {
 // ExportJSONL writes the full log to w as-is. Useful for CSV export
 // tooling or cross-repo aggregation.
 func ExportJSONL(repoRoot string, w io.Writer) error {
-	if err := recoverPendingAppend(repoRoot); err != nil {
+	return ExportJSONLContext(context.Background(), repoRoot, w)
+}
+
+// ExportJSONLContext verifies and exports the audit ring under the caller
+// lifecycle.
+func ExportJSONLContext(ctx context.Context, repoRoot string, w io.Writer) error {
+	if ctx == nil {
+		return errors.New("audit: export context is required")
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return withAuditLock(repoRoot, func() error {
-		if _, _, err := loadVerifiedSnapshot(repoRoot); err != nil {
+	if err := recoverPendingAppendContext(ctx, repoRoot); err != nil {
+		return err
+	}
+	return withAuditLockContext(ctx, repoRoot, func() error {
+		if _, _, err := loadVerifiedSnapshotContext(ctx, repoRoot); err != nil {
 			return err
 		}
 		path := filepath.Join(repoRoot, AuditFileRelative)
-		sources, err := jsonl.PathsOldestFirst(path, MaxArchiveFiles)
+		sources, err := jsonl.PathsOldestFirstContext(ctx, path, MaxArchiveFiles)
 		if err != nil {
 			return fmt.Errorf("audit: enumerate archive ring: %w", err)
 		}
 		for _, source := range sources {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			body, err := boundedio.ReadRegularFile(source, DefaultMaxSizeBytes)
 			if err != nil {
 				if errors.Is(err, os.ErrNotExist) {
@@ -431,15 +496,26 @@ func ExportJSONL(repoRoot string, w io.Writer) error {
 // Verify validates every retained record, the linear sequence and digest
 // links, and the detached first/last head anchors.
 func Verify(repoRoot string) (VerificationReport, error) {
+	return VerifyContext(context.Background(), repoRoot)
+}
+
+// VerifyContext validates the retained chain under the caller lifecycle.
+func VerifyContext(ctx context.Context, repoRoot string) (VerificationReport, error) {
+	if ctx == nil {
+		return VerificationReport{}, errors.New("audit: verification context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return VerificationReport{}, err
+	}
 	if repoRoot == "" {
 		return VerificationReport{Valid: true}, nil
 	}
-	if err := recoverPendingAppend(repoRoot); err != nil {
+	if err := recoverPendingAppendContext(ctx, repoRoot); err != nil {
 		return VerificationReport{}, err
 	}
 	var report VerificationReport
-	err := withAuditLock(repoRoot, func() error {
-		entries, _, err := loadVerifiedSnapshot(repoRoot)
+	err := withAuditLockContext(ctx, repoRoot, func() error {
+		entries, _, err := loadVerifiedSnapshotContext(ctx, repoRoot)
 		if err != nil {
 			return err
 		}
@@ -456,6 +532,13 @@ func Verify(repoRoot string) (VerificationReport, error) {
 }
 
 func loadAppendCheckpoint(repoRoot string) (*chainHead, *Entry, error) {
+	return loadAppendCheckpointContext(context.Background(), repoRoot)
+}
+
+func loadAppendCheckpointContext(ctx context.Context, repoRoot string) (*chainHead, *Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	head, err := readChainHead(repoRoot)
 	if err != nil {
 		return nil, nil, err
@@ -466,7 +549,7 @@ func loadAppendCheckpoint(repoRoot string) (*chainHead, *Entry, error) {
 		return nil, nil, err
 	}
 	if !exists {
-		sources, err := jsonl.PathsOldestFirst(path, MaxArchiveFiles)
+		sources, err := jsonl.PathsOldestFirstContext(ctx, path, MaxArchiveFiles)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -476,7 +559,7 @@ func loadAppendCheckpoint(repoRoot string) (*chainHead, *Entry, error) {
 			}
 			return nil, nil, nil
 		}
-		entries, verifiedHead, err := loadVerifiedSnapshot(repoRoot)
+		entries, verifiedHead, err := loadVerifiedSnapshotContext(ctx, repoRoot)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -582,7 +665,11 @@ func appendRequiresRotation(path string, recordBytes int, maxSizeBytes int64) (b
 }
 
 func rebuildChainHead(repoRoot string) error {
-	entries, err := readAuditEntries(filepath.Join(repoRoot, AuditFileRelative))
+	return rebuildChainHeadContext(context.Background(), repoRoot)
+}
+
+func rebuildChainHeadContext(ctx context.Context, repoRoot string) error {
+	entries, err := readAuditEntriesContext(ctx, filepath.Join(repoRoot, AuditFileRelative))
 	if err != nil {
 		return err
 	}
@@ -610,13 +697,23 @@ func advanceChainHead(repoRoot string, previous *chainHead, entry Entry) error {
 }
 
 func recoverPendingAppend(repoRoot string) error {
+	return recoverPendingAppendContext(context.Background(), repoRoot)
+}
+
+func recoverPendingAppendContext(ctx context.Context, repoRoot string) error {
+	if ctx == nil {
+		return errors.New("audit: recovery context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	path := filepath.Join(repoRoot, AuditFileRelative)
 	layout, err := prepareAuditLayout(repoRoot)
 	if err != nil {
 		return err
 	}
 	commit := func() error {
-		entries, err := readAuditEntries(path)
+		entries, err := readAuditEntriesContext(ctx, path)
 		if err != nil {
 			return err
 		}
@@ -625,36 +722,50 @@ func recoverPendingAppend(repoRoot string) error {
 		}
 		return writeChainHead(repoRoot, entries)
 	}
-	err = jsonl.RecoverWithLayout(path, layout, commit)
+	err = jsonl.RecoverContextWithLayout(ctx, path, layout, commit)
 	if err == nil || !errors.Is(err, jsonl.ErrLayoutMismatch) {
 		return err
 	}
 	// A pre-private audit journal used the generic JSONL layout. Recover it
 	// explicitly once, then publish the detached head under the private layout.
-	return jsonl.Recover(path, commit)
+	return jsonl.RecoverContext(ctx, path, commit)
 }
 
 func readVerifiedSnapshot(repoRoot string) ([]Entry, *chainHead, error) {
+	return readVerifiedSnapshotContext(context.Background(), repoRoot)
+}
+
+func readVerifiedSnapshotContext(ctx context.Context, repoRoot string) ([]Entry, *chainHead, error) {
 	var entries []Entry
 	var head *chainHead
-	err := withAuditLock(repoRoot, func() error {
+	err := withAuditLockContext(ctx, repoRoot, func() error {
 		var err error
-		entries, head, err = loadVerifiedSnapshot(repoRoot)
+		entries, head, err = loadVerifiedSnapshotContext(ctx, repoRoot)
 		return err
 	})
 	return entries, head, err
 }
 
 func loadVerifiedSnapshot(repoRoot string) ([]Entry, *chainHead, error) {
+	return loadVerifiedSnapshotContext(context.Background(), repoRoot)
+}
+
+func loadVerifiedSnapshotContext(ctx context.Context, repoRoot string) ([]Entry, *chainHead, error) {
+	if ctx == nil {
+		return nil, nil, errors.New("audit: snapshot context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	path := filepath.Join(repoRoot, AuditFileRelative)
 	layout, err := auditLayoutForRead(repoRoot)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := validateAuditContentFiles(path, layout); err != nil {
+	if err := validateAuditContentFilesContext(ctx, path, layout); err != nil {
 		return nil, nil, err
 	}
-	entries, err := readAuditEntries(path)
+	entries, err := readAuditEntriesContext(ctx, path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -672,13 +783,26 @@ func loadVerifiedSnapshot(repoRoot string) ([]Entry, *chainHead, error) {
 }
 
 func readAuditEntries(path string) ([]Entry, error) {
-	sources, err := jsonl.PathsOldestFirst(path, MaxArchiveFiles)
+	return readAuditEntriesContext(context.Background(), path)
+}
+
+func readAuditEntriesContext(ctx context.Context, path string) ([]Entry, error) {
+	if ctx == nil {
+		return nil, errors.New("audit: read context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sources, err := jsonl.PathsOldestFirstContext(ctx, path, MaxArchiveFiles)
 	if err != nil {
 		return nil, fmt.Errorf("audit: enumerate archive ring: %w", err)
 	}
 	entries := []Entry{}
 	var snapshotBytes int64
 	for _, source := range sources {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var decodeErr *auditReadError
 		err := boundedio.WithRegularFileSnapshot(source, DefaultMaxSizeBytes, func(file *os.File, info os.FileInfo) error {
 			if info.Size() > maxAuditSnapshotBytes-snapshotBytes {
@@ -686,7 +810,7 @@ func readAuditEntries(path string) ([]Entry, error) {
 				return nil
 			}
 			snapshotBytes += info.Size()
-			readErr := decodeAuditFile(file, source, &entries)
+			readErr := decodeAuditFileContext(ctx, file, source, &entries)
 			if errors.As(readErr, &decodeErr) {
 				return nil
 			}
@@ -711,9 +835,16 @@ func (e *auditReadError) Error() string { return e.err.Error() }
 func (e *auditReadError) Unwrap() error { return e.err }
 
 func decodeAuditFile(file *os.File, source string, entries *[]Entry) error {
+	return decodeAuditFileContext(context.Background(), file, source, entries)
+}
+
+func decodeAuditFileContext(ctx context.Context, file *os.File, source string, entries *[]Entry) error {
 	reader := bufio.NewReaderSize(file, maxRecordBytes)
 	lineNumber := 0
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		line, err := reader.ReadSlice('\n')
 		if err == bufio.ErrBufferFull {
 			return &auditReadError{err: fmt.Errorf(
@@ -943,12 +1074,19 @@ func writeChainHeadValue(repoRoot string, head chainHead) error {
 }
 
 func withAuditLock(repoRoot string, fn func() error) error {
+	return withAuditLockContext(context.Background(), repoRoot, fn)
+}
+
+func withAuditLockContext(ctx context.Context, repoRoot string, fn func() error) error {
+	if ctx == nil {
+		return errors.New("audit: lock context is required")
+	}
 	layout, err := prepareAuditLayout(repoRoot)
 	if err != nil {
 		return err
 	}
 	return jsonl.ReadSnapshotContextWithLayout(
-		context.Background(), filepath.Join(repoRoot, AuditFileRelative), layout, nil, fn,
+		ctx, filepath.Join(repoRoot, AuditFileRelative), layout, nil, fn,
 	)
 }
 

@@ -2,6 +2,7 @@ package jsonl
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -20,7 +21,7 @@ const (
 	// directory briefly after another writer has acquired the final lock.
 	// Keep archive discovery bounded while waiting for that transient churn to
 	// settle, then preserve the strict snapshot error.
-	archiveDirectoryReadTries  = 400
+	archiveDirectoryReadTries  = 20
 	archiveDirectoryRetryDelay = 5 * time.Millisecond
 )
 
@@ -99,8 +100,12 @@ type archiveCandidate struct {
 }
 
 func archiveCandidates(path string) ([]archiveCandidate, error) {
+	return archiveCandidatesContext(context.Background(), path)
+}
+
+func archiveCandidatesContext(ctx context.Context, path string) ([]archiveCandidate, error) {
 	directory := filepath.Dir(path)
-	entries, err := readArchiveDirectory(directory)
+	entries, err := readArchiveDirectoryContext(ctx, directory)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -123,22 +128,54 @@ func archiveCandidates(path string) ([]archiveCandidate, error) {
 }
 
 func readArchiveDirectory(directory string) ([]os.DirEntry, error) {
-	return readArchiveDirectoryWith(directory, boundedio.ReadDir)
+	return readArchiveDirectoryContext(context.Background(), directory)
+}
+
+func readArchiveDirectoryContext(ctx context.Context, directory string) ([]os.DirEntry, error) {
+	return readArchiveDirectoryContextWith(ctx, directory, boundedio.ReadDir)
 }
 
 func readArchiveDirectoryWith(
 	directory string,
 	read func(string, int) ([]os.DirEntry, error),
 ) ([]os.DirEntry, error) {
+	return readArchiveDirectoryContextWith(context.Background(), directory, read)
+}
+
+func readArchiveDirectoryContextWith(
+	ctx context.Context,
+	directory string,
+	read func(string, int) ([]os.DirEntry, error),
+) ([]os.DirEntry, error) {
+	if ctx == nil {
+		return nil, errors.New("jsonl archive directory context is required")
+	}
+	if read == nil {
+		return nil, errors.New("jsonl archive directory reader is required")
+	}
 	var err error
 	for attempt := 0; attempt < archiveDirectoryReadTries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var entries []os.DirEntry
 		entries, err = read(directory, 4096)
 		if err == nil || !errors.Is(err, boundedio.ErrDirectorySnapshotChanged) {
 			return entries, err
 		}
 		if attempt+1 < archiveDirectoryReadTries {
-			time.Sleep(archiveDirectoryRetryDelay)
+			timer := time.NewTimer(archiveDirectoryRetryDelay)
+			select {
+			case <-ctx.Done():
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
 		}
 	}
 	return nil, err

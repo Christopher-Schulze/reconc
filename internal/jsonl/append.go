@@ -10,12 +10,29 @@ import (
 )
 
 func Append(path string, record []byte, policy Policy) error {
-	return AppendWithLayout(path, record, policy, defaultLayout(path))
+	return AppendContext(context.Background(), path, record, policy)
+}
+
+// AppendContext writes one record while bounding lock acquisition by the
+// caller lifecycle and the default lock timeout.
+func AppendContext(ctx context.Context, path string, record []byte, policy Policy) error {
+	return AppendContextWithLayout(ctx, path, record, policy, defaultLayout(path))
 }
 
 // AppendWithLayout is Append with caller-owned stable auxiliary paths and
 // filesystem modes.
 func AppendWithLayout(path string, record []byte, policy Policy, layout Layout) error {
+	return AppendContextWithLayout(context.Background(), path, record, policy, layout)
+}
+
+// AppendContextWithLayout is AppendWithLayout under the caller lifecycle.
+func AppendContextWithLayout(ctx context.Context, path string, record []byte, policy Policy, layout Layout) error {
+	if ctx == nil {
+		return errors.New("jsonl append context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validatePolicy(policy); err != nil {
 		return err
 	}
@@ -26,7 +43,7 @@ func AppendWithLayout(path string, record []byte, policy Policy, layout Layout) 
 	if err != nil {
 		return err
 	}
-	return withLayoutLockLeaseContext(context.Background(), path, layout, true, func(lockedLayout Layout) error {
+	return withLayoutLockLeaseContext(ctx, path, layout, true, func(lockedLayout Layout) error {
 		if err := recoverAppendLockedWithLayout(path, lockedLayout, nil); err != nil {
 			return err
 		}
@@ -67,6 +84,9 @@ func AppendTransactionContextWithLayout(
 	if ctx == nil {
 		return errors.New("jsonl append context is required")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validatePolicy(policy); err != nil {
 		return err
 	}
@@ -94,7 +114,13 @@ func AppendTransactionContextWithLayout(
 // same idempotent callback used by AppendTransaction. A resolved journal only
 // needs artifact cleanup and never invokes commit again.
 func Recover(path string, commit func() error) error {
-	return RecoverWithLayout(path, defaultLayout(path), commit)
+	return RecoverContext(context.Background(), path, commit)
+}
+
+// RecoverContext resolves one default-layout transaction under the caller
+// lifecycle.
+func RecoverContext(ctx context.Context, path string, commit func() error) error {
+	return RecoverContextWithLayout(ctx, path, defaultLayout(path), commit)
 }
 
 // RecoverWithLayout resolves one transaction using the exact layout supplied
@@ -108,6 +134,9 @@ func RecoverWithLayout(path string, layout Layout, commit func() error) error {
 func RecoverContextWithLayout(ctx context.Context, path string, layout Layout, commit func() error) error {
 	if ctx == nil {
 		return errors.New("jsonl recovery context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := validateLayout(path, layout); err != nil {
 		return err
@@ -135,6 +164,9 @@ func ReadSnapshotContextWithLayout(
 	if ctx == nil || read == nil {
 		return errors.New("jsonl snapshot context and read callback are required")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateLayout(path, layout); err != nil {
 		return err
 	}
@@ -158,6 +190,9 @@ func ReadExistingSnapshotContextWithLayout(
 	if ctx == nil || read == nil {
 		return errors.New("jsonl snapshot context and read callback are required")
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateLayout(path, layout); err != nil {
 		return err
 	}
@@ -180,6 +215,9 @@ func WithExistingLayoutLockContext(
 ) error {
 	if ctx == nil || inspect == nil {
 		return errors.New("jsonl existing-lock context and inspect callback are required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := validateLayout(path, layout); err != nil {
 		return err

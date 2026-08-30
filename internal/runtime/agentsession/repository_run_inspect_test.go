@@ -336,7 +336,7 @@ func appendRunDecisionTestRecord(t testing.TB, repo string, decision RunDecision
 	if err := jsonl.AppendWithLayout(
 		path, body,
 		jsonl.Policy{MaxBytes: runDecisionMaxBytes, MaxArchives: runDecisionMaxArchives},
-		repositorycontrol.RunDecisionLayout(path, agentSessionLockTimeout),
+		repositorycontrol.RunDecisionLayout(path),
 	); err != nil {
 		t.Fatal(err)
 	}
