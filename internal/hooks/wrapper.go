@@ -104,10 +104,7 @@ run_reconc_hook() {
   exec "$reconc_binary" hook runtime "$event" "$repo"
 }
 
-reconc_candidate_trusted() {
-  [ -f "$1" ] && [ ! -L "$1" ] && [ -x "$1" ]
-}
-
+` + shellCandidateTrustFunction() + `
 for dev_reconc in "$repo/tools/reconc/.build/bin/reconc" "$repo/.build/bin/reconc" "$repo/reconc"; do
   if reconc_candidate_trusted "$dev_reconc"; then
     run_reconc_hook "$dev_reconc"
@@ -167,6 +164,13 @@ echo "expected one stable or unambiguous versioned repo-local binary, a dev bina
 exit 2
 `
 	return &Artifact{Kind: "hook-wrapper", TargetPath: WrapperPath, Executable: true, Content: content}
+}
+
+func shellCandidateTrustFunction() string {
+	return `reconc_candidate_trusted() {
+  [ -f "$1" ] && [ ! -L "$1" ] && [ -x "$1" ]
+}
+`
 }
 
 func shellBinaryResolver() string {

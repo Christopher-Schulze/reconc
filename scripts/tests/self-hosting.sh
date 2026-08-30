@@ -115,13 +115,16 @@ do
   elif [ "$event" = "zcode-session-start" ]; then
     printf '{"hook_event_name":"SessionStart","session_id":"golden-zcode","cwd":"%s","source":"startup"}\n' "$governed" \
       | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
+  elif [ "$event" = "devin-session-start" ]; then
+    printf '{"hook_event_name":"SessionStart","session_id":"golden-devin","cwd":"%s"}\n' "$governed" \
+      | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
   else
     printf '{"session_id":"golden-%s","reconc_runtime":"%s"}\n' "$session" "$session" \
       | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
   fi
 done
 (cd "$governed" && printf '{"hook_event_name":"SessionStart","session_id":"golden-kimi","cwd":"%s"}\n' "$governed" \
-  | "$stable_binary" hook kimi-runtime kimi-session-start >"$tmp/hook-kimi.json")
+  | reconc hook kimi-runtime receipt-v1 kimi-session-start >"$tmp/hook-kimi.json")
 git -C "$governed" add -A
 (cd "$governed" && .git/hooks/pre-commit) >"$tmp/git-pre-commit.txt"
 governed_root=$(git -C "$governed" rev-parse --show-toplevel)

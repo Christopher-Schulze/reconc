@@ -23,8 +23,9 @@ export RECONC_AUDIT=1
 
 repo_root=$(git rev-parse --show-toplevel)
 
+` + shellCandidateTrustFunction() + `
 for dev_reconc in "$repo_root/tools/reconc/.build/bin/reconc" "$repo_root/.build/bin/reconc" "$repo_root/reconc"; do
-    if [ -x "$dev_reconc" ]; then
+    if reconc_candidate_trusted "$dev_reconc"; then
         exec "$dev_reconc" ci "$repo_root" --staged
     fi
 done
@@ -42,7 +43,10 @@ for reconc_dir in "$repo_root/tools/reconc/dist" "$repo_root/dist"; do
 done
 
 if command -v reconc >/dev/null 2>&1; then
-    exec reconc ci "$repo_root" --staged
+    path_reconc="$(command -v reconc)"
+    if reconc_candidate_trusted "$path_reconc"; then
+        exec "$path_reconc" ci "$repo_root" --staged
+    fi
 fi
 
 echo "reconc pre-commit hook: no executable Reconc binary found" >&2

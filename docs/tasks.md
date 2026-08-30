@@ -8,6 +8,7 @@
 
 ## Done
 
+- [x] 461 Keep self-host runtime contracts current -> tasks/done/461-keep-self-host-runtime-contracts-current.md
 - [x] 460 Render TUI width in terminal cells -> tasks/done/460-render-tui-width-in-terminal-cells.md
 - [x] 459 Stream and reuse executable verification -> tasks/done/459-stream-and-reuse-executable-verification.md
 - [x] 458 Reuse the doctor Grok capability probe -> tasks/done/458-reuse-doctor-grok-capability-probe.md
