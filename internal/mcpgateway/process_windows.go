@@ -142,6 +142,8 @@ func (b *windowsProcessBoundary) Terminate() error {
 
 func (b *windowsProcessBoundary) Kill() error { return b.Terminate() }
 
+func (*windowsProcessBoundary) Reaped() error { return nil }
+
 func (b *windowsProcessBoundary) Close() error {
 	if b == nil {
 		return nil

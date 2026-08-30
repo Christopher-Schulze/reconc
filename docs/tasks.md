@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 406 Stop signaling reaped Unix process groups -> tasks/406-stop-signaling-reaped-unix-process-groups.md
 - [ ] 407 Bound MCP progress admission -> tasks/407-bound-mcp-progress-admission.md
 - [ ] 408 Remove action-evaluation hot-path encodings -> tasks/408-remove-action-evaluation-hot-path-encodings.md
 - [ ] 409 Correct action indeterminate classification and limits -> tasks/409-correct-action-indeterminate-classification-and-limits.md
@@ -64,6 +63,7 @@
 
 ## Done
 
+- [x] 406 Stop signaling reaped Unix process groups -> tasks/done/406-stop-signaling-reaped-unix-process-groups.md
 - [x] 405 Bind bootstrap removal to parent handles -> tasks/done/405-bind-bootstrap-removal-to-parent-handles.md
 - [x] 404 Validate receipt digests before path construction -> tasks/done/404-validate-receipt-digests-before-path-construction.md
 - [x] 403 Surface corrupt and drifted init state truthfully -> tasks/done/403-surface-corrupt-and-drifted-init-state-truthfully.md

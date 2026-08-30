@@ -79,12 +79,14 @@ func startOwnedProcess(observed actionstate.ObservedServer, arguments, environme
 		processKillErr := command.Process.Kill()
 		boundaryKillErr := boundary.Kill()
 		waitErr := command.Wait()
+		boundaryReapErr := boundary.Reaped()
 		closeErr := boundary.Close()
 		return nil, errors.Join(
 			fmt.Errorf("attach downstream process ownership: %w", err),
 			cleanupProcessError("kill unattached downstream process", processKillErr),
 			cleanupProcessError("kill unattached downstream process boundary", boundaryKillErr),
 			cleanupProcessError("wait for unattached downstream process", waitErr),
+			cleanupProcessError("reap unattached downstream process boundary", boundaryReapErr),
 			cleanupProcessError("close unattached downstream process boundary", closeErr),
 		)
 	}
@@ -98,8 +100,9 @@ func startOwnedProcess(observed actionstate.ObservedServer, arguments, environme
 	}()
 	go func() {
 		waitErr := command.Wait()
+		reapErr := boundary.Reaped()
 		process.waitMu.Lock()
-		process.waitErr = waitErr
+		process.waitErr = errors.Join(waitErr, cleanupProcessError("reap downstream process boundary", reapErr))
 		process.exited = true
 		process.waitMu.Unlock()
 		close(process.done)

@@ -50,6 +50,7 @@ type shutdownBoundary struct{}
 func (*shutdownBoundary) Attach(*os.Process) error { return nil }
 func (*shutdownBoundary) Terminate() error         { return nil }
 func (*shutdownBoundary) Kill() error              { return nil }
+func (*shutdownBoundary) Reaped() error            { return nil }
 func (*shutdownBoundary) Close() error             { return nil }
 
 type shutdownDownstream struct{ recorder *shutdownOrderRecorder }
