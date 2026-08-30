@@ -147,6 +147,29 @@ func TestCompositeRuleFoldsRemainFailClosed(t *testing.T) {
 	}
 }
 
+func TestCompositeDiagnosticsEscapeUntrustedRuleIdentity(t *testing.T) {
+	ctx := &evalContext{repoRoot: t.TempDir()}
+	rule := policy.Rule{
+		ID:        "composite'; injected\nnext",
+		Kind:      policy.KindAllOf,
+		Mode:      policy.ModeBlock,
+		Message:   "requirements",
+		WhenPaths: []string{"src/**"},
+		Checks:    []policy.Check{{Kind: policy.KindRequireClaim, Claims: []string{"approved"}}},
+	}
+	inputs := ExecutionInputs{WritePaths: []string{"src/app.go"}}
+	violation, err := evalAllOf(ctx, &rule, policy.ModeBlock, inputs)
+	if err != nil || violation == nil || !strings.Contains(violation.Explanation, `Composite rule "composite'; injected\nnext"`) {
+		t.Fatalf("composite diagnostic did not escape rule identity: %+v, %v", violation, err)
+	}
+	rule.Kind = policy.KindNot
+	rule.Checks = append(rule.Checks, policy.Check{Kind: policy.KindRequireClaim, Claims: []string{"second"}})
+	if _, err := evalNot(ctx, &rule, policy.ModeBlock, inputs); err == nil ||
+		!strings.Contains(err.Error(), `rule "composite'; injected\nnext"`) {
+		t.Fatalf("invalid not diagnostic did not escape rule identity: %v", err)
+	}
+}
+
 func TestCompositeCheckDecodingPreservesTypedFieldsAndRejectsMalformedData(t *testing.T) {
 	raw := []interface{}{map[string]interface{}{
 		"id": "composite", "kind": "all_of", "mode": "block", "message": "requirements", "when_paths": []interface{}{"src/**"},

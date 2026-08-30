@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"gopkg.in/yaml.v3"
+	"reconc.dev/reconc/internal/bootstrap"
 )
 
 func TestScanEmptyRepoProducesNoSuggestions(t *testing.T) {
@@ -361,34 +361,30 @@ func TestApplySerializesConcurrentRepositoryMutations(t *testing.T) {
 		{Suggestions: []Suggestion{{ID: "concurrent-one", Kind: "deny_write", Mode: "warn", Message: "one", Paths: []string{"one/**"}}}},
 		{Suggestions: []Suggestion{{ID: "concurrent-two", Kind: "deny_write", Mode: "warn", Message: "two", Paths: []string{"two/**"}}}},
 	}
-	start := make(chan struct{})
-	errorsByIndex := make([]error, len(reports))
-	var wait sync.WaitGroup
-	for index := range reports {
-		wait.Add(1)
-		go func(index int) {
-			defer wait.Done()
-			<-start
-			_, errorsByIndex[index] = Apply(repo, reports[index])
-		}(index)
+	locked := make(chan struct{})
+	release := make(chan struct{})
+	lockDone := make(chan error, 1)
+	go func() {
+		lockDone <- bootstrap.WithRepositoryTransaction(repo, func(string) error {
+			close(locked)
+			<-release
+			return nil
+		})
+	}()
+	<-locked
+	_, concurrentErr := Apply(repo, reports[0])
+	close(release)
+	if lockErr := <-lockDone; lockErr != nil {
+		t.Fatalf("holding repository transaction failed: %v", lockErr)
 	}
-	close(start)
-	wait.Wait()
-	failed := -1
-	for index, err := range errorsByIndex {
-		if err == nil {
-			continue
-		}
-		if failed >= 0 || !strings.Contains(err.Error(), "repository transaction is already active") {
-			t.Fatalf("concurrent Apply %d failed unexpectedly: %v", index, err)
-		}
-		failed = index
+	if concurrentErr == nil || !strings.Contains(concurrentErr.Error(), "repository transaction is already active") {
+		t.Fatalf("concurrent Apply was not rejected by the shared non-blocking lock: %v", concurrentErr)
 	}
-	if failed < 0 {
-		t.Fatal("competing non-blocking repository transactions were both admitted")
-	}
-	if _, err := Apply(repo, reports[failed]); err != nil {
+	if _, err := Apply(repo, reports[0]); err != nil {
 		t.Fatalf("retry rejected concurrent adopt: %v", err)
+	}
+	if _, err := Apply(repo, reports[1]); err != nil {
+		t.Fatalf("second serialized adopt failed: %v", err)
 	}
 	body, err := os.ReadFile(filepath.Join(repo, ".reconc.yml"))
 	if err != nil {

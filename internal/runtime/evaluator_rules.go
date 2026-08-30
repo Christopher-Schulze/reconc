@@ -455,7 +455,7 @@ func newStableStringCollector(initial []string) stableStringCollector {
 
 func (c *stableStringCollector) add(value string) {
 	if c.seen == nil {
-		c.seen = make(map[string]struct{}, len(c.items)+1)
+		c.seen = make(map[string]struct{}, len(c.items))
 		for _, existing := range c.items {
 			c.seen[existing] = struct{}{}
 		}

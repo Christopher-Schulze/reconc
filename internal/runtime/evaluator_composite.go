@@ -97,7 +97,7 @@ func evalNot(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, input
 	}
 	if len(checks) != 1 {
 		return nil, &rerrors.LockfileError{
-			Message: "compiled lockfile rule '" + ruleIDOf(rule) + "' (kind not) must have exactly one check",
+			Message: "compiled lockfile rule " + quote(ruleIDOf(rule)) + " (kind not) must have exactly one check",
 		}
 	}
 	failures := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
@@ -353,8 +353,8 @@ func buildCompositeViolation(rule *policy.Rule, defaultMode policy.Mode, context
 	}
 	v := buildViolation(rule, defaultMode, triggered.values(), nil, nil, nil, nil, nil)
 	v.Explanation = fmt.Sprintf(
-		"Composite rule '%s' (%s) failed on %d context(s): %s",
-		v.RuleID, op, len(contexts), failures.text(),
+		"Composite rule %s (%s) failed on %d context(s): %s",
+		quote(v.RuleID), op, len(contexts), failures.text(),
 	)
 	v.RecommendedAction = "Satisfy the listed sub-checks for each affected write path."
 	return boundViolationText(v)

@@ -8,6 +8,7 @@
 
 ## Done
 
+- [x] 465 Clear CI and code-scanning findings -> tasks/done/465-clear-ci-and-code-scanning-findings.md
 - [x] 464 Redact every host path in public impact actions -> tasks/done/464-redact-every-host-path-in-public-impact-actions.md
 - [x] 463 Complete the native Windows final gate -> tasks/done/463-complete-the-native-windows-final-gate.md
 - [x] 462 Restore the Windows final gate -> tasks/done/462-restore-the-windows-final-gate.md

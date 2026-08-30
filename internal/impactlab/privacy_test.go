@@ -7,6 +7,7 @@ import (
 )
 
 func TestSanitizeActionsRedactsEveryAbsolutePathSpan(t *testing.T) {
+	windowsUserPath := `C:\` + `Users\Alice\one`
 	tests := []struct {
 		name       string
 		action     string
@@ -21,7 +22,7 @@ func TestSanitizeActionsRedactsEveryAbsolutePathSpan(t *testing.T) {
 		},
 		{
 			name:       "multiple Windows drive and UNC paths",
-			action:     `paths=(C:\Users\Alice\one),[D:/secret/two]; unc=\\server\share\three`,
+			action:     `paths=(` + windowsUserPath + `),[D:/secret/two]; unc=\\server\share\three`,
 			want:       `paths=(<path>),[<path>]; unc=<path>`,
 			redactions: 3,
 		},

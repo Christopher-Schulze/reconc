@@ -280,14 +280,25 @@ func normalizeRecord(record []byte, maximum int64) ([]byte, error) {
 	if bytes.ContainsAny(payload, "\r\n") {
 		return nil, errors.New("jsonl record must not contain CR or LF")
 	}
-	normalizedBytes := len(payload) + 1
-	if int64(normalizedBytes) > maximum {
-		return nil, fmt.Errorf("jsonl record is %d bytes; maximum is %d", normalizedBytes, maximum)
+	normalizedBytes, err := normalizedRecordSize(len(payload), maximum)
+	if err != nil {
+		return nil, err
 	}
 	normalized := make([]byte, normalizedBytes)
 	copy(normalized, payload)
 	normalized[len(normalized)-1] = '\n'
 	return normalized, nil
+}
+
+func normalizedRecordSize(payloadBytes int, maximum int64) (int, error) {
+	if payloadBytes < 0 || payloadBytes > int(^uint(0)>>1)-1 {
+		return 0, errors.New("jsonl record exceeds the native allocation limit")
+	}
+	normalizedBytes := payloadBytes + 1
+	if int64(normalizedBytes) > maximum {
+		return 0, fmt.Errorf("jsonl record is %d bytes; maximum is %d", normalizedBytes, maximum)
+	}
+	return normalizedBytes, nil
 }
 
 func appendNormalizedLockedWithLayout(

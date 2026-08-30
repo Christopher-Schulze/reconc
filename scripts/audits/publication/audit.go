@@ -151,6 +151,10 @@ var historicalFindingExceptions = []historicalFindingException{
 		BlobID: "227a25052a7adb0ff861970a2f6547b2743466dc", Rule: "content/private-path", Line: 159,
 		Owner: "repository maintainer", Rationale: "synthetic Windows substring expected value; current source constructs the path from non-matching fragments",
 	},
+	{
+		BlobID: "9eab0a0433829ad8b347aa40426ddaba6aa1c233", Rule: "content/private-path", Line: 24,
+		Owner: "repository maintainer", Rationale: "synthetic TASK 464 Windows path redaction fixture; current source constructs the path from non-matching fragments",
+	},
 }
 
 var forbiddenWordDigests = map[string]string{

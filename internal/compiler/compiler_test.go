@@ -896,6 +896,18 @@ func TestInsertCanonicalStringField(t *testing.T) {
 	}
 }
 
+func TestInsertCanonicalObjectMemberRejectsUnboundedAllocationInputs(t *testing.T) {
+	oversizedMember := make([]byte, int(MaxLockfileBytes)+1)
+	if _, err := insertCanonicalObjectMember([]byte("{}"), 1, oversizedMember); err == nil ||
+		!strings.Contains(err.Error(), "size boundary") {
+		t.Fatalf("oversized canonical member was accepted: %v", err)
+	}
+	if _, err := insertCanonicalObjectMember([]byte("{}"), 3, []byte(`"field":1`)); err == nil ||
+		!strings.Contains(err.Error(), "outside the object") {
+		t.Fatalf("out-of-range canonical member offset was accepted: %v", err)
+	}
+}
+
 func TestNormalizeLockPayloadRejectsCustomMarshalerTrailingData(t *testing.T) {
 	calls := 0
 	_, _, err := normalizeLockPayloadWithBytes(map[string]interface{}{

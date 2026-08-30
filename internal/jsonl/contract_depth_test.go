@@ -51,6 +51,16 @@ func TestAppendRejectsOversizedRecordWithoutCreatingState(t *testing.T) {
 	}
 }
 
+func TestNormalizedRecordSizeRejectsNativeIntegerOverflow(t *testing.T) {
+	maximum := int(^uint(0) >> 1)
+	if _, err := normalizedRecordSize(maximum, int64(maximum)); err == nil || !strings.Contains(err.Error(), "native allocation limit") {
+		t.Fatalf("native integer overflow was accepted: %v", err)
+	}
+	if got, err := normalizedRecordSize(7, 8); err != nil || got != 8 {
+		t.Fatalf("bounded record size = %d, %v; want 8, nil", got, err)
+	}
+}
+
 func TestAppendRejectsInvalidRecordFramingWithoutCreatingState(t *testing.T) {
 	for _, test := range []struct {
 		name   string

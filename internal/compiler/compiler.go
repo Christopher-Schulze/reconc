@@ -1170,7 +1170,7 @@ func insertCanonicalStringField(canonical []byte, name, value string) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	return insertCanonicalObjectMember(canonical, offset, member), nil
+	return insertCanonicalObjectMember(canonical, offset, member)
 }
 
 func canonicalStringFieldInsertion(canonical []byte, name, value string) (int, []byte, error) {
@@ -1212,11 +1212,17 @@ func canonicalStringFieldInsertion(canonical []byte, name, value string) (int, [
 	return previousEnd, member, nil
 }
 
-func insertCanonicalObjectMember(canonical []byte, offset int, member []byte) []byte {
+func insertCanonicalObjectMember(canonical []byte, offset int, member []byte) ([]byte, error) {
+	if offset < 0 || offset > len(canonical) {
+		return nil, fmt.Errorf("canonical JSON member offset is outside the object")
+	}
 	empty := offset == 1 && len(canonical) == 2
 	extra := 1
 	if empty {
 		extra = 0
+	}
+	if len(canonical) > int(MaxLockfileBytes) || len(member) > int(MaxLockfileBytes) {
+		return nil, fmt.Errorf("canonical JSON member insertion exceeds the lockfile size boundary")
 	}
 	out := make([]byte, 0, len(canonical)+len(member)+extra)
 	out = append(out, canonical[:offset]...)
@@ -1228,7 +1234,7 @@ func insertCanonicalObjectMember(canonical []byte, offset int, member []byte) []
 		out = append(out, ',')
 	}
 	out = append(out, canonical[offset:]...)
-	return out
+	return out, nil
 }
 
 func writeLockfile(repoRoot string, body []byte) error {
