@@ -53,6 +53,120 @@ func TestHookVerifyOfflineCoversSharedMatrixWithoutLiveClaims(t *testing.T) {
 	}
 }
 
+func TestHookVerificationReportExitContract(t *testing.T) {
+	verified := hookVerificationResult{
+		Kind:               hooks.KindOpenCode,
+		Surface:            "cli",
+		ArtifactGeneration: "verified",
+		Configuration:      "verified",
+		Transport:          "verified",
+		PolicyDecision:     "verified",
+		ResponseAdaptation: "verified",
+		Configured:         true,
+		Discoverable:       true,
+		SyntheticEnforced:  true,
+		Unsupported:        []string{},
+		ExpectedEvents:     []string{"opencode-pre-tool-use"},
+		UnprovenEvents:     []string{"opencode-pre-tool-use"},
+		ObservedFields:     []string{},
+		ResultClass:        "synthetic-block",
+	}
+	degraded := verified
+	degraded.Kind = hooks.KindKilo
+	degraded.Transport = "failed"
+	degraded.Degraded = true
+	degraded.Detail = "transport unavailable"
+	unsupported := degraded
+	unsupported.Kind = hooks.KindGitPreCommit
+	unsupported.Unsupported = []string{"live capture unsupported"}
+	unsupported.Detail = "live capture unsupported"
+
+	tests := []struct {
+		name     string
+		report   hookVerificationReport
+		wantExit int
+		wantLast string
+	}{
+		{
+			name:     "complete",
+			report:   hookVerificationReport{FormatVersion: hookVerificationFormatVersion, Mode: "offline", Complete: true, Results: []hookVerificationResult{verified}},
+			wantExit: 0,
+			wantLast: hooks.KindOpenCode,
+		},
+		{
+			name:     "partially-degraded",
+			report:   hookVerificationReport{FormatVersion: hookVerificationFormatVersion, Mode: "offline", Results: []hookVerificationResult{verified, degraded}},
+			wantExit: hookVerificationIncompleteExitCode,
+			wantLast: degraded.Detail,
+		},
+		{
+			name:     "fully-degraded",
+			report:   hookVerificationReport{FormatVersion: hookVerificationFormatVersion, Mode: "offline", Results: []hookVerificationResult{degraded}},
+			wantExit: hookVerificationIncompleteExitCode,
+			wantLast: degraded.Detail,
+		},
+		{
+			name:     "unsupported",
+			report:   hookVerificationReport{FormatVersion: hookVerificationFormatVersion, Mode: "live", Results: []hookVerificationResult{unsupported}},
+			wantExit: hookVerificationIncompleteExitCode,
+			wantLast: unsupported.Detail,
+		},
+	}
+	for _, test := range tests {
+		for _, jsonOutput := range []bool{false, true} {
+			format := "text"
+			if jsonOutput {
+				format = "json"
+			}
+			t.Run(test.name+"/"+format, func(t *testing.T) {
+				var output bytes.Buffer
+				err := writeHookVerificationReport(test.report, jsonOutput, &output)
+				if got := ExitCode(err); got != test.wantExit {
+					t.Fatalf("exit code = %d, want %d: %v", got, test.wantExit, err)
+				}
+				if jsonOutput {
+					var rendered hookVerificationReport
+					if err := json.Unmarshal(output.Bytes(), &rendered); err != nil {
+						t.Fatalf("decode rendered report: %v\n%s", err, output.String())
+					}
+					if rendered.Complete != test.report.Complete || len(rendered.Results) != len(test.report.Results) {
+						t.Fatalf("rendered report = %+v, want complete=%t results=%d", rendered, test.report.Complete, len(test.report.Results))
+					}
+				}
+				if !strings.Contains(output.String(), test.wantLast) {
+					t.Fatalf("report omitted final evidence %q:\n%s", test.wantLast, output.String())
+				}
+			})
+		}
+	}
+}
+
+func TestHookVerificationHelpDocumentsExitContract(t *testing.T) {
+	var output bytes.Buffer
+	if err := Run([]string{"hook", "verify", "--help"}, "test", &output, &output); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"incomplete verification exits 2", "failures exit 1"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("help omitted %q:\n%s", want, output.String())
+		}
+	}
+}
+
+func TestHookVerificationReportOutputFailureWinsOverIncompleteStatus(t *testing.T) {
+	report := hookVerificationReport{
+		FormatVersion: hookVerificationFormatVersion,
+		Mode:          "offline",
+		Results:       []hookVerificationResult{{Kind: hooks.KindOpenCode, Surface: "cli", Degraded: true}},
+	}
+	for _, jsonOutput := range []bool{false, true} {
+		err := writeHookVerificationReport(report, jsonOutput, failingOutputWriter{})
+		if ExitCode(err) != 1 || !strings.Contains(err.Error(), "output unavailable") {
+			t.Fatalf("json=%t error = %v, want output failure with exit 1", jsonOutput, err)
+		}
+	}
+}
+
 func TestHookVerificationIsolatedChild(t *testing.T) {
 	if os.Getenv(hookVerificationChildEnv) != "1" {
 		return
@@ -304,8 +418,8 @@ func TestLiveHookVerifyReportsMissingKnownHostBinary(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	options := hookVerifyOptions{host: hooks.KindOpenCode, surface: "cli", live: true, allowAuthenticated: true, jsonOutput: true}
-	if err := runLiveHookVerification(options, surfaces, strings.NewReader("\n"), &stdout, &stderr); err != nil {
-		t.Fatal(err)
+	if err := runLiveHookVerification(options, surfaces, strings.NewReader("\n"), &stdout, &stderr); ExitCode(err) != hookVerificationIncompleteExitCode {
+		t.Fatalf("live verification exit = %d, want %d: %v", ExitCode(err), hookVerificationIncompleteExitCode, err)
 	}
 	var report hookVerificationReport
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
@@ -332,8 +446,8 @@ func TestLiveHookVerifyReportsOperatorAbortWithoutClaims(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	options := hookVerifyOptions{host: hooks.KindOpenCode, surface: "cli", live: true, allowAuthenticated: true, jsonOutput: true}
-	if err := runLiveHookVerification(options, surfaces, strings.NewReader(""), &stdout, &stderr); err != nil {
-		t.Fatal(err)
+	if err := runLiveHookVerification(options, surfaces, strings.NewReader(""), &stdout, &stderr); ExitCode(err) != hookVerificationIncompleteExitCode {
+		t.Fatalf("live verification exit = %d, want %d: %v", ExitCode(err), hookVerificationIncompleteExitCode, err)
 	}
 	var report hookVerificationReport
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {

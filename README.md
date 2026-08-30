@@ -985,7 +985,7 @@ Exit codes are stable for humans, agents, and CI:
 
 - `0`: pass, warn, or informational success
 - `1`: runtime or input error
-- `2`: blocking policy violation
+- `2`: blocking policy violation or fully rendered incomplete verification
 
 ## Agent Skill
 

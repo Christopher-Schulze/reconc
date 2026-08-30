@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 421 Return non-zero for incomplete hook verification -> tasks/421-return-non-zero-for-incomplete-hook-verification.md
 - [ ] 422 Synchronize MCP progress shutdown -> tasks/422-synchronize-mcp-progress-shutdown.md
 - [ ] 423 Persist and expire pending tool correlations -> tasks/423-persist-and-expire-pending-tool-correlations.md
 - [ ] 424 Revalidate terminal Stop state -> tasks/424-revalidate-terminal-stop-state.md
@@ -49,6 +48,7 @@
 
 ## Done
 
+- [x] 421 Return non-zero for incomplete hook verification -> tasks/done/421-return-non-zero-for-incomplete-hook-verification.md
 - [x] 420 Define deterministic repository control-directory permissions -> tasks/done/420-define-deterministic-repository-control-directory-permissions.md
 - [x] 419 Consolidate bounded subprocess capture -> tasks/done/419-consolidate-bounded-subprocess-capture.md
 - [x] 418 Separate TASK validation failures from I/O failures -> tasks/done/418-separate-task-validation-failures-from-io-failures.md

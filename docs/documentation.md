@@ -1113,7 +1113,7 @@ Exit codes:
 
 - `0`: pass, warn, or informational success
 - `1`: runtime or input error
-- `2`: blocking policy violation
+- `2`: blocking policy violation or fully rendered incomplete verification
 
 ## FAQ
 
@@ -3419,6 +3419,9 @@ redirection. Concurrent verification therefore cannot temporarily mutate or
 incorrectly restore the parent process environment.
 The offline `synthetic_enforced` fact is not promoted to `loaded`, `observed`,
 or live `enforced`; all expected host routes remain explicitly unproven.
+Complete hook-verification reports exit 0. Incomplete reports are fully rendered
+and exit 2 so shell and CI consumers can use the command as a gate. Input,
+runtime, report-generation, and output failures exit 1.
 
 The explicit `--live --host KIND --surface SURFACE --allow-authenticated` mode
 prepares one disposable host exercise and waits for the operator without

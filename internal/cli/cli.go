@@ -8,7 +8,7 @@
 //
 //	0 -- clean run, or a non-blocking decision (pass/warn)
 //	1 -- runtime or input error
-//	2 -- at least one blocking policy violation (block)
+//	2 -- a blocking policy violation or completed negative verification gate
 //	3..255 -- a non-zero child exit propagated by reconc exec
 package cli
 

@@ -66,7 +66,7 @@ Generated from `internal/commandmeta`; run `make reference-docs` after changing 
 | `reconc hook install` | `reconc hook install <kind> [repo] [--force] [--json] [--output PATH]` | install generated hooks into a repository | text, json, file |
 | `reconc hook uninstall` | `reconc hook uninstall <kind> [repo] [--json] [--output PATH]` | remove one Reconc-managed hook safely | text, json, file |
 | `reconc hook status` | `reconc hook status [repo] [--json]` | inspect registered hook installation and liveness | text, json |
-| `reconc hook verify` | `reconc hook verify [--host KIND [--surface SURFACE]] [--json]` | verify generated hook transports offline or prepare an explicit live probe | text, json |
+| `reconc hook verify` | `reconc hook verify [--host KIND [--surface SURFACE]] [--json]` | verify generated hook transports; complete verification exits 0, incomplete verification exits 2, failures exit 1 | text, json |
 | `reconc hook bridge` | `reconc hook bridge <runtime> <host-event> [repo]` | dispatch a declarative repository-owned custom runtime event | json |
 | `reconc hook conform` | `reconc hook conform <manifest.json> <fixtures.json> [--json]` | verify a custom runtime adapter contract offline | text, json |
 | `reconc hook sync-scaffold` | `reconc hook sync-scaffold <repo-root-scaffold> [--json]` | synchronize generated scaffold hook artifacts | text, json |
@@ -147,7 +147,7 @@ Everything below is the full automation and diagnostic surface.
 
 - `0` pass / warn / informational success
 - `1` runtime or input error
-- `2` at least one blocking policy violation
+- `2` blocking policy violation or fully rendered incomplete verification
 
 ## Environment
 

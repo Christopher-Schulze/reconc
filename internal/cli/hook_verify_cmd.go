@@ -10,7 +10,10 @@ import (
 	"reconc.dev/reconc/internal/hooks"
 )
 
-const hookVerificationFormatVersion = "reconc-hook-verification/v1"
+const (
+	hookVerificationFormatVersion      = "reconc-hook-verification/v1"
+	hookVerificationIncompleteExitCode = 2
+)
 
 type hookVerificationReport struct {
 	FormatVersion string                   `json:"format_version"`
@@ -142,6 +145,7 @@ func writeHookVerifyHelp(output io.Writer) {
 	fmt.Fprintln(output, "")
 	fmt.Fprintln(output, "Offline mode uses a disposable repository and no model, account, cloud service, or caller repository.")
 	fmt.Fprintln(output, "Live mode prepares an isolated repository, never launches a host, and waits for explicit operator confirmation.")
+	fmt.Fprintln(output, "A fully rendered incomplete verification exits 2; input, runtime, and output failures exit 1.")
 }
 
 func selectHookVerificationSurfaces(kind, surface string) ([]hooks.VerificationSurface, error) {
@@ -171,25 +175,43 @@ func writeHookVerificationReport(report hookVerificationReport, jsonOutput bool,
 		if err := encoder.Encode(report); err != nil {
 			return &CLIError{ExitCode: 1, Message: "reconc hook verify: encode JSON: " + err.Error()}
 		}
-		return nil
+	} else if err := writeHookVerificationText(report, output); err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook verify: write report: " + err.Error()}
 	}
+	if !report.Complete {
+		return &CLIError{ExitCode: hookVerificationIncompleteExitCode, Message: ""}
+	}
+	return nil
+}
+
+func writeHookVerificationText(report hookVerificationReport, output io.Writer) error {
 	state := "complete"
 	if !report.Complete {
 		state = "incomplete"
 	}
-	fmt.Fprintf(output, "Hook verification: %s (%s)\n", state, report.Mode)
+	if _, err := fmt.Fprintf(output, "Hook verification: %s (%s)\n", state, report.Mode); err != nil {
+		return err
+	}
 	for _, result := range report.Results {
-		fmt.Fprintf(output, "- %s/%s: generation=%s configuration=%s transport=%s policy=%s response=%s duration=%dms\n",
+		if _, err := fmt.Fprintf(output, "- %s/%s: generation=%s configuration=%s transport=%s policy=%s response=%s duration=%dms\n",
 			result.Kind, result.Surface, result.ArtifactGeneration, result.Configuration,
-			result.Transport, result.PolicyDecision, result.ResponseAdaptation, result.DurationMillis)
-		fmt.Fprintf(output, "  configured=%t discoverable=%t loaded=%t observed=%t enforced=%t synthetic-enforced=%t inferred=%t degraded=%t\n",
+			result.Transport, result.PolicyDecision, result.ResponseAdaptation, result.DurationMillis); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(output, "  configured=%t discoverable=%t loaded=%t observed=%t enforced=%t synthetic-enforced=%t inferred=%t degraded=%t\n",
 			result.Configured, result.Discoverable, result.Loaded, result.Observed,
-			result.Enforced, result.SyntheticEnforced, result.Inferred, result.Degraded)
+			result.Enforced, result.SyntheticEnforced, result.Inferred, result.Degraded); err != nil {
+			return err
+		}
 		if result.Detail != "" {
-			fmt.Fprintf(output, "  detail: %s\n", result.Detail)
+			if _, err := fmt.Fprintf(output, "  detail: %s\n", result.Detail); err != nil {
+				return err
+			}
 		}
 		if len(result.UnprovenEvents) > 0 {
-			fmt.Fprintf(output, "  live routes unproven: %s\n", strings.Join(result.UnprovenEvents, ", "))
+			if _, err := fmt.Fprintf(output, "  live routes unproven: %s\n", strings.Join(result.UnprovenEvents, ", ")); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
