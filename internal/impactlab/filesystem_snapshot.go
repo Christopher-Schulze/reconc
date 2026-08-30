@@ -12,11 +12,23 @@ import (
 	"reconc.dev/reconc/internal/pathidentity"
 )
 
-const maxImpactSnapshotEntries = 100_000
+const (
+	maxImpactSnapshotEntries        = 100_000
+	maxImpactSnapshotFileBytes      = 64 << 20
+	maxImpactSnapshotTotalFileBytes = 512 << 20
+)
+
+type repositorySnapshotLimits struct {
+	entries        int
+	fileBytes      int64
+	totalFileBytes int64
+}
 
 type repositorySnapshot struct {
-	root    string
-	entries map[string]repositorySnapshotEntry
+	root      string
+	entries   map[string]repositorySnapshotEntry
+	fileBytes int64
+	limits    repositorySnapshotLimits
 }
 
 type repositorySnapshotEntry struct {
@@ -26,6 +38,18 @@ type repositorySnapshotEntry struct {
 }
 
 func captureRepositorySnapshot(repoRoot string) (*repositorySnapshot, error) {
+	limits := repositorySnapshotLimits{
+		entries:        maxImpactSnapshotEntries,
+		fileBytes:      maxImpactSnapshotFileBytes,
+		totalFileBytes: maxImpactSnapshotTotalFileBytes,
+	}
+	return captureRepositorySnapshotWithLimits(repoRoot, limits)
+}
+
+func captureRepositorySnapshotWithLimits(repoRoot string, limits repositorySnapshotLimits) (*repositorySnapshot, error) {
+	if limits.entries <= 0 || limits.fileBytes < 0 || limits.totalFileBytes < 0 {
+		return nil, errors.New("repository snapshot limits are invalid")
+	}
 	root, err := pathidentity.ResolveExisting(repoRoot)
 	if err != nil {
 		return nil, err
@@ -37,7 +61,11 @@ func captureRepositorySnapshot(repoRoot string) (*repositorySnapshot, error) {
 	if !info.IsDir() {
 		return nil, errors.New("repository root is not a directory")
 	}
-	snapshot := &repositorySnapshot{root: root, entries: make(map[string]repositorySnapshotEntry)}
+	snapshot := &repositorySnapshot{
+		root:    root,
+		entries: make(map[string]repositorySnapshotEntry),
+		limits:  limits,
+	}
 	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -52,12 +80,34 @@ func captureRepositorySnapshot(repoRoot string) (*repositorySnapshot, error) {
 			}
 			return nil
 		}
-		if len(snapshot.entries) >= maxImpactSnapshotEntries {
-			return fmt.Errorf("repository snapshot exceeds %d entries", maxImpactSnapshotEntries)
+		if len(snapshot.entries) >= limits.entries {
+			return fmt.Errorf("repository snapshot exceeds %d entries", limits.entries)
 		}
-		captured, err := captureRepositorySnapshotEntry(path)
+		before, err := os.Lstat(path)
 		if err != nil {
 			return fmt.Errorf("capture %q: %w", filepath.ToSlash(relative), err)
+		}
+		if before.Mode().IsRegular() {
+			size := before.Size()
+			if size < 0 || size > limits.fileBytes {
+				return fmt.Errorf(
+					"capture %q: regular file size %d exceeds %d-byte limit",
+					filepath.ToSlash(relative), size, limits.fileBytes,
+				)
+			}
+			if snapshot.fileBytes > limits.totalFileBytes-size {
+				return fmt.Errorf(
+					"capture %q: repository snapshot file bytes exceed %d-byte limit",
+					filepath.ToSlash(relative), limits.totalFileBytes,
+				)
+			}
+		}
+		captured, err := captureRepositorySnapshotEntry(path, before)
+		if err != nil {
+			return fmt.Errorf("capture %q: %w", filepath.ToSlash(relative), err)
+		}
+		if before.Mode().IsRegular() {
+			snapshot.fileBytes += before.Size()
 		}
 		snapshot.entries[filepath.ToSlash(relative)] = captured
 		return nil
@@ -68,11 +118,8 @@ func captureRepositorySnapshot(repoRoot string) (*repositorySnapshot, error) {
 	return snapshot, nil
 }
 
-func captureRepositorySnapshotEntry(path string) (repositorySnapshotEntry, error) {
-	before, err := os.Lstat(path)
-	if err != nil {
-		return repositorySnapshotEntry{}, err
-	}
+func captureRepositorySnapshotEntry(path string, before os.FileInfo) (repositorySnapshotEntry, error) {
+	var err error
 	captured := repositorySnapshotEntry{info: before}
 	switch {
 	case before.Mode().IsRegular():
@@ -116,11 +163,14 @@ func stableFileSHA256(path string, before os.FileInfo) (digest string, info os.F
 }
 
 func (s *repositorySnapshot) revalidate(repoRoot string) error {
-	current, err := captureRepositorySnapshot(repoRoot)
+	if s == nil {
+		return errors.New("repository filesystem identity changed")
+	}
+	current, err := captureRepositorySnapshotWithLimits(repoRoot, s.limits)
 	if err != nil {
 		return err
 	}
-	if s == nil || current.root != s.root || len(current.entries) != len(s.entries) {
+	if current.root != s.root || current.fileBytes != s.fileBytes || len(current.entries) != len(s.entries) {
 		return errors.New("repository filesystem identity changed")
 	}
 	for path, expected := range s.entries {

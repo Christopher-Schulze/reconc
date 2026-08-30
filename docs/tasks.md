@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 438 Bound impact filesystem snapshots -> tasks/438-bound-impact-filesystem-snapshots.md
 - [ ] 439 Redact CI host paths on boundaries -> tasks/439-redact-ci-host-paths-on-boundaries.md
 - [ ] 440 Bound Grok continuation prompts -> tasks/440-bound-grok-continuation-prompts.md
 - [ ] 441 Short-circuit conditions and bound glob expansion -> tasks/441-short-circuit-conditions-and-bound-glob-expansion.md
@@ -32,6 +31,7 @@
 
 ## Done
 
+- [x] 438 Bound impact filesystem snapshots -> tasks/done/438-bound-impact-filesystem-snapshots.md
 - [x] 437 Preserve completion drift error identity -> tasks/done/437-preserve-completion-drift-error-identity.md
 - [x] 436 Record manual retention completion -> tasks/done/436-record-manual-retention-completion.md
 - [x] 435 Harden bootstrap stage recovery -> tasks/done/435-harden-bootstrap-stage-recovery.md
