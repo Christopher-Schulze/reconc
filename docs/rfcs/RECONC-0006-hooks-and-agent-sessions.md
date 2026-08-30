@@ -127,7 +127,9 @@ OMP discovers project extensions under `.omp/extensions/` from its working
 directory. The generated TypeScript module registers only documented
 `ExtensionAPI` handlers and delegates policy, evidence, session state, and
 continuation decisions to Reconc's Go runtime through the shared repo-local
-wrapper.
+wrapper. `omp --no-extensions` suppresses ambient project discovery, while an
+explicit `-e .omp/extensions/reconc.ts` can still load the extension; Reconc
+does not override either host choice.
 
 `tool_call` is the blocking pre-action boundary, and `user_bash` is the same
 boundary for a shell command the user types: OMP publishes it with the same
@@ -149,7 +151,11 @@ Native awaited `session_stop` maps Reconc block or continuation output to
 OMP's `decision`/`reason` or `continue`/`additionalContext` result. OMP invokes
 this event for the main agent only and caps continuation at eight turns. An
 aborted host signal wins immediately. Session start, input, approval, result,
-automatic compaction, and shutdown are fail-open observations; pre-tool and
+generic `session_before_compact`/`session_compact`, and shutdown are fail-open
+observations. The generic pair covers manual, automatic, and extension-supplied
+successful compaction without duplicate auto-attempt handlers. Each
+`ExtensionAPI` binding owns its worker transports, so a parent or child
+shutdown cannot close the other's worker. Pre-tool and
 Stop runtime, timeout, malformed, invalid UTF-8, or oversized-output failures
 fail closed. The Stop route uses a 29-second internal budget inside OMP's
 30-second extension-handler deadline; the generated shutdown route uses a
@@ -167,7 +173,7 @@ evaluates saved canonical-path trust using Pi's nearest-parent rule plus
 store. The contract fixture pins official source revision
 `ac4ac9eaf69f2b01ca3af984a5c48f3b99b84278`, package
 `@earendil-works/pi-coding-agent` v0.84.1. The companion OMP fixture remains at
-revision `06343fef4200c4e32d18f08df5a6a8bd84dcc710`, v17.2.4.
+revision `b8ce33a58911c26bed1d84f0db9a5e2e727c49a2`, v18.0.11.
 
 The generated typed extension registers `session_start`, `input`, `tool_call`,
 `tool_result`, `user_bash`, `session_before_compact`, `session_compact`,

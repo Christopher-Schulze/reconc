@@ -1,10 +1,10 @@
 {
   "host": "omp",
   "display_name": "Oh My Pi",
-  "host_version": "17.2.4",
-  "source_url": "https://github.com/can1357/oh-my-pi/tree/06343fef4200c4e32d18f08df5a6a8bd84dcc710/packages/coding-agent/src/extensibility",
-  "source_revision": "06343fef4200c4e32d18f08df5a6a8bd84dcc710",
-  "capture_date": "2026-08-02",
+  "host_version": "18.0.11",
+  "source_url": "https://github.com/can1357/oh-my-pi/tree/b8ce33a58911c26bed1d84f0db9a5e2e727c49a2/packages/coding-agent/src/extensibility",
+  "source_revision": "b8ce33a58911c26bed1d84f0db9a5e2e727c49a2",
+  "capture_date": "2026-08-30",
   "scope": "Extension events Reconc's capability vocabulary can express. Turn, message, provider, and presentation events are outside it.",
   "events": [
     {
@@ -44,11 +44,11 @@
       "bound": true
     },
     {
-      "name": "auto_compaction_start",
+      "name": "session_before_compact",
       "bound": true
     },
     {
-      "name": "auto_compaction_end",
+      "name": "session_compact",
       "bound": true
     },
     {

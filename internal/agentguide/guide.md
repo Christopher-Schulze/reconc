@@ -286,8 +286,12 @@ weaker host lifecycle respectively.
 - **Oh My Pi**: `reconc hook install omp .` owns the project-local typed
   `.omp/extensions/reconc.ts` extension. Native `tool_call` and awaited
   main-session `session_stop` can block; Stop continuation is capped at eight
-  accepted requests per session. Approval, outcome, compaction, and shutdown
-  routes are observational. Tool success follows exact `isError`; only a
+  accepted requests per session. Generic `session_before_compact` and
+  `session_compact` cover manual, automatic, and extension-provided successful
+  compaction. Each binding owns its worker, so parent and child shutdown are
+  independent. Approval, outcome, compaction, and shutdown routes are
+  observational. `--no-extensions` disables ambient loading; Reconc does not
+  override that host choice. Tool success follows exact `isError`; only a
   successful built-in `Bash` result receives synthetic exit code zero.
 - **Pi Coding Agent**: `reconc hook install pi .` owns `.pi/extensions/reconc.ts` and
   never edits project trust. Status requires saved canonical-path trust or

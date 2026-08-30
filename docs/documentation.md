@@ -3648,9 +3648,19 @@ marker-owned file and refuses to replace foreign content, including with
 `--force`; uninstall removes only the generator-exact managed extension. The
 extension registers the current typed `ExtensionAPI` routes for session start,
 user input, pre-tool, post-tool, tool failure, approval requested/resolved,
-pre/post-compaction, awaited main-session Stop, and session shutdown. OMP task
+generic `session_before_compact`/`session_compact`, awaited main-session Stop,
+and session shutdown. The generic pair covers manual, automatic, and
+extension-supplied successful compaction without also registering the
+auto-compaction attempt events. OMP task
 sessions do not emit `session_stop`, so continuation is deliberately scoped to
 the main session and capped at eight accepted continuations per session.
+
+Ambient discovery is host-controlled. `omp --no-extensions` suppresses the
+project extension, while an explicit `-e .omp/extensions/reconc.ts` can still
+load it; installation does not override either choice. Every `ExtensionAPI`
+binding owns its own worker transports, including parent and child bindings
+created from the same cached module factory, and shutdown closes only that
+binding's workers.
 
 OMP `tool_call` and `session_stop` are blocking boundaries. A deny decision,
 malformed decision, Reconc failure, or timeout fails closed in the host-native
@@ -3709,7 +3719,7 @@ which is how "the host cannot do this" stays distinguishable from "Reconc
 chooses not to". Contract fixtures pin Pi
 source revision `ac4ac9eaf69f2b01ca3af984a5c48f3b99b84278` at
 `@earendil-works/pi-coding-agent` v0.84.1 and OMP revision
-`06343fef4200c4e32d18f08df5a6a8bd84dcc710` at v17.2.4. That Pi revision widened
+`b8ce33a58911c26bed1d84f0db9a5e2e727c49a2` at v18.0.11. That Pi revision widened
 the blocking tool result with `terminate`, a hint the host honors only when
 every finalized call in a tool batch sets it. Reconc has no policy mode that
 ends a session, so the adapter keeps returning `{block, reason}` and leaves the
@@ -3889,8 +3899,10 @@ the final non-whitespace summary block. Marker-like prose, code, paths, quoted
 payloads, malformed or truncated envelopes, and packets followed by unrelated
 text do not suppress recovery. Detection examines only the final 64 KiB of a
 summary; a missed packet safely emits another bounded packet.
-OpenCode, Kilo Code, OMP, and Pi keep one repository-owned `reconc hook worker`
-child for the lifetime of their plugin instance. Format-1 newline-framed JSON
+OpenCode, Kilo Code, and Pi keep one repository-owned `reconc hook worker`
+child for the lifetime of their plugin instance. OMP owns the same worker per
+extension binding and repository root, so cached parent and child factories do
+not share lifetime state. Format-1 newline-framed JSON
 requests carry bounded IDs, event, repository, and payload fields and are
 processed in deterministic order. Cancellation or route timeout kills the
 child without re-evaluating the event. Failure before an event frame is written
@@ -4086,8 +4098,9 @@ generic payload retain adapter-specific validation and diagnostics while
 sharing the same strict single-value JSON decoder and trailing-data rejection.
 Oh My Pi uses the typed Bun extension at `.omp/extensions/reconc.ts`. It
 registers native `session_start`, `input`, `tool_call`, `tool_result`,
-`approval_requested`, `approval_resolved`, `auto_compaction_start`,
-`auto_compaction_end`, `session_stop`, and `session_shutdown` handlers. The
+`user_bash`, `user_python`, `tool_approval_requested`,
+`tool_approval_resolved`, `session_before_compact`, `session_compact`,
+`session_stop`, and `session_shutdown` handlers. The
 extension translates only host envelopes and decisions; policy and durable
 session state stay in Go. On Windows it uses the same `sh` wrapper boundary.
 Pi uses the typed Bun extension at `.pi/extensions/reconc.ts`. It translates

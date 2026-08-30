@@ -54,7 +54,7 @@ func TestNativeEventRegistriesPreserveContracts(t *testing.T) {
 			"omp-user-bash": "user_bash", "omp-user-python": "user_python", "omp-permission-request": "tool_approval_requested",
 			"omp-permission-result": "tool_approval_resolved", "omp-post-tool-use": "tool_result",
 			"omp-post-tool-use-failure": "tool_result", "omp-stop": "session_stop", "omp-session-end": "session_shutdown",
-			"omp-pre-compaction": "auto_compaction_start", "omp-post-compaction": "auto_compaction_end",
+			"omp-pre-compaction": "session_before_compact", "omp-post-compaction": "session_compact",
 		}},
 		"ZCode": {registry: zcodeNativeEvents, want: map[string]string{
 			"zcode-session-start": "SessionStart", "zcode-user-prompt-submit": "UserPromptSubmit",

@@ -8,6 +8,7 @@
 
 ## Done
 
+- [x] 468 Complete OMP v18 integration -> tasks/done/468-complete-omp-v18-integration.md
 - [x] 467 Make Windows identity replacement tests deterministic -> tasks/done/467-make-windows-identity-replacement-tests-deterministic.md
 - [x] 466 Prepare Reconc v0.9.8 release -> tasks/done/466-prepare-reconc-v0-9-8-release.md
 - [x] 465 Clear CI and code-scanning findings -> tasks/done/465-clear-ci-and-code-scanning-findings.md
@@ -17,4 +18,3 @@
 - [x] 461 Keep self-host runtime contracts current -> tasks/done/461-keep-self-host-runtime-contracts-current.md
 - [x] 460 Render TUI width in terminal cells -> tasks/done/460-render-tui-width-in-terminal-cells.md
 - [x] 459 Stream and reuse executable verification -> tasks/done/459-stream-and-reuse-executable-verification.md
-- [x] 458 Reuse the doctor Grok capability probe -> tasks/done/458-reuse-doctor-grok-capability-probe.md

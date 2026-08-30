@@ -749,7 +749,7 @@ instead of being reported as successful partial publication.
 | Kilo Code | thin CLI/VS Code project plugin with strict `metadata.exit` shell outcomes and the same bounded asynchronous continuation contract as OpenCode |
 | Grok Build | native lifecycle and hard PreToolUse hooks, strict ACP continuation, and leader-mode TUI steering |
 | Kimi Code CLI | explicit user-global `$KIMI_CODE_HOME/config.toml` integration for the 16 decision- and evidence-carrying events of the host's twenty; repository discovery prevents global hooks from acting outside initialized Reconc repositories |
-| Oh My Pi | project-local `.omp/extensions/reconc.ts` ExtensionAPI adapter with native session, prompt, approval, tool-result, compaction, shutdown, and synchronous `session_stop` handling, the same policy decision for shell commands the user types, and a redacted observation for Python the user runs, which no policy can decide |
+| Oh My Pi | project-local `.omp/extensions/reconc.ts` ExtensionAPI adapter with native session, prompt, approval, tool-result, generic `session_before_compact`/`session_compact`, shutdown, and synchronous `session_stop` handling, the same policy decision for shell commands the user types, and a redacted observation for Python the user runs, which no policy can decide |
 | Pi Coding Agent | trust-aware project-local `.pi/extensions/reconc.ts` extension with blocking tool and user-shell interception, exact tool outcomes, lifecycle and compaction observations, and bounded asynchronous `agent_settled` continuation |
 | ZCode | project-local `.zcode/config.json` integration for all seven native hook events, process-executor transport, hard pre-tool and permission decisions, and synchronous Stop continuation |
 | Declarative custom runtimes | repository-owned `.reconc/runtimes/*.json` manifests map exact host events and JSON Pointers into the neutral lifecycle; `hook bridge` reuses the same policy/session engine and `hook conform` proves the public adapter contract offline |
@@ -822,7 +822,13 @@ the repository. `reconc hook install omp .` owns only
 `.omp/extensions/reconc.ts`, refuses to overwrite a foreign file even with
 `--force`, and leaves every sibling extension untouched. Its `tool_call` and
 `session_stop` routes fail closed; lifecycle, approval, result, compaction, and
-shutdown observations fail open. OMP supplies exact host tool names but no
+shutdown observations fail open. Each OMP extension binding owns its worker,
+so parent and child session shutdown cannot terminate each other's transport.
+Generic `session_before_compact` and `session_compact` cover manual, automatic,
+and extension-supplied successful compaction without double delivery. OMP's
+`--no-extensions` flag suppresses ambient project discovery; an explicit `-e`
+can still load the extension, and Reconc never overrides either host choice.
+OMP supplies exact host tool names but no
 authoritative MCP server discriminator, so only explicitly configured tool
 identities are classifiable.
 

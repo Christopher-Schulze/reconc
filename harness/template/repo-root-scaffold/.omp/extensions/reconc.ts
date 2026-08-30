@@ -526,22 +526,6 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
   return { run, close }
 }
 
-const workerTransports = new Map<string, ReturnType<typeof createReconcWorkerTransport>>()
-const workerTransport = (repo: string): ReturnType<typeof createReconcWorkerTransport> => {
-  const existing = workerTransports.get(repo)
-  if (existing) return existing
-  const created = createReconcWorkerTransport(
-    repo,
-    (event: string) => commandFor(repo, event),
-    (event: string, payload: JsonObject, signal?: AbortSignal, timeout?: number) => runOneShot(event, payload, repo, signal, timeout),
-    "OMP canceled the Reconc hook",
-  )
-  workerTransports.set(repo, created)
-  return created
-}
-const run = (event: string, payload: JsonObject, repo: string, signal?: AbortSignal): Promise<RunResult> =>
-  workerTransport(repo).run(event, payload, signal)
-
 const failureReason = (event: string, result: RunResult): string => {
   const budget = routeBudgets[event] ?? defaultBudget
   if (result.aborted) return ""
@@ -609,6 +593,27 @@ const toolPayload = (
 })
 
 export default function ReconcOMPExtension(pi: ExtensionAPI): void {
+  const workerTransports = new Map<string, ReturnType<typeof createReconcWorkerTransport>>()
+  const workerTransport = (repo: string): ReturnType<typeof createReconcWorkerTransport> => {
+    const existing = workerTransports.get(repo)
+    if (existing) return existing
+    const created = createReconcWorkerTransport(
+      repo,
+      (event: string) => commandFor(repo, event),
+      (event: string, payload: JsonObject, signal?: AbortSignal, timeout?: number) => runOneShot(event, payload, repo, signal, timeout),
+      "OMP canceled the Reconc hook",
+    )
+    workerTransports.set(repo, created)
+    return created
+  }
+  const run = (event: string, payload: JsonObject, repo: string, signal?: AbortSignal): Promise<RunResult> =>
+    workerTransport(repo).run(event, payload, signal)
+  const closeWorkerTransports = async (): Promise<void> => {
+    const transports = [...workerTransports.values()]
+    workerTransports.clear()
+    await Promise.all(transports.map((transport) => transport.close()))
+  }
+
   const observe = async (event: string, payload: JsonObject, ctx: ExtensionContext): Promise<void> => {
     const result = await run(event, payload, ctx.cwd)
     if (result.code !== 0 || result.timedOut || result.truncated || result.invalidUTF8) {
@@ -723,26 +728,21 @@ export default function ReconcOMPExtension(pi: ExtensionAPI): void {
     return stopDecision(route, result)
   })
 
-  pi.on("auto_compaction_start", async (event, ctx) => {
-    await observe("omp-pre-compaction", sessionPayload(ctx, "auto_compaction_start", {
-      reason: event.reason,
-      action: event.action,
+  pi.on("session_before_compact", async (event, ctx) => {
+    await observe("omp-pre-compaction", sessionPayload(ctx, "session_before_compact", {
+      branch_entry_count: event.branchEntries.length,
+      has_custom_instructions: typeof event.customInstructions === "string" && event.customInstructions.length > 0,
     }), ctx)
   })
 
-  pi.on("auto_compaction_end", async (event, ctx) => {
-    await observe("omp-post-compaction", sessionPayload(ctx, "auto_compaction_end", {
-      action: event.action,
-      aborted: event.aborted,
-      will_retry: event.willRetry,
-      error: event.errorMessage,
-      skipped: event.skipped,
+  pi.on("session_compact", async (event, ctx) => {
+    await observe("omp-post-compaction", sessionPayload(ctx, "session_compact", {
+      from_extension: event.fromExtension,
     }), ctx)
   })
 
   pi.on("session_shutdown", async (_event, ctx) => {
     await observe("omp-session-end", sessionPayload(ctx, "session_shutdown"), ctx)
-    await workerTransports.get(ctx.cwd)?.close()
-    workerTransports.delete(ctx.cwd)
+    await closeWorkerTransports()
   })
 }

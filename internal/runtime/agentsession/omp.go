@@ -22,8 +22,8 @@ var ompNativeEvents = newNativeEventRegistry(
 	nativeEventBinding{route: "omp-post-tool-use-failure", primary: "tool_result"},
 	nativeEventBinding{route: "omp-stop", primary: "session_stop"},
 	nativeEventBinding{route: "omp-session-end", primary: "session_shutdown"},
-	nativeEventBinding{route: "omp-pre-compaction", primary: "auto_compaction_start"},
-	nativeEventBinding{route: "omp-post-compaction", primary: "auto_compaction_end"},
+	nativeEventBinding{route: "omp-pre-compaction", primary: "session_before_compact"},
+	nativeEventBinding{route: "omp-post-compaction", primary: "session_compact"},
 )
 
 var ompJSONDiagnostics = singleJSONDiagnostics{

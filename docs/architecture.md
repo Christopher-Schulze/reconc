@@ -1006,8 +1006,10 @@ Each runtime route has a small six-hour marker: the common path is one `stat`,
 zero locks, zero JSON reads, and zero writes; a due route refresh updates the
 bounded aggregate status used by `reconc hook status`.
 
-OpenCode, Kilo Code, OMP, and Pi own one `reconc hook worker` child per live
-plugin repository. The internal protocol is newline-framed JSON format 1 with
+OpenCode, Kilo Code, and Pi own one `reconc hook worker` child per live plugin
+repository. OMP owns one per `ExtensionAPI` binding and repository, so cached
+factory reuse cannot couple parent and child session shutdown. The internal
+protocol is newline-framed JSON format 1 with
 printable request IDs, explicit event and repository fields, one object payload,
 strict UTF-8/JSON decoding, and sequential response order. The adapter serializes
 concurrent host callbacks. Cancellation kills the worker and yields to the host;
@@ -1132,9 +1134,12 @@ validates and forwards documented `ExtensionAPI` events, uses `tool_call` and
 awaited main-agent `session_stop` as its fail-closed boundaries, and keeps
 approval events observational because OMP does not accept decisions from
 them. `tool_result.isError` is the authoritative outcome; successful built-in
-Bash results alone synthesize exit code zero. The adapter uses the same
-session-owned worker, one-shot recovery, combined output, UTF-8, timeout, kill,
-and wrapper-resolution contract as the other Bun adapters. Session shutdown has a one-second Reconc route budget
+Bash results alone synthesize exit code zero. Generic `session_before_compact`
+and `session_compact` cover manual, automatic, and extension-supplied successful
+compaction without duplicate auto-attempt routes. Each extension binding owns
+its worker map and shutdown closes only that map. The adapter uses the same
+one-shot recovery, combined output, UTF-8, timeout, kill, and wrapper-resolution
+contract as the other Bun adapters. Session shutdown has a one-second Reconc route budget
 inside OMP's two-second extension-handler budget.
 
 Pi's generated `.pi/extensions/reconc.ts` is a trust-gated transport adapter.

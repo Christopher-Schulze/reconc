@@ -73,7 +73,7 @@ module.default(pi)
 const expected = [
   "session_start", "input", "tool_call", "user_bash", "user_python", "tool_approval_requested",
   "tool_approval_resolved", "tool_result", "session_stop",
-  "auto_compaction_start", "auto_compaction_end", "session_shutdown",
+  "session_before_compact", "session_compact", "session_shutdown",
 ]
 if (JSON.stringify([...handlers.keys()]) !== JSON.stringify(expected)) {
   throw new Error("OMP handler set drift: " + JSON.stringify([...handlers.keys()]))
@@ -135,12 +135,12 @@ const stop = await handlers.get("session_stop")({
 if (stop?.decision !== "block" || stop.reason !== "finish the Reconc run") {
   throw new Error("OMP Stop decision drift: " + JSON.stringify(stop))
 }
-await handlers.get("auto_compaction_start")({
-  type: "auto_compaction_start", reason: "threshold", action: "context-full",
+await handlers.get("session_before_compact")({
+  type: "session_before_compact", preparation: {}, branchEntries: [{ type: "message" }],
+  customInstructions: "focus", signal: new AbortController().signal,
 }, ctx)
-await handlers.get("auto_compaction_end")({
-  type: "auto_compaction_end", action: "context-full", result: undefined,
-  aborted: false, willRetry: false, skipped: false,
+await handlers.get("session_compact")({
+  type: "session_compact", compactionEntry: {}, fromExtension: true,
 }, ctx)
 await handlers.get("session_shutdown")({ type: "session_shutdown" }, ctx)
 if (warnings.length !== 1 || warnings[0]?.metadata?.event !== "omp-permission-request") {
@@ -201,6 +201,83 @@ if (canceled !== undefined) throw new Error("aborted OMP Stop must yield to the 
 	stop := bunHookPayload(t, records, "omp-stop")
 	if stop["turn_id"] != float64(7) || stop["stop_hook_active"] != false {
 		t.Fatalf("OMP Stop payload = %#v", stop)
+	}
+	preCompact := bunHookPayload(t, records, "omp-pre-compaction")
+	if preCompact["hook_event_name"] != "session_before_compact" || preCompact["branch_entry_count"] != float64(1) || preCompact["has_custom_instructions"] != true {
+		t.Fatalf("OMP pre-compaction payload = %#v", preCompact)
+	}
+	postCompact := bunHookPayload(t, records, "omp-post-compaction")
+	if postCompact["hook_event_name"] != "session_compact" || postCompact["from_extension"] != true {
+		t.Fatalf("OMP post-compaction payload = %#v", postCompact)
+	}
+}
+
+func TestGeneratedOMPExtensionBindingsOwnIndependentWorkers(t *testing.T) {
+	bun, err := exec.LookPath("bun")
+	if err != nil {
+		t.Fatalf("Bun is required to verify generated OMP worker ownership: %v", err)
+	}
+	repo := t.TempDir()
+	artifact, err := Generate(KindOMP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	extensionPath := filepath.Join(repo, filepath.FromSlash(artifact.TargetPath))
+	if err := os.MkdirAll(filepath.Dir(extensionPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(extensionPath, []byte(artifact.Content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	workerProgramPath := filepath.Join(repo, "omp-binding-worker.js")
+	if err := os.WriteFile(workerProgramPath, []byte(ompBindingWorker), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wrapperPath := filepath.Join(repo, filepath.FromSlash(WrapperPath))
+	if err := os.MkdirAll(filepath.Dir(wrapperPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wrapperPath, []byte(fakeWorkerWrapper), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	driverPath := filepath.Join(repo, "omp-binding-driver.js")
+	if err := os.WriteFile(driverPath, []byte(ompBindingDriver), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(repo, "omp-binding-records.jsonl")
+	command := exec.Command(bun, driverPath, extensionPath, repo)
+	command.Env = append(os.Environ(),
+		"RECONC_WORKER_TEST_LOG="+logPath,
+		"RECONC_WORKER_TEST_PROGRAM="+workerProgramPath,
+		"RECONC_WORKER_WRAPPER_LOG="+filepath.Join(repo, "omp-binding-wrapper.log"),
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("OMP binding-owned worker contract: %v\n%s", err, output)
+	}
+
+	records := readWorkerTransportRecords(t, logPath)
+	sessionPIDs := map[string]string{}
+	shutdowns := map[string]int{}
+	for _, record := range records {
+		switch record["record"] {
+		case "request":
+			session := record["session"]
+			if session == "" {
+				t.Fatalf("OMP worker request lost session identity: %v", record)
+			}
+			if previous := sessionPIDs[session]; previous != "" && previous != record["pid"] {
+				t.Fatalf("OMP session %q changed worker after sibling shutdown: %v", session, records)
+			}
+			sessionPIDs[session] = record["pid"]
+		case "shutdown":
+			shutdowns[record["pid"]]++
+		}
+	}
+	if len(sessionPIDs) != 2 || sessionPIDs["omp-parent"] == sessionPIDs["omp-child"] {
+		t.Fatalf("OMP bindings shared a worker: sessions=%v records=%v", sessionPIDs, records)
+	}
+	if shutdowns[sessionPIDs["omp-parent"]] != 1 || shutdowns[sessionPIDs["omp-child"]] != 1 {
+		t.Fatalf("OMP worker shutdown ownership drift: shutdowns=%v records=%v", shutdowns, records)
 	}
 }
 
@@ -319,3 +396,52 @@ try { await handlers.get("session_shutdown")({ type: "session_shutdown" }, ctx) 
 		})
 	}
 }
+
+const ompBindingWorker = `
+import { appendFileSync } from "node:fs"
+const record = (value) => appendFileSync(process.env.RECONC_WORKER_TEST_LOG, JSON.stringify(value) + "\n")
+record({ record: "start", pid: String(process.pid) })
+let buffered = ""
+for await (const chunk of Bun.stdin.stream()) {
+  buffered += new TextDecoder().decode(chunk)
+  while (true) {
+    const newline = buffered.indexOf("\n")
+    if (newline < 0) break
+    const frame = JSON.parse(buffered.slice(0, newline))
+    buffered = buffered.slice(newline + 1)
+    if (frame.type === "ping") {
+      console.log(JSON.stringify({ format_version: 1, type: "response", id: frame.id, code: 0 }))
+      continue
+    }
+    if (frame.type === "shutdown") {
+      record({ record: "shutdown", pid: String(process.pid) })
+      console.log(JSON.stringify({ format_version: 1, type: "shutdown", id: frame.id, code: 0 }))
+      process.exit(0)
+    }
+    record({ record: "request", pid: String(process.pid), session: frame.payload?.session_id || "", event: frame.event })
+    console.log(JSON.stringify({ format_version: 1, type: "response", id: frame.id, code: 0 }))
+  }
+}
+`
+
+const ompBindingDriver = `const module = await import("file://" + Bun.argv[2] + "?bindings=" + Date.now())
+const repo = Bun.argv[3]
+const bind = (sessionID) => {
+  const handlers = new Map()
+  module.default({ logger: { warn: () => {} }, on: (event, handler) => handlers.set(event, handler) })
+  return {
+    handlers,
+    ctx: {
+      cwd: repo,
+      sessionManager: { getSessionId: () => sessionID, getSessionFile: () => undefined },
+    },
+  }
+}
+const parent = bind("omp-parent")
+const child = bind("omp-child")
+await parent.handlers.get("session_start")({ type: "session_start", reason: "startup" }, parent.ctx)
+await child.handlers.get("session_start")({ type: "session_start", reason: "startup" }, child.ctx)
+await parent.handlers.get("session_shutdown")({ type: "session_shutdown" }, parent.ctx)
+await child.handlers.get("input")({ type: "input", text: "still alive", source: "interactive" }, child.ctx)
+await child.handlers.get("session_shutdown")({ type: "session_shutdown" }, child.ctx)
+`
