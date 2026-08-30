@@ -53,7 +53,7 @@ func parseProofExportOptions(args []string, stdout io.Writer) (proofExportOption
 			writeProofExportHelp(stdout)
 			return options, true, nil
 		case "--format":
-			value, ok := nextArgValue(args, &index, argument)
+			value, ok := nextArgValue(args, &index, argument, argValueNoLeadingDash)
 			if !ok {
 				return options, false, &CLIError{ExitCode: 1, Message: "reconc proof: --format requires json or markdown"}
 			}
@@ -62,7 +62,7 @@ func parseProofExportOptions(args []string, stdout io.Writer) (proofExportOption
 			}
 			options.format = value
 		case "--output":
-			value, ok := nextArgValue(args, &index, argument)
+			value, ok := nextArgValue(args, &index, argument, argValueNoLeadingDash)
 			if !ok || value == "" {
 				return options, false, &CLIError{ExitCode: 1, Message: "reconc proof: --output requires a path"}
 			}

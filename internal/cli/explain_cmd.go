@@ -45,19 +45,19 @@ func runExplain(args []string, stdout, stderr io.Writer) (resultErr error) {
 		case "--json":
 			jsonOut = true
 		case "--output":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc explain: --output requires a path"}
 			}
 			outputPath = val
 		case "--report-file":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc explain: --report-file requires a path"}
 			}
 			reportFile = val
 		case "--format":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc explain: --format requires a value (text or markdown)"}
 			}
@@ -75,25 +75,25 @@ func runExplain(args []string, stdout, stderr io.Writer) (resultErr error) {
 			fmt.Fprintln(stdout, "Always exits 0 (renderer, not enforcement).")
 			return nil
 		case "--read":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc explain: --read requires a value"}
 			}
 			inputs.ReadPaths = append(inputs.ReadPaths, val)
 		case "--write":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc explain: --write requires a value"}
 			}
 			inputs.WritePaths = append(inputs.WritePaths, val)
 		case "--command":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc explain: --command requires a value"}
 			}
 			inputs.Commands = append(inputs.Commands, val)
 		case "--claim":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc explain: --claim requires a value"}
 			}
@@ -309,7 +309,7 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 					items = append(items, s)
 				}
 			}
-			fmt.Fprintf(stdout, "%-9s %s\n", key+":", joinList(items))
+			fmt.Fprintf(stdout, "%-9s %s\n", key+":", strings.Join(items, ", "))
 		}
 	}
 	if rf, ok := target["required_files"].([]interface{}); ok && len(rf) > 0 {

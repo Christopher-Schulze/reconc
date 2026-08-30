@@ -41,7 +41,7 @@ func parseInitOptions(args []string) (initCLIOptions, bool, error) {
 			if outputSet {
 				return options, false, initCLIError("--output may be specified only once")
 			}
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return options, false, initCLIError("--output requires a path")
 			}
@@ -51,20 +51,20 @@ func parseInitOptions(args []string) (initCLIOptions, bool, error) {
 			if profileSet {
 				return options, false, initCLIError("--profile may be specified only once")
 			}
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return options, false, initCLIError("--profile requires a value")
 			}
 			options.request.Profile = reconbootstrap.ProfileName(value)
 			profileSet = true
 		case "--pack":
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return options, false, initCLIError("--pack requires a value")
 			}
 			options.request.Packs = append(options.request.Packs, value)
 		case "--hook":
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return options, false, initCLIError("--hook requires a value")
 			}
@@ -77,7 +77,7 @@ func parseInitOptions(args []string) (initCLIOptions, bool, error) {
 		case "--force":
 			return options, false, initCLIError("--force is unsupported; Reconc never overwrites user-owned content. Review hash-addressed candidates or use --accept-managed-blocks for byte-verified marker-only updates")
 		case "--preset":
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return options, false, initCLIError("--preset requires a value")
 			}

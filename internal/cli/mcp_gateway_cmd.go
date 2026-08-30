@@ -204,12 +204,13 @@ func parseMCPGatewayFlag(args []string, index *int, options *mcpGatewayOptions) 
 	default:
 		return fmt.Errorf("unknown flag %q", flag)
 	}
-	value, ok := nextArgValue(args, index, flag)
+	value, ok := nextArgValue(args, index, flag, argValueNoLeadingDash)
 	if !ok {
+		next := *index + 1
+		if next < len(args) && strings.HasPrefix(args[next], "--") {
+			return fmt.Errorf("%s requires a value before %s", flag, args[next])
+		}
 		return fmt.Errorf("%s requires a value", flag)
-	}
-	if strings.HasPrefix(value, "--") {
-		return fmt.Errorf("%s requires a value before %s", flag, value)
 	}
 	switch flag {
 	case "--server":

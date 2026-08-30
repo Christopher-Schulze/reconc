@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -53,25 +54,31 @@ func commitOutput(closeOutput func(bool) error, result error) error {
 	return errors.Join(result, closeOutput(true))
 }
 
-// nextArgValue advances i and returns the next argument as the value
-// for a flag. Returns ("", false) if i is at the end.
-func nextArgValue(args []string, i *int, flag string) (string, bool) {
-	*i++
-	if *i >= len(args) {
+type argValueSyntax uint8
+
+const (
+	argValueNoLeadingDash argValueSyntax = iota
+	argValueLeadingDashAfterSeparator
+)
+
+// nextArgValue advances i only after finding a complete value. Values that
+// begin with a dash must be explicitly escaped as "-- VALUE" by callers that
+// opt into argValueLeadingDashAfterSeparator.
+func nextArgValue(args []string, i *int, flag string, syntax argValueSyntax) (string, bool) {
+	next := *i + 1
+	if next >= len(args) {
 		return "", false
 	}
-	return args[*i], true
-}
-
-// splitOnce splits s on the first occurrence of sep into 2 parts.
-// Returns one part if sep is absent.
-func splitOnce(s, sep string) []string {
-	for i := 0; i < len(s); i++ {
-		if i+len(sep) <= len(s) && s[i:i+len(sep)] == sep {
-			return []string{s[:i], s[i+len(sep):]}
+	value := args[next]
+	if strings.HasPrefix(value, "-") {
+		if syntax != argValueLeadingDashAfterSeparator || value != "--" || next+1 >= len(args) {
+			return "", false
 		}
+		next++
+		value = args[next]
 	}
-	return []string{s}
+	*i = next
+	return value, true
 }
 
 func firstStringOrDash(values []string) string {
@@ -130,21 +137,13 @@ func splitCommaList(s string) []string {
 	return out
 }
 
-func itoaCLI(n int) string {
-	return strconv.Itoa(n)
-}
-
 // sortedMapKeys returns a map's keys alphabetically for stable display.
 func sortedMapKeys(m map[string]interface{}) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
 	}
-	for i := 1; i < len(keys); i++ {
-		for j := i; j > 0 && keys[j-1] > keys[j]; j-- {
-			keys[j-1], keys[j] = keys[j], keys[j-1]
-		}
-	}
+	slices.Sort(keys)
 	return keys
 }
 
@@ -155,13 +154,7 @@ func sortedKeys(m map[string]int) []string {
 	for k := range m {
 		keys = append(keys, k)
 	}
-	// sort.Strings lives in "sort"; we keep things dep-free by sorting
-	// inline rather than importing sort here (stable for small N).
-	for i := 1; i < len(keys); i++ {
-		for j := i; j > 0 && keys[j-1] > keys[j]; j-- {
-			keys[j-1], keys[j] = keys[j], keys[j-1]
-		}
-	}
+	slices.Sort(keys)
 	return keys
 }
 
@@ -174,16 +167,4 @@ func atoi(s string) (int, error) {
 		return 0, fmt.Errorf("invalid integer %q", s)
 	}
 	return n, nil
-}
-
-// joinList joins string slice with ", " separator.
-func joinList(xs []string) string {
-	out := ""
-	for i, x := range xs {
-		if i > 0 {
-			out += ", "
-		}
-		out += x
-	}
-	return out
 }

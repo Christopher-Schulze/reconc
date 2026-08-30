@@ -43,7 +43,7 @@ func runDoctor(args []string, version string, stdout, stderr io.Writer) (resultE
 		case "--json":
 			jsonOut = true
 		case "--output":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc doctor: --output requires a path"}
 			}
@@ -180,7 +180,7 @@ func runStatus(args []string, stdout, stderr io.Writer) (resultErr error) {
 		case "--json":
 			jsonOut = true
 		case "--output":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc status: --output requires a path"}
 			}
@@ -281,7 +281,7 @@ func runStatus(args []string, stdout, stderr io.Writer) (resultErr error) {
 		parts = append(parts, fmt.Sprintf("%d issue(s): %s", len(issues), issues[0]))
 	}
 	parts = append(parts, "external MCP configs uninspected; direct/native routes unenforced")
-	fmt.Fprintf(out, "[%s] %s\n", icon, joinList(parts))
+	fmt.Fprintf(out, "[%s] %s\n", icon, strings.Join(parts, ", "))
 	return nil
 }
 
@@ -301,7 +301,7 @@ func runTUI(args []string, stdout, stderr io.Writer) (resultErr error) {
 		case "--json":
 			jsonOut = true
 		case "--output":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc tui: --output requires a path"}
 			}

@@ -65,7 +65,7 @@ func runRepoSyncPlan(args []string, version string, stdout io.Writer) error {
 			if output != "" {
 				return repoCLIError("--output may be specified only once")
 			}
-			value, ok := nextArgValue(args, &index, "--output")
+			value, ok := nextArgValue(args, &index, "--output", argValueNoLeadingDash)
 			if !ok {
 				return repoCLIError("--output requires a path")
 			}
@@ -129,7 +129,7 @@ func runRepoSyncApply(args []string, version string, stdout io.Writer) error {
 			if planPath != "" {
 				return repoCLIError("--plan may be specified only once")
 			}
-			value, ok := nextArgValue(args, &index, "--plan")
+			value, ok := nextArgValue(args, &index, "--plan", argValueNoLeadingDash)
 			if !ok {
 				return repoCLIError("--plan requires a path")
 			}
@@ -138,7 +138,7 @@ func runRepoSyncApply(args []string, version string, stdout io.Writer) error {
 			if digest != "" {
 				return repoCLIError("--digest may be specified only once")
 			}
-			value, ok := nextArgValue(args, &index, "--digest")
+			value, ok := nextArgValue(args, &index, "--digest", argValueNoLeadingDash)
 			if !ok {
 				return repoCLIError("--digest requires a SHA-256 value")
 			}
@@ -192,7 +192,7 @@ func runRepoSyncResolve(args []string, version string, stdout io.Writer) error {
 		flag := args[index]
 		switch flag {
 		case "--plan", "--digest", "--path", "--strategy", "--binary", "--checksum", "--platform":
-			value, ok := nextArgValue(args, &index, flag)
+			value, ok := nextArgValue(args, &index, flag, argValueNoLeadingDash)
 			if !ok {
 				return repoCLIError(flag + " requires a value")
 			}

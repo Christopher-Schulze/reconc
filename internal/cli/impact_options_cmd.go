@@ -71,7 +71,7 @@ func (options *impactCompareOptions) consume(args []string, index *int, output i
 }
 
 func (options *impactCompareOptions) consumeValue(flag string, args []string, index *int) error {
-	value, ok := nextArgValue(args, index, flag)
+	value, ok := nextArgValue(args, index, flag, argValueNoLeadingDash)
 	if !ok || value == "" {
 		return &CLIError{ExitCode: 1, Message: "reconc impact: " + flag + " requires a value"}
 	}
@@ -137,7 +137,7 @@ func parseImpactExportOptions(args []string) (impactExportOptions, error) {
 }
 
 func (options *impactExportOptions) consumeValue(flag string, args []string, index *int) error {
-	value, ok := nextArgValue(args, index, flag)
+	value, ok := nextArgValue(args, index, flag, argValueNoLeadingDash)
 	if !ok || value == "" {
 		return &CLIError{ExitCode: 1, Message: "reconc impact export: " + flag + " requires a value"}
 	}
@@ -157,7 +157,7 @@ func (options *impactExportOptions) consumeValue(flag string, args []string, ind
 }
 
 func consumeImpactEvidence(flag string, args []string, index *int, inputs *runtime.ExecutionInputs, seen *bool) error {
-	value, ok := nextArgValue(args, index, flag)
+	value, ok := nextArgValue(args, index, flag, argValueLeadingDashAfterSeparator)
 	if !ok || value == "" {
 		return &CLIError{ExitCode: 1, Message: "reconc impact: " + flag + " requires a value"}
 	}

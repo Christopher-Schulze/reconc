@@ -54,7 +54,7 @@ func (options *checkOptions) consume(args []string, index *int, output io.Writer
 }
 
 func (options *checkOptions) consumeOutputFlag(flag string, args []string, index *int) error {
-	value, ok := nextArgValue(args, index, flag)
+	value, ok := nextArgValue(args, index, flag, argValueNoLeadingDash)
 	if !ok || value == "" {
 		return &CLIError{ExitCode: 1, Message: "reconc check: " + flag + " requires a value"}
 	}
@@ -67,7 +67,7 @@ func (options *checkOptions) consumeOutputFlag(flag string, args []string, index
 }
 
 func (options *checkOptions) consumeEvidenceFlag(flag string, args []string, index *int) error {
-	value, ok := nextArgValue(args, index, flag)
+	value, ok := nextArgValue(args, index, flag, argValueLeadingDashAfterSeparator)
 	if !ok {
 		return &CLIError{ExitCode: 1, Message: "reconc check: " + flag + " requires a value"}
 	}

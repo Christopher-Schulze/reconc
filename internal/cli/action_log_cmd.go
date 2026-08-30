@@ -277,7 +277,7 @@ func parseActionLogOptions(
 }
 
 func nextActionLogValue(args []string, index *int, flag string) (string, bool) {
-	value, ok := nextArgValue(args, index, flag)
+	value, ok := nextArgValue(args, index, flag, argValueNoLeadingDash)
 	return value, ok && !strings.HasPrefix(value, "-")
 }
 

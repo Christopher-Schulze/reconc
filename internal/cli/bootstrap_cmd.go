@@ -224,7 +224,7 @@ func runBootstrapApply(args []string, version string, stdout io.Writer) error {
 			if planSet {
 				return bootstrapCLIError("apply", "--plan may be specified only once")
 			}
-			value, ok := nextArgValue(args, &index, "--plan")
+			value, ok := nextArgValue(args, &index, "--plan", argValueNoLeadingDash)
 			if !ok {
 				return bootstrapCLIError("apply", "--plan requires a path")
 			}
@@ -303,7 +303,7 @@ func runBootstrapVerify(args []string, stdout io.Writer) error {
 			if planSet {
 				return bootstrapCLIError("verify", "--plan may be specified only once")
 			}
-			value, ok := nextArgValue(args, &index, "--plan")
+			value, ok := nextArgValue(args, &index, "--plan", argValueNoLeadingDash)
 			if !ok {
 				return bootstrapCLIError("verify", "--plan requires a path")
 			}
@@ -354,7 +354,7 @@ func runBootstrapRemove(args []string, stdout io.Writer) error {
 			if planPath != "" {
 				return bootstrapCLIError("remove", "--plan may be specified only once")
 			}
-			value, ok := nextArgValue(args, &index, "--plan")
+			value, ok := nextArgValue(args, &index, "--plan", argValueNoLeadingDash)
 			if !ok {
 				return bootstrapCLIError("remove", "--plan requires a path")
 			}
@@ -403,20 +403,20 @@ func parseBootstrapRequestFlags(command string, args []string, allowOutput bool)
 			if flags.profileSet {
 				return flags, bootstrapCLIError(command, "--profile may be specified only once")
 			}
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return flags, bootstrapCLIError(command, "--profile requires a value")
 			}
 			flags.profile = reconbootstrap.ProfileName(value)
 			flags.profileSet = true
 		case "--pack":
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return flags, bootstrapCLIError(command, "--pack requires a value")
 			}
 			flags.packs = append(flags.packs, value)
 		case "--hook":
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return flags, bootstrapCLIError(command, "--hook requires a value")
 			}
@@ -427,7 +427,7 @@ func parseBootstrapRequestFlags(command string, args []string, allowOutput bool)
 			if flags.binarySet {
 				return flags, bootstrapCLIError(command, "--binary may be specified only once")
 			}
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return flags, bootstrapCLIError(command, "--binary requires a path")
 			}
@@ -437,7 +437,7 @@ func parseBootstrapRequestFlags(command string, args []string, allowOutput bool)
 			if flags.checksumSet {
 				return flags, bootstrapCLIError(command, "--checksum may be specified only once")
 			}
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return flags, bootstrapCLIError(command, "--checksum requires a SHA-256 value")
 			}
@@ -447,7 +447,7 @@ func parseBootstrapRequestFlags(command string, args []string, allowOutput bool)
 			if flags.platformSet {
 				return flags, bootstrapCLIError(command, "--platform may be specified only once")
 			}
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return flags, bootstrapCLIError(command, "--platform requires OS/ARCH")
 			}
@@ -460,7 +460,7 @@ func parseBootstrapRequestFlags(command string, args []string, allowOutput bool)
 			if flags.outputSet {
 				return flags, bootstrapCLIError(command, "--output may be specified only once")
 			}
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return flags, bootstrapCLIError(command, "--output requires a path")
 			}

@@ -28,7 +28,7 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 		case "--json":
 			jsonOut = true
 		case "--output":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc hook claim: --output requires a path"}
 			}

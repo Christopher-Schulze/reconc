@@ -40,7 +40,7 @@ func runCompileCommand(command string, args []string, version string, stdout, st
 		case "--strict-conflicts":
 			strictConflicts = true
 		case "--output":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc " + command + ": --output requires a path"}
 			}

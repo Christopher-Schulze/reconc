@@ -28,7 +28,7 @@ func runGrok(args []string, stdout, stderr io.Writer) error {
 			printGrokHelp(stdout)
 			return nil
 		case "--prompt":
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc grok: --prompt requires text"}
 			}
@@ -37,19 +37,19 @@ func runGrok(args []string, stdout, stderr io.Writer) error {
 			}
 			prompt = value
 		case "--model":
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc grok: --model requires an ID"}
 			}
 			model = value
 		case "--grok-binary":
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc grok: --grok-binary requires a path"}
 			}
 			grokBinary = value
 		case "--max-continuations":
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc grok: --max-continuations requires an integer"}
 			}

@@ -102,35 +102,35 @@ func runAssert(args []string, reconcVersion string, stdout, stderr io.Writer) er
 		case "--json":
 			jsonOut = true
 		case "--var":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc assert: --var requires key=value"}
 			}
-			parts := splitOnce(val, "=")
-			if len(parts) != 2 || parts[0] == "" {
+			key, value, found := strings.Cut(val, "=")
+			if !found || key == "" {
 				return &CLIError{ExitCode: 1, Message: "reconc assert: --var must be key=value, got " + val}
 			}
-			vars[parts[0]] = parts[1]
+			vars[key] = value
 		case "--read":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc assert: --read requires a value"}
 			}
 			inputs.ReadPaths = append(inputs.ReadPaths, val)
 		case "--write":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc assert: --write requires a value"}
 			}
 			inputs.WritePaths = append(inputs.WritePaths, val)
 		case "--command":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc assert: --command requires a value"}
 			}
 			inputs.Commands = append(inputs.Commands, val)
 		case "--command-success":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc assert: --command-success requires a value"}
 			}
@@ -139,7 +139,7 @@ func runAssert(args []string, reconcVersion string, stdout, stderr io.Writer) er
 				Command: val, Outcome: runtime.CommandOutcomeSuccess,
 			})
 		case "--command-failure":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc assert: --command-failure requires a value"}
 			}
@@ -148,7 +148,7 @@ func runAssert(args []string, reconcVersion string, stdout, stderr io.Writer) er
 				Command: val, Outcome: runtime.CommandOutcomeFailure,
 			})
 		case "--claim":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc assert: --claim requires a value"}
 			}
@@ -189,7 +189,7 @@ func runAssert(args []string, reconcVersion string, stdout, stderr io.Writer) er
 				vbuf = append(vbuf, k+"="+v)
 			}
 			sort.Strings(vbuf)
-			fmt.Fprintf(stdout, "Vars:      %s\n", joinList(vbuf))
+			fmt.Fprintf(stdout, "Vars:      %s\n", strings.Join(vbuf, ", "))
 		}
 		renderCheckText(report, stdout)
 	}
@@ -223,7 +223,7 @@ func runFixCommand(command string, args []string, nextOnly bool, reconcVersion s
 		case "--json":
 			jsonOut = true
 		case "--output":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: prefix + "--output requires a path"}
 			}
@@ -238,25 +238,25 @@ func runFixCommand(command string, args []string, nextOnly bool, reconcVersion s
 			fmt.Fprintln(stdout, "match check (0 = pass/warn, 2 = block).")
 			return nil
 		case "--read":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: prefix + "--read requires a value"}
 			}
 			inputs.ReadPaths = append(inputs.ReadPaths, val)
 		case "--write":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: prefix + "--write requires a value"}
 			}
 			inputs.WritePaths = append(inputs.WritePaths, val)
 		case "--command":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: prefix + "--command requires a value"}
 			}
 			inputs.Commands = append(inputs.Commands, val)
 		case "--command-success":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: prefix + "--command-success requires a value"}
 			}
@@ -265,7 +265,7 @@ func runFixCommand(command string, args []string, nextOnly bool, reconcVersion s
 				Command: val, Outcome: runtime.CommandOutcomeSuccess,
 			})
 		case "--command-failure":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: prefix + "--command-failure requires a value"}
 			}
@@ -274,7 +274,7 @@ func runFixCommand(command string, args []string, nextOnly bool, reconcVersion s
 				Command: val, Outcome: runtime.CommandOutcomeFailure,
 			})
 		case "--claim":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueLeadingDashAfterSeparator)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: prefix + "--claim requires a value"}
 			}
@@ -391,7 +391,7 @@ func runPersistedNext(args []string, stdout io.Writer) (resultErr error) {
 		case "--json":
 			jsonOut = true
 		case "--output":
-			value, ok := nextArgValue(args, &index, arg)
+			value, ok := nextArgValue(args, &index, arg, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc next: --output requires a path"}
 			}

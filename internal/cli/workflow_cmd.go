@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -191,7 +192,7 @@ func buildSessionBriefing(repoRoot string) map[string]interface{} {
 
 	// Suggest a next action if one is obvious.
 	if cnt, ok := out["conflicts"].(int); ok && cnt > 0 {
-		out["next_action"] = "address " + itoaCLI(cnt) + " rule conflict(s), then run `reconc refresh " + discovery.RepoRoot + "`"
+		out["next_action"] = "address " + strconv.Itoa(cnt) + " rule conflict(s), then run `reconc refresh " + discovery.RepoRoot + "`"
 	}
 	addTaskBriefing(out, discovery.RepoRoot)
 	addRunBriefing(out, discovery.RepoRoot)
@@ -738,7 +739,7 @@ func runDone(args []string, stdout, stderr io.Writer) error {
 		case "--require-clean-git":
 			requireCleanGit = true
 		case "--window":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc done: --window requires minutes"}
 			}

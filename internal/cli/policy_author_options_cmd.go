@@ -36,7 +36,7 @@ func parsePolicyAuthorOptions(args []string) (policyAuthorOptions, error) {
 		case "--json":
 			options.jsonOutput = true
 		case "--candidate", "--target", "--corpus", "--fixture", "--case-id":
-			value, ok := nextArgValue(args, &index, flag)
+			value, ok := nextArgValue(args, &index, flag, argValueNoLeadingDash)
 			if !ok || value == "" {
 				return options, policyAuthorError(flag + " requires a value")
 			}

@@ -1866,6 +1866,11 @@ third command supplies current evidence. Session evidence carries causal write
 epochs: a successful command recorded before a later matching write is stale
 and must be rerun. Later writes outside the rule trigger do not invalidate it.
 Explicit `--command-success` evidence applies to the complete evaluation snapshot.
+Every value-taking flag rejects a following option token as a missing value.
+For evidence flags on `check`, `ci`, `assert`, `fix`, `explain`, and `impact`,
+escape a literal value that begins with `-` by inserting `--`, for example
+`reconc check . --command -- -version`. Other value flags reject leading-dash
+values.
 
 ## Command Surface
 

@@ -61,8 +61,8 @@ func runExec(args []string, stdout, stderr io.Writer) error {
 		return &CLIError{ExitCode: 1, Message: "reconc exec: no policy markers found"}
 	}
 
-	commandText := renderDirectCommand(commandArgs)
 	executionMode := "direct"
+	commandText := ""
 	var command *exec.Cmd
 	if shell {
 		commandText = strings.TrimSpace(commandArgs[0])
@@ -72,6 +72,7 @@ func runExec(args []string, stdout, stderr io.Writer) error {
 		executionMode = "shell"
 		command = shellCommand(commandText)
 	} else {
+		commandText = renderDirectCommand(commandArgs)
 		command = exec.Command(commandArgs[0], commandArgs[1:]...)
 	}
 

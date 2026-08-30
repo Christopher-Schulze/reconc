@@ -59,7 +59,7 @@ func (options *ciOptions) consume(args []string, index *int, output io.Writer) (
 }
 
 func (options *ciOptions) consumeValueFlag(flag string, args []string, index *int) error {
-	value, ok := nextArgValue(args, index, flag)
+	value, ok := nextArgValue(args, index, flag, argValueNoLeadingDash)
 	if !ok || value == "" {
 		return &CLIError{ExitCode: 1, Message: "reconc ci: " + flag + " requires a value"}
 	}
@@ -77,7 +77,7 @@ func (options *ciOptions) consumeValueFlag(flag string, args []string, index *in
 }
 
 func (options *ciOptions) consumeEvidenceFlag(flag string, args []string, index *int) error {
-	value, ok := nextArgValue(args, index, flag)
+	value, ok := nextArgValue(args, index, flag, argValueLeadingDashAfterSeparator)
 	if !ok {
 		return &CLIError{ExitCode: 1, Message: "reconc ci: " + flag + " requires a value"}
 	}

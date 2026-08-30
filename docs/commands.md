@@ -851,6 +851,10 @@ The core policy evaluator. Exit 0 = pass/warn, 2 = block, 1 = error.
 `--auto-claim` detects CI environment and auto-asserts `ci-green`.
 Missing or stale lockfiles fail closed without writing and require
 `reconc refresh .`.
+Every value flag rejects a following option token instead of consuming it.
+Evidence values beginning with `-` use an explicit separator escape, for
+example `reconc check . --command -- -version`; the separator is consumed as
+part of that value. Non-evidence value flags reject leading-dash values.
 
 ### `reconc ci [repo] (--staged | --base REF [--head REF]) [--read PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--auto-claim] [--json] [--format text|json|sarif|junit] [--output PATH]`
 Git-aware check. Derives write paths from the working-tree index or a

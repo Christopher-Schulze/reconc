@@ -135,7 +135,7 @@ func runPresetList(args []string, stdout, stderr io.Writer) (resultErr error) {
 		case "--json":
 			jsonOut = true
 		case "--output":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc preset list: --output requires a path"}
 			}
@@ -201,7 +201,7 @@ func runPresetShow(args []string, stdout, stderr io.Writer) (resultErr error) {
 		case "--json":
 			jsonOut = true
 		case "--output":
-			val, ok := nextArgValue(args, &i, a)
+			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc preset show: --output requires a path"}
 			}

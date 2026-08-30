@@ -18,7 +18,7 @@ func runInstallCLI(args []string, version string, stdout io.Writer) error {
 	for index := 0; index < len(args); index++ {
 		switch args[index] {
 		case "--install-dir":
-			value, ok := nextArgValue(args, &index, "--install-dir")
+			value, ok := nextArgValue(args, &index, "--install-dir", argValueNoLeadingDash)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc install-cli: --install-dir requires a path"}
 			}

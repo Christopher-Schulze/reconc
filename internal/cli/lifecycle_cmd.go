@@ -62,7 +62,7 @@ func parseUpdateRequest(subcommand string, command string, args []string) (userc
 	for index := 0; index < len(args); index++ {
 		switch args[index] {
 		case "--channel":
-			value, ok := nextArgValue(args, &index, "--channel")
+			value, ok := nextArgValue(args, &index, "--channel", argValueNoLeadingDash)
 			if !ok {
 				return request, jsonOut, false, &CLIError{ExitCode: 1, Message: "reconc update: --channel requires stable or preview"}
 			}
@@ -71,7 +71,7 @@ func parseUpdateRequest(subcommand string, command string, args []string) (userc
 			}
 			request.Channel = usercli.Channel(value)
 		case "--version":
-			value, ok := nextArgValue(args, &index, "--version")
+			value, ok := nextArgValue(args, &index, "--version", argValueNoLeadingDash)
 			if !ok {
 				return request, jsonOut, false, &CLIError{ExitCode: 1, Message: "reconc update: --version requires a value"}
 			}
@@ -80,7 +80,7 @@ func parseUpdateRequest(subcommand string, command string, args []string) (userc
 			}
 			request.Version = value
 		case "--from-dir":
-			value, ok := nextArgValue(args, &index, "--from-dir")
+			value, ok := nextArgValue(args, &index, "--from-dir", argValueNoLeadingDash)
 			if !ok {
 				return request, jsonOut, false, &CLIError{ExitCode: 1, Message: "reconc update: --from-dir requires a path"}
 			}

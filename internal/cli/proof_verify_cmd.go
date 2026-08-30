@@ -60,7 +60,7 @@ func parseProofVerifyOptions(args []string, stdout io.Writer) (proofVerifyOption
 			if options.bindRepo {
 				return options, false, &CLIError{ExitCode: 1, Message: "reconc proof verify: --repo may be provided only once"}
 			}
-			value, ok := nextArgValue(args, &index, argument)
+			value, ok := nextArgValue(args, &index, argument, argValueNoLeadingDash)
 			if !ok || strings.TrimSpace(value) == "" || strings.HasPrefix(value, "-") {
 				return options, false, &CLIError{ExitCode: 1, Message: "reconc proof verify: --repo requires a path"}
 			}
