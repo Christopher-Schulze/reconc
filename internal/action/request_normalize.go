@@ -139,9 +139,6 @@ func normalizeRawContext(raw []RawContextValue) ([]ContextValue, error) {
 			return nil, &RequestError{Code: ReasonDuplicateKey, Message: "context contains a duplicate key"}
 		}
 	}
-	if values == nil {
-		values = []ContextValue{}
-	}
 	return values, nil
 }
 
@@ -290,9 +287,6 @@ func cloneContextValues(input []ContextValue, valueBytes int) ([]ContextValue, e
 		if context[index-1].Name == context[index].Name {
 			return nil, &RequestError{Code: ReasonDuplicateKey, Message: "context contains a duplicate key"}
 		}
-	}
-	if context == nil {
-		context = []ContextValue{}
 	}
 	return context, nil
 }

@@ -76,7 +76,7 @@ func NormalizeGrokPayload(event string, payloadBytes []byte, repoRoot string) ([
 		}
 	}
 
-	out := cloneCursorObject(raw)
+	out := cloneObject(raw)
 	out["session_id"] = sessionID
 	out["reconc_runtime"] = "grok"
 	out["grok_event"] = event
@@ -143,7 +143,7 @@ func PayloadLooksLikeGrok(payloadBytes []byte) bool {
 func AdaptGrokResult(event string, result Result) Result {
 	if event == "grok-pre-tool-use" {
 		if result.ExitCode != 0 || result.Err != nil {
-			reason := grokResultReason(result)
+			reason := resultReason(result, "Reconc runtime returned no diagnostic")
 			return resultWithHookJSON(Result{ExitCode: 0, Err: result.Err}, map[string]string{"decision": "deny", "reason": reason})
 		}
 		return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]string{"decision": "allow"})
@@ -153,7 +153,7 @@ func AdaptGrokResult(event string, result Result) Result {
 		if result.ExitCode != 0 || result.Err != nil {
 			return resultWithHookJSON(Result{ExitCode: 0, Err: result.Err}, map[string]string{
 				"decision": "block",
-				"reason":   "Reconc could not evaluate this Grok Stop: " + grokResultReason(result),
+				"reason":   "Reconc could not evaluate this Grok Stop: " + resultReason(result, "Reconc runtime returned no diagnostic"),
 			})
 		}
 		stdout := strings.TrimSpace(result.Stdout)
@@ -180,15 +180,6 @@ func AdaptGrokResult(event string, result Result) Result {
 
 func grokStopBlockResult(reason string) Result {
 	return resultWithHookJSON(Result{ExitCode: 0}, map[string]string{"decision": "block", "reason": strings.TrimSpace(reason)})
-}
-
-func grokResultReason(result Result) string {
-	for _, candidate := range []string{result.Stderr, result.Stdout} {
-		if reason := strings.TrimSpace(candidate); reason != "" {
-			return reason
-		}
-	}
-	return "Reconc runtime returned no diagnostic"
 }
 
 func validateGrokEvent(event string, raw map[string]interface{}) error {
@@ -268,7 +259,7 @@ func canonicalGrokPath(path string) (string, error) {
 
 func grokObject(value interface{}) map[string]interface{} {
 	if object, ok := value.(map[string]interface{}); ok {
-		return cloneCursorObject(object)
+		return cloneObject(object)
 	}
 	return map[string]interface{}{"value": value}
 }

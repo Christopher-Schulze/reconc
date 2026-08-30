@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 383 Remove verified runtime helper duplication -> tasks/383-remove-verified-runtime-helper-duplication.md
 - [ ] 384 Hermeticize offline hook verification -> tasks/384-hermeticize-offline-hook-verification.md
 - [ ] 385 Preserve stricter managed-artifact permissions -> tasks/385-preserve-stricter-managed-artifact-permissions.md
 - [ ] 386 Protect live retention locks and sessions -> tasks/386-protect-live-retention-locks-and-sessions.md
@@ -87,6 +86,7 @@
 
 ## Done
 
+- [x] 383 Remove verified runtime helper duplication -> tasks/done/383-remove-verified-runtime-helper-duplication.md
 - [x] 382 Streamline command semantic normalization -> tasks/done/382-streamline-command-semantic-normalization.md
 - [x] 381 Bind require-script execution to validated identity -> tasks/done/381-bind-require-script-execution-to-validated-identity.md
 - [x] 380 Bound violation diagnostic aggregation -> tasks/done/380-bound-violation-diagnostic-aggregation.md

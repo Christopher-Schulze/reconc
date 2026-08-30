@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"encoding/json"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -58,9 +57,9 @@ func TestWorkflowAuditBatchHelpersPreserveModeAndFailureTruth(t *testing.T) {
 	}
 
 	valid := `{"results":[{"mode":"task-state","failures":[]},{"mode":"repo-layout","failures":["bad root"]}]}`
-	parsed, ok := parseWorkflowAuditBatchOutput(valid, []string{"task-state", "repo-layout"})
+	parsed, _, ok := parseWorkflowAuditBatchOutputDisposition(valid, []string{"task-state", "repo-layout"})
 	if !ok || len(parsed["task-state"]) != 0 || !reflect.DeepEqual(parsed["repo-layout"], []string{"bad root"}) {
-		t.Fatalf("parseWorkflowAuditBatchOutput() = (%#v, %t)", parsed, ok)
+		t.Fatalf("parseWorkflowAuditBatchOutputDisposition() = (%#v, %t)", parsed, ok)
 	}
 	for _, invalid := range []string{
 		"not-json",
@@ -69,7 +68,7 @@ func TestWorkflowAuditBatchHelpersPreserveModeAndFailureTruth(t *testing.T) {
 		`{"results":[{"mode":"task-state","failures":[]},{"mode":"other","failures":[]}]}`,
 		`{"results":[{"mode":"task-state","failures":[]},{"mode":"repo-layout","failures":[]}],"extra":true}`,
 	} {
-		if parsed, ok := parseWorkflowAuditBatchOutput(invalid, []string{"task-state", "repo-layout"}); ok || parsed != nil {
+		if parsed, _, ok := parseWorkflowAuditBatchOutputDisposition(invalid, []string{"task-state", "repo-layout"}); ok || parsed != nil {
 			t.Fatalf("invalid batch output accepted: %#v", invalid)
 		}
 	}
@@ -247,23 +246,6 @@ func TestCommandResultAndRedirectHelpersEnforceOutcomeEpochAndSyntax(t *testing.
 }
 
 func TestScalarAndClaimHelpersCoverFallbacksAndWhitespace(t *testing.T) {
-	for _, test := range []struct {
-		value interface{}
-		def   int64
-		want  int64
-	}{
-		{value: nil, def: 8, want: 8},
-		{value: json.Number("12"), def: 8, want: 12},
-		{value: json.Number("bad"), def: 8, want: 8},
-		{value: 4, def: 8, want: 4},
-		{value: float64(5), def: 8, want: 5},
-		{value: 5.5, def: 8, want: 8},
-		{value: "6", def: 8, want: 8},
-	} {
-		if got := numAsIntDefault(test.value, test.def); got != test.want {
-			t.Fatalf("numAsIntDefault(%#v, %d) = %d, want %d", test.value, test.def, got, test.want)
-		}
-	}
 	if quote("value") != `"value"` {
 		t.Fatalf("quote() = %q", quote("value"))
 	}

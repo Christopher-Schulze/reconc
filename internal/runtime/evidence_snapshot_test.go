@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -106,7 +107,7 @@ func TestEvidenceSnapshotCacheBoundsEntries(t *testing.T) {
 	dir := t.TempDir()
 	cache := newEvidenceSnapshotCache()
 	for index := 0; index < maxEvidenceSnapshots+16; index++ {
-		path := filepath.Join(dir, "f"+itoa(index))
+		path := filepath.Join(dir, "f"+strconv.Itoa(index))
 		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}

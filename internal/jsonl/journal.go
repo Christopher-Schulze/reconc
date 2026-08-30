@@ -14,10 +14,6 @@ import (
 	"reconc.dev/reconc/internal/atomicfile"
 )
 
-func prepareRotationInputs(path string, maxArchives int, maxBytes int64) error {
-	return prepareRotationInputsWithLayout(path, maxArchives, maxBytes, defaultLayout(path))
-}
-
 func prepareRotationInputsWithLayout(path string, maxArchives int, maxBytes int64, layout Layout) error {
 	if err := layout.validateLockLease(); err != nil {
 		return err
@@ -31,16 +27,8 @@ func prepareRotationInputsWithLayout(path string, maxArchives int, maxBytes int6
 	return nil
 }
 
-func rotate(path string, maxArchives int) error {
-	return rotateWithLayout(path, maxArchives, defaultLayout(path))
-}
-
 type rotationHooks struct {
 	afterMutation func(int) error
-}
-
-func rotateWithHooks(path string, maxArchives int, hooks rotationHooks) (resultErr error) {
-	return rotateWithLayoutHooks(path, maxArchives, defaultLayout(path), hooks)
 }
 
 func rotateWithLayout(path string, maxArchives int, layout Layout) error {
@@ -88,20 +76,8 @@ func archivePath(path string, index int) string {
 	return fmt.Sprintf("%s.%d", path, index)
 }
 
-func appendJournalPath(path string) string {
-	return defaultLayout(path).JournalPath
-}
-
-func appendBackupPath(path string, index int) string {
-	return appendBackupPathWithLayout(defaultLayout(path), index)
-}
-
 func appendBackupPathWithLayout(layout Layout, index int) string {
 	return fmt.Sprintf("%s.%d", layout.BackupPrefix, index)
-}
-
-func beginAppendJournal(path string, policy Policy, rotated, transactional bool) (appendJournal, error) {
-	return beginAppendJournalWithLayout(path, policy, defaultLayout(path), rotated, transactional)
 }
 
 func beginAppendJournalWithLayout(

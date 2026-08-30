@@ -56,13 +56,13 @@ func TestViolationExplanationEscapesRuleIdentity(t *testing.T) {
 	}
 }
 
-func TestMapKeysSortedUsesStableLexicalOrder(t *testing.T) {
+func TestSortedKeysUsesStableLexicalOrder(t *testing.T) {
 	t.Parallel()
-	if got := mapKeysSorted(nil); got == nil || len(got) != 0 {
+	if got := sortedKeys(nil); got == nil || len(got) != 0 {
 		t.Fatalf("nil set result = %#v, want owned empty slice", got)
 	}
 	want := []string{"alpha", "middle", "zeta"}
-	if got := mapKeysSorted(map[string]struct{}{"zeta": {}, "alpha": {}, "middle": {}}); !reflect.DeepEqual(got, want) {
+	if got := sortedKeys(map[string]struct{}{"zeta": {}, "alpha": {}, "middle": {}}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("sorted keys = %v, want %v", got, want)
 	}
 }

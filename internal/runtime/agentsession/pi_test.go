@@ -92,7 +92,8 @@ func TestNormalizePiPayloadPreservesToolAndMCPIdentity(t *testing.T) {
 	if parsed.ToolName != "custom.mcp.tool" || parsed.ToolUseID != "call-1" || parsed.MCP == nil {
 		t.Fatalf("Pi tool identity lost: %#v", parsed)
 	}
-	if parsed.MCP.Platform != "pi" || parsed.MCP.Tool != "custom.mcp.tool" || parsed.MCP.Observed || !parsed.MCP.BlockingPreHook || !parsed.MCP.InputValid {
+	mcpEnvelope, _ := parsed.Raw["reconc_mcp"].(map[string]interface{})
+	if parsed.MCP.Platform != "pi" || parsed.MCP.Tool != "custom.mcp.tool" || mcpEnvelope["observed"] != false || !parsed.MCP.BlockingPreHook || !parsed.MCP.InputValid {
 		t.Fatalf("Pi MCP envelope = %#v", parsed.MCP)
 	}
 }

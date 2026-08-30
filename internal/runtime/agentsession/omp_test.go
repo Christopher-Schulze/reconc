@@ -76,7 +76,8 @@ func TestNormalizeOMPPayloadPreservesToolAndMCPIdentity(t *testing.T) {
 	if parsed.ToolName != "Write" || parsed.FilePath() != "docs/x.md" || parsed.ToolUseID != "call-1" {
 		t.Fatalf("normalized OMP tool = %#v", parsed)
 	}
-	if parsed.MCP == nil || parsed.MCP.Platform != policy.MCPPlatformOMP || parsed.MCP.Tool != "write" || parsed.MCP.Observed || !parsed.MCP.BlockingPreHook || !parsed.MCP.InputValid || parsed.MCP.Outcome != "" {
+	mcpEnvelope, _ := parsed.Raw["reconc_mcp"].(map[string]interface{})
+	if parsed.MCP == nil || parsed.MCP.Platform != policy.MCPPlatformOMP || parsed.MCP.Tool != "write" || mcpEnvelope["observed"] != false || !parsed.MCP.BlockingPreHook || !parsed.MCP.InputValid || parsed.MCP.Outcome != "" {
 		t.Fatalf("normalized OMP MCP envelope = %#v", parsed.MCP)
 	}
 

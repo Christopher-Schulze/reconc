@@ -71,7 +71,7 @@ func runAntigravityPreToolUseResolvedWithEvaluator(root string, payloadBytes []b
 			}
 			return PutPendingToolCall(state, key, PendingToolCall{
 				ToolName:  parsed.ToolName,
-				ToolInput: cloneAntigravityObject(parsed.ToolInput),
+				ToolInput: cloneObject(parsed.ToolInput),
 				ToolUseID: parsed.ToolUseID,
 			})
 		})
@@ -216,7 +216,7 @@ func NormalizeAntigravityPayload(event string, payloadBytes []byte) ([]byte, err
 	if raw == nil {
 		return nil, fmt.Errorf("antigravity payload must be a JSON object")
 	}
-	out := cloneAntigravityObject(raw)
+	out := cloneObject(raw)
 	out["session_id"] = antigravitySessionID(raw)
 	out["antigravity_event"] = event
 	if key := antigravityStepKey(raw); key != "" {
@@ -250,7 +250,7 @@ func AdaptAntigravityResult(event string, result Result) Result {
 		if result.ExitCode != 0 || result.Err != nil {
 			return antigravityResult(Result{ExitCode: 0, Err: result.Err}, map[string]interface{}{
 				"decision": "deny",
-				"reason":   antigravityResultReason(result),
+				"reason":   resultReason(result, "reconc denied this Antigravity action."),
 			})
 		}
 		return antigravityResult(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{"decision": "allow"})
@@ -260,7 +260,7 @@ func AdaptAntigravityResult(event string, result Result) Result {
 		if result.ExitCode != 0 || result.Err != nil {
 			return antigravityResult(Result{ExitCode: 0, Err: result.Err}, map[string]interface{}{
 				"decision": "continue",
-				"reason":   antigravityResultReason(result),
+				"reason":   resultReason(result, "reconc denied this Antigravity action."),
 			})
 		}
 		reason := antigravityStopReason(result.Stdout)
@@ -280,7 +280,7 @@ func AdaptAntigravityResult(event string, result Result) Result {
 }
 
 func normalizeAntigravityTool(name string, args map[string]interface{}) (string, map[string]interface{}) {
-	input := cloneAntigravityObject(args)
+	input := cloneObject(args)
 	switch strings.TrimSpace(name) {
 	case "view_file":
 		copyAntigravityPath(input, args, "AbsolutePath")
@@ -363,19 +363,10 @@ func antigravityStopReason(stdout string) string {
 	return strings.TrimSpace(stdout)
 }
 
-func antigravityResultReason(result Result) string {
-	for _, candidate := range []string{result.Stderr, result.Stdout, "reconc denied this Antigravity action."} {
-		if reason := strings.TrimSpace(candidate); reason != "" {
-			return reason
-		}
-	}
-	return "reconc denied this Antigravity action."
-}
-
 func antigravityObject(raw map[string]interface{}, keys ...string) map[string]interface{} {
 	for _, key := range keys {
 		if value, ok := raw[key].(map[string]interface{}); ok {
-			return cloneAntigravityObject(value)
+			return cloneObject(value)
 		}
 	}
 	return map[string]interface{}{}
@@ -388,14 +379,6 @@ func antigravityString(raw map[string]interface{}, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func cloneAntigravityObject(raw map[string]interface{}) map[string]interface{} {
-	out := make(map[string]interface{}, len(raw))
-	for key, value := range raw {
-		out[key] = value
-	}
-	return out
 }
 
 func antigravityResult(result Result, payload map[string]interface{}) Result {

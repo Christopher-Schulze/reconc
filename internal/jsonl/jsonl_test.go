@@ -147,17 +147,18 @@ func TestRecoverRollsBackPreparedRotation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	err := withLock(path, func() error {
-		if err := prepareRotationInputs(path, policy.MaxArchives, policy.MaxBytes); err != nil {
+	layout := defaultLayout(path)
+	err := withLayoutLock(path, layout, func() error {
+		if err := prepareRotationInputsWithLayout(path, policy.MaxArchives, policy.MaxBytes, layout); err != nil {
 			return err
 		}
-		if _, err := beginAppendJournal(path, policy, true, true); err != nil {
+		if _, err := beginAppendJournalWithLayout(path, policy, layout, true, true); err != nil {
 			return err
 		}
-		if err := rotate(path, policy.MaxArchives); err != nil {
+		if err := rotateWithLayout(path, policy.MaxArchives, layout); err != nil {
 			return err
 		}
-		return appendRecord(path, []byte("partially-published\n"))
+		return appendRecordWithLayout(path, []byte("partially-published\n"), layout, policy.MaxBytes)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +206,7 @@ func TestAppendTransactionRecoversPublishedRotation(t *testing.T) {
 	}, commit); err == nil {
 		t.Fatal("expected injected commit failure")
 	}
-	if _, err := os.Stat(appendJournalPath(path)); err != nil {
+	if _, err := os.Stat(defaultLayout(path).JournalPath); err != nil {
 		t.Fatalf("published transaction did not retain recovery journal: %v", err)
 	}
 	journal, err := readAppendJournal(path)
@@ -281,7 +282,7 @@ func TestResolvedTransactionCleanupDoesNotRepeatCommit(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old-record\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	blockedBackup := appendBackupPath(path, 0)
+	blockedBackup := appendBackupPathWithLayout(defaultLayout(path), 0)
 	blocker := filepath.Join(blockedBackup, "child")
 	commitCalls := 0
 	commit := func() error {
@@ -396,7 +397,7 @@ func TestReadAppendJournalRejectsMalformedAndOversizedData(t *testing.T) {
 		[]byte(`{"format_version":1,"state":"prepared","transactional":false,"rotated":false,"max_bytes":64,"max_archives":1,"live_existed":false,"live_size":0}`),
 		duplicateState,
 	} {
-		if err := os.WriteFile(appendJournalPath(path), body, 0o600); err != nil {
+		if err := os.WriteFile(defaultLayout(path).JournalPath, body, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := readAppendJournal(path); err == nil {
@@ -411,11 +412,12 @@ func TestRecoverPreparedAppendWithoutRotation(t *testing.T) {
 	if err := os.WriteFile(path, []byte("before\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	err := withLock(path, func() error {
-		if _, err := beginAppendJournal(path, policy, false, true); err != nil {
+	layout := defaultLayout(path)
+	err := withLayoutLock(path, layout, func() error {
+		if _, err := beginAppendJournalWithLayout(path, policy, layout, false, true); err != nil {
 			return err
 		}
-		return appendRecord(path, []byte("torn\n"))
+		return appendRecordWithLayout(path, []byte("torn\n"), layout, policy.MaxBytes)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -464,11 +466,11 @@ func TestRecoverPublishedTransactionBeforeCommitRollsBackWithoutCallback(t *test
 	if err := os.WriteFile(path, []byte("before\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	journal, err := beginAppendJournal(path, policy, false, true)
+	journal, err := beginAppendJournalWithLayout(path, policy, defaultLayout(path), false, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := appendRecord(path, []byte("published\n")); err != nil {
+	if err := appendRecordWithLayout(path, []byte("published\n"), defaultLayout(path), policy.MaxBytes); err != nil {
 		t.Fatal(err)
 	}
 	journal.State = appendStatePublished
@@ -512,7 +514,7 @@ func TestRecoverResolvedJournalOnlyCleansArtifacts(t *testing.T) {
 		MaxArchives:   0,
 		Backups:       []appendJournalBackup{{Index: 0}},
 	}
-	if err := os.WriteFile(appendBackupPath(path, 0), []byte("orphan"), 0o600); err != nil {
+	if err := os.WriteFile(appendBackupPathWithLayout(defaultLayout(path), 0), []byte("orphan"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeAppendJournal(path, journal); err != nil {
@@ -537,22 +539,23 @@ func TestRecoverRejectsCorruptBackup(t *testing.T) {
 	if err := os.WriteFile(path, []byte("before\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := withLock(path, func() error {
-		if _, err := beginAppendJournal(path, policy, true, true); err != nil {
+	layout := defaultLayout(path)
+	err := withLayoutLock(path, layout, func() error {
+		if _, err := beginAppendJournalWithLayout(path, policy, layout, true, true); err != nil {
 			return err
 		}
-		return rotate(path, policy.MaxArchives)
+		return rotateWithLayout(path, policy.MaxArchives, layout)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(appendBackupPath(path, 0), []byte("tampered\n"), 0o600); err != nil {
+	if err := os.WriteFile(appendBackupPathWithLayout(defaultLayout(path), 0), []byte("tampered\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := Recover(path, func() error { return nil }); err == nil || !strings.Contains(err.Error(), "digest mismatch") {
 		t.Fatalf("corrupt backup recovery = %v", err)
 	}
-	if _, err := os.Stat(appendJournalPath(path)); err != nil {
+	if _, err := os.Stat(defaultLayout(path).JournalPath); err != nil {
 		t.Fatalf("failed recovery discarded its journal: %v", err)
 	}
 }
@@ -564,7 +567,7 @@ func TestRollbackAppendErrorPreservesCauseAndRestoresState(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	policy := Policy{MaxBytes: 64, MaxArchives: 0}
-	journal, err := beginAppendJournal(path, policy, false, true)
+	journal, err := beginAppendJournalWithLayout(path, policy, defaultLayout(path), false, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,10 +585,10 @@ func TestRollbackAppendErrorPreservesCauseAndRestoresState(t *testing.T) {
 
 func assertNoAppendJournal(t *testing.T, path string, maxArchives int) {
 	t.Helper()
-	for _, candidate := range append([]string{appendJournalPath(path)}, func() []string {
+	for _, candidate := range append([]string{defaultLayout(path).JournalPath}, func() []string {
 		paths := make([]string, 0, maxArchives+1)
 		for index := 0; index <= maxArchives; index++ {
-			paths = append(paths, appendBackupPath(path, index))
+			paths = append(paths, appendBackupPathWithLayout(defaultLayout(path), index))
 		}
 		return paths
 	}()...) {

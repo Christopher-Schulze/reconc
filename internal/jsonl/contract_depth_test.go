@@ -187,12 +187,12 @@ func TestReadArchiveDirectoryRetriesTransientSnapshotChange(t *testing.T) {
 	}
 }
 
-func TestWithLockPropagatesOperationFailure(t *testing.T) {
+func TestWithLayoutLockPropagatesOperationFailure(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	want := errors.New("operation failed")
-	err := withLock(path, func() error { return want })
+	err := withLayoutLock(path, defaultLayout(path), func() error { return want })
 	if !errors.Is(err, want) {
-		t.Fatalf("withLock error = %v, want %v", err, want)
+		t.Fatalf("withLayoutLock error = %v, want %v", err, want)
 	}
 }
 

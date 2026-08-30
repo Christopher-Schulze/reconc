@@ -162,7 +162,6 @@ func validateStoredScope(record BudgetRecord, state State) error {
 		wantSession = scope.SessionIdentity
 	case action.BudgetResetFixedWindow:
 		if record.WindowSeconds == 0 || record.WindowSeconds > 86400 ||
-			record.Limits.RateWindow == 0 && record.WindowSeconds == 0 ||
 			!identityUsesKey(scope.WindowIdentity, state.KeyID) || scope.WindowStartUnix < 0 ||
 			scope.WindowStartUnix%int64(record.WindowSeconds) != 0 {
 			return stateError(action.ReasonStateCorrupt, "fixed-window budget identity is invalid", nil)

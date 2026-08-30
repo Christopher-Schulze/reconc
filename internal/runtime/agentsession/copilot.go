@@ -51,7 +51,7 @@ func NormalizeGitHubCopilotPayload(event string, payloadBytes []byte, repoRoot s
 	if sessionID == "" {
 		return nil, fmt.Errorf("GitHub Copilot payload must include a non-empty session_id")
 	}
-	out := cloneCursorObject(raw)
+	out := cloneObject(raw)
 	out["session_id"] = sessionID
 	out["reconc_runtime"] = "github-copilot"
 	out["copilot_event"] = event
@@ -114,7 +114,7 @@ func AdaptGitHubCopilotResult(event string, result Result) Result {
 		}
 		return resultWithHookJSON(Result{ExitCode: 0, Err: result.Err}, map[string]string{
 			"permissionDecision":       "deny",
-			"permissionDecisionReason": githubCopilotResultReason(result),
+			"permissionDecisionReason": resultReason(result, "Reconc runtime returned no diagnostic"),
 		})
 	case "copilot-permission-request":
 		return adaptGitHubCopilotPermissionResult(result)
@@ -211,19 +211,19 @@ func firstGitHubCopilotValue(raw map[string]interface{}, keys ...string) (interf
 
 func githubCopilotObject(value interface{}) map[string]interface{} {
 	if object, ok := value.(map[string]interface{}); ok {
-		return cloneCursorObject(object)
+		return cloneObject(object)
 	}
 	return map[string]interface{}{"value": value}
 }
 
 func githubCopilotGuardedToolInput(toolName string, value interface{}) (map[string]interface{}, error) {
 	if object, ok := value.(map[string]interface{}); ok {
-		return cloneCursorObject(object), nil
+		return cloneObject(object), nil
 	}
 	if encoded, ok := value.(string); ok {
 		var object map[string]interface{}
 		if json.Unmarshal([]byte(encoded), &object) == nil && object != nil {
-			return cloneCursorObject(object), nil
+			return cloneObject(object), nil
 		}
 		if toolName == "Bash" && strings.TrimSpace(encoded) != "" {
 			return map[string]interface{}{"command": encoded}, nil
@@ -245,7 +245,7 @@ func githubCopilotError(value interface{}) string {
 
 func adaptGitHubCopilotPermissionResult(result Result) Result {
 	if result.ExitCode != 0 || result.Err != nil {
-		return resultWithHookJSON(Result{ExitCode: 0, Err: result.Err}, map[string]string{"behavior": "deny", "message": githubCopilotResultReason(result)})
+		return resultWithHookJSON(Result{ExitCode: 0, Err: result.Err}, map[string]string{"behavior": "deny", "message": resultReason(result, "Reconc runtime returned no diagnostic")})
 	}
 	var envelope map[string]interface{}
 	if strings.TrimSpace(result.Stdout) == "" || json.Unmarshal([]byte(result.Stdout), &envelope) != nil {
@@ -286,7 +286,7 @@ func adaptGitHubCopilotStopResult(result Result) Result {
 	if result.ExitCode != 0 || result.Err != nil {
 		return resultWithHookJSON(Result{ExitCode: 0, Err: result.Err}, map[string]string{
 			"decision": "block",
-			"reason":   "Reconc could not evaluate this GitHub Copilot stop: " + githubCopilotResultReason(result),
+			"reason":   "Reconc could not evaluate this GitHub Copilot stop: " + resultReason(result, "Reconc runtime returned no diagnostic"),
 		})
 	}
 	stdout := strings.TrimSpace(result.Stdout)
@@ -305,13 +305,4 @@ func adaptGitHubCopilotStopResult(result Result) Result {
 
 func gitHubCopilotStopBlockResult(reason string) Result {
 	return resultWithHookJSON(Result{ExitCode: 0}, map[string]string{"decision": "block", "reason": strings.TrimSpace(reason)})
-}
-
-func githubCopilotResultReason(result Result) string {
-	for _, candidate := range []string{result.Stderr, result.Stdout} {
-		if reason := strings.TrimSpace(candidate); reason != "" {
-			return reason
-		}
-	}
-	return "Reconc runtime returned no diagnostic"
 }

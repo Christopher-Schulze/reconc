@@ -308,10 +308,6 @@ func appendNormalizedLockedWithLayout(
 	return nil
 }
 
-func appendRecord(path string, record []byte) error {
-	return appendRecordWithLayout(path, record, defaultLayout(path), int64(len(record))+1)
-}
-
 func appendRecordWithLayout(path string, record []byte, layout Layout, maximum int64) (resultErr error) {
 	return appendRecordWithLayoutHooks(path, record, layout, maximum, appendOpenHooks{})
 }

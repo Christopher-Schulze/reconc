@@ -30,7 +30,7 @@ func NormalizeDevinPayload(event string, payloadBytes []byte, repoRoot string) (
 		return nil, fmt.Errorf("devin payload must be a JSON object")
 	}
 
-	out := cloneCursorObject(raw)
+	out := cloneObject(raw)
 	out["session_id"] = devinSessionID(raw, repoRoot)
 	out["reconc_runtime"] = "devin"
 	out["devin_event"] = event

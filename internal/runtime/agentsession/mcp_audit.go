@@ -67,14 +67,6 @@ func mcpAuditLockPath(repoRoot string) string {
 	return filepath.Join(projectDir(repoRoot), "locks", "mcp-audit.lock")
 }
 
-func recordMCPAudit(repoRoot string, envelope *MCPPayload, effect policy.MCPEffect, outcome string, classified, strictAvailable bool) error {
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return err
-	}
-	return recordMCPAuditResolved(root, envelope, effect, outcome, classified, strictAvailable)
-}
-
 func recordMCPAuditResolved(root string, envelope *MCPPayload, effect policy.MCPEffect, outcome string, classified, strictAvailable bool) error {
 	if envelope == nil {
 		return errors.New("MCP audit envelope is nil")

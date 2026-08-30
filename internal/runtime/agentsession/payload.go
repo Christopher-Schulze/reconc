@@ -153,7 +153,6 @@ type MCPPayload struct {
 	Platform          policy.MCPPlatform
 	Tool              string
 	ServerFingerprint string
-	Observed          bool
 	BlockingPreHook   bool
 	InputValid        bool
 	Outcome           string
@@ -390,7 +389,6 @@ func parseMCPPayload(raw interface{}) (*MCPPayload, error) {
 			return nil, fmt.Errorf("hook payload reconc_mcp.server_fingerprint is invalid: %w", err)
 		}
 	}
-	observed, _ := mapping["observed"].(bool)
 	blocking, _ := mapping["blocking_pre_hook"].(bool)
 	inputValid, _ := mapping["input_valid"].(bool)
 	outcome, _ := mapping["outcome"].(string)
@@ -401,7 +399,6 @@ func parseMCPPayload(raw interface{}) (*MCPPayload, error) {
 		Platform:          platform,
 		Tool:              tool,
 		ServerFingerprint: fingerprint,
-		Observed:          observed,
 		BlockingPreHook:   blocking,
 		InputValid:        inputValid,
 		Outcome:           outcome,

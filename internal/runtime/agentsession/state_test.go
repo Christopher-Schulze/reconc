@@ -655,18 +655,3 @@ func BenchmarkDuplicateSessionMutation(b *testing.B) {
 		}
 	}
 }
-
-func TestProjectKeyDeterministic(t *testing.T) {
-	k1 := projectKey("/repo/a")
-	k2 := projectKey("/repo/a")
-	k3 := projectKey("/repo/b")
-	if k1 != k2 {
-		t.Error("same path must hash identically")
-	}
-	if k1 == k3 {
-		t.Error("different paths must hash differently")
-	}
-	if len(k1) != 16 {
-		t.Errorf("project key should be 16 chars, got %d", len(k1))
-	}
-}

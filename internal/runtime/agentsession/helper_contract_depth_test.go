@@ -158,3 +158,34 @@ func TestCursorPathInputPromotesTopLevelPath(t *testing.T) {
 		t.Fatalf("existing nested path was replaced: %#v", got)
 	}
 }
+
+func TestAdapterHelpersPreserveCloneAndReasonContracts(t *testing.T) {
+	nested := map[string]interface{}{"value": "before"}
+	original := map[string]interface{}{"top": "original", "nested": nested}
+	cloned := cloneObject(original)
+	cloned["top"] = "changed"
+	cloned["nested"].(map[string]interface{})["value"] = "after"
+	if original["top"] != "original" || nested["value"] != "after" {
+		t.Fatalf("clone aliasing contract changed: original=%#v cloned=%#v", original, cloned)
+	}
+	if empty := cloneObject(nil); empty == nil || len(empty) != 0 {
+		t.Fatalf("nil clone = %#v, want non-nil empty map", empty)
+	}
+
+	for _, test := range []struct {
+		name     string
+		result   Result
+		fallback string
+		want     string
+	}{
+		{name: "stderr", result: Result{Stderr: " stderr ", Stdout: "stdout"}, fallback: "fallback", want: "stderr"},
+		{name: "stdout", result: Result{Stdout: " stdout "}, fallback: "fallback", want: "stdout"},
+		{name: "fallback", fallback: " exact fallback ", want: "exact fallback"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := resultReason(test.result, test.fallback); got != test.want {
+				t.Fatalf("resultReason() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}

@@ -145,7 +145,11 @@ func TestMCPPathExtractionPreservesFilenameSpaces(t *testing.T) {
 	if !valid {
 		t.Fatal("space-bearing path must remain valid")
 	}
-	normalized, valid := normalizeMCPRepoPaths(repo, paths)
+	root, err := ResolveRepoRootRef(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized, valid := normalizeMCPRepoPathsResolved(root.path, paths)
 	if !valid || len(normalized) != 1 || normalized[0] != " spaced.go " {
 		t.Fatalf("MCP path identity changed: %q valid=%t", normalized, valid)
 	}
@@ -248,7 +252,8 @@ func TestCursorMCPNormalizationFingerprintsAndRedactsLocators(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if payload.MCP == nil || payload.MCP.ServerFingerprint == "" || !payload.MCP.Observed || !payload.MCP.BlockingPreHook {
+	mcpEnvelope, _ := payload.Raw["reconc_mcp"].(map[string]interface{})
+	if payload.MCP == nil || payload.MCP.ServerFingerprint == "" || mcpEnvelope["observed"] != true || !payload.MCP.BlockingPreHook {
 		t.Fatalf("normalized MCP envelope=%#v", payload.MCP)
 	}
 	if payload.ToolInput["secret"] != "payload-secret" {

@@ -8,22 +8,9 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
-
-	"reconc.dev/reconc/internal/privatefs"
 )
 
 const windowsFileAllAccess = uint32(windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | 0x1ff)
-
-func securePrivateWindowsPath(path string, directory bool) error {
-	if directory {
-		return privatefs.RepairDirectory(path)
-	}
-	file, err := privatefs.OpenExistingLock(path)
-	if err != nil {
-		return err
-	}
-	return file.Close()
-}
 
 func validatePrivateWindowsHandle(file *os.File, directory bool) error {
 	if file == nil {

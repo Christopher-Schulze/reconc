@@ -26,8 +26,6 @@ package agentsession
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -143,14 +141,6 @@ func emptyState(repoRoot, sessionID string) SessionState {
 // to $RECONC_HOME/sessions/claude, then ~/.reconc/sessions/claude.
 func stateRoot() string {
 	return retention.ResolveStateRoot()
-}
-
-// projectKey is a short deterministic hash of the repo root. Keeps
-// state paths stable + filesystem-safe regardless of the repo's real
-// path (which may contain spaces or non-ASCII characters).
-func projectKey(repoRoot string) string {
-	sum := sha256.Sum256([]byte(repoRoot))
-	return hex.EncodeToString(sum[:])[:16]
 }
 
 func projectDir(repoRoot string) string {

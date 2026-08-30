@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"golang.org/x/sys/windows"
+
+	"reconc.dev/reconc/internal/privatefs"
 )
 
 func TestWindowsPrivateACLAllowsOnlyTheCurrentOwner(t *testing.T) {
@@ -16,7 +18,7 @@ func TestWindowsPrivateACLAllowsOnlyTheCurrentOwner(t *testing.T) {
 	if err := os.Mkdir(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := securePrivateWindowsPath(directory, true); err != nil {
+	if err := privatefs.RepairDirectory(directory); err != nil {
 		t.Fatal(err)
 	}
 	if err := validatePrivateDirectory(directory); err != nil {

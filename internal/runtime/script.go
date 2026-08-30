@@ -207,7 +207,7 @@ func runScriptContext(caller context.Context, repoRoot, scriptPath string, args 
 
 	if err != nil {
 		var exitErr *exec.ExitError
-		if asExitErr(err, &exitErr) {
+		if errors.As(err, &exitErr) {
 			outcome.ExitCode = exitErr.ExitCode()
 			switch outcome.ExitCode {
 			case 2:
@@ -366,24 +366,6 @@ func sanitizedEnv() []string {
 		}
 	}
 	return out
-}
-
-// asExitErr is a small wrapper around errors.As so the call site reads
-// cleanly without an extra import in the file.
-func asExitErr(err error, target **exec.ExitError) bool {
-	for e := err; e != nil; {
-		if x, ok := e.(*exec.ExitError); ok {
-			*target = x
-			return true
-		}
-		type unwrapper interface{ Unwrap() error }
-		u, ok := e.(unwrapper)
-		if !ok {
-			return false
-		}
-		e = u.Unwrap()
-	}
-	return false
 }
 
 // cappedWriter implements io.Writer with a hard byte cap. Writes

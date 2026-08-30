@@ -25,7 +25,8 @@ func TestJSONLRotationDurabilityCrashPointsRecoverIdempotently(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if _, err := beginAppendJournal(path, policy, true, false); err != nil {
+			layout := defaultLayout(path)
+			if _, err := beginAppendJournalWithLayout(path, policy, layout, true, false); err != nil {
 				t.Fatal(err)
 			}
 			original := jsonlDirectorySync
@@ -36,7 +37,7 @@ func TestJSONLRotationDurabilityCrashPointsRecoverIdempotently(t *testing.T) {
 			}
 			t.Cleanup(func() { jsonlDirectorySync = original })
 			injected := errors.New("injected post-rotation crash")
-			err := rotateWithHooks(path, policy.MaxArchives, rotationHooks{
+			err := rotateWithLayoutHooks(path, policy.MaxArchives, layout, rotationHooks{
 				afterMutation: func(mutation int) error {
 					if syncs != mutation {
 						return fmt.Errorf("rotation mutation %d has %d durability barriers", mutation, syncs)
@@ -62,11 +63,11 @@ func TestJSONLRotationDurabilityCrashPointsRecoverIdempotently(t *testing.T) {
 					t.Fatalf("crash %d archive %d = %q, %v", failAt, index, got, err)
 				}
 			}
-			if _, err := os.Lstat(appendJournalPath(path)); !errors.Is(err, os.ErrNotExist) {
+			if _, err := os.Lstat(layout.JournalPath); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("crash %d journal remains: %v", failAt, err)
 			}
 			for index := range want {
-				if _, err := os.Lstat(appendBackupPath(path, index)); !errors.Is(err, os.ErrNotExist) {
+				if _, err := os.Lstat(appendBackupPathWithLayout(layout, index)); !errors.Is(err, os.ErrNotExist) {
 					t.Fatalf("crash %d backup %d remains: %v", failAt, index, err)
 				}
 			}

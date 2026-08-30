@@ -354,7 +354,7 @@ func BenchmarkRuntimePipelineStages(b *testing.B) {
 		patterns := []string{"gen/**", "generated/**", "vendor/**"}
 		b.ReportAllocs()
 		for range b.N {
-			if _, err := matchingPaths(paths, patterns); err != nil {
+			if _, err := matchingPathsWithMatchers(nil, paths, patterns); err != nil {
 				b.Fatal(err)
 			}
 		}

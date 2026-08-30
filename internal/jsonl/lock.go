@@ -13,10 +13,6 @@ import (
 	"reconc.dev/reconc/internal/filelock"
 )
 
-func withLock(path string, fn func() error) error {
-	return withLayoutLock(path, defaultLayout(path), fn)
-}
-
 func withLayoutLock(path string, layout Layout, fn func() error) error {
 	return withLayoutLockContext(context.Background(), path, layout, fn)
 }

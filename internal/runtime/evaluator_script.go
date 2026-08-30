@@ -195,11 +195,6 @@ func uniqueBatchModes(items []workflowAuditBatchItem) []string {
 	return modes
 }
 
-func parseWorkflowAuditBatchOutput(stdout string, expectedModes []string) (map[string][]string, bool) {
-	failures, _, ok := parseWorkflowAuditBatchOutputDisposition(stdout, expectedModes)
-	return failures, ok
-}
-
 func parseWorkflowAuditBatchOutputDisposition(stdout string, expectedModes []string) (map[string][]string, bool, bool) {
 	var output workflowAuditBatchOutput
 	decoder := json.NewDecoder(strings.NewReader(strings.TrimSpace(stdout)))

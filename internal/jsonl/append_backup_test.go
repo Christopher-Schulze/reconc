@@ -33,7 +33,7 @@ func TestCreateAppendBackupRejectsSourceReplacement(t *testing.T) {
 	if err == nil {
 		t.Fatal("source replacement was accepted")
 	}
-	if _, statErr := os.Lstat(appendBackupPath(path, 1)); !errors.Is(statErr, os.ErrNotExist) {
+	if _, statErr := os.Lstat(appendBackupPathWithLayout(defaultLayout(path), 1)); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("rejected source replacement left a backup: %v", statErr)
 	}
 	assertAppendBackupBytes(t, moved, original)
@@ -102,7 +102,7 @@ func TestCreateAppendBackupRejectsHardLinkCountChange(t *testing.T) {
 	if err == nil {
 		t.Fatal("source hard-link count change was accepted")
 	}
-	if _, statErr := os.Lstat(appendBackupPath(path, 1)); !errors.Is(statErr, os.ErrNotExist) {
+	if _, statErr := os.Lstat(appendBackupPathWithLayout(defaultLayout(path), 1)); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("rejected hard-link count change left a backup: %v", statErr)
 	}
 	assertAppendBackupBytes(t, source, want)
@@ -113,7 +113,7 @@ func TestCreateAppendBackupRejectsExistingCollision(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "events.jsonl")
 	source := archivePath(path, 1)
-	backupPath := appendBackupPath(path, 1)
+	backupPath := appendBackupPathWithLayout(defaultLayout(path), 1)
 	sourceBody := []byte("archive\n")
 	collisionBody := []byte("unrelated\n")
 	if err := os.WriteFile(source, sourceBody, 0o644); err != nil {
@@ -132,16 +132,16 @@ func TestCreateAppendBackupRejectsExistingCollision(t *testing.T) {
 func TestBeginAppendJournalPreservesExistingBackupCollision(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "events.jsonl")
-	backupPath := appendBackupPath(path, 1)
+	backupPath := appendBackupPathWithLayout(defaultLayout(path), 1)
 	collisionBody := []byte("unrelated\n")
 	if err := os.WriteFile(backupPath, collisionBody, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := beginAppendJournal(path, Policy{MaxBytes: 64, MaxArchives: 1}, true, true); err == nil {
+	if _, err := beginAppendJournalWithLayout(path, Policy{MaxBytes: 64, MaxArchives: 1}, defaultLayout(path), true, true); err == nil {
 		t.Fatal("begin append accepted an existing backup collision")
 	}
 	assertAppendBackupBytes(t, backupPath, collisionBody)
-	if _, err := os.Lstat(appendJournalPath(path)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(defaultLayout(path).JournalPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("collision preflight left a journal: %v", err)
 	}
 }
@@ -150,7 +150,7 @@ func TestCreateAppendBackupLinksValidatedSource(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "events.jsonl")
 	source := archivePath(path, 1)
-	backupPath := appendBackupPath(path, 1)
+	backupPath := appendBackupPathWithLayout(defaultLayout(path), 1)
 	want := []byte("archive\n")
 	if err := os.WriteFile(source, want, 0o644); err != nil {
 		t.Fatal(err)

@@ -256,14 +256,6 @@ func selectMCPStringsWithIdentity(input map[string]interface{}, pointers []strin
 	return sortedUnique(values), len(values) > 0
 }
 
-func normalizeMCPRepoPaths(repoRoot string, rawPaths []string) ([]string, bool) {
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return nil, false
-	}
-	return normalizeMCPRepoPathsResolved(root, rawPaths)
-}
-
 func normalizeMCPRepoPathsResolved(root string, rawPaths []string) ([]string, bool) {
 	out := make([]string, 0, len(rawPaths))
 	for _, rawPath := range rawPaths {

@@ -1,19 +1,18 @@
 package actionstate
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"reconc.dev/reconc/internal/privatefs"
 )
 
 func privateTestHome(t testing.TB) string {
 	t.Helper()
 	root := t.TempDir()
-	info, err := os.Lstat(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := secureDirectoryMode(root, info.Mode()); err != nil {
+	if err := privatefs.RepairDirectory(root); err != nil {
 		t.Fatal(err)
 	}
 	if err := validatePrivateDirectory(root); err != nil {
@@ -27,11 +26,11 @@ func writePrivateTestFile(t testing.TB, path string, body []byte) {
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Lstat(path)
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := securePrivateFileMode(path, info.Mode()); err != nil {
+	if err := errors.Join(privatefs.SecureFile(file), file.Close()); err != nil {
 		t.Fatal(err)
 	}
 	if err := validatePrivateRegularFile(path, int64(len(body)+1)); err != nil {

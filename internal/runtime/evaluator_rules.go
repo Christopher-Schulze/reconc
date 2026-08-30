@@ -1,9 +1,7 @@
 package runtime
 
 import (
-	"encoding/json"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -311,7 +309,7 @@ func evalRequireFreshFile(ctx *evalContext, rule *policy.Rule, defaultMode polic
 	if len(missing.values()) == 0 && len(stale.values()) == 0 {
 		return nil, nil
 	}
-	requiredPaths := mapKeysSorted(allRequired)
+	requiredPaths := sortedKeys(allRequired)
 	v := buildViolation(rule, defaultMode, triggeredPaths.values(), nil, nil, requiredPaths, nil, nil)
 	parts := []string{}
 	if len(missing.values()) > 0 {
@@ -389,7 +387,7 @@ func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy
 	if failures.count() == 0 {
 		return nil, nil
 	}
-	required := mapKeysSorted(requiredFiles)
+	required := sortedKeys(requiredFiles)
 	v := buildViolation(rule, defaultMode, triggeredPaths.values(), nil, nil, required, nil, nil)
 	v.Explanation = fmt.Sprintf(
 		"Write activity %s triggered require_evidence rule %s. Failures: %s.",
@@ -420,7 +418,7 @@ func collectMatchContextsWithMatchers(matchers *runtimeTemplateMatchers, writes,
 				continue
 			}
 			out = append(out, matchContext{path: w, pattern: pat, captures: caps})
-			break // one match per write path is enough; mirrors matchingPaths()
+			break // one match per write path is enough
 		}
 	}
 	return out, nil
@@ -469,17 +467,6 @@ func (c *stableStringCollector) values() []string {
 	return c.items
 }
 
-// mapKeysSorted returns the keys of a string-keyed set in sorted order.
-// Used to produce stable required-paths lists in violation reports.
-func mapKeysSorted(m map[string]struct{}) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
 // ruleIDOf is a typed accessor for rule["id"] used in error messages.
 func ruleIDOf(rule *policy.Rule) string {
 	if rule == nil || rule.ID == "" {
@@ -502,27 +489,6 @@ func evidenceChecksFromRule(rule *policy.Rule) []policy.EvidenceCheck {
 		return nil
 	}
 	return rule.Evidence
-}
-
-// numAsIntDefault is like numAsInt but returns the default when nil.
-func numAsIntDefault(v interface{}, def int64) int64 {
-	if v == nil {
-		return def
-	}
-	if n, ok := v.(json.Number); ok {
-		if i, err := n.Int64(); err == nil {
-			return i
-		}
-	}
-	if i, ok := v.(int); ok {
-		return int64(i)
-	}
-	if f, ok := v.(float64); ok {
-		if float64(int64(f)) == f {
-			return int64(f)
-		}
-	}
-	return def
 }
 
 // quote returns one escaped diagnostic token without allowing untrusted values

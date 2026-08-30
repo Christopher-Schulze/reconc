@@ -24,17 +24,17 @@ func TestMCPAuditRoundTripIsRedactedBoundedAndDeterministic(t *testing.T) {
 		Tool:              "read_file",
 		ServerFingerprint: "sha256:" + strings.Repeat("a", 64),
 	}
-	if err := recordMCPAudit(repo, nil, "", "", false, false); err == nil || !strings.Contains(err.Error(), "nil") {
+	if err := recordMCPAuditResolved(root, nil, "", "", false, false); err == nil || !strings.Contains(err.Error(), "nil") {
 		t.Fatalf("nil envelope error = %v", err)
 	}
-	if err := recordMCPAudit(repo, envelope, policy.MCPEffectRepositoryRead, "", true, true); err != nil {
+	if err := recordMCPAuditResolved(root, envelope, policy.MCPEffectRepositoryRead, "", true, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := recordMCPAudit(repo, envelope, policy.MCPEffectRepositoryRead, "denied", true, false); err != nil {
+	if err := recordMCPAuditResolved(root, envelope, policy.MCPEffectRepositoryRead, "denied", true, false); err != nil {
 		t.Fatal(err)
 	}
 	failure := &MCPPayload{Platform: policy.MCPPlatformOpenCode, Tool: "execute"}
-	if err := recordMCPAudit(repo, failure, "", "failure", false, false); err != nil {
+	if err := recordMCPAuditResolved(root, failure, "", "failure", false, false); err != nil {
 		t.Fatal(err)
 	}
 

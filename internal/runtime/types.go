@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"fmt"
-	"strconv"
 
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/schema"
@@ -214,8 +213,4 @@ func renderSummary(r CheckReport) string {
 		return fmt.Sprintf("Policy check found %d violation(s), including %d blocking violation(s).", r.ViolationCount, r.BlockingViolationCount)
 	}
 	return fmt.Sprintf("Policy check found %d non-blocking violation(s).", r.ViolationCount)
-}
-
-func itoa(n int) string {
-	return strconv.Itoa(n)
 }

@@ -28,7 +28,7 @@ func NormalizeCursorPayload(event string, payloadBytes []byte) ([]byte, error) {
 		return normalizeCursorWorkspaceOpen(raw)
 	}
 
-	out := cloneCursorObject(raw)
+	out := cloneObject(raw)
 	sessionID := cursorSessionID(raw)
 	if event == "cursor-subagent-start" || event == "cursor-subagent-stop" {
 		sessionID = cursorFirstString(raw, "subagent_id", "subagentId", "agent_id", "agentId")
@@ -165,7 +165,7 @@ func cursorObjectLooksLikeCursor(raw map[string]interface{}) bool {
 func AdaptCursorResult(event string, result Result) Result {
 	if event == "cursor-user-prompt-submit" {
 		if result.ExitCode != 0 || result.Err != nil {
-			reason := cursorResultReason(result)
+			reason := resultReason(result, "reconc denied this Cursor action.")
 			return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{
 				"continue":     false,
 				"user_message": reason,
@@ -181,7 +181,7 @@ func AdaptCursorResult(event string, result Result) Result {
 	}
 	if event == "cursor-stop" || event == "cursor-subagent-stop" {
 		if result.ExitCode != 0 || result.Err != nil {
-			reason := cursorResultReason(result)
+			reason := resultReason(result, "reconc denied this Cursor action.")
 			return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{
 				"continue":      false,
 				"user_message":  reason,
@@ -198,7 +198,7 @@ func AdaptCursorResult(event string, result Result) Result {
 		return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{"followup_message": reason})
 	}
 	if isCursorPreDecisionEvent(event) && (result.ExitCode != 0 || result.Err != nil) {
-		reason := cursorResultReason(result)
+		reason := resultReason(result, "reconc denied this Cursor action.")
 		return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{
 			"permission":    "deny",
 			"user_message":  reason,
@@ -246,25 +246,13 @@ func isCursorPreDecisionEvent(event string) bool {
 func isCursorObservationEvent(event string) bool {
 	switch event {
 	case "cursor-post-tool-use",
-		"cursor-post-tool-use-failure",
-		"cursor-after-shell-execution",
 		"cursor-after-mcp-execution",
 		"cursor-after-file-edit",
-		"cursor-after-tab-file-edit",
-		"cursor-session-end":
+		"cursor-after-tab-file-edit":
 		return true
 	default:
 		return false
 	}
-}
-
-func cursorResultReason(result Result) string {
-	for _, candidate := range []string{result.Stderr, result.Stdout, "reconc denied this Cursor action."} {
-		if reason := strings.TrimSpace(candidate); reason != "" {
-			return reason
-		}
-	}
-	return "reconc denied this Cursor action."
 }
 
 func normalizeCursorWorkspaceOpen(raw map[string]interface{}) ([]byte, error) {
@@ -388,18 +376,10 @@ func cursorAddPath(raw, input map[string]interface{}) {
 	}
 }
 
-func cloneCursorObject(raw map[string]interface{}) map[string]interface{} {
-	out := make(map[string]interface{}, len(raw))
-	for key, value := range raw {
-		out[key] = value
-	}
-	return out
-}
-
 func cursorFirstObject(raw map[string]interface{}, keys ...string) map[string]interface{} {
 	for _, key := range keys {
 		if value, ok := raw[key].(map[string]interface{}); ok {
-			return cloneCursorObject(value)
+			return cloneObject(value)
 		}
 	}
 	return map[string]interface{}{}

@@ -2,11 +2,13 @@ package actionstate
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/privatefs"
 )
 
 func prepareRecoveryTransaction(t *testing.T, fixture *storeFixture, persistAfter bool) []byte {
@@ -49,11 +51,11 @@ func replaceRecoveryTransaction(t *testing.T, path string, body []byte) error {
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		return err
 	}
-	info, err := os.Lstat(path)
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
 		return err
 	}
-	if err := securePrivateFileMode(path, info.Mode()); err != nil {
+	if err := errors.Join(privatefs.SecureFile(file), file.Close()); err != nil {
 		return err
 	}
 	return validatePrivateRegularFile(path, int64(len(body)+1))

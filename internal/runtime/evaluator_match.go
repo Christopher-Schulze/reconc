@@ -7,10 +7,6 @@ import (
 	"reconc.dev/reconc/internal/shellcommand"
 )
 
-func matchingPaths(paths, patterns []string) ([]string, error) {
-	return matchingPathsWithMatchers(nil, paths, patterns)
-}
-
 func matchingPathsWithMatchers(matchers *runtimePathMatchers, paths, patterns []string) ([]string, error) {
 	if len(patterns) == 0 || len(paths) == 0 {
 		return nil, nil

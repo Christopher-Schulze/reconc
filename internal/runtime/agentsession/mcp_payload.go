@@ -61,7 +61,7 @@ func cursorMCPInput(raw map[string]interface{}) (map[string]interface{}, bool) {
 	for _, key := range []string{"tool_input", "toolInput", "input", "args"} {
 		switch value := raw[key].(type) {
 		case map[string]interface{}:
-			return cloneCursorObject(value), true
+			return cloneObject(value), true
 		case string:
 			var decoded map[string]interface{}
 			if err := json.Unmarshal([]byte(value), &decoded); err == nil && decoded != nil {

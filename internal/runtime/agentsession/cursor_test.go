@@ -275,6 +275,28 @@ func TestAdaptCursorOutputlessObservationsUseEmptyObject(t *testing.T) {
 	}
 }
 
+func TestCursorEventClassifiersAreDisjoint(t *testing.T) {
+	for _, event := range []string{
+		"cursor-session-start", "cursor-session-end", "cursor-pre-compaction", "cursor-workspace-open",
+		"cursor-pre-tool-use", "cursor-before-shell-execution", "cursor-before-mcp-execution",
+		"cursor-before-read-file", "cursor-before-tab-file-read", "cursor-subagent-start",
+		"cursor-post-tool-use", "cursor-after-mcp-execution", "cursor-after-file-edit", "cursor-after-tab-file-edit",
+		"cursor-post-tool-use-failure", "cursor-after-shell-execution",
+	} {
+		classifications := 0
+		for _, matched := range []bool{
+			isCursorFireAndForgetEvent(event), isCursorPreDecisionEvent(event), isCursorObservationEvent(event),
+		} {
+			if matched {
+				classifications++
+			}
+		}
+		if classifications > 1 {
+			t.Fatalf("%s belongs to %d event classifiers", event, classifications)
+		}
+	}
+}
+
 func TestAdaptCursorStopFollowup(t *testing.T) {
 	result := AdaptCursorResult("cursor-stop", Result{ExitCode: 0, Stdout: `{"decision":"block","reason":"fix it"}`})
 	if result.ExitCode != 0 {

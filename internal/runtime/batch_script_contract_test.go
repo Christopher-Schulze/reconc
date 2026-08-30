@@ -3,6 +3,7 @@ package runtime
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -61,7 +62,7 @@ exit 0
 	script = strings.NewReplacer(
 		"__COUNTER__", counter,
 		"__BATCH_JSON__", batchJSON,
-		"__BATCH_EXIT__", itoa(batchExit),
+		"__BATCH_EXIT__", strconv.Itoa(batchExit),
 	).Replace(script)
 	writeFile(t, repo, "audits/run-workflow-audit", script)
 	if err := os.Chmod(filepath.Join(repo, "audits", "run-workflow-audit"), 0o755); err != nil {
