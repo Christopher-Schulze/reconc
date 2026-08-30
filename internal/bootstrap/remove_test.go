@@ -530,9 +530,10 @@ func TestApplyRemovalTransactionRejectsReplacementAfterBinding(t *testing.T) {
 			t.Fatal(err)
 		}
 		previousHook := beforeBoundRemoval
+		var replacementErr error
 		beforeBoundRemoval = func(removalMutation) error {
-			if err := os.Rename(parentPath, verifiedParent); err != nil {
-				return err
+			if replacementErr = os.Rename(parentPath, verifiedParent); replacementErr != nil {
+				return replacementErr
 			}
 			return os.Symlink(attackerParent, parentPath)
 		}
@@ -543,6 +544,18 @@ func TestApplyRemovalTransactionRejectsReplacementAfterBinding(t *testing.T) {
 		}
 		if body, err := os.ReadFile(attackerPath); err != nil || string(body) != "attacker\n" {
 			t.Fatalf("attacker file changed: body=%q err=%v", body, err)
+		}
+		if replacementBindingDenied(replacementErr) {
+			if body, err := os.ReadFile(path); err != nil || string(body) != "owned\n" {
+				t.Fatalf("bound parent did not preserve the owned file: body=%q err=%v", body, err)
+			}
+			if _, err := os.Lstat(verifiedParent); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("denied parent replacement created a verified alias: %v", err)
+			}
+			return
+		}
+		if replacementErr != nil {
+			t.Fatalf("replace bound parent: %v", replacementErr)
 		}
 		verifiedPath := filepath.Join(verifiedParent, "target.txt")
 		if body, err := os.ReadFile(verifiedPath); err != nil || string(body) != "owned\n" {
@@ -583,30 +596,29 @@ func TestApplyRemovalTransactionRollsBackAfterBoundParentSyncFailure(t *testing.
 func TestApplyRemovalTransactionRejectsReplacementBeforeBoundParentSync(t *testing.T) {
 	for _, test := range []struct {
 		name   string
-		mutate func(*testing.T, string)
+		mutate func(*testing.T, string) error
 	}{
 		{
 			name: "leaf replacement",
-			mutate: func(t *testing.T, path string) {
-				if err := os.WriteFile(path, []byte("attacker\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
+			mutate: func(_ *testing.T, path string) error {
+				return os.WriteFile(path, []byte("attacker\n"), 0o644)
 			},
 		},
 		{
 			name: "parent replacement",
-			mutate: func(t *testing.T, path string) {
+			mutate: func(t *testing.T, path string) error {
 				parent := filepath.Dir(path)
 				if err := os.Rename(parent, parent+".verified"); err != nil {
-					t.Fatal(err)
+					return err
 				}
 				attackerParent := t.TempDir()
 				if err := os.WriteFile(filepath.Join(attackerParent, filepath.Base(path)), []byte("attacker\n"), 0o644); err != nil {
-					t.Fatal(err)
+					return err
 				}
 				if err := os.Symlink(attackerParent, parent); err != nil {
 					t.Skipf("symlink unavailable: %v", err)
 				}
+				return nil
 			},
 		},
 	} {
@@ -626,16 +638,23 @@ func TestApplyRemovalTransactionRejectsReplacementBeforeBoundParentSync(t *testi
 				t.Fatal(err)
 			}
 			previousHook := beforeBoundRemovalSync
+			var replacementErr error
 			beforeBoundRemovalSync = func(*os.Root, string) error {
-				test.mutate(t, path)
-				return nil
+				replacementErr = test.mutate(t, path)
+				return replacementErr
 			}
 			t.Cleanup(func() { beforeBoundRemovalSync = previousHook })
 			mutation := removalMutation{relative: "owned/target.txt", path: path, before: current, mode: mode, remove: true, identity: identity}
 			if _, _, _, err := applyRemovalTransaction(repo, []removalMutation{mutation}); err == nil {
 				t.Fatal("replacement before parent sync was accepted")
 			}
-			if body, err := os.ReadFile(path); err != nil || string(body) != "attacker\n" {
+			want := "attacker\n"
+			if replacementBindingDenied(replacementErr) {
+				want = "owned\n"
+			} else if replacementErr != nil {
+				t.Fatalf("replace bound removal target: %v", replacementErr)
+			}
+			if body, err := os.ReadFile(path); err != nil || string(body) != want {
 				t.Fatalf("replacement changed: body=%q err=%v", body, err)
 			}
 		})

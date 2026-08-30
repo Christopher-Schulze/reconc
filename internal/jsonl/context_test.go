@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -58,7 +59,7 @@ func TestLegacyDefaultLayoutPreservesRestrictiveModes(t *testing.T) {
 		t.Fatal(err)
 	}
 	info, err := os.Lstat(path)
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("legacy default mode = %v, err=%v", info, err)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/audit"
+	"reconc.dev/reconc/internal/repositorycontrol"
 )
 
 func TestRunEnforcesClassesAndPreservesLiveSession(t *testing.T) {
@@ -112,6 +113,9 @@ func TestRunNeverPrunesUnresolvedPolicyDecision(t *testing.T) {
 
 func TestRunCoversLogsBinariesAndOwnedTemp(t *testing.T) {
 	repo := t.TempDir()
+	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
+		t.Fatal(err)
+	}
 	stateRoot := t.TempDir()
 	tempRoot := t.TempDir()
 	now := time.Now().UTC()

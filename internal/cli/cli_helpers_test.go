@@ -156,7 +156,7 @@ func TestTeeToFilePublishesCompleteOutputAtomically(t *testing.T) {
 		t.Fatalf("published output = %q err=%v", body, err)
 	}
 	after, err := os.Lstat(outputPath)
-	if err != nil || os.SameFile(before, after) {
+	if err != nil || runtime.GOOS != "windows" && os.SameFile(before, after) {
 		t.Fatalf("output was not atomically replaced: before=%v after=%v err=%v", before, after, err)
 	}
 }

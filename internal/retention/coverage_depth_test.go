@@ -15,6 +15,9 @@ import (
 
 func TestRepositoryRuntimeBudgetRemovesOldestInactiveOwnedArtifacts(t *testing.T) {
 	repo := t.TempDir()
+	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC()
 	cache := filepath.Join(repo, ".reconc", "cache")
 	oldBinary := filepath.Join(cache, "workflow-audit-old")
@@ -77,6 +80,9 @@ func TestRepositoryRuntimeBudgetRemovesOldestInactiveOwnedArtifacts(t *testing.T
 
 func TestRepositoryRuntimeBudgetNeverRemovesAuditArchives(t *testing.T) {
 	repo := t.TempDir()
+	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC()
 	auditArchive := filepath.Join(repo, ".reconc", "audit.jsonl.1")
 	decisionArchive := filepath.Join(repo, ".reconc", "run", "decisions.jsonl.1")

@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/repositorycontrol"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
@@ -106,7 +107,7 @@ func TestFollowRunLogTailsNewRecords(t *testing.T) {
 func writeRunDecisions(t *testing.T, repo string, ds []agentsession.RunDecision) {
 	t.Helper()
 	dir := filepath.Join(repo, ".reconc", "run")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
 		t.Fatal(err)
 	}
 	var b strings.Builder
@@ -401,7 +402,7 @@ func TestRunStatusVerboseKeepsDefaultAndJSONContracts(t *testing.T) {
 func TestRunResetCLIRecoversCorruptState(t *testing.T) {
 	repo := t.TempDir()
 	path := filepath.Join(repo, ".reconc", "run", "state.bin")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte("corrupt"), 0o600); err != nil {

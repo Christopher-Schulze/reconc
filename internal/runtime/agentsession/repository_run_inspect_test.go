@@ -96,7 +96,7 @@ func TestReadRunDecisionsRejectsOversizeAndSymlinkFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
 		t.Fatal(err)
 	}
 	file, err := os.Create(path)
@@ -166,7 +166,7 @@ func TestReadRunDecisionsRejectsUnknownField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte("{\"event\":\"stop\",\"unexpected\":true}\n"), 0o600); err != nil {
@@ -183,7 +183,7 @@ func TestReadRunDecisionsRejectsTruncatedRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(`{"event":"stop"}`), 0o600); err != nil {
@@ -382,10 +382,7 @@ func writeRunDecisionBenchmarkFixture(b *testing.B, repo string, count int) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		b.Fatal(err)
-	}
-	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
+	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
 		b.Fatal(err)
 	}
 	var body strings.Builder

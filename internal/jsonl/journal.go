@@ -434,7 +434,7 @@ func openAppendBackupSource(
 	layout Layout,
 	maxBytes int64,
 ) (*os.File, os.FileInfo, []byte, uint64, error) {
-	file, err := os.Open(source)
+	file, err := openAppendBackupSourceFile(source)
 	if err != nil {
 		return nil, nil, nil, 0, err
 	}

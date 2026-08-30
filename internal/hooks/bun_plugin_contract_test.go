@@ -380,8 +380,14 @@ func TestGeneratedBunPluginsUseBoundedAsyncIdleContinuation(t *testing.T) {
 			if !strings.Contains(content, "const maxContinuationSessions = 1024") {
 				t.Fatalf("%s continuation capacity contract missing", kind)
 			}
+			windowsShellCommand := `if (process.platform === "win32") return ["sh", wrapper, event, repo]`
+			if !strings.Contains(content, windowsShellCommand) {
+				t.Fatalf("%s Windows wrapper command missing", kind)
+			}
 			content = strings.Replace(content, stopBudget, kind+`-stop":{"timeoutMilliseconds":5000`, 1)
 			content = strings.Replace(content, "const maxContinuationSessions = 1024", "const maxContinuationSessions = 4", 1)
+			content = strings.Replace(content, windowsShellCommand,
+				`if (process.platform === "win32") return [process.execPath, wrapper, event, repo]`, 1)
 			pluginPath := filepath.Join(repo, filepath.FromSlash(artifact.TargetPath))
 			if err := os.MkdirAll(filepath.Dir(pluginPath), 0o755); err != nil {
 				t.Fatal(err)
@@ -395,20 +401,24 @@ func TestGeneratedBunPluginsUseBoundedAsyncIdleContinuation(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(wrapperPath), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			wrapper := `#!/bin/sh
-set -eu
-event="$1"
-payload="$(cat)"
-printf '%s\t%s\n' "$event" "$payload" >> "$RECONC_TEST_LOG"
-mode="$(cat "$RECONC_IDLE_MODE" 2>/dev/null || true)"
-case "$event:$mode" in
-  *-stop:reason) printf '%s\n' '{"reason":"continue safely"}' ;;
-  *-stop:invalid) printf '%s\n' 'not-json' ;;
-  *-stop:nonzero) exit 1 ;;
-  *-stop:truncated) perl -e 'print "{\"reason\":\"", "x" x 20000, "\"}\n"' ;;
-  *-stop:timeout) sleep 30 ;;
-  *-stop:*) printf '%s\n' '{}' ;;
-esac
+			wrapper := `#!/usr/bin/env bun
+import { appendFile } from "node:fs/promises"
+
+const event = Bun.argv[2]
+const payload = (await Bun.stdin.text()).replace(/[\r\n]+$/, "")
+await appendFile(process.env.RECONC_TEST_LOG, event + "\t" + payload + "\n")
+let mode = ""
+try {
+  mode = (await Bun.file(process.env.RECONC_IDLE_MODE).text()).trim()
+} catch {}
+if (event.endsWith("-stop")) {
+  if (mode === "reason") console.log('{"reason":"continue safely"}')
+  else if (mode === "invalid") console.log("not-json")
+  else if (mode === "nonzero") process.exit(1)
+  else if (mode === "truncated") console.log('{"reason":"' + "x".repeat(20000) + '"}')
+  else if (mode === "timeout") await Bun.sleep(30000)
+  else console.log("{}")
+}
 `
 			if err := os.WriteFile(wrapperPath, []byte(wrapper), 0o755); err != nil {
 				t.Fatal(err)
