@@ -13,14 +13,17 @@ Impact-corpus sanitization tokenizes with `strings.Fields` and replaces only one
 
 ## Sub-Tasks
 
-- [ ] Define a bounded shell-text redaction scanner without executing or fully parsing commands.
-- [ ] Replace token-only sensitive-flag handling.
-- [ ] Add adversarial privacy fixtures and corpus round-trip checks.
-- [ ] Run focused impact-lab tests.
+- [x] Define a bounded shell-text redaction scanner without executing or fully parsing commands.
+- [x] Replace token-only sensitive-flag handling.
+- [x] Add adversarial privacy fixtures and corpus round-trip checks.
+- [x] Run focused impact-lab tests.
 
 ## Notes
 
 - Verified from finding 55.
 - Example confirmed by current code: `--password "secret extra words"` redacts only the first post-flag token.
+- The pre-fix regression leaked suffix words for double-quoted, single-quoted, unterminated, escaped-quote, assignment, and Bearer-header forms.
+- The scanner now groups shell-like words with quote and backslash awareness, caps retained word slices at 4,097, and never executes or expands input.
+- Focused privacy and corpus tests, the complete `internal/impactlab` package, and `make test-fast` passed.
 
 ## Deviations

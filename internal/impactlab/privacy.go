@@ -89,7 +89,7 @@ func sanitizeCommandResults(results []runtime.CommandResult) int {
 }
 
 func sanitizeSensitiveText(value string) (string, int) {
-	tokens := strings.Fields(value)
+	tokens, tokenLimitReached := splitShellTextWords(value)
 	redactions := 0
 	for index := 0; index < len(tokens); index++ {
 		token := tokens[index]
@@ -97,16 +97,16 @@ func sanitizeSensitiveText(value string) (string, int) {
 		switch {
 		case sensitiveAssignment(trimmed) && !strings.HasSuffix(trimmed, "=<redacted>") &&
 			!strings.HasSuffix(trimmed, ":<redacted>"):
-			separator := strings.IndexAny(token, "=:")
+			separator := strings.IndexAny(trimmed, "=:")
 			if separator >= 0 {
-				tokens[index] = token[:separator+1] + "<redacted>"
+				tokens[index] = trimmed[:separator+1] + "<redacted>"
 			} else {
 				tokens[index] = "<redacted>"
 			}
 			redactions++
 		case sensitiveFlag(trimmed) && index+1 < len(tokens):
 			next := index + 1
-			if strings.EqualFold(tokens[next], "bearer") && next+1 < len(tokens) {
+			if strings.EqualFold(strings.Trim(tokens[next], `"'()`), "bearer") && next+1 < len(tokens) {
 				next++
 			}
 			if tokens[next] != "<redacted>" {
@@ -115,6 +115,11 @@ func sanitizeSensitiveText(value string) (string, int) {
 			}
 			index = next
 		default:
+			if quotedBearerValue(trimmed) {
+				tokens[index] = "<redacted>"
+				redactions++
+				continue
+			}
 			replaced := secretPrefix.ReplaceAllString(token, "<redacted>")
 			replaced = secretURL.ReplaceAllString(replaced, "$1<redacted>@")
 			replaced = secretQuery.ReplaceAllString(replaced, "$1<redacted>")
@@ -130,10 +135,67 @@ func sanitizeSensitiveText(value string) (string, int) {
 		}
 	}
 	joined := strings.Join(tokens, " ")
-	if len(joined) > maxValueBytes {
+	if tokenLimitReached || len(joined) > maxValueBytes {
 		redactions++
 	}
 	return boundText(joined), redactions
+}
+
+func splitShellTextWords(value string) ([]string, bool) {
+	const maxWords = maxValueBytes + 1
+	words := make([]string, 0, min(16, maxWords))
+	for offset := 0; offset < len(value); {
+		for offset < len(value) {
+			character, size := utf8.DecodeRuneInString(value[offset:])
+			if !unicode.IsSpace(character) {
+				break
+			}
+			offset += size
+		}
+		if offset == len(value) {
+			return words, false
+		}
+		if len(words) == maxWords {
+			return words, true
+		}
+		start := offset
+		var quote rune
+		escaped := false
+		for offset < len(value) {
+			character, size := utf8.DecodeRuneInString(value[offset:])
+			if escaped {
+				escaped = false
+				offset += size
+				continue
+			}
+			if character == '\\' && quote != '\'' {
+				escaped = true
+				offset += size
+				continue
+			}
+			if quote == 0 {
+				if unicode.IsSpace(character) {
+					break
+				}
+				if character == '\'' || character == '"' {
+					quote = character
+				}
+			} else if character == quote {
+				quote = 0
+			}
+			offset += size
+		}
+		words = append(words, value[start:offset])
+	}
+	return words, false
+}
+
+func quotedBearerValue(value string) bool {
+	if len(value) <= len("bearer") || !strings.EqualFold(value[:len("bearer")], "bearer") {
+		return false
+	}
+	character, _ := utf8.DecodeRuneInString(value[len("bearer"):])
+	return unicode.IsSpace(character)
 }
 
 func sensitiveAssignment(value string) bool {

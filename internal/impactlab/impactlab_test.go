@@ -77,6 +77,90 @@ func TestCorpusRedactsCommonCredentialShapes(t *testing.T) {
 	}
 }
 
+func TestSanitizeSensitiveTextRedactsQuotedValuesThroughBoundary(t *testing.T) {
+	tests := []struct {
+		name      string
+		command   string
+		forbidden []string
+	}{
+		{name: "double quoted flag", command: `deploy --password "secret extra words" --mode fast`, forbidden: []string{"secret", "extra", "words"}},
+		{name: "single quoted flag", command: `deploy --token 'secret extra words' --mode fast`, forbidden: []string{"secret", "extra", "words"}},
+		{name: "unterminated quote", command: `deploy --credential "secret extra words`, forbidden: []string{"secret", "extra", "words"}},
+		{name: "escaped quote", command: `deploy --password "secret \"quoted\" extra" tail`, forbidden: []string{"secret", "quoted", "extra"}},
+		{name: "quoted assignment", command: `deploy --password="secret extra words" tail`, forbidden: []string{"secret", "extra", "words"}},
+		{name: "quoted bearer header", command: `curl -H 'Authorization: Bearer secret extra words' https://example.test`, forbidden: []string{"secret", "extra", "words"}},
+		{name: "separately quoted bearer", command: `curl -H Authorization: "Bearer" "secret extra words"`, forbidden: []string{"secret", "extra", "words"}},
+		{name: "bare bearer header", command: `curl -H Authorization: Bearer secret-value`, forbidden: []string{"secret-value"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cleaned, redactions := sanitizeSensitiveText(test.command)
+			if redactions == 0 {
+				t.Fatalf("redactions = 0; cleaned = %q", cleaned)
+			}
+			for _, forbidden := range test.forbidden {
+				if strings.Contains(cleaned, forbidden) {
+					t.Fatalf("cleaned command retained %q: %q", forbidden, cleaned)
+				}
+			}
+			second, secondRedactions := sanitizeSensitiveText(test.command)
+			if second != cleaned || secondRedactions != redactions {
+				t.Fatalf("sanitization is not deterministic: (%q, %d) != (%q, %d)", cleaned, redactions, second, secondRedactions)
+			}
+		})
+	}
+}
+
+func TestSanitizeSensitiveTextPreservesOrdinaryQuotesAndBoundsWords(t *testing.T) {
+	command := `echo "ordinary value" 'single value' escaped\ value tail`
+	cleaned, redactions := sanitizeSensitiveText(command)
+	if cleaned != command || redactions != 0 {
+		t.Fatalf("ordinary command = (%q, %d)", cleaned, redactions)
+	}
+
+	words, truncated := splitShellTextWords(strings.Repeat("x ", maxValueBytes+2))
+	if !truncated || len(words) != maxValueBytes+1 {
+		t.Fatalf("bounded words = (%d, %t)", len(words), truncated)
+	}
+	cleaned, redactions = sanitizeSensitiveText(strings.Repeat("x ", maxValueBytes+2))
+	if len(cleaned) > maxValueBytes || redactions != 1 {
+		t.Fatalf("bounded sanitization = (%d bytes, %d redactions)", len(cleaned), redactions)
+	}
+}
+
+func TestCorpusRoundTripDoesNotRetainQuotedCredentialSuffixes(t *testing.T) {
+	repo := makeImpactRepo(t)
+	inputs := runtime.Empty()
+	inputs.Commands = []string{
+		`deploy --password "secret extra words" --mode fast`,
+		`curl -H 'Authorization: Bearer header secret suffix' https://example.test`,
+	}
+	corpus, err := NewCorpus(repo, []Case{NewRepositoryCase("quoted-values", inputs)}, AllEventClasses())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := MarshalCorpus(corpus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"secret", "extra", "words", "header", "suffix"} {
+		if bytes.Contains(body, []byte(forbidden)) {
+			t.Fatalf("corpus retained quoted credential suffix %q:\n%s", forbidden, body)
+		}
+	}
+	decoded, err := DecodeCorpus(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := MarshalCorpus(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(body, roundTrip) {
+		t.Fatal("sanitized corpus round-trip changed bytes")
+	}
+}
+
 func TestCorpusRejectsMutationDuplicateKeysAndSymlink(t *testing.T) {
 	repo := makeImpactRepo(t)
 	corpus := simpleCorpus(t, repo)

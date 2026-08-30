@@ -909,10 +909,12 @@ causal epochs, and claims. It stores no prompts, file bodies, command output,
 raw session identifier, environment snapshot, or physical candidate path.
 Secret-shaped assignments, flags, Bearer values, common provider tokens,
 credentialed URLs, and secret query parameters are replaced with
-`<redacted>`; every affected event class becomes incomplete. Imported files
-are bounded regular non-symlinks with duplicate-key, unknown-field,
-null-collection, ordering, canonical-path, self-identity, and trailing-value
-checks.
+`<redacted>`; quoted sensitive values are consumed through their matching quote
+boundary, and an unterminated quoted value is consumed through end-of-input, so
+no later word from that value survives. Every affected event class becomes
+incomplete. Imported files are bounded regular non-symlinks with duplicate-key,
+unknown-field, null-collection, ordering, canonical-path, self-identity, and
+trailing-value checks.
 
 The deterministic result reports per-case decision and remediation changes,
 newly blocking and warning rules, resolved violations, per-rule match counts,
