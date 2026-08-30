@@ -8,6 +8,7 @@
 
 ## Done
 
+- [x] 469 Complete v0.9.8 Windows and release gate -> tasks/done/469-complete-v0-9-8-windows-and-release-gate.md
 - [x] 468 Complete OMP v18 integration -> tasks/done/468-complete-omp-v18-integration.md
 - [x] 467 Make Windows identity replacement tests deterministic -> tasks/done/467-make-windows-identity-replacement-tests-deterministic.md
 - [x] 466 Prepare Reconc v0.9.8 release -> tasks/done/466-prepare-reconc-v0-9-8-release.md

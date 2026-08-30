@@ -62,6 +62,10 @@ expensive.
 - Session evidence, pre-decision state, taint resolution, Stop fingerprints,
   completion drift, compaction recovery, and hook liveness remain consistent
   across retries, restarts, terminal transitions, and interrupted persistence.
+- Oh My Pi 18.0.11 is covered by the typed project extension with the generic
+  `session_before_compact`/`session_compact` lifecycle, exact approval events,
+  host-controlled extension loading, and one independently shutdown-safe hook
+  worker per extension binding.
 - Generated adapters fail closed on truncated output, sanitize diagnostics,
   construct MCP envelopes consistently, and retry hook-worker requests without
   duplicating committed effects.

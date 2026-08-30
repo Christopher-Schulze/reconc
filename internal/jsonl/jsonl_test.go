@@ -12,11 +12,18 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestAppendBoundedUnderConcurrency(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	policy := Policy{MaxBytes: 2048, MaxArchives: 2}
+	// A rotating append stress test can legitimately queue longer than the
+	// production default on the slower native Windows runner. Keep the stress
+	// workload intact while making its contention budget explicit; timeout
+	// behavior itself is covered by the focused lock tests.
+	layout := defaultLayout(path)
+	layout.LockTimeout = 30 * time.Second
 	const workers = 24
 	var wait sync.WaitGroup
 	errors := make(chan error, workers)
@@ -27,7 +34,7 @@ func TestAppendBoundedUnderConcurrency(t *testing.T) {
 			defer wait.Done()
 			for item := 0; item < 20; item++ {
 				line, _ := json.Marshal(map[string]int{"worker": worker, "item": item})
-				if err := Append(path, line, policy); err != nil {
+				if err := AppendWithLayout(path, line, policy, layout); err != nil {
 					errors <- err
 					return
 				}

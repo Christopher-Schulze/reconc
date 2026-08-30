@@ -128,10 +128,7 @@ func TestWriteIfCurrentRejectsConcurrentIdentityReplacement(t *testing.T) {
 	if err := os.WriteFile(path, before, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	info := openedFileInfo(t, path)
 	expected := ExpectedCurrent{Data: before, Info: info, Exists: true}
 	replaceWithDistinctIdentity(t, path, before, 0o600)
 	if _, err := WriteIfCurrent(path, []byte("after!\n"), 0o600, expected); !errors.Is(err, ErrCurrentChanged) {
@@ -172,13 +169,10 @@ func TestWriteStreamIfCurrentRejectsConcurrentIdentityReplacement(t *testing.T) 
 	if err := os.WriteFile(path, before, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	info := openedFileInfo(t, path)
 	digest := sha256.Sum256(before)
 	replaceWithDistinctIdentity(t, path, before, 0o600)
-	_, err = WriteStreamIfCurrent(path, strings.NewReader("after stream\n"), 64, 0o755, ExpectedStream{
+	_, err := WriteStreamIfCurrent(path, strings.NewReader("after stream\n"), 64, 0o755, ExpectedStream{
 		Info: info, Digest: hex.EncodeToString(digest[:]), Exists: true,
 	})
 	if !errors.Is(err, ErrCurrentChanged) {
@@ -622,6 +616,23 @@ func replaceWithDistinctIdentity(t *testing.T, path string, data []byte, mode os
 	if err := os.Rename(replacement, path); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func openedFileInfo(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, statErr := file.Stat()
+	closeErr := file.Close()
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	return info
 }
 
 func TestConcurrentPublicationsRemainWholeAndLeaveNoTemporaries(t *testing.T) {
