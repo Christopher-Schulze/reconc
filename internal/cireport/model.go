@@ -92,19 +92,11 @@ func FromImpact(version string, report impactlab.Report) Model {
 		Findings: []Finding{},
 	}
 	appendFinding := func(finding Finding) {
-		if len(model.Findings) == maxFindings {
+		var truncated bool
+		model.Findings, truncated = appendBoundedFinding(model.Findings, finding)
+		if truncated {
 			model.TruncatedFindings++
-			if finding.Level == "error" {
-				for index := len(model.Findings) - 1; index >= 0; index-- {
-					if model.Findings[index].Level != "error" {
-						model.Findings[index] = finding
-						break
-					}
-				}
-			}
-			return
 		}
-		model.Findings = append(model.Findings, finding)
 	}
 	for _, comparison := range report.Cases {
 		if comparison.Action != nil {
@@ -205,14 +197,35 @@ func FromCheck(command, version string, candidate Candidate, git *Git, report *r
 	}
 	model.Decision, model.Summary = string(report.Decision), cleanText(report.Summary)
 	model.ExitCode = decisionExitCode(model.Decision)
-	limit := min(len(report.Violations), maxFindings)
-	model.Findings = make([]Finding, 0, limit)
-	for _, violation := range report.Violations[:limit] {
-		model.Findings = append(model.Findings, findingFromViolation(violation))
+	model.Findings = make([]Finding, 0, min(len(report.Violations), maxFindings))
+	for _, violation := range report.Violations {
+		if len(model.Findings) == maxFindings && !violation.IsBlocking() {
+			model.TruncatedFindings++
+			continue
+		}
+		var truncated bool
+		model.Findings, truncated = appendBoundedFinding(model.Findings, findingFromViolation(violation))
+		if truncated {
+			model.TruncatedFindings++
+		}
 	}
-	model.TruncatedFindings = len(report.Violations) - limit
 	sortFindings(model.Findings)
 	return model
+}
+
+func appendBoundedFinding(findings []Finding, finding Finding) ([]Finding, bool) {
+	if len(findings) < maxFindings {
+		return append(findings, finding), false
+	}
+	if finding.Level == "error" {
+		for index := len(findings) - 1; index >= 0; index-- {
+			if findings[index].Level != "error" {
+				findings[index] = finding
+				break
+			}
+		}
+	}
+	return findings, true
 }
 
 // Operational builds a machine-readable failed invocation without leaking a

@@ -133,6 +133,91 @@ func TestFromCheckBoundsFindingCountWithoutChangingDecision(t *testing.T) {
 	}
 }
 
+func TestFromCheckNeverTruncatesLateBlockerBehindWarnings(t *testing.T) {
+	report := runtime.NewEmptyReport("/private/host", ".reconc/policy.lock.json", policy.ModeBlock, runtime.Empty())
+	report.Violations = make([]runtime.Violation, maxFindings+1)
+	for index := range maxFindings {
+		report.Violations[index] = runtime.Violation{
+			RuleID: "warn-rule", Kind: policy.KindRequireRead, Mode: policy.ModeWarn,
+			Message: "warning", MatchedPaths: []string{"src/warn.go"},
+		}
+	}
+	report.Violations[maxFindings] = runtime.Violation{
+		RuleID: "late-blocker", Kind: policy.KindDenyWrite, Mode: policy.ModeBlock,
+		Message: "blocking violation", MatchedPaths: []string{"src/block.go"},
+	}
+	report.Finalize()
+
+	model := FromCheck("ci", "test", Candidate{}, nil, &report)
+	if model.Decision != "block" || len(model.Findings) != maxFindings || model.TruncatedFindings != 1 {
+		t.Fatalf("bounded late-blocker model = %+v", model)
+	}
+	errorCount := 0
+	for _, finding := range model.Findings {
+		if finding.Level == "error" {
+			errorCount++
+		}
+	}
+	if errorCount != 1 {
+		t.Fatalf("retained error findings = %d, want 1", errorCount)
+	}
+
+	sarifBody, err := Render(FormatSARIF, model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sarif sarifLog
+	if err := json.Unmarshal(sarifBody, &sarif); err != nil {
+		t.Fatal(err)
+	}
+	if len(sarif.Runs) != 1 || sarif.Runs[0].Properties.TruncatedFindings != 1 ||
+		len(sarif.Runs[0].Results) != maxFindings {
+		t.Fatalf("SARIF truncation contract = %+v", sarif.Runs)
+	}
+	if level := sarifLevelForRule(sarif.Runs[0].Results, "late-blocker"); level != "error" {
+		t.Fatalf("late blocker SARIF level = %q", level)
+	}
+
+	junitBody, err := Render(FormatJUnit, model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var junit junitSuites
+	if err := xml.Unmarshal(junitBody, &junit); err != nil {
+		t.Fatal(err)
+	}
+	if junit.Tests != maxFindings || junit.Failures != 1 || len(junit.Suites) != 1 ||
+		junitPropertyValue(junit.Suites[0].Properties, "reconc.truncated_findings") != "1" {
+		t.Fatalf("JUnit truncation contract = %+v", junit)
+	}
+
+	githubBody, err := Render(FormatGitHub, model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(githubBody, []byte("1 finding(s) omitted by the bounded report limit.")) {
+		t.Fatalf("GitHub report omitted truncation notice:\n%s", githubBody)
+	}
+}
+
+func sarifLevelForRule(results []sarifResult, ruleID string) string {
+	for _, result := range results {
+		if result.RuleID == ruleID {
+			return result.Level
+		}
+	}
+	return ""
+}
+
+func junitPropertyValue(properties []junitProperty, name string) string {
+	for _, property := range properties {
+		if property.Name == name {
+			return property.Value
+		}
+	}
+	return ""
+}
+
 func contractModel() Model {
 	report := runtime.NewEmptyReport("/private/host", ".reconc/policy.lock.json", policy.ModeBlock, runtime.Empty())
 	report.Violations = []runtime.Violation{

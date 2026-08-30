@@ -13,14 +13,18 @@
 
 ## Sub-Tasks
 
-- [ ] Reuse or generalize the existing error-preserving bounded insertion logic.
-- [ ] Add a stable truncation signal to all CI artifact formats.
-- [ ] Add adversarial late-blocker regressions.
-- [ ] Run focused CI report tests.
+- [x] Reuse or generalize the existing error-preserving bounded insertion logic.
+- [x] Verify the stable truncation signal in all CI artifact formats.
+- [x] Add adversarial late-blocker regressions.
+- [x] Run focused CI report tests.
 
 ## Notes
 
 - Verified from finding 54.
 - `FromImpact` already replaces a retained non-error when a later error arrives; `FromCheck` currently slices first and sorts afterward.
+- The adversarial regression reproduced the defect before the fix: 1,024 warnings followed by one blocking violation produced a block decision with zero retained error findings.
+- `FromCheck` now uses the same bounded error-preserving insertion contract as `FromImpact`; late non-blocking violations increment the exact omission count without paying sanitization costs.
+- SARIF retains `truncated_findings`, JUnit retains `reconc.truncated_findings`, and GitHub output retains its deterministic omission notice.
+- The complete `internal/cireport` package and `make test-fast` passed.
 
 ## Deviations

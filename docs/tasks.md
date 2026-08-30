@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 396 Preserve blocking CI findings under truncation -> tasks/396-preserve-blocking-ci-findings-under-truncation.md
 - [ ] 397 Redact quoted sensitive command values -> tasks/397-redact-quoted-sensitive-command-values.md
 - [ ] 398 Canonicalize and redact public proof identities -> tasks/398-canonicalize-and-redact-public-proof-identities.md
 - [ ] 399 Make compiler discovery and source paths deterministic -> tasks/399-make-compiler-discovery-and-source-paths-deterministic.md
@@ -74,6 +73,7 @@
 
 ## Done
 
+- [x] 396 Preserve blocking CI findings under truncation -> tasks/done/396-preserve-blocking-ci-findings-under-truncation.md
 - [x] 395 Prevent TASK section-counter overflow -> tasks/done/395-prevent-task-section-counter-overflow.md
 - [x] 394 Consolidate adapter MCP envelope construction -> tasks/done/394-consolidate-adapter-mcp-envelope-construction.md
 - [x] 393 Sanitize adapter trust boundaries and diagnostics -> tasks/done/393-sanitize-adapter-trust-boundaries-and-diagnostics.md

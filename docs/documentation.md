@@ -1036,6 +1036,10 @@ deterministic, capped at 1,024 findings and 8 MiB, make no network call, and
 are rendered to stdout and staged for `--output`; after rendering succeeds, the
 complete same bytes are atomically published. Existing text/JSON/terse defaults
 and exit codes do not change.
+When the finding cap is reached, later error-level findings replace retained
+non-errors before deterministic sorting, so a blocking decision cannot become
+pass-shaped in SARIF or JUnit. SARIF properties, JUnit properties, and GitHub
+output report the exact number of omitted findings.
 
 ```bash
 # GitHub Code Scanning; map RECONC_BASE_SHA to github.event.pull_request.base.sha
