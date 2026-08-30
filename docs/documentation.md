@@ -1749,6 +1749,10 @@ read, every component identity, and the absent transaction journal to one
 before/after snapshot. Changed bytes, disappearance, inode replacement, a new
 symlink, or an appearing transaction fails with
 `task/read/concurrent-mutation`.
+The fast sectioned-overview scan records non-wrapping heading presence and
+falls back on the second required heading, so duplicate sections cannot wrap
+into an accepted count even at the 4 MiB overview limit; the complete parser
+then reports the canonical duplicate-section issue.
 Lifecycle mutations acquire `.reconc/locks/task-lifecycle.lock` through rooted,
 no-follow directory handles. The opened lock descriptor and repository,
 `.reconc`, and `locks` identities remain a lease through journal publication,

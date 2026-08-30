@@ -216,7 +216,7 @@ type runSectionsSnapshot struct {
 
 func scanActiveSectionsRows(body []byte, cfg Config) (runSectionsSnapshot, bool) {
 	section := runSectionNone
-	sectionCounts := [5]uint8{}
+	sectionSeen := [5]bool{}
 	identities := make([]runRowIdentity, 0, 16)
 	snapshot := runSectionsSnapshot{}
 	doneTasks := 0
@@ -229,20 +229,32 @@ func scanActiveSectionsRows(body []byte, cfg Config) (runSectionsSnapshot, bool)
 		}
 		switch {
 		case bytes.Equal(line, []byte("## Active")):
+			if sectionSeen[runSectionActive] {
+				return runSectionsSnapshot{}, false
+			}
 			section = runSectionActive
-			sectionCounts[section]++
+			sectionSeen[section] = true
 			continue
 		case bytes.Equal(line, []byte("## Queue")):
+			if sectionSeen[runSectionQueue] {
+				return runSectionsSnapshot{}, false
+			}
 			section = runSectionQueue
-			sectionCounts[section]++
+			sectionSeen[section] = true
 			continue
 		case bytes.Equal(line, []byte("## Blocked")):
+			if sectionSeen[runSectionBlocked] {
+				return runSectionsSnapshot{}, false
+			}
 			section = runSectionBlocked
-			sectionCounts[section]++
+			sectionSeen[section] = true
 			continue
 		case bytes.Equal(line, []byte("## Done")):
+			if sectionSeen[runSectionDone] {
+				return runSectionsSnapshot{}, false
+			}
 			section = runSectionDone
-			sectionCounts[section]++
+			sectionSeen[section] = true
 			continue
 		}
 		if !bytes.HasPrefix(line, []byte("- [")) {
@@ -291,7 +303,7 @@ func scanActiveSectionsRows(body []byte, cfg Config) (runSectionsSnapshot, bool)
 		}
 	}
 	for section := runSectionActive; section <= runSectionDone; section++ {
-		if sectionCounts[section] != 1 {
+		if !sectionSeen[section] {
 			return runSectionsSnapshot{}, false
 		}
 	}
