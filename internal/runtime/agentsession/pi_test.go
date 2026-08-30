@@ -9,9 +9,9 @@ import (
 
 func TestNormalizePiPayloadCoversEveryNativeRoute(t *testing.T) {
 	repo := t.TempDir()
-	for route, nativeEvent := range piNativeEvents {
-		route := route
-		nativeEvent := nativeEvent
+	for _, binding := range piNativeEvents.entries() {
+		route := binding.route
+		nativeEvent := binding.primary
 		t.Run(route, func(t *testing.T) {
 			payload := map[string]interface{}{
 				"hook_event_name": nativeEvent,

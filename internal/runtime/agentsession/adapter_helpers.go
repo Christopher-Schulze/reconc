@@ -43,3 +43,19 @@ func boundHostReason(value string) string {
 	}
 	return strings.TrimSpace(cleaned[:limit]) + suffix
 }
+
+func normalizePiOMPToolName(native string) string {
+	native = strings.TrimSpace(native)
+	switch strings.ToLower(native) {
+	case "bash":
+		return "Bash"
+	case "read":
+		return "Read"
+	case "write":
+		return "Write"
+	case "edit":
+		return "Edit"
+	default:
+		return native
+	}
+}

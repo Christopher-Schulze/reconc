@@ -13,7 +13,9 @@ import (
 
 func TestNormalizeOMPPayloadCoversEveryNativeRoute(t *testing.T) {
 	repo := t.TempDir()
-	for route, nativeEvent := range ompNativeEvents {
+	for _, binding := range ompNativeEvents.entries() {
+		route := binding.route
+		nativeEvent := binding.primary
 		t.Run(route, func(t *testing.T) {
 			extra := ""
 			switch route {

@@ -5,20 +5,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"reconc.dev/reconc/internal/policy"
 )
 
-var zcodeNativeEvents = map[string]string{
-	"zcode-session-start":         "SessionStart",
-	"zcode-user-prompt-submit":    "UserPromptSubmit",
-	"zcode-pre-tool-use":          "PreToolUse",
-	"zcode-permission-request":    "PermissionRequest",
-	"zcode-post-tool-use":         "PostToolUse",
-	"zcode-post-tool-use-failure": "PostToolUseFailure",
-	"zcode-stop":                  "Stop",
+var zcodeNativeEvents = newNativeEventRegistry(
+	nativeEventBinding{route: "zcode-session-start", primary: "SessionStart"},
+	nativeEventBinding{route: "zcode-user-prompt-submit", primary: "UserPromptSubmit"},
+	nativeEventBinding{route: "zcode-pre-tool-use", primary: "PreToolUse"},
+	nativeEventBinding{route: "zcode-permission-request", primary: "PermissionRequest"},
+	nativeEventBinding{route: "zcode-post-tool-use", primary: "PostToolUse"},
+	nativeEventBinding{route: "zcode-post-tool-use-failure", primary: "PostToolUseFailure"},
+	nativeEventBinding{route: "zcode-stop", primary: "Stop"},
+)
+
+var zcodeJSONDiagnostics = singleJSONDiagnostics{
+	decodePrefix:   "decode ZCode payload",
+	multipleValues: "multiple JSON values in ZCode payload",
+	trailingPrefix: "trailing data in ZCode payload",
 }
 
 type zcodePayload struct {
@@ -36,34 +41,25 @@ type zcodePayload struct {
 }
 
 type zcodeNormalizedPayload struct {
-	SessionID      string            `json:"session_id"`
-	Prompt         string            `json:"prompt,omitempty"`
-	ToolName       string            `json:"tool_name,omitempty"`
-	ToolInput      json.RawMessage   `json:"tool_input,omitempty"`
-	ToolResponse   json.RawMessage   `json:"tool_response,omitempty"`
-	ToolUseID      string            `json:"tool_use_id,omitempty"`
-	Error          string            `json:"error,omitempty"`
-	IsInterrupt    *bool             `json:"is_interrupt,omitempty"`
-	StopHookActive *bool             `json:"stop_hook_active,omitempty"`
-	ReconcRuntime  string            `json:"reconc_runtime"`
-	ZCodeEvent     string            `json:"zcode_event"`
-	MCP            *zcodeMCPEnvelope `json:"reconc_mcp,omitempty"`
-}
-
-type zcodeMCPEnvelope struct {
-	Platform        policy.MCPPlatform `json:"platform"`
-	Tool            string             `json:"tool"`
-	Observed        bool               `json:"observed"`
-	BlockingPreHook bool               `json:"blocking_pre_hook"`
-	InputValid      bool               `json:"input_valid"`
-	Outcome         string             `json:"outcome,omitempty"`
+	SessionID      string                 `json:"session_id"`
+	Prompt         string                 `json:"prompt,omitempty"`
+	ToolName       string                 `json:"tool_name,omitempty"`
+	ToolInput      json.RawMessage        `json:"tool_input,omitempty"`
+	ToolResponse   json.RawMessage        `json:"tool_response,omitempty"`
+	ToolUseID      string                 `json:"tool_use_id,omitempty"`
+	Error          string                 `json:"error,omitempty"`
+	IsInterrupt    *bool                  `json:"is_interrupt,omitempty"`
+	StopHookActive *bool                  `json:"stop_hook_active,omitempty"`
+	ReconcRuntime  string                 `json:"reconc_runtime"`
+	ZCodeEvent     string                 `json:"zcode_event"`
+	MCP            *normalizedMCPEnvelope `json:"reconc_mcp,omitempty"`
 }
 
 // NormalizeZCodePayload validates ZCode's documented snake_case subprocess
 // envelope and converts it into Reconc's platform-neutral session payload.
 func NormalizeZCodePayload(event string, payloadBytes []byte, repoRoot string) ([]byte, error) {
-	expectedEvent := zcodeNativeEvents[event]
-	if expectedEvent == "" {
+	binding, supported := zcodeNativeEvents.lookup(event)
+	if !supported {
 		return nil, fmt.Errorf("unsupported ZCode hook route %q", event)
 	}
 	if len(bytes.TrimSpace(payloadBytes)) == 0 {
@@ -73,18 +69,10 @@ func NormalizeZCodePayload(event string, payloadBytes []byte, repoRoot string) (
 		return nil, err
 	}
 	var raw zcodePayload
-	decoder := json.NewDecoder(bytes.NewReader(payloadBytes))
-	if err := decoder.Decode(&raw); err != nil {
-		return nil, fmt.Errorf("decode ZCode payload: %w", err)
+	if err := decodeSingleJSONValue(payloadBytes, &raw, false, zcodeJSONDiagnostics); err != nil {
+		return nil, err
 	}
-	var trailing json.RawMessage
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("multiple JSON values in ZCode payload")
-		}
-		return nil, fmt.Errorf("trailing data in ZCode payload: %w", err)
-	}
-	if raw.HookEventName != expectedEvent {
+	if raw.HookEventName != binding.primary {
 		return nil, fmt.Errorf("hook_event_name %q in ZCode payload does not match route %q", raw.HookEventName, event)
 	}
 	if strings.TrimSpace(raw.SessionID) == "" {
@@ -110,16 +98,7 @@ func NormalizeZCodePayload(event string, payloadBytes []byte, repoRoot string) (
 		ZCodeEvent:     event,
 	}
 	if zcodeToolEvent(event) {
-		outcome := ""
-		if event == "zcode-post-tool-use" {
-			outcome = "success"
-		} else if event == "zcode-post-tool-use-failure" {
-			outcome = "failure"
-		}
-		normalized.MCP = &zcodeMCPEnvelope{
-			Platform: policy.MCPPlatformZCode, Tool: strings.TrimSpace(raw.ToolName),
-			Observed: false, BlockingPreHook: true, InputValid: jsonObject(raw.ToolInput), Outcome: outcome,
-		}
+		normalized.MCP = newNativeMCPEnvelope(policy.MCPPlatformZCode, raw.ToolName, raw.ToolInput, event, "zcode-post-tool-use", "zcode-post-tool-use-failure")
 	}
 	body, err := json.Marshal(normalized)
 	if err != nil {

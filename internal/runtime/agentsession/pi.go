@@ -5,26 +5,31 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"reconc.dev/reconc/internal/policy"
 )
 
-var piNativeEvents = map[string]string{
-	"pi-session-start":           "session_start",
-	"pi-user-prompt-submit":      "input",
-	"pi-pre-tool-use":            "tool_call",
-	"pi-user-bash":               "user_bash",
-	"pi-post-tool-use":           "tool_result",
-	"pi-post-tool-use-failure":   "tool_result",
-	"pi-stop":                    "agent_settled",
-	"pi-continuation-requested":  "agent_settled",
-	"pi-continuation-failed":     "agent_settled",
-	"pi-continuation-suppressed": "agent_settled",
-	"pi-session-end":             "session_shutdown",
-	"pi-pre-compaction":          "session_before_compact",
-	"pi-post-compaction":         "session_compact",
+var piNativeEvents = newNativeEventRegistry(
+	nativeEventBinding{route: "pi-session-start", primary: "session_start"},
+	nativeEventBinding{route: "pi-user-prompt-submit", primary: "input"},
+	nativeEventBinding{route: "pi-pre-tool-use", primary: "tool_call"},
+	nativeEventBinding{route: "pi-user-bash", primary: "user_bash"},
+	nativeEventBinding{route: "pi-post-tool-use", primary: "tool_result"},
+	nativeEventBinding{route: "pi-post-tool-use-failure", primary: "tool_result"},
+	nativeEventBinding{route: "pi-stop", primary: "agent_settled"},
+	nativeEventBinding{route: "pi-continuation-requested", primary: "agent_settled"},
+	nativeEventBinding{route: "pi-continuation-failed", primary: "agent_settled"},
+	nativeEventBinding{route: "pi-continuation-suppressed", primary: "agent_settled"},
+	nativeEventBinding{route: "pi-session-end", primary: "session_shutdown"},
+	nativeEventBinding{route: "pi-pre-compaction", primary: "session_before_compact"},
+	nativeEventBinding{route: "pi-post-compaction", primary: "session_compact"},
+)
+
+var piJSONDiagnostics = singleJSONDiagnostics{
+	decodePrefix:   "decode Pi payload",
+	multipleValues: "multiple JSON values in Pi payload",
+	trailingPrefix: "trailing data in Pi payload",
 }
 
 type piPayload struct {
@@ -53,39 +58,30 @@ type piPayload struct {
 }
 
 type piNormalizedPayload struct {
-	SessionID          string          `json:"session_id"`
-	SessionFile        string          `json:"session_file,omitempty"`
-	Prompt             string          `json:"prompt,omitempty"`
-	ToolName           string          `json:"tool_name,omitempty"`
-	ToolInput          json.RawMessage `json:"tool_input,omitempty"`
-	ToolResponse       json.RawMessage `json:"tool_response,omitempty"`
-	ToolUseID          string          `json:"tool_use_id,omitempty"`
-	Error              string          `json:"error,omitempty"`
-	StopHookActive     *bool           `json:"stop_hook_active,omitempty"`
-	StrictContinuation bool            `json:"strict_continuation,omitempty"`
-	ReconcRuntime      string          `json:"reconc_runtime"`
-	PiEvent            string          `json:"pi_event"`
-	PiInputSource      string          `json:"pi_input_source,omitempty"`
-	PiReason           string          `json:"pi_reason,omitempty"`
-	PiContinuation     string          `json:"pi_continuation_delivery,omitempty"`
-	MCP                *piMCPEnvelope  `json:"reconc_mcp,omitempty"`
-}
-
-type piMCPEnvelope struct {
-	Platform        policy.MCPPlatform `json:"platform"`
-	Tool            string             `json:"tool"`
-	Observed        bool               `json:"observed"`
-	BlockingPreHook bool               `json:"blocking_pre_hook"`
-	InputValid      bool               `json:"input_valid"`
-	Outcome         string             `json:"outcome,omitempty"`
+	SessionID          string                 `json:"session_id"`
+	SessionFile        string                 `json:"session_file,omitempty"`
+	Prompt             string                 `json:"prompt,omitempty"`
+	ToolName           string                 `json:"tool_name,omitempty"`
+	ToolInput          json.RawMessage        `json:"tool_input,omitempty"`
+	ToolResponse       json.RawMessage        `json:"tool_response,omitempty"`
+	ToolUseID          string                 `json:"tool_use_id,omitempty"`
+	Error              string                 `json:"error,omitempty"`
+	StopHookActive     *bool                  `json:"stop_hook_active,omitempty"`
+	StrictContinuation bool                   `json:"strict_continuation,omitempty"`
+	ReconcRuntime      string                 `json:"reconc_runtime"`
+	PiEvent            string                 `json:"pi_event"`
+	PiInputSource      string                 `json:"pi_input_source,omitempty"`
+	PiReason           string                 `json:"pi_reason,omitempty"`
+	PiContinuation     string                 `json:"pi_continuation_delivery,omitempty"`
+	MCP                *normalizedMCPEnvelope `json:"reconc_mcp,omitempty"`
 }
 
 // NormalizePiPayload validates the generated Pi extension envelope and
 // converts it to the platform-neutral session payload. Session identity and
 // cwd come from Pi's ExtensionContext, not model-controlled tool input.
 func NormalizePiPayload(event string, payloadBytes []byte, repoRoot string) ([]byte, error) {
-	expectedEvent := piNativeEvents[event]
-	if expectedEvent == "" {
+	binding, supported := piNativeEvents.lookup(event)
+	if !supported {
 		return nil, fmt.Errorf("unsupported Pi hook route %q", event)
 	}
 	if len(bytes.TrimSpace(payloadBytes)) == 0 {
@@ -96,18 +92,10 @@ func NormalizePiPayload(event string, payloadBytes []byte, repoRoot string) ([]b
 	}
 
 	var raw piPayload
-	decoder := json.NewDecoder(bytes.NewReader(payloadBytes))
-	if err := decoder.Decode(&raw); err != nil {
-		return nil, fmt.Errorf("decode Pi payload: %w", err)
+	if err := decodeSingleJSONValue(payloadBytes, &raw, false, piJSONDiagnostics); err != nil {
+		return nil, err
 	}
-	var trailing json.RawMessage
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("multiple JSON values in Pi payload")
-		}
-		return nil, fmt.Errorf("trailing data in Pi payload: %w", err)
-	}
-	if raw.HookEventName != expectedEvent {
+	if raw.HookEventName != binding.primary {
 		return nil, fmt.Errorf("hook_event_name %q in Pi payload does not match route %q", raw.HookEventName, event)
 	}
 	if strings.TrimSpace(raw.SessionID) == "" {
@@ -124,7 +112,7 @@ func NormalizePiPayload(event string, payloadBytes []byte, repoRoot string) ([]b
 		SessionID:      strings.TrimSpace(raw.SessionID),
 		SessionFile:    strings.TrimSpace(raw.SessionFile),
 		Prompt:         strings.TrimSpace(raw.Prompt),
-		ToolName:       normalizePiToolName(raw.ToolName),
+		ToolName:       normalizePiOMPToolName(raw.ToolName),
 		ToolInput:      raw.ToolInput,
 		ToolResponse:   raw.ToolResponse,
 		ToolUseID:      strings.TrimSpace(raw.ToolCallID),
@@ -137,20 +125,7 @@ func NormalizePiPayload(event string, payloadBytes []byte, repoRoot string) ([]b
 		PiContinuation: strings.TrimSpace(raw.Continuation),
 	}
 	if piToolEvent(event) {
-		outcome := ""
-		if event == "pi-post-tool-use" {
-			outcome = "success"
-		} else if event == "pi-post-tool-use-failure" {
-			outcome = "failure"
-		}
-		normalized.MCP = &piMCPEnvelope{
-			Platform:        policy.MCPPlatformPi,
-			Tool:            strings.TrimSpace(raw.ToolName),
-			Observed:        false,
-			BlockingPreHook: true,
-			InputValid:      jsonObject(raw.ToolInput),
-			Outcome:         outcome,
-		}
+		normalized.MCP = newNativeMCPEnvelope(policy.MCPPlatformPi, raw.ToolName, raw.ToolInput, event, "pi-post-tool-use", "pi-post-tool-use-failure")
 	}
 	body, err := json.Marshal(normalized)
 	if err != nil {
@@ -227,22 +202,6 @@ func piToolEvent(event string) bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func normalizePiToolName(native string) string {
-	native = strings.TrimSpace(native)
-	switch strings.ToLower(native) {
-	case "bash":
-		return "Bash"
-	case "read":
-		return "Read"
-	case "write":
-		return "Write"
-	case "edit":
-		return "Edit"
-	default:
-		return native
 	}
 }
 

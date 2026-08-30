@@ -15,7 +15,9 @@ func TestNormalizeKimiCodePayloadCoversEveryDocumentedRoute(t *testing.T) {
 		"PreToolUse": true, "PermissionRequest": true, "PermissionResult": true,
 		"PostToolUse": true, "PostToolUseFailure": true,
 	}
-	for route, nativeEvent := range kimiCodeNativeEvents {
+	for _, binding := range kimiCodeNativeEvents.entries() {
+		route := binding.route
+		nativeEvent := binding.primary
 		t.Run(route, func(t *testing.T) {
 			payload := fmt.Sprintf(`{"hook_event_name":%q,"session_id":"kimi-s1","cwd":%q`, nativeEvent, repo)
 			if toolEvents[nativeEvent] {

@@ -5,26 +5,31 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"reconc.dev/reconc/internal/policy"
 )
 
-var ompNativeEvents = map[string]string{
-	"omp-session-start":         "session_start",
-	"omp-user-prompt-submit":    "input",
-	"omp-pre-tool-use":          "tool_call",
-	"omp-user-bash":             "user_bash",
-	"omp-user-python":           "user_python",
-	"omp-permission-request":    "tool_approval_requested",
-	"omp-permission-result":     "tool_approval_resolved",
-	"omp-post-tool-use":         "tool_result",
-	"omp-post-tool-use-failure": "tool_result",
-	"omp-stop":                  "session_stop",
-	"omp-session-end":           "session_shutdown",
-	"omp-pre-compaction":        "auto_compaction_start",
-	"omp-post-compaction":       "auto_compaction_end",
+var ompNativeEvents = newNativeEventRegistry(
+	nativeEventBinding{route: "omp-session-start", primary: "session_start"},
+	nativeEventBinding{route: "omp-user-prompt-submit", primary: "input"},
+	nativeEventBinding{route: "omp-pre-tool-use", primary: "tool_call"},
+	nativeEventBinding{route: "omp-user-bash", primary: "user_bash"},
+	nativeEventBinding{route: "omp-user-python", primary: "user_python"},
+	nativeEventBinding{route: "omp-permission-request", primary: "tool_approval_requested"},
+	nativeEventBinding{route: "omp-permission-result", primary: "tool_approval_resolved"},
+	nativeEventBinding{route: "omp-post-tool-use", primary: "tool_result"},
+	nativeEventBinding{route: "omp-post-tool-use-failure", primary: "tool_result"},
+	nativeEventBinding{route: "omp-stop", primary: "session_stop"},
+	nativeEventBinding{route: "omp-session-end", primary: "session_shutdown"},
+	nativeEventBinding{route: "omp-pre-compaction", primary: "auto_compaction_start"},
+	nativeEventBinding{route: "omp-post-compaction", primary: "auto_compaction_end"},
+)
+
+var ompJSONDiagnostics = singleJSONDiagnostics{
+	decodePrefix:   "decode OMP payload",
+	multipleValues: "multiple JSON values in OMP payload",
+	trailingPrefix: "trailing data in OMP payload",
 }
 
 type ompPayload struct {
@@ -55,42 +60,33 @@ type ompPayload struct {
 }
 
 type ompNormalizedPayload struct {
-	SessionID          string          `json:"session_id"`
-	SessionFile        string          `json:"session_file,omitempty"`
-	Prompt             string          `json:"prompt,omitempty"`
-	ToolName           string          `json:"tool_name,omitempty"`
-	ToolInput          json.RawMessage `json:"tool_input,omitempty"`
-	ToolResponse       json.RawMessage `json:"tool_response,omitempty"`
-	ToolUseID          string          `json:"tool_use_id,omitempty"`
-	Error              string          `json:"error,omitempty"`
-	StopHookActive     *bool           `json:"stop_hook_active,omitempty"`
-	StrictContinuation bool            `json:"strict_continuation,omitempty"`
-	ReconcRuntime      string          `json:"reconc_runtime"`
-	OMPEvent           string          `json:"omp_event"`
-	OMPInputSource     string          `json:"omp_input_source,omitempty"`
-	OMPApprovalMode    string          `json:"omp_approval_mode,omitempty"`
-	OMPApproved        *bool           `json:"omp_approved,omitempty"`
-	UserPythonCWD      string          `json:"user_python_cwd,omitempty"`
-	ExcludeFromContext *bool           `json:"exclude_from_context,omitempty"`
-	CodeBytes          *int            `json:"code_bytes,omitempty"`
-	MCP                *ompMCPEnvelope `json:"reconc_mcp,omitempty"`
-}
-
-type ompMCPEnvelope struct {
-	Platform        policy.MCPPlatform `json:"platform"`
-	Tool            string             `json:"tool"`
-	Observed        bool               `json:"observed"`
-	BlockingPreHook bool               `json:"blocking_pre_hook"`
-	InputValid      bool               `json:"input_valid"`
-	Outcome         string             `json:"outcome,omitempty"`
+	SessionID          string                 `json:"session_id"`
+	SessionFile        string                 `json:"session_file,omitempty"`
+	Prompt             string                 `json:"prompt,omitempty"`
+	ToolName           string                 `json:"tool_name,omitempty"`
+	ToolInput          json.RawMessage        `json:"tool_input,omitempty"`
+	ToolResponse       json.RawMessage        `json:"tool_response,omitempty"`
+	ToolUseID          string                 `json:"tool_use_id,omitempty"`
+	Error              string                 `json:"error,omitempty"`
+	StopHookActive     *bool                  `json:"stop_hook_active,omitempty"`
+	StrictContinuation bool                   `json:"strict_continuation,omitempty"`
+	ReconcRuntime      string                 `json:"reconc_runtime"`
+	OMPEvent           string                 `json:"omp_event"`
+	OMPInputSource     string                 `json:"omp_input_source,omitempty"`
+	OMPApprovalMode    string                 `json:"omp_approval_mode,omitempty"`
+	OMPApproved        *bool                  `json:"omp_approved,omitempty"`
+	UserPythonCWD      string                 `json:"user_python_cwd,omitempty"`
+	ExcludeFromContext *bool                  `json:"exclude_from_context,omitempty"`
+	CodeBytes          *int                   `json:"code_bytes,omitempty"`
+	MCP                *normalizedMCPEnvelope `json:"reconc_mcp,omitempty"`
 }
 
 // NormalizeOMPPayload validates Reconc's generated OMP ExtensionAPI envelope
 // and converts it into the platform-neutral session payload. The OMP extension
 // derives identity from ExtensionContext rather than model-controlled input.
 func NormalizeOMPPayload(event string, payloadBytes []byte, repoRoot string) ([]byte, error) {
-	expectedEvent := ompNativeEvents[event]
-	if expectedEvent == "" {
+	binding, supported := ompNativeEvents.lookup(event)
+	if !supported {
 		return nil, fmt.Errorf("unsupported OMP hook route %q", event)
 	}
 	if len(bytes.TrimSpace(payloadBytes)) == 0 {
@@ -101,18 +97,10 @@ func NormalizeOMPPayload(event string, payloadBytes []byte, repoRoot string) ([]
 	}
 
 	var raw ompPayload
-	decoder := json.NewDecoder(bytes.NewReader(payloadBytes))
-	if err := decoder.Decode(&raw); err != nil {
-		return nil, fmt.Errorf("decode OMP payload: %w", err)
+	if err := decodeSingleJSONValue(payloadBytes, &raw, false, ompJSONDiagnostics); err != nil {
+		return nil, err
 	}
-	var trailing json.RawMessage
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("multiple JSON values in OMP payload")
-		}
-		return nil, fmt.Errorf("trailing data in OMP payload: %w", err)
-	}
-	if raw.HookEventName != expectedEvent {
+	if raw.HookEventName != binding.primary {
 		return nil, fmt.Errorf("hook_event_name %q in OMP payload does not match route %q", raw.HookEventName, event)
 	}
 	if strings.TrimSpace(raw.SessionID) == "" {
@@ -129,7 +117,7 @@ func NormalizeOMPPayload(event string, payloadBytes []byte, repoRoot string) ([]
 		SessionID:       strings.TrimSpace(raw.SessionID),
 		SessionFile:     strings.TrimSpace(raw.SessionFile),
 		Prompt:          strings.TrimSpace(raw.Prompt),
-		ToolName:        normalizeOMPToolName(raw.ToolName),
+		ToolName:        normalizePiOMPToolName(raw.ToolName),
 		ToolInput:       raw.ToolInput,
 		ToolResponse:    raw.ToolResponse,
 		ToolUseID:       strings.TrimSpace(raw.ToolCallID),
@@ -150,20 +138,7 @@ func NormalizeOMPPayload(event string, payloadBytes []byte, repoRoot string) ([]
 		normalized.CodeBytes = raw.CodeBytes
 	}
 	if ompToolEvent(event) {
-		outcome := ""
-		if event == "omp-post-tool-use" {
-			outcome = "success"
-		} else if event == "omp-post-tool-use-failure" {
-			outcome = "failure"
-		}
-		normalized.MCP = &ompMCPEnvelope{
-			Platform:        policy.MCPPlatformOMP,
-			Tool:            strings.TrimSpace(raw.ToolName),
-			Observed:        false,
-			BlockingPreHook: true,
-			InputValid:      jsonObject(raw.ToolInput),
-			Outcome:         outcome,
-		}
+		normalized.MCP = newNativeMCPEnvelope(policy.MCPPlatformOMP, raw.ToolName, raw.ToolInput, event, "omp-post-tool-use", "omp-post-tool-use-failure")
 	}
 	body, err := json.Marshal(normalized)
 	if err != nil {
@@ -263,20 +238,4 @@ func jsonObject(raw json.RawMessage) bool {
 	}
 	var object map[string]json.RawMessage
 	return json.Unmarshal(raw, &object) == nil && object != nil
-}
-
-func normalizeOMPToolName(native string) string {
-	native = strings.TrimSpace(native)
-	switch strings.ToLower(native) {
-	case "bash":
-		return "Bash"
-	case "read":
-		return "Read"
-	case "write":
-		return "Write"
-	case "edit":
-		return "Edit"
-	default:
-		return native
-	}
 }

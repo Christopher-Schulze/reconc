@@ -11,13 +11,35 @@ import (
 )
 
 type normalizedMCPEnvelope struct {
-	Platform          policy.MCPPlatform
-	Tool              string
-	ServerFingerprint string
-	Observed          bool
-	BlockingPreHook   bool
-	InputValid        bool
-	Outcome           string
+	Platform          policy.MCPPlatform `json:"platform"`
+	Tool              string             `json:"tool"`
+	ServerFingerprint string             `json:"server_fingerprint,omitempty"`
+	Observed          bool               `json:"observed"`
+	BlockingPreHook   bool               `json:"blocking_pre_hook"`
+	InputValid        bool               `json:"input_valid"`
+	Outcome           string             `json:"outcome,omitempty"`
+}
+
+func newNativeMCPEnvelope(platform policy.MCPPlatform, tool string, input json.RawMessage, event, successEvent, failureEvent string) *normalizedMCPEnvelope {
+	return &normalizedMCPEnvelope{
+		Platform:        platform,
+		Tool:            strings.TrimSpace(tool),
+		Observed:        false,
+		BlockingPreHook: true,
+		InputValid:      jsonObject(input),
+		Outcome:         nativeMCPOutcome(event, successEvent, failureEvent),
+	}
+}
+
+func nativeMCPOutcome(event, successEvent, failureEvent string) string {
+	switch {
+	case successEvent != "" && event == successEvent:
+		return "success"
+	case failureEvent != "" && event == failureEvent:
+		return "failure"
+	default:
+		return ""
+	}
 }
 
 func cursorMCPObject(raw map[string]interface{}, before bool) (map[string]interface{}, map[string]interface{}) {

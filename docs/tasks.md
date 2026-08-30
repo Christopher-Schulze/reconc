@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 394 Consolidate adapter MCP envelope construction -> tasks/394-consolidate-adapter-mcp-envelope-construction.md
 - [ ] 395 Prevent TASK section-counter overflow -> tasks/395-prevent-task-section-counter-overflow.md
 - [ ] 396 Preserve blocking CI findings under truncation -> tasks/396-preserve-blocking-ci-findings-under-truncation.md
 - [ ] 397 Redact quoted sensitive command values -> tasks/397-redact-quoted-sensitive-command-values.md
@@ -76,6 +75,7 @@
 
 ## Done
 
+- [x] 394 Consolidate adapter MCP envelope construction -> tasks/done/394-consolidate-adapter-mcp-envelope-construction.md
 - [x] 393 Sanitize adapter trust boundaries and diagnostics -> tasks/done/393-sanitize-adapter-trust-boundaries-and-diagnostics.md
 - [x] 392 Reduce session and pre-decision identity work -> tasks/done/392-reduce-session-and-pre-decision-identity-work.md
 - [x] 391 Harden session-state persistence boundaries -> tasks/done/391-harden-session-state-persistence-boundaries.md

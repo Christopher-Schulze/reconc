@@ -12,6 +12,17 @@ import (
 	"reconc.dev/reconc/internal/pathidentity"
 )
 
+var devinNativeEvents = newNativeEventRegistry(
+	nativeEventBinding{route: "devin-session-start", primary: "SessionStart"},
+	nativeEventBinding{route: "devin-user-prompt-submit", primary: "UserPromptSubmit"},
+	nativeEventBinding{route: "devin-pre-tool-use", primary: "PreToolUse"},
+	nativeEventBinding{route: "devin-permission-request", primary: "PermissionRequest"},
+	nativeEventBinding{route: "devin-post-tool-use", primary: "PostToolUse"},
+	nativeEventBinding{route: "devin-stop", primary: "Stop"},
+	nativeEventBinding{route: "devin-session-end", primary: "SessionEnd"},
+	nativeEventBinding{route: "devin-post-compaction", primary: "PostCompaction"},
+)
+
 // NormalizeDevinPayload converts Devin CLI hook payloads into the internal
 // payload contract. Devin does not guarantee session_id on every event, so a
 // stable repo-scoped identity is derived when no explicit identity exists.
@@ -79,21 +90,11 @@ func NormalizeDevinPayload(event string, payloadBytes []byte, repoRoot string) (
 }
 
 func validateDevinEvent(event string, raw map[string]interface{}) error {
-	expected := map[string]string{
-		"devin-session-start":      "SessionStart",
-		"devin-user-prompt-submit": "UserPromptSubmit",
-		"devin-pre-tool-use":       "PreToolUse",
-		"devin-permission-request": "PermissionRequest",
-		"devin-post-tool-use":      "PostToolUse",
-		"devin-stop":               "Stop",
-		"devin-session-end":        "SessionEnd",
-		"devin-post-compaction":    "PostCompaction",
-	}
-	native, supported := expected[event]
+	binding, supported := devinNativeEvents.lookup(event)
 	if !supported {
 		return fmt.Errorf("unsupported Devin CLI hook route %q", event)
 	}
-	if cursorFirstString(raw, "hook_event_name", "hookEventName") != native {
+	if cursorFirstString(raw, "hook_event_name", "hookEventName") != binding.primary {
 		return fmt.Errorf("Devin CLI payload hook_event_name does not match the selected route")
 	}
 	return nil

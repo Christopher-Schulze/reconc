@@ -5,30 +5,35 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 	"strings"
 
 	"reconc.dev/reconc/internal/pathidentity"
 )
 
-var kimiCodeNativeEvents = map[string]string{
-	"kimi-session-start":         "SessionStart",
-	"kimi-user-prompt-submit":    "UserPromptSubmit",
-	"kimi-pre-tool-use":          "PreToolUse",
-	"kimi-permission-request":    "PermissionRequest",
-	"kimi-permission-result":     "PermissionResult",
-	"kimi-post-tool-use":         "PostToolUse",
-	"kimi-post-tool-use-failure": "PostToolUseFailure",
-	"kimi-stop":                  "Stop",
-	"kimi-stop-failure":          "StopFailure",
-	"kimi-interrupt":             "Interrupt",
-	"kimi-session-end":           "SessionEnd",
-	"kimi-subagent-start":        "SubagentStart",
-	"kimi-subagent-stop":         "SubagentStop",
-	"kimi-pre-compaction":        "PreCompact",
-	"kimi-post-compaction":       "PostCompact",
-	"kimi-notification":          "Notification",
+var kimiCodeNativeEvents = newNativeEventRegistry(
+	nativeEventBinding{route: "kimi-session-start", primary: "SessionStart"},
+	nativeEventBinding{route: "kimi-user-prompt-submit", primary: "UserPromptSubmit"},
+	nativeEventBinding{route: "kimi-pre-tool-use", primary: "PreToolUse"},
+	nativeEventBinding{route: "kimi-permission-request", primary: "PermissionRequest"},
+	nativeEventBinding{route: "kimi-permission-result", primary: "PermissionResult"},
+	nativeEventBinding{route: "kimi-post-tool-use", primary: "PostToolUse"},
+	nativeEventBinding{route: "kimi-post-tool-use-failure", primary: "PostToolUseFailure"},
+	nativeEventBinding{route: "kimi-stop", primary: "Stop"},
+	nativeEventBinding{route: "kimi-stop-failure", primary: "StopFailure"},
+	nativeEventBinding{route: "kimi-interrupt", primary: "Interrupt"},
+	nativeEventBinding{route: "kimi-session-end", primary: "SessionEnd"},
+	nativeEventBinding{route: "kimi-subagent-start", primary: "SubagentStart"},
+	nativeEventBinding{route: "kimi-subagent-stop", primary: "SubagentStop"},
+	nativeEventBinding{route: "kimi-pre-compaction", primary: "PreCompact"},
+	nativeEventBinding{route: "kimi-post-compaction", primary: "PostCompact"},
+	nativeEventBinding{route: "kimi-notification", primary: "Notification"},
+)
+
+var kimiCodeJSONDiagnostics = singleJSONDiagnostics{
+	decodePrefix:   "decode Kimi Code payload",
+	multipleValues: "multiple JSON values in Kimi Code payload",
+	trailingPrefix: "trailing data in Kimi Code payload",
 }
 
 type kimiCodePayload struct {
@@ -73,8 +78,8 @@ type kimiCodeError struct {
 // hook command discovers the repository before calling this function; the
 // payload cwd is then constrained to that repository identity.
 func NormalizeKimiCodePayload(event string, payloadBytes []byte, repoRoot string) ([]byte, error) {
-	expectedEvent := kimiCodeNativeEvents[event]
-	if expectedEvent == "" {
+	binding, supported := kimiCodeNativeEvents.lookup(event)
+	if !supported {
 		return nil, fmt.Errorf("unsupported Kimi Code hook route %q", event)
 	}
 	if len(bytes.TrimSpace(payloadBytes)) == 0 {
@@ -85,17 +90,10 @@ func NormalizeKimiCodePayload(event string, payloadBytes []byte, repoRoot string
 	}
 
 	var raw kimiCodePayload
-	decoder := json.NewDecoder(bytes.NewReader(payloadBytes))
-	if err := decoder.Decode(&raw); err != nil {
-		return nil, fmt.Errorf("decode Kimi Code payload: %w", err)
+	if err := decodeSingleJSONValue(payloadBytes, &raw, false, kimiCodeJSONDiagnostics); err != nil {
+		return nil, err
 	}
-	var trailing json.RawMessage
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("multiple JSON values in Kimi Code payload")
-		}
-		return nil, fmt.Errorf("trailing data in Kimi Code payload: %w", err)
-	}
+	expectedEvent := binding.primary
 	if raw.HookEventName != expectedEvent {
 		return nil, fmt.Errorf("hook_event_name %q in Kimi Code payload does not match route %q", raw.HookEventName, event)
 	}

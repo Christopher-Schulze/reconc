@@ -3,11 +3,30 @@ package agentsession
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"strings"
 )
+
+var gitHubCopilotNativeEvents = newNativeEventRegistry(
+	nativeEventBinding{route: "copilot-session-start", primary: "SessionStart"},
+	nativeEventBinding{route: "copilot-user-prompt-submit", primary: "UserPromptSubmit"},
+	nativeEventBinding{route: "copilot-pre-tool-use", primary: "PreToolUse"},
+	nativeEventBinding{route: "copilot-permission-request", primary: "PermissionRequest"},
+	nativeEventBinding{route: "copilot-post-tool-use", primary: "PostToolUse"},
+	nativeEventBinding{route: "copilot-post-tool-use-failure", primary: "PostToolUseFailure"},
+	nativeEventBinding{route: "copilot-stop", primary: "Stop"},
+	nativeEventBinding{route: "copilot-session-end", primary: "SessionEnd"},
+	nativeEventBinding{route: "copilot-notification", primary: "Notification"},
+	nativeEventBinding{route: "copilot-subagent-start", primary: "subagentStart", alternate: "SubagentStart", allowMissing: true},
+	nativeEventBinding{route: "copilot-subagent-stop", primary: "SubagentStop"},
+	nativeEventBinding{route: "copilot-pre-compaction", primary: "PreCompact"},
+)
+
+var gitHubCopilotJSONDiagnostics = singleJSONDiagnostics{
+	decodePrefix:   "GitHub Copilot payload is not valid JSON",
+	multipleValues: "GitHub Copilot payload contains multiple JSON values",
+	trailingPrefix: "GitHub Copilot payload has trailing data",
+}
 
 // NormalizeGitHubCopilotPayload converts GitHub Copilot's documented hook
 // envelopes into Reconc's platform-neutral session payload. Reconc generates
@@ -22,17 +41,8 @@ func NormalizeGitHubCopilotPayload(event string, payloadBytes []byte, repoRoot s
 		return nil, err
 	}
 	var raw map[string]interface{}
-	decoder := json.NewDecoder(bytes.NewReader(payloadBytes))
-	decoder.UseNumber()
-	if err := decoder.Decode(&raw); err != nil {
-		return nil, fmt.Errorf("GitHub Copilot payload is not valid JSON: %w", err)
-	}
-	var trailing interface{}
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, fmt.Errorf("GitHub Copilot payload contains multiple JSON values")
-		}
-		return nil, fmt.Errorf("GitHub Copilot payload has trailing data: %w", err)
+	if err := decodeSingleJSONValue(payloadBytes, &raw, true, gitHubCopilotJSONDiagnostics); err != nil {
+		return nil, err
 	}
 	if raw == nil {
 		return nil, fmt.Errorf("GitHub Copilot payload must be a JSON object")
@@ -126,34 +136,19 @@ func AdaptGitHubCopilotResult(event string, result Result) Result {
 }
 
 func validateGitHubCopilotEvent(event string, raw map[string]interface{}) error {
-	expected := map[string][]string{
-		"copilot-session-start":         {"SessionStart"},
-		"copilot-user-prompt-submit":    {"UserPromptSubmit"},
-		"copilot-pre-tool-use":          {"PreToolUse"},
-		"copilot-permission-request":    {"PermissionRequest"},
-		"copilot-post-tool-use":         {"PostToolUse"},
-		"copilot-post-tool-use-failure": {"PostToolUseFailure"},
-		"copilot-stop":                  {"Stop"},
-		"copilot-session-end":           {"SessionEnd"},
-		"copilot-notification":          {"Notification"},
-		"copilot-subagent-start":        {"subagentStart", "SubagentStart"},
-		"copilot-subagent-stop":         {"SubagentStop"},
-		"copilot-pre-compaction":        {"PreCompact"},
-	}[event]
-	if len(expected) == 0 {
+	binding, supported := gitHubCopilotNativeEvents.lookup(event)
+	if !supported {
 		return fmt.Errorf("unsupported GitHub Copilot hook route %q", event)
 	}
 	native := cursorFirstString(raw, "hook_event_name", "hookEventName")
-	if native == "" && event == "copilot-subagent-start" {
+	if native == "" && binding.allowMissing {
 		return nil
 	}
 	if native == "" {
 		return fmt.Errorf("GitHub Copilot payload must include hook_event_name")
 	}
-	for _, candidate := range expected {
-		if native == candidate {
-			return nil
-		}
+	if native == binding.primary || binding.alternate != "" && native == binding.alternate {
+		return nil
 	}
 	return fmt.Errorf("GitHub Copilot payload hook_event_name %q does not match route %q", native, event)
 }

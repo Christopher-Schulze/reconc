@@ -10,6 +10,23 @@ import (
 	"reconc.dev/reconc/internal/pathidentity"
 )
 
+var grokNativeEvents = newNativeEventRegistry(
+	nativeEventBinding{route: "grok-session-start", primary: "session_start"},
+	nativeEventBinding{route: "grok-user-prompt-submit", primary: "user_prompt_submit"},
+	nativeEventBinding{route: "grok-pre-tool-use", primary: "pre_tool_use"},
+	nativeEventBinding{route: "grok-post-tool-use", primary: "post_tool_use"},
+	nativeEventBinding{route: "grok-post-tool-use-failure", primary: "post_tool_use_failure"},
+	nativeEventBinding{route: "grok-permission-denied", primary: "permission_denied"},
+	nativeEventBinding{route: "grok-stop", primary: "stop"},
+	nativeEventBinding{route: "grok-stop-failure", primary: "stop_failure"},
+	nativeEventBinding{route: "grok-notification", primary: "notification"},
+	nativeEventBinding{route: "grok-subagent-start", primary: "subagent_start"},
+	nativeEventBinding{route: "grok-subagent-stop", primary: "subagent_stop"},
+	nativeEventBinding{route: "grok-pre-compaction", primary: "pre_compact"},
+	nativeEventBinding{route: "grok-post-compaction", primary: "post_compact"},
+	nativeEventBinding{route: "grok-session-end", primary: "session_end"},
+)
+
 // NormalizeGrokPayload converts Grok Build's camelCase hook envelope into the
 // internal session payload contract. The runner-provided identity variables
 // are cross-checked when present so a hand-crafted envelope cannot silently
@@ -188,26 +205,11 @@ func validateGrokEvent(event string, raw map[string]interface{}) error {
 	if native == "" {
 		return fmt.Errorf("grok payload must include hookEventName")
 	}
-	expected := map[string]string{
-		"grok-session-start":         "session_start",
-		"grok-user-prompt-submit":    "user_prompt_submit",
-		"grok-pre-tool-use":          "pre_tool_use",
-		"grok-post-tool-use":         "post_tool_use",
-		"grok-post-tool-use-failure": "post_tool_use_failure",
-		"grok-permission-denied":     "permission_denied",
-		"grok-stop":                  "stop",
-		"grok-stop-failure":          "stop_failure",
-		"grok-notification":          "notification",
-		"grok-subagent-start":        "subagent_start",
-		"grok-subagent-stop":         "subagent_stop",
-		"grok-pre-compaction":        "pre_compact",
-		"grok-post-compaction":       "post_compact",
-		"grok-session-end":           "session_end",
-	}[event]
-	if expected == "" {
+	binding, supported := grokNativeEvents.lookup(event)
+	if !supported {
 		return fmt.Errorf("unsupported Grok hook route %q", event)
 	}
-	if native == expected {
+	if native == binding.primary {
 		return nil
 	}
 	return fmt.Errorf("grok payload hookEventName %q does not match route %q", native, event)

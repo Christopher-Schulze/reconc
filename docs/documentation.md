@@ -3786,6 +3786,12 @@ dedicated Reconc MCP normalizer or an identity-bound custom runtime can create
 the shared MCP envelope. Adapter boundary failures use categorical public
 messages instead of raw host values. Trusted runtime reasons are normalized to
 one line and capped at 1 KiB before entering a host decision envelope.
+Adapter route identities live in once-constructed registries whose lookup
+returns values rather than mutable tables. Pi, Oh My Pi, and ZCode serialize
+one shared normalized MCP envelope and derive success/failure through one
+conversion path. Their typed payloads, Kimi Code's typed payload, and Copilot's
+generic payload retain adapter-specific validation and diagnostics while
+sharing the same strict single-value JSON decoder and trailing-data rejection.
 Oh My Pi uses the typed Bun extension at `.omp/extensions/reconc.ts`. It
 registers native `session_start`, `input`, `tool_call`, `tool_result`,
 `approval_requested`, `approval_resolved`, `auto_compaction_start`,
