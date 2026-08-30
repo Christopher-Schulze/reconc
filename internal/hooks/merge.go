@@ -26,18 +26,24 @@ type MergeOptions struct {
 	// the merge drops them but reports them via Removed so the
 	// caller can surface a stderr warning.
 	KeepUserEdits bool
+	// Force authorizes replacement of incompatible user-owned JSON shapes.
+	// Without it, the merge reports Blocked conflicts and leaves those values
+	// untouched so the installer can fail before publication.
+	Force bool
 }
 
 // MergeDiff describes what mergeReconcHooks did per event. Used by
 // the Install layer to emit informative warnings when the merge had
 // to clobber user customisations.
 type MergeDiff struct {
-	// Removed is a list of "event:command" strings that were classified
-	// as ModifiedReconc and dropped (unless KeepUserEdits is true).
+	// Removed lists modified Reconc commands and force-authorized incompatible
+	// JSON values that were replaced.
 	Removed []string
 	// Kept is a list of modified-reconc entries preserved because
 	// KeepUserEdits was set.
 	Kept []string
+	// Blocked lists incompatible user-owned shapes that require explicit force.
+	Blocked []string
 }
 
 func mergeReconcHooks(dest, reconcPart map[string]interface{}, opts MergeOptions) MergeDiff {
@@ -45,12 +51,24 @@ func mergeReconcHooks(dest, reconcPart map[string]interface{}, opts MergeOptions
 	if !ok {
 		return MergeDiff{}
 	}
+	var diff MergeDiff
 	destHooks, ok := dest["hooks"].(map[string]interface{})
 	if !ok {
+		if raw, exists := dest["hooks"]; exists {
+			issue := "hooks: (non-object " + describeJSONType(raw) + " preserved)"
+			if !opts.Force {
+				return MergeDiff{Blocked: []string{issue}}
+			}
+			diff.Removed = append(diff.Removed, strings.Replace(issue, "preserved", "overwritten", 1))
+		}
 		destHooks = map[string]interface{}{}
 		dest["hooks"] = destHooks
 	}
-	return mergeReconcHookMaps(destHooks, reconcHooks, opts)
+	merged := mergeReconcHookMaps(destHooks, reconcHooks, opts)
+	diff.Removed = append(diff.Removed, merged.Removed...)
+	diff.Kept = append(diff.Kept, merged.Kept...)
+	diff.Blocked = append(diff.Blocked, merged.Blocked...)
+	return finalizeMergeDiff(diff)
 }
 
 func mergeReconcNestedEventHooks(dest, reconcPart map[string]interface{}, opts MergeOptions) MergeDiff {
@@ -62,46 +80,71 @@ func mergeReconcNestedEventHooks(dest, reconcPart map[string]interface{}, opts M
 	if !ok {
 		return MergeDiff{}
 	}
+	var diff MergeDiff
 	destHooks, ok := dest["hooks"].(map[string]interface{})
 	if !ok {
+		if raw, exists := dest["hooks"]; exists {
+			issue := "hooks: (non-object " + describeJSONType(raw) + " preserved)"
+			if !opts.Force {
+				return MergeDiff{Blocked: []string{issue}}
+			}
+			diff.Removed = append(diff.Removed, strings.Replace(issue, "preserved", "overwritten", 1))
+		}
 		destHooks = map[string]interface{}{}
 		dest["hooks"] = destHooks
 	}
 	destEvents, ok := destHooks["events"].(map[string]interface{})
 	if !ok {
+		if raw, exists := destHooks["events"]; exists {
+			issue := "hooks.events: (non-object " + describeJSONType(raw) + " preserved)"
+			if !opts.Force {
+				return MergeDiff{Blocked: []string{issue}}
+			}
+			diff.Removed = append(diff.Removed, strings.Replace(issue, "preserved", "overwritten", 1))
+		}
 		destEvents = map[string]interface{}{}
 		destHooks["events"] = destEvents
 	}
 	if _, configured := destHooks["enabled"]; !configured {
 		destHooks["enabled"] = true
 	}
-	return mergeReconcNestedEventMaps(destEvents, reconcEvents, opts)
+	nested := mergeReconcNestedEventMaps(destEvents, reconcEvents, opts)
+	diff.Removed = append(diff.Removed, nested.Removed...)
+	diff.Kept = append(diff.Kept, nested.Kept...)
+	diff.Blocked = append(diff.Blocked, nested.Blocked...)
+	return finalizeMergeDiff(diff)
 }
 
 func mergeReconcNestedEventMaps(destEvents, reconcEvents map[string]interface{}, opts MergeOptions) MergeDiff {
 	var diff MergeDiff
 	for event, generatedRaw := range reconcEvents {
 		generatedEntries, _ := generatedRaw.([]interface{})
-		existingEntries, shapeIssue := hookEntryArray(destEvents[event])
-		if shapeIssue != "" {
-			diff.Removed = append(diff.Removed, event+": "+shapeIssue)
+		var existingEntries []interface{}
+		shapeIssue := ""
+		if existingRaw, configured := destEvents[event]; configured {
+			existingEntries, shapeIssue = hookEntryArray(existingRaw)
 		}
+		if shapeIssue != "" {
+			issue := event + ": " + shapeIssue
+			if !opts.Force {
+				diff.Blocked = append(diff.Blocked, issue)
+				continue
+			}
+			diff.Removed = append(diff.Removed, strings.Replace(issue, "preserved", "overwritten", 1))
+		}
+		canonical := hookSignatureSet(generatedEntries)
 		filtered := make([]interface{}, 0, len(existingEntries))
 		for _, entry := range existingEntries {
 			if containsExactHookEntry(generatedEntries, entry) {
 				continue
 			}
-			preserved, owned, command := withoutNestedReconcProcesses(entry)
-			if !owned {
-				filtered = append(filtered, entry)
-				continue
+			preserved, removed, kept := filterReconcProcesses(entry, canonical, opts.KeepUserEdits)
+			for _, command := range removed {
+				diff.Removed = append(diff.Removed, event+": "+command)
 			}
-			if opts.KeepUserEdits {
-				filtered = append(filtered, entry)
+			for _, command := range kept {
 				diff.Kept = append(diff.Kept, event+": "+command)
-				continue
 			}
-			diff.Removed = append(diff.Removed, event+": "+command)
 			if preserved != nil {
 				filtered = append(filtered, preserved)
 			}
@@ -119,17 +162,13 @@ func mergeReconcNestedEventMaps(destEvents, reconcEvents map[string]interface{},
 		}
 		filtered := make([]interface{}, 0, len(existingEntries))
 		for _, entry := range existingEntries {
-			preserved, owned, command := withoutNestedReconcProcesses(entry)
-			if !owned {
-				filtered = append(filtered, entry)
-				continue
+			preserved, removed, kept := filterReconcProcesses(entry, nil, opts.KeepUserEdits)
+			for _, command := range removed {
+				diff.Removed = append(diff.Removed, event+": "+command)
 			}
-			if opts.KeepUserEdits {
-				filtered = append(filtered, entry)
+			for _, command := range kept {
 				diff.Kept = append(diff.Kept, event+": "+command)
-				continue
 			}
-			diff.Removed = append(diff.Removed, event+": "+command)
 			if preserved != nil {
 				filtered = append(filtered, preserved)
 			}
@@ -144,31 +183,38 @@ func mergeReconcNestedEventMaps(destEvents, reconcEvents map[string]interface{},
 }
 
 func hookEntryArray(raw interface{}) ([]interface{}, string) {
-	if raw == nil {
-		return nil, ""
-	}
 	entries, ok := raw.([]interface{})
 	if !ok {
-		return nil, "(non-array " + describeJSONType(raw) + " overwritten)"
+		return nil, "(non-array " + describeJSONType(raw) + " preserved)"
 	}
 	return entries, ""
 }
 
-func withoutNestedReconcProcesses(entry interface{}) (interface{}, bool, string) {
+// filterReconcProcesses removes canonical and replaceable Reconc commands from
+// one entry while retaining foreign nested commands in their original order.
+func filterReconcProcesses(entry interface{}, canonical map[string]struct{}, keepModified bool) (interface{}, []string, []string) {
 	group, ok := entry.(map[string]interface{})
 	if !ok {
-		return entry, false, ""
+		return entry, nil, nil
 	}
 	rawHooks, ok := group["hooks"].([]interface{})
 	if !ok {
-		if !hookEntryContainsReconcInvocation(group) {
-			return entry, false, ""
+		signature := hookEntrySignature(entry)
+		if _, exact := canonical[signature]; exact {
+			return nil, nil, nil
 		}
-		return nil, true, firstHookCommand([]interface{}{entry})
+		if !reconcCommandOwned(signature) {
+			return entry, nil, nil
+		}
+		command := hookCommandLabel(firstHookCommand([]interface{}{entry}), group["args"])
+		if keepModified {
+			return entry, nil, []string{command}
+		}
+		return nil, []string{command}, nil
 	}
 	foreign := make([]interface{}, 0, len(rawHooks))
-	owned := false
-	command := ""
+	removed := []string{}
+	kept := []string{}
 	for _, raw := range rawHooks {
 		hook, hookOK := raw.(map[string]interface{})
 		if !hookOK {
@@ -176,27 +222,34 @@ func withoutNestedReconcProcesses(entry interface{}) (interface{}, bool, string)
 			continue
 		}
 		hookCommand, _ := hook["command"].(string)
-		if !reconcCommandOwned(commandSignature(hookCommand, hook["args"])) {
+		signature := commandSignature(hookCommand, hook["args"])
+		if _, exact := canonical[signature]; exact {
+			continue
+		}
+		if !reconcCommandOwned(signature) {
 			foreign = append(foreign, raw)
 			continue
 		}
-		owned = true
-		if command == "" {
-			command = hookCommandLabel(hookCommand, hook["args"])
+		command := hookCommandLabel(hookCommand, hook["args"])
+		if keepModified {
+			foreign = append(foreign, raw)
+			kept = append(kept, command)
+		} else {
+			removed = append(removed, command)
 		}
 	}
-	if !owned {
-		return entry, false, ""
+	if len(foreign) == len(rawHooks) && len(kept) == 0 {
+		return entry, nil, nil
 	}
 	if len(foreign) == 0 {
-		return nil, true, command
+		return nil, removed, kept
 	}
 	preserved := make(map[string]interface{}, len(group))
 	for key, value := range group {
 		preserved[key] = value
 	}
 	preserved["hooks"] = foreign
-	return preserved, true, command
+	return preserved, removed, kept
 }
 
 func hookCommandLabel(command string, argsValue interface{}) string {
@@ -215,20 +268,16 @@ func mergeReconcHookMaps(destHooks, reconcHooks map[string]interface{}, opts Mer
 	for event, newEntriesRaw := range reconcHooks {
 		newEntries, _ := newEntriesRaw.([]interface{})
 
-		// Validate the destination event's type before treating it as an
-		// array. If the user hand-edited their
-		// settings into a non-array shape (e.g. wrapped in an object
-		// by mistake), we MUST NOT silently replace it -- surface the
-		// event and its observed type via the MergeDiff so the caller
-		// can warn. Currently we still replace it (otherwise the
-		// install does nothing), but the warning makes the behaviour
-		// visible.
 		var existingEntries []interface{}
-		if raw, ok := destHooks[event]; ok && raw != nil {
+		if raw, ok := destHooks[event]; ok {
 			arr, isArr := raw.([]interface{})
 			if !isArr {
-				diff.Removed = append(diff.Removed,
-					event+": (non-array "+describeJSONType(raw)+" overwritten)")
+				issue := event + ": (non-array " + describeJSONType(raw) + " preserved)"
+				if !opts.Force {
+					diff.Blocked = append(diff.Blocked, issue)
+					continue
+				}
+				diff.Removed = append(diff.Removed, strings.Replace(issue, "preserved", "overwritten", 1))
 			} else {
 				existingEntries = arr
 			}
@@ -245,19 +294,18 @@ func mergeReconcHookMaps(destHooks, reconcHooks map[string]interface{}, opts Mer
 
 		filtered := make([]interface{}, 0, len(existingEntries))
 		for _, e := range existingEntries {
-			switch classifyHookEntry(e, canonical) {
-			case NonReconc:
-				filtered = append(filtered, e)
-			case CanonicalReconc:
-				// Drop silently; about to be re-added from newEntries.
-			case ModifiedReconc:
-				cmd := firstHookCommand([]interface{}{e})
-				if opts.KeepUserEdits {
-					filtered = append(filtered, e)
-					diff.Kept = append(diff.Kept, event+": "+cmd)
-				} else {
-					diff.Removed = append(diff.Removed, event+": "+cmd)
-				}
+			if containsExactHookEntry(newEntries, e) {
+				continue
+			}
+			preserved, removed, kept := filterReconcProcesses(e, canonical, opts.KeepUserEdits)
+			for _, command := range removed {
+				diff.Removed = append(diff.Removed, event+": "+command)
+			}
+			for _, command := range kept {
+				diff.Kept = append(diff.Kept, event+": "+command)
+			}
+			if preserved != nil {
+				filtered = append(filtered, preserved)
 			}
 		}
 		filtered = append(filtered, newEntries...)
@@ -273,17 +321,15 @@ func mergeReconcHookMaps(destHooks, reconcHooks map[string]interface{}, opts Mer
 		}
 		filtered := make([]interface{}, 0, len(existingEntries))
 		for _, e := range existingEntries {
-			switch classifyHookEntry(e, nil) {
-			case NonReconc:
-				filtered = append(filtered, e)
-			case CanonicalReconc, ModifiedReconc:
-				cmd := firstHookCommand([]interface{}{e})
-				if opts.KeepUserEdits {
-					filtered = append(filtered, e)
-					diff.Kept = append(diff.Kept, event+": "+cmd)
-				} else {
-					diff.Removed = append(diff.Removed, event+": "+cmd)
-				}
+			preserved, removed, kept := filterReconcProcesses(e, nil, opts.KeepUserEdits)
+			for _, command := range removed {
+				diff.Removed = append(diff.Removed, event+": "+command)
+			}
+			for _, command := range kept {
+				diff.Kept = append(diff.Kept, event+": "+command)
+			}
+			if preserved != nil {
+				filtered = append(filtered, preserved)
 			}
 		}
 		if len(filtered) == 0 {
@@ -301,6 +347,7 @@ func mergeReconcHookMaps(destHooks, reconcHooks map[string]interface{}, opts Mer
 func finalizeMergeDiff(diff MergeDiff) MergeDiff {
 	sort.Strings(diff.Removed)
 	sort.Strings(diff.Kept)
+	sort.Strings(diff.Blocked)
 	return diff
 }
 
@@ -456,11 +503,37 @@ func firstHookCommand(entries []interface{}) string {
 func hookSignatureSet(entries []interface{}) map[string]struct{} {
 	set := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
-		if signature := hookEntrySignature(entry); signature != "" {
+		for _, signature := range hookEntrySignatures(entry) {
 			set[signature] = struct{}{}
 		}
 	}
 	return set
+}
+
+func hookEntrySignatures(entry interface{}) []string {
+	m, ok := entry.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	if cmd, _ := m["command"].(string); strings.TrimSpace(cmd) != "" {
+		if signature := commandSignature(cmd, m["args"]); signature != "" {
+			return []string{signature}
+		}
+		return nil
+	}
+	hookList, _ := m["hooks"].([]interface{})
+	signatures := make([]string, 0, len(hookList))
+	for _, raw := range hookList {
+		hook, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		command, _ := hook["command"].(string)
+		if signature := commandSignature(command, hook["args"]); signature != "" {
+			signatures = append(signatures, signature)
+		}
+	}
+	return signatures
 }
 
 func hookEntrySignature(entry interface{}) string {
@@ -484,14 +557,23 @@ func hookEntrySignature(entry interface{}) string {
 }
 
 func commandSignature(command string, argsValue interface{}) string {
-	parts := []string{strings.TrimSpace(command)}
+	command = strings.TrimSpace(command)
+	if strings.ContainsRune(command, '\x00') {
+		return ""
+	}
+	parts := []string{command}
 	if args, ok := argsValue.([]interface{}); ok {
 		for _, raw := range args {
+			var part string
 			if s, ok := raw.(string); ok {
-				parts = append(parts, s)
+				part = s
 			} else {
-				parts = append(parts, fmt.Sprintf("%v", raw))
+				part = fmt.Sprintf("%v", raw)
 			}
+			if strings.ContainsRune(part, '\x00') {
+				return ""
+			}
+			parts = append(parts, part)
 		}
 	}
 	return strings.Join(parts, "\x00")
@@ -517,10 +599,9 @@ const (
 	ModifiedReconc
 )
 
-// classifyHookEntry returns the classification for a single entry in
-// a hooks.<event> array. Looks at Cursor-style direct `command` first,
-// then Claude/Codex-style `hooks[0].command`; the generator never emits
-// multi-hook entries so this is the correct granularity.
+// classifyHookEntry returns a conservative whole-entry classification for
+// strict removal decisions. Install merging uses filterReconcProcesses to
+// classify every nested command independently and preserve foreign siblings.
 func classifyHookEntry(entry interface{}, canonicalSignatures map[string]struct{}) HookEntryClass {
 	m, ok := entry.(map[string]interface{})
 	if !ok {
@@ -576,7 +657,7 @@ const shellOwnershipDepth = 8
 // it is accepted only when its complete template reconstructs byte-for-byte.
 // Marker text alone is never enough to grant replacement rights.
 func reconcCommandOwned(signature string) bool {
-	if !reconcSignatureNamesWrapper(signature) {
+	if signature == "" {
 		return false
 	}
 	words := strings.Split(signature, "\x00")
@@ -584,6 +665,9 @@ func reconcCommandOwned(signature string) bool {
 		// Exec form: the command word is the executable and the rest is
 		// literal argv, so no shell analysis is needed or valid.
 		return reconcInvocationWords(words)
+	}
+	if !reconcSignatureNamesWrapper(signature) {
+		return false
 	}
 	if generatedRuntimeShellCommandOwned(words[0]) || legacyRepoWrapperCommandOwned(words[0]) {
 		return true
@@ -688,8 +772,8 @@ func validRuntimeRoute(route string) bool {
 	return true
 }
 
-// reconcSignatureNamesWrapper is the historical text match, kept as the
-// pre-filter so the narrowing can only ever remove ownership, never add it.
+// reconcSignatureNamesWrapper is the shell-form text prefilter. Exec-form
+// signatures bypass it and are classified from their parsed argv.
 func reconcSignatureNamesWrapper(signature string) bool {
 	return strings.Contains(signature, "reconc hook runtime ") ||
 		(strings.Contains(signature, "tools/reconc/dist/reconc-") && strings.Contains(signature, " hook runtime ")) ||

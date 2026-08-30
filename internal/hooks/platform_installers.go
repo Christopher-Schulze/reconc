@@ -36,12 +36,14 @@ func installDevinCLI(repoRoot string, force bool) (*InstallReport, error) {
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
 	}
+	if snapshot.exists {
+		action = "updated"
+	}
 	existing := snapshot.body
 	mergedHooks := generatedHooks
 	var mergeDiff MergeDiff
 	backupPath := ""
 	if len(existing) != 0 && strings.TrimSpace(string(existing)) != "{}" {
-		action = "updated"
 		var existingHooks map[string]interface{}
 		if err := json.Unmarshal(existing, &existingHooks); err != nil {
 			if !force {
@@ -54,7 +56,12 @@ func installDevinCLI(repoRoot string, force bool) (*InstallReport, error) {
 		} else {
 			wrappedDest := map[string]interface{}{"hooks": existingHooks}
 			wrappedGenerated := map[string]interface{}{"hooks": generatedHooks}
-			mergeDiff = mergeReconcHooks(wrappedDest, wrappedGenerated, MergeOptions{KeepUserEdits: false})
+			mergeDiff = mergeReconcHooks(wrappedDest, wrappedGenerated, MergeOptions{Force: force})
+			if len(mergeDiff.Blocked) != 0 {
+				return nil, &rerrors.PolicySourceError{
+					Message: target + " has incompatible hook values: " + strings.Join(mergeDiff.Blocked, "; ") + "; pass --force to replace only those values",
+				}
+			}
 			if hooksValue, ok := wrappedDest["hooks"].(map[string]interface{}); ok {
 				mergedHooks = hooksValue
 			}

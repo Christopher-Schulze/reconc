@@ -569,6 +569,9 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
 	}
+	if snapshot.exists {
+		action = "updated"
+	}
 	existing := snapshot.body
 
 	var merged map[string]interface{}
@@ -576,7 +579,6 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 	if len(existing) == 0 || strings.TrimSpace(string(existing)) == "{}" {
 		merged = reconcPart
 	} else {
-		action = "updated"
 		if err := json.Unmarshal(existing, &merged); err != nil {
 			if !force {
 				return nil, &rerrors.PolicySourceError{
@@ -608,9 +610,14 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 			// can warn. KeepUserEdits is false by default to preserve
 			// reinstall semantics. Stored in the InstallReport.
 			if kind == KindZCode {
-				mergeDiff = mergeReconcNestedEventHooks(merged, reconcPart, MergeOptions{KeepUserEdits: false})
+				mergeDiff = mergeReconcNestedEventHooks(merged, reconcPart, MergeOptions{Force: force})
 			} else {
-				mergeDiff = mergeReconcHooks(merged, reconcPart, MergeOptions{KeepUserEdits: false})
+				mergeDiff = mergeReconcHooks(merged, reconcPart, MergeOptions{Force: force})
+			}
+			if len(mergeDiff.Blocked) != 0 {
+				return nil, &rerrors.PolicySourceError{
+					Message: target + " has incompatible hook values: " + strings.Join(mergeDiff.Blocked, "; ") + "; pass --force to replace only those values",
+				}
 			}
 		}
 	}
@@ -752,14 +759,17 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
 	}
+	if snapshot.exists {
+		action = "updated"
+	}
 	existing := snapshot.body
 
 	merged := map[string]interface{}{}
+	var mergeDiff MergeDiff
 	backupPath := ""
 	if len(existing) == 0 || strings.TrimSpace(string(existing)) == "{}" {
 		merged = reconcPart
 	} else {
-		action = "updated"
 		if err := json.Unmarshal(existing, &merged); err != nil {
 			if !force {
 				return nil, &rerrors.PolicySourceError{
@@ -772,12 +782,26 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 				return nil, err
 			}
 			merged = reconcPart
-		} else if existingReconc, ok := merged["reconc"]; ok && !force && !antigravityHookObjectIsReconcManaged(existingReconc) {
-			return nil, &rerrors.PolicySourceError{
-				Message: AntigravityHooksPath + " has a non-reconc top-level `reconc` hook; pass --force to overwrite it",
-			}
 		} else {
-			merged["reconc"] = reconcPart["reconc"]
+			generatedReconc, _ := reconcPart["reconc"].(map[string]interface{})
+			existingReconc, configured := merged["reconc"]
+			if !configured {
+				merged["reconc"] = generatedReconc
+			} else if existingMap, ok := existingReconc.(map[string]interface{}); ok {
+				mergeDiff = mergeReconcHookMaps(existingMap, generatedReconc, MergeOptions{Force: force})
+				if len(mergeDiff.Blocked) != 0 {
+					return nil, &rerrors.PolicySourceError{
+						Message: AntigravityHooksPath + " has incompatible `reconc` hook values: " + strings.Join(mergeDiff.Blocked, "; ") + "; pass --force to replace only those values",
+					}
+				}
+			} else if !force {
+				return nil, &rerrors.PolicySourceError{
+					Message: AntigravityHooksPath + " has a non-object top-level `reconc` value; pass --force to replace it",
+				}
+			} else {
+				mergeDiff.Removed = append(mergeDiff.Removed, "reconc: (non-object "+describeJSONType(existingReconc)+" overwritten)")
+				merged["reconc"] = generatedReconc
+			}
 		}
 	}
 
@@ -791,13 +815,14 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 		action = writeAction
 	}
 	return &InstallReport{
-		Kind:       KindAntigravity,
-		RepoRoot:   root,
-		TargetPath: AntigravityHooksPath,
-		Action:     action,
-		Executable: false,
-		NextAction: "Restart Antigravity CLI in this repository so it reloads .agents/hooks.json.",
-		BackupPath: backupPath,
+		Kind:             KindAntigravity,
+		RepoRoot:         root,
+		TargetPath:       AntigravityHooksPath,
+		Action:           action,
+		Executable:       false,
+		NextAction:       "Restart Antigravity CLI in this repository so it reloads .agents/hooks.json.",
+		BackupPath:       backupPath,
+		DroppedUserEdits: finalizeMergeDiff(mergeDiff).Removed,
 	}, nil
 }
 

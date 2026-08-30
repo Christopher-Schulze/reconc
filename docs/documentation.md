@@ -3943,7 +3943,16 @@ late post events are ignored and cannot consume or overwrite a live
 correlation. Bounded per-invocation tombstones prevent a consumed or expired
 host key from being reassigned before PostInvocation. Live capacity pressure
 denies only the affected PreToolUse event; it does not create durable
-repository evidence taint. OpenCode and Kilo Code
+repository evidence taint. Hook-config reinstall classifies every direct or
+nested command independently, removes only parsed Reconc executions, and keeps
+foreign siblings and Antigravity namespace entries in their original order.
+Shell and exec-form ownership use the same executable-and-argv parser;
+NUL-bearing ambiguous signatures remain foreign. Non-array event values and
+non-object hook containers are never silently replaced: the target stays
+unchanged and install fails until `--force` explicitly authorizes the affected
+values, which are then listed in `dropped_user_edits`. Existing empty files and
+empty objects are reported as updates rather than creations.
+OpenCode and Kilo Code
 use thin Bun adapters at `.opencode/plugins/reconc.js` and
 `.kilo/plugin/reconc.js`. They
 route `chat.message`, hard pre-tool and permission hooks, complete
