@@ -20,6 +20,7 @@ import (
 
 	"reconc.dev/reconc/internal/boundedexec"
 	"reconc.dev/reconc/internal/boundedio"
+	"reconc.dev/reconc/internal/gitexec"
 	"reconc.dev/reconc/internal/pathidentity"
 )
 
@@ -488,7 +489,7 @@ func auditGitBlobBatch(ctx context.Context, root string, objects []gitObjectMeta
 	for index, object := range objects {
 		objectIDs[index] = object.ID
 	}
-	command := exec.CommandContext(ctx, "git", "-C", root, "cat-file", "--batch")
+	command := gitexec.CommandContext(ctx, root, nil, "cat-file", "--batch")
 	command.Stdin = strings.NewReader(strings.Join(objectIDs, "\n") + "\n")
 	stderr, err := boundedexec.NewBuffer(maxPublicationGitBytes)
 	if err != nil {
@@ -554,7 +555,7 @@ func gitObjectMetadataBatch(ctx context.Context, root string, objectIDs []string
 	if len(objectIDs) == 0 {
 		return nil, nil
 	}
-	command := exec.CommandContext(ctx, "git", "-C", root, "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)")
+	command := gitexec.CommandContext(ctx, root, nil, "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)")
 	command.Stdin = strings.NewReader(strings.Join(objectIDs, "\n") + "\n")
 	body, err := boundedexec.CombinedOutput(command, maxPublicationGitBytes)
 	if err != nil {
@@ -602,7 +603,7 @@ func uniqueSortedFindings(findings []auditFinding) []auditFinding {
 }
 
 func gitOutput(ctx context.Context, root string, args ...string) ([]byte, error) {
-	command := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
+	command := gitexec.CommandContext(ctx, root, nil, args...)
 	body, err := boundedexec.CombinedOutput(command, maxPublicationGitBytes)
 	if err != nil {
 		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(body)))

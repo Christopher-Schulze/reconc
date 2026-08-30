@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 447 Bound Git process cancellation -> tasks/447-bound-git-process-cancellation.md
 - [ ] 448 Enforce action evaluation work deadlines -> tasks/448-enforce-action-evaluation-work-deadlines.md
 - [ ] 449 Retain and stream session evidence safely -> tasks/449-retain-and-stream-session-evidence-safely.md
 - [ ] 450 Bind compaction recovery markers structurally -> tasks/450-bind-compaction-recovery-markers-structurally.md
@@ -23,6 +22,7 @@
 
 ## Done
 
+- [x] 447 Bound Git process cancellation -> tasks/done/447-bound-git-process-cancellation.md
 - [x] 446 Isolate invalid upstream MCP requests -> tasks/done/446-isolate-invalid-upstream-mcp-requests.md
 - [x] 445 Add concurrent action-state read paths -> tasks/done/445-add-concurrent-action-state-read-paths.md
 - [x] 444 Keep existing identity-key reads read-only -> tasks/done/444-keep-existing-identity-key-reads-read-only.md

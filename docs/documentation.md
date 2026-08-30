@@ -781,6 +781,13 @@ reports current and target policy/harness pack identities and classifies every p
 `orphaned-legacy`, `incompatible`, or `manual-review`, and performs no
 repository write unless `--output` is supplied.
 
+Every product, hook-inspection, harness-build, and publication-audit Git
+subprocess uses the shared Git execution boundary. Context cancellation kills
+the Unix process group or the Windows child immediately, then a 250 ms
+post-cancellation wait closes inherited process pipes so descendants cannot
+hold Reconc indefinitely. The same bound applies when a Git child exits while
+a descendant retains its output descriptors.
+
 Apply requires the exact saved digest, re-plans under the shared repository
 transaction lock, refuses any stale or review state, mutates only the three
 safe owned states, and advances the receipt once. Receipt-owned generated

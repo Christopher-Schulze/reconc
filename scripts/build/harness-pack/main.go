@@ -10,7 +10,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing/fstest"
@@ -19,6 +18,7 @@ import (
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedexec"
 	"reconc.dev/reconc/internal/boundedio"
+	"reconc.dev/reconc/internal/gitexec"
 	"reconc.dev/reconc/internal/harnesspack"
 )
 
@@ -245,7 +245,7 @@ func hasGitAncestor(source string) (bool, error) {
 func gitOutput(directory string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, "git", append([]string{"-C", directory}, args...)...)
+	command := gitexec.CommandContext(ctx, directory, nil, args...)
 	output, err := boundedexec.Output(command, harnesspack.MaxManifestBytes)
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("git command timed out: %w", ctx.Err())

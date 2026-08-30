@@ -15,6 +15,7 @@ import (
 	"reconc.dev/reconc/internal/boundedexec"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/execfile"
+	"reconc.dev/reconc/internal/gitexec"
 	"reconc.dev/reconc/internal/pathidentity"
 )
 
@@ -816,7 +817,7 @@ func tomlSectionBoolean(path, section, key string) (bool, bool, error) {
 func activeGitPreCommitPath(root string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--git-path", "hooks")
+	command := gitexec.ConfigAwareCommandContext(ctx, "-C", root, "rev-parse", "--git-path", "hooks")
 	output, err := boundedexec.Output(command, maxGitPathOutputBytes)
 	if err != nil {
 		return "", "", err
@@ -846,7 +847,7 @@ func gitHookTargetIsRepositoryOwned(root, target string) (bool, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--git-common-dir")
+	command := gitexec.ConfigAwareCommandContext(ctx, "-C", root, "rev-parse", "--git-common-dir")
 	output, err := boundedexec.Output(command, maxGitPathOutputBytes)
 	if err != nil {
 		return false, err

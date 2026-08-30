@@ -7,7 +7,10 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"time"
 )
+
+const gitCancellationWait = 250 * time.Millisecond
 
 // ObjectDirectories permits the repository-sync snapshot writer to isolate
 // new objects while reading existing repository objects through an alternate.
@@ -38,6 +41,16 @@ func CommandContext(
 	command := exec.CommandContext(ctx, "git", gitArgs...)
 	command.Dir = directory
 	command.Env = hermeticEnvironment(objects)
+	configureGitCommand(command)
+	return command
+}
+
+// ConfigAwareCommandContext returns a bounded Git command that retains the
+// effective repository configuration. It is reserved for commands whose
+// purpose is to inspect that configuration itself.
+func ConfigAwareCommandContext(ctx context.Context, args ...string) *exec.Cmd {
+	command := exec.CommandContext(ctx, "git", args...)
+	configureGitCommand(command)
 	return command
 }
 

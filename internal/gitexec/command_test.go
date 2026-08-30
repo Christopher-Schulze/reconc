@@ -30,6 +30,9 @@ func TestCommandContextSanitizesAmbientGitEnvironment(t *testing.T) {
 		t.Setenv(key, value)
 	}
 	command := CommandContext(context.Background(), t.TempDir(), nil, "status", "--short")
+	if command.WaitDelay != gitCancellationWait || command.Cancel == nil {
+		t.Fatalf("Git cancellation policy = delay %s cancel %t", command.WaitDelay, command.Cancel != nil)
+	}
 	environment := environmentMap(command.Env)
 	want := map[string]string{
 		"GIT_CONFIG_NOSYSTEM": "1",
@@ -63,6 +66,22 @@ func TestCommandContextSanitizesAmbientGitEnvironment(t *testing.T) {
 		if command.Args[index] != value {
 			t.Fatalf("Git argv[%d] = %q, want %q", index, command.Args[index], value)
 		}
+	}
+}
+
+func TestConfigAwareCommandContextPreservesArgumentsAndCancellation(t *testing.T) {
+	command := ConfigAwareCommandContext(context.Background(), "-C", "repository", "config", "core.hooksPath")
+	want := []string{"git", "-C", "repository", "config", "core.hooksPath"}
+	if len(command.Args) != len(want) {
+		t.Fatalf("config-aware Git argv = %v", command.Args)
+	}
+	for index := range want {
+		if command.Args[index] != want[index] {
+			t.Fatalf("config-aware Git argv[%d] = %q, want %q", index, command.Args[index], want[index])
+		}
+	}
+	if command.WaitDelay != gitCancellationWait || command.Cancel == nil {
+		t.Fatalf("config-aware cancellation policy = delay %s cancel %t", command.WaitDelay, command.Cancel != nil)
 	}
 }
 
