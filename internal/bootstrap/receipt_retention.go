@@ -29,10 +29,16 @@ type obsoleteBootstrapReceipt struct {
 }
 
 type validatedObsoleteBootstrapReceipt struct {
-	plan       *Plan
-	info       os.FileInfo
-	receiptSHA string
-	planSHA    string
+	info        os.FileInfo
+	receiptPath string
+	planPath    string
+	receiptSHA  string
+	planSHA     string
+}
+
+type bootstrapReceiptInspectionHooks struct {
+	readReceipt func(string, int64) ([]byte, os.FileInfo, error)
+	loadPlan    func(string) (*Plan, error)
 }
 
 type bootstrapRetentionRemoval struct {
@@ -84,9 +90,9 @@ func pruneObsoleteBootstrapReceiptsWithRemover(
 			continue
 		}
 		candidates = append(candidates, obsoleteBootstrapReceipt{
-			receiptPath: receiptPath,
+			receiptPath: validated.receiptPath,
 			receiptSHA:  validated.receiptSHA,
-			planPath:    filepath.Join(root, filepath.FromSlash(recordedPlanPath(validated.plan))),
+			planPath:    validated.planPath,
 			planSHA:     validated.planSHA,
 			modified:    validated.info.ModTime(),
 		})
@@ -122,7 +128,23 @@ func appendBootstrapRetentionWarnings(nextAction string, warnings []string) stri
 }
 
 func inspectObsoleteBootstrapReceipt(root, receiptPath, currentPlanDigest string) (*validatedObsoleteBootstrapReceipt, bool) {
-	body, info, err := boundedio.ReadRegularFileSnapshot(receiptPath, maxInstallReceiptBytes)
+	return inspectObsoleteBootstrapReceiptWithHooks(root, receiptPath, currentPlanDigest, bootstrapReceiptInspectionHooks{
+		readReceipt: boundedio.ReadRegularFileSnapshot,
+		loadPlan:    LoadPlan,
+	})
+}
+
+func inspectObsoleteBootstrapReceiptWithHooks(
+	root string,
+	receiptPath string,
+	currentPlanDigest string,
+	hooks bootstrapReceiptInspectionHooks,
+) (*validatedObsoleteBootstrapReceipt, bool) {
+	directory, err := safeBootstrapTarget(root, ".reconc")
+	if err != nil || filepath.Dir(filepath.Clean(receiptPath)) != directory || hooks.readReceipt == nil || hooks.loadPlan == nil {
+		return nil, false
+	}
+	body, info, err := hooks.readReceipt(receiptPath, maxInstallReceiptBytes)
 	if err != nil {
 		return nil, false
 	}
@@ -133,13 +155,19 @@ func inspectObsoleteBootstrapReceipt(root, receiptPath, currentPlanDigest string
 		return nil, false
 	}
 	var extra any
-	if decoder.Decode(&extra) != io.EOF || receipt.PlanDigest == currentPlanDigest || len(receipt.PlanDigest) < 12 ||
-		filepath.Base(receiptPath) != filepath.Base(installReceiptPath(receipt.PlanDigest)) {
+	if decoder.Decode(&extra) != io.EOF || receipt.PlanDigest == currentPlanDigest || !validSHA256(receipt.PlanDigest) {
 		return nil, false
 	}
-	planPath := filepath.Join(root, filepath.FromSlash(".reconc/bootstrap-plan-"+receipt.PlanDigest+".json"))
-	plan, err := LoadPlan(planPath)
-	if err != nil || plan.RepoRoot != root || validateInstallReceipt(plan, &receipt) != nil {
+	expectedReceiptPath, err := safeBootstrapTarget(root, installReceiptPath(receipt.PlanDigest))
+	if err != nil || filepath.Clean(receiptPath) != expectedReceiptPath {
+		return nil, false
+	}
+	planPath, err := safeBootstrapTarget(root, recordedPlanPath(&Plan{PlanDigest: receipt.PlanDigest}))
+	if err != nil {
+		return nil, false
+	}
+	plan, err := hooks.loadPlan(planPath)
+	if err != nil || plan == nil || plan.RepoRoot != root || validateInstallReceipt(plan, &receipt) != nil {
 		return nil, false
 	}
 	planSHA := ""
@@ -153,7 +181,8 @@ func inspectObsoleteBootstrapReceipt(root, receiptPath, currentPlanDigest string
 		return nil, false
 	}
 	return &validatedObsoleteBootstrapReceipt{
-		plan: plan, info: info, receiptSHA: bytesSHA256(body), planSHA: planSHA,
+		info: info, receiptPath: expectedReceiptPath, planPath: planPath,
+		receiptSHA: bytesSHA256(body), planSHA: planSHA,
 	}, true
 }
 
