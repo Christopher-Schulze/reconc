@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 455 Persist repository-run terminal reasons -> tasks/455-persist-repository-run-terminal-reasons.md
 - [ ] 456 Correct namespaced MCP strict audit -> tasks/456-correct-namespaced-mcp-strict-audit.md
 - [ ] 457 Avoid Git discovery for ordinary write paths -> tasks/457-avoid-git-discovery-for-ordinary-write-paths.md
 - [ ] 458 Reuse the doctor Grok capability probe -> tasks/458-reuse-doctor-grok-capability-probe.md
@@ -15,6 +14,7 @@
 
 ## Done
 
+- [x] 455 Persist repository-run terminal reasons -> tasks/done/455-persist-repository-run-terminal-reasons.md
 - [x] 454 Reuse Stop fingerprints and loaded evidence -> tasks/done/454-reuse-stop-fingerprints-and-loaded-evidence.md
 - [x] 453 Preserve policy-relevant Git state -> tasks/done/453-preserve-policy-relevant-git-state.md
 - [x] 452 Preserve user interrupt on close failure -> tasks/done/452-preserve-user-interrupt-on-close-failure.md

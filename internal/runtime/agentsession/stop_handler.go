@@ -343,16 +343,15 @@ func runRepositoryContinuation(root string, runFile *os.File, payload *HookPaylo
 	sessionNudges := 0
 	sessionReleased := false
 	strictContinuation := payload != nil && payload.StrictContinuation
-	runEpoch := int64(0)
+	currentRun, err := loadRepositoryRunStateResolved(root)
+	if err != nil {
+		return Result{}, false, err
+	}
+	if !repositoryRunEnabled(currentRun) {
+		return Result{}, false, nil
+	}
+	runEpoch := currentRun.EnabledAt
 	if prompt != "" {
-		current, err := loadRepositoryRunStateResolved(root)
-		if err != nil {
-			return Result{}, false, err
-		}
-		if !repositoryRunEnabled(current) {
-			return Result{}, false, nil
-		}
-		runEpoch = current.EnabledAt
 		_, err = mutateSessionStateResolved(root, sessionIDFromPayload(payload), func(state SessionState) SessionState {
 			progressHash = repositoryRunProgressHash(taskState, state.MaterialEvents)
 			encodedHash := hex.EncodeToString(progressHash[:])
@@ -393,14 +392,14 @@ func runRepositoryContinuation(root string, runFile *os.File, payload *HookPaylo
 			return current
 		}
 		if prompt == "" {
-			if taskState.Disposition != tasklifecycle.RunComplete && taskState.Disposition != tasklifecycle.RunAbsent {
+			terminal, branch, handled := repositoryRunTerminalTransition(current, taskState, runEpoch)
+			if !handled {
 				return current
 			}
-			after := repositoryRunState{DisabledReason: repositoryRunTerminalReason(taskState)}
-			decisionBranch = "disable_" + after.DisabledReason.String()
+			decisionBranch = branch
 			contResult = Result{ExitCode: 0}
 			contHandled = true
-			return after
+			return terminal
 		}
 		if current.EnabledAt != runEpoch {
 			return current
@@ -445,6 +444,18 @@ func runRepositoryContinuation(root string, runFile *os.File, payload *HookPaylo
 		}
 	}
 	return contResult, contHandled, nil
+}
+
+func repositoryRunTerminalTransition(
+	current repositoryRunState,
+	taskState tasklifecycle.RunState,
+	observedEpoch int64,
+) (repositoryRunState, string, bool) {
+	if !repositoryRunEnabled(current) || current.EnabledAt != observedEpoch {
+		return current, "", false
+	}
+	after := repositoryRunState{DisabledReason: repositoryRunTerminalReason(taskState)}
+	return after, "disable_" + after.DisabledReason.String(), true
 }
 
 func shouldLogRunContinuation(branch string, before, after repositoryRunState, nudges int, strict bool) bool {

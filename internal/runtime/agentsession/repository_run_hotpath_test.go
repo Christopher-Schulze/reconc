@@ -597,9 +597,18 @@ func TestRepoRunAutomaticallyDisablesWhenTaskQueueIsComplete(t *testing.T) {
 	}
 }
 
-func TestRepoRunBlockedOrInvalidTaskStateNeverSilentlyDisables(t *testing.T) {
-	for _, disposition := range []tasklifecycle.RunDisposition{tasklifecycle.RunBlocked, tasklifecycle.RunInvalid} {
-		t.Run(string(disposition), func(t *testing.T) {
+func TestRepoRunPersistsEveryNonExecutableTaskReasonIdempotently(t *testing.T) {
+	tests := []struct {
+		name        string
+		disposition tasklifecycle.RunDisposition
+		reason      repositoryRunDisabledReason
+	}{
+		{name: "blocked", disposition: tasklifecycle.RunBlocked, reason: repositoryRunDisabledBlockedTask},
+		{name: "invalid", disposition: tasklifecycle.RunInvalid, reason: repositoryRunDisabledNoExecutableTask},
+		{name: "unknown", disposition: tasklifecycle.RunDisposition("future"), reason: repositoryRunDisabledNoExecutableTask},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
 			repo := t.TempDir()
 			if _, err := SetRepositoryRun(repo, true); err != nil {
 				t.Fatal(err)
@@ -608,21 +617,94 @@ func TestRepoRunBlockedOrInvalidTaskStateNeverSilentlyDisables(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			result, handled, err := runRepositoryContinuation(root, nil, &HookPayload{SessionID: "blocked"}, "codex", tasklifecycle.RunState{Disposition: disposition})
+			taskState := tasklifecycle.RunState{Disposition: test.disposition, TaskID: "455", Blocker: "paused safely"}
+			result, handled, err := runRepositoryContinuation(root, nil, &HookPayload{SessionID: "terminal"}, "codex", taskState)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if handled || result != (Result{}) {
-				t.Fatalf("non-terminal blocker was incorrectly handled as terminal: handled=%v result=%+v", handled, result)
+			if !handled || result != (Result{ExitCode: 0}) {
+				t.Fatalf("non-executable state was not handled: handled=%v result=%+v", handled, result)
 			}
 			state, err := loadRepositoryRunState(repo)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !repositoryRunEnabled(state) {
-				t.Fatalf("%s task state silently disabled repository run: %+v", disposition, state)
+			if state.Enabled || state.DisabledReason != test.reason {
+				t.Fatalf("%s terminal reason was not persisted: %+v", test.disposition, state)
+			}
+			status, err := ReadRepositoryRunStatus(repo)
+			if err != nil || status.Enabled || status.DisabledReason != test.reason.String() {
+				t.Fatalf("run status reason=%q enabled=%v err=%v", status.DisabledReason, status.Enabled, err)
+			}
+			decisions, err := ReadRunDecisions(repo, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decisionCount := len(decisions)
+			wantBranch := "disable_" + test.reason.String()
+			if decisionCount == 0 || decisions[decisionCount-1].Branch != wantBranch {
+				t.Fatalf("terminal transition branch = %#v, want %q", decisions, wantBranch)
+			}
+			result, handled, err = runRepositoryContinuation(root, nil, &HookPayload{SessionID: "terminal"}, "codex", taskState)
+			if err != nil || handled || result != (Result{}) {
+				t.Fatalf("repeated terminal Stop was not idempotent: handled=%v result=%+v err=%v", handled, result, err)
+			}
+			afterRepeat, err := ReadRunDecisions(repo, 0)
+			if err != nil || len(afterRepeat) != decisionCount {
+				t.Fatalf("repeated terminal Stop appended a transition: before=%d after=%d err=%v", decisionCount, len(afterRepeat), err)
 			}
 		})
+	}
+}
+
+func TestRepoRunBlockedTaskCanResumeWithoutLosingIntent(t *testing.T) {
+	repo := t.TempDir()
+	if _, err := SetRepositoryRun(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked := tasklifecycle.RunState{
+		Disposition: tasklifecycle.RunBlocked,
+		TaskID:      "455",
+		TaskTitle:   "Persist terminal reasons",
+		TaskPath:    "docs/tasks/455.md",
+		Blocker:     "waiting for input",
+		OpenTasks:   1,
+	}
+	if _, handled, err := runRepositoryContinuation(root, nil, &HookPayload{SessionID: "resume"}, "codex", blocked); err != nil || !handled {
+		t.Fatalf("blocked transition handled=%v err=%v", handled, err)
+	}
+	if _, err := SetRepositoryRun(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	resumed := blocked
+	resumed.Disposition = tasklifecycle.RunContinue
+	resumed.SubTask = "Continue safely"
+	resumed.Blocker = ""
+	result, handled, err := runRepositoryContinuation(root, nil, &HookPayload{SessionID: "resume"}, "codex", resumed)
+	if err != nil || !handled || !containsRepositoryRunBlock(result.Stdout) {
+		t.Fatalf("resumed TASK did not continue: handled=%v result=%+v err=%v", handled, result, err)
+	}
+	state, err := loadRepositoryRunState(repo)
+	if err != nil || !repositoryRunEnabled(state) || state.DisabledReason != repositoryRunDisabledNone {
+		t.Fatalf("resumed repository run state=%+v err=%v", state, err)
+	}
+}
+
+func TestRepositoryRunTerminalTransitionRejectsConcurrentEpoch(t *testing.T) {
+	current := repositoryRunState{Enabled: true, EnabledAt: 200}
+	taskState := tasklifecycle.RunState{Disposition: tasklifecycle.RunBlocked}
+	after, branch, handled := repositoryRunTerminalTransition(current, taskState, 100)
+	if handled || branch != "" || after != current {
+		t.Fatalf("stale terminal observation overwrote a newer run epoch: handled=%v branch=%q after=%+v", handled, branch, after)
+	}
+	disabled := repositoryRunState{DisabledReason: repositoryRunDisabledCommandOff}
+	after, branch, handled = repositoryRunTerminalTransition(disabled, taskState, 0)
+	if handled || branch != "" || after != disabled {
+		t.Fatalf("terminal observation overwrote a concurrent disable: handled=%v branch=%q after=%+v", handled, branch, after)
 	}
 }
 

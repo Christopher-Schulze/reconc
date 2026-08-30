@@ -1259,8 +1259,14 @@ the configured grammar and fail closed on ambiguous state.
 `reconc run on .` enables a durable repository-scoped continuation switch for
 supported agents when the TASK plane has executable work. Stop hooks continue,
 claim, block, or terminate from typed state; bounded no-progress guards prevent
-endless repetition. The agent owns `run on|status|off`; `run reset` is the
-explicit recovery path for corrupt or foreign state.
+endless repetition. A complete queue, absent TASK plane, blocked TASK, or
+invalid/non-executable TASK state disables the switch with the distinct durable
+reason `task_complete`, `task_plane_absent`, `blocked_task`, or
+`no_executable_task`. Repeated Stops do not duplicate that transition, and a
+later `reconc run on .` resumes the same TASK lifecycle intent. A terminal
+observation cannot disable a newer concurrently enabled run epoch. The agent
+owns `run on|status|off`; `run reset` is the explicit recovery path for corrupt
+or foreign state.
 
 ### What are the Windows limitations?
 
