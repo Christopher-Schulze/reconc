@@ -2838,6 +2838,10 @@ file ID, change-time, write-time, and attributes prevent restored modification
 times from making changed bytes look unchanged. Head publication precedes
 checkpoint publication inside the existing recoverable JSONL transaction;
 recovery fully verifies retained bytes before rebuilding either summary.
+In-process append and recovery take one checkpoint mutex before the shared
+cross-process JSONL lock. Every checkpoint-cache read and publication therefore
+observes a complete file-bound cache generation, with no reverse lock order in
+recovery callbacks.
 
 Action-state status and evidence views report the byte length of the already
 validated persisted state buffer. They do not marshal the complete state a

@@ -31,6 +31,10 @@ const (
 
 var errRecordAlreadyCommitted = errors.New("action ledger record is already committed")
 
+type checkpointSynchronizationHooks struct {
+	beforeAppendLock func()
+}
+
 type Store struct {
 	storage        actionstate.PrivateProjectStorage
 	directory      string
@@ -40,8 +44,11 @@ type Store struct {
 	layout         jsonl.Layout
 	policy         jsonl.Policy
 	publishHead    func(string, []byte) error
-	appendMu       sync.Mutex
-	checkpoint     *ledgerCheckpointCache
+	// appendMu serializes in-process append and recovery before either path
+	// acquires the cross-process JSONL lock or accesses the checkpoint cache.
+	appendMu        sync.Mutex
+	checkpoint      *ledgerCheckpointCache
+	checkpointHooks checkpointSynchronizationHooks
 }
 
 func OpenStore(storage actionstate.PrivateProjectStorage) (*Store, error) {
@@ -203,6 +210,9 @@ func (s *Store) Append(ctx context.Context, record Record) (Record, error) {
 	}
 	if err := s.validateRecordKeyGeneration(record); err != nil {
 		return Record{}, ledgerError(action.ReasonLedgerCorrupt, "validate action ledger identity generation", err)
+	}
+	if s.checkpointHooks.beforeAppendLock != nil {
+		s.checkpointHooks.beforeAppendLock()
 	}
 	s.appendMu.Lock()
 	defer s.appendMu.Unlock()
@@ -384,6 +394,8 @@ func (s *Store) Recover(ctx context.Context) error {
 	if _, err := s.validateExistingLock(ctx); err != nil {
 		return err
 	}
+	s.appendMu.Lock()
+	defer s.appendMu.Unlock()
 	err := jsonl.ReadSnapshotContextWithLayout(
 		ctx, s.livePath, s.layout, s.commitHeadLocked, s.validateStablePathsAfterRecovery,
 	)
