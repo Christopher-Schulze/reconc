@@ -78,11 +78,10 @@ test oracle. Production schema validation uses
 
 ## Current Release State
 
-The current source line is `v0.9.x`; the source version is `v0.9.7`.
-The latest published release is `reconc-v0.9.7`, rebuilt from product commit
-`9fb4b7e059e5f5635c0c10ca08851c52fcc73f8f` after core tests, race tests,
-vet, static analysis, CodeQL, and independent release-artifact verification
-passed. Later `main` commits may contain release-state and TASK closeout
-documentation without changing the released product code. Version text alone
+The current source line is `v0.9.x`; the source version is `v0.9.8`.
+The latest published release is `reconc-v0.9.7`; the protected
+`reconc-v0.9.8` tag and matching release workflow publish the verified
+candidate. Core tests, race tests, vet, static analysis, CodeQL, and independent
+release-artifact verification must pass before publication. Version text alone
 is not release identity. Coverage is measured across each complete Go module,
 not inferred from package-local percentages.

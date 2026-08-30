@@ -375,7 +375,7 @@ candidate insertion and digest ordering.
 
 ## Go-Only Action Plane (Draft)
 
-RECONC-0008 remains Draft. v0.9.7 implements strict action
+RECONC-0008 remains Draft. v0.9.8 implements strict action
 authoring, deterministic legacy MCP lowering, one canonical format-6 action
 plan, immutable typed matcher programs, a derived MCP compatibility view, and
 `reconc why action`. The transport-neutral pure evaluator now implements strict
@@ -506,7 +506,7 @@ authority modes, resource limits, failure matrix, approval and budget state
 machines, privacy-bounded ledger, conformance vectors, and package ownership are
 in [RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md).
 
-The interoperability matrix is Reconc `0.9.7`, Go MCP SDK `v1.7.0`, current
+The interoperability matrix is Reconc `0.9.8`, Go MCP SDK `v1.7.0`, current
 protocol `2026-07-28`, legacy protocol `2025-11-25`, official
 `langchain-mcp-adapters==0.3.2`, `langchain-core==1.5.4`, MCP Python SDK
 `1.29.0`, Python CI `3.13.14`, and Go fixture format `1`. The external adapter

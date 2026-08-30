@@ -124,7 +124,7 @@ func TestLangChainProofPinsVersionsAndUnenforcedBoundary(t *testing.T) {
 	}
 	for name, body := range surfaces {
 		assertContainsAll(t, name, body,
-			"0.9.7",
+			"0.9.8",
 			"v1.7.0",
 			"0.3.2",
 			"1.5.4",
@@ -154,7 +154,7 @@ func TestLangChainProofPinsVersionsAndUnenforcedBoundary(t *testing.T) {
 	doctor := readPublicSurfaceFile(t, root, "internal/cli/doctor_deep.go")
 	status := readPublicSurfaceFile(t, root, "internal/cli/inspect_cmd.go")
 
-	assertContainsAll(t, "source version", mainSource, `var Version = "0.9.7"`)
+	assertContainsAll(t, "source version", mainSource, `var Version = "0.9.8"`)
 	assertContainsAll(t, "Go SDK pin", goModule, "github.com/modelcontextprotocol/go-sdk v1.7.0")
 	assertContainsAll(t, "external direct pins", requirements,
 		"langchain-core==1.5.4",
@@ -163,7 +163,7 @@ func TestLangChainProofPinsVersionsAndUnenforcedBoundary(t *testing.T) {
 		"typing-extensions==4.16.0",
 	)
 	assertContainsAll(t, "integration script", integration,
-		"reconc_version=0.9.7",
+		"reconc_version=0.9.8",
 		"go_mcp_sdk_version=v1.7.0",
 		`platform.python_version() != "3.13.14"`,
 		`LATEST_PROTOCOL_VERSION != "2025-11-25"`,

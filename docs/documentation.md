@@ -24,6 +24,7 @@ usage, architecture, release, and security facts should be kept here first.
 - [v0.9.4 To v0.9.5 Migration](#v094-to-v095-migration)
 - [v0.9.5 To v0.9.6 Migration](#v095-to-v096-migration)
 - [v0.9.6 To v0.9.7 Migration](#v096-to-v097-migration)
+- [v0.9.7 To v0.9.8 Migration](#v097-to-v098-migration)
 - [Uninstall And Remove](#uninstall-and-remove)
 - [Development Control Plane](#development-control-plane)
 - [Minimal Example Policy](#minimal-example-policy)
@@ -346,9 +347,9 @@ make benchmark-compare
 make benchmark-baseline
 make self-host
 make publication-audit
-make sbom VERSION=0.9.7
-make notices VERSION=0.9.7
-make release VERSION=0.9.7
+make sbom VERSION=0.9.8
+make notices VERSION=0.9.8
+make release VERSION=0.9.8
 ```
 
 `make coverage` runs both Go modules with atomic whole-module instrumentation
@@ -1101,7 +1102,7 @@ reconc ci . --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --head "$CI_COMMIT_SHA" --f
 reconc ci . --base origin/main --head HEAD --format junit --output reconc-junit.xml
 ```
 
-The current v0.9.7 source can export the same completion candidate for external
+The current v0.9.8 source can export the same completion candidate for external
 review:
 
 ```bash
@@ -1192,9 +1193,9 @@ is live.
 ### How do I install and test it?
 
 Use the protected v0.9.7 POSIX installer for macOS or Linux and the protected
-v0.9.7 PowerShell installer for Windows x64. Put the installed binary on
-`PATH`, verify it with `reconc doctor --global`, and initialize the target
-repository with `reconc init .`. Contributors building current source can use
+v0.9.7 PowerShell installer for Windows x64. Put the installed
+binary on `PATH`, verify it with `reconc doctor --global`, and initialize the
+target repository with `reconc init .`. Contributors building current source can use
 `go build -o .build/bin/reconc ./cmd/reconc` followed by
 `.build/bin/reconc install-cli`; copied repo-local binaries use the same
 one-time `install-cli` call.
@@ -2816,7 +2817,7 @@ and repository checks.
 
 ## Go-Only Action Plane
 
-RECONC-0008 remains Draft. The `v0.9.7` implementation provides strict
+RECONC-0008 remains Draft. The `v0.9.8` implementation provides strict
 `actions` authoring, canonical format-6 compilation, deterministic lowering of
 legacy `mcp` declarations, immutable typed matcher programs, a derived MCP
 compatibility view, `reconc why action`, and the transport-neutral deterministic
@@ -2847,7 +2848,7 @@ request-local JSON-RPC errors, without forwarding those calls or terminating
 later valid traffic. Framing corruption, transport failure, and exhausted
 internal correlation identity remain connection-fatal.
 
-The same v0.9.7 implementation provides trusted operator and host context
+The same v0.9.8 implementation provides trusted operator and host context
 bindings, domain-separated HMAC identities, explicit key leases and rotation
 blocking, compiled cumulative budgets, evaluator budget snapshots, and a
 private bounded multi-process action-state store. Budget reservations are
@@ -3068,7 +3069,7 @@ The supported and continuously tested matrix is exact:
 
 | Component | Proven version or protocol | Proof boundary |
 | --- | --- | --- |
-| Reconc source binary | `0.9.7` | Built from current source and version-smoked before the test |
+| Reconc source binary | `0.9.8` | Built from current source and version-smoked before the test |
 | MCP Go SDK | `v1.7.0` | Pinned product dependency |
 | Current MCP protocol | `2026-07-28` | Pure-Go raw protocol suite |
 | Legacy MCP protocol | `2025-11-25` | Pure-Go raw suite and external LangChain consumer |
@@ -4931,6 +4932,24 @@ and registry mapping. The online HTTP publication verifier belongs to the
 tag-bound release workflow and runs against the exact protected tag and
 published assets.
 
+## v0.9.7 To v0.9.8 Migration
+
+Source-owned installations build source version `0.9.8`. Existing direct
+installations use `reconc update` after the protected `reconc-v0.9.8` release
+is published, then verify global ownership with `reconc doctor --global`.
+
+Policy-lock format 6 and every other public JSON contract keep their existing
+representation, schema URL, introduction tag, migration chain, and canonical
+bytes. In particular, refreshed format-6 locks continue to name the immutable
+`reconc-v0.9.7/schemas/v6/policy-lock.schema.json` identity. A product-only
+release does not mint a duplicate schema URL or require repository lockfile
+refreshes.
+
+The release hardens filesystem identity, atomic publication, retained JSONL
+state, action enforcement, hook lifecycle handling, public redaction, and
+bounded work across supported platforms. Existing policies and repository
+receipts remain compatible; no manual data migration is required.
+
 ## License
 
 `reconc` is distributed under the MIT License.
@@ -4964,10 +4983,11 @@ current-state documentation.
 
 ## Release State
 
-The current source line is `v0.9.x`; the source version is `v0.9.7`. The latest
-published release is `reconc-v0.9.7`. Its format-6 schema identity, tag commit,
-artifact checksums, and build provenance jointly define the release identity;
-version text alone does not.
+The current source line is `v0.9.x`; the source version is `v0.9.8`. The latest
+published release is `reconc-v0.9.7`; the protected `reconc-v0.9.8` tag and
+matching release workflow have not published the candidate yet. Its schema
+identities, tag commit, artifact checksums, and build provenance jointly define
+the release identity; version text alone does not.
 Release artifacts are produced only through an explicit manual Release
 workflow dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never
 publish a release.

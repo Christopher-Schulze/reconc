@@ -2,9 +2,9 @@
 // contracts and the enterprise base-URL override.
 package schema
 
-// CurrentSchemaTag is the intended immutable publication tag for the newly
-// versioned schema contract in this source candidate. Unchanged contracts retain
-// PreviousSchemaTag so their published bytes and identities remain stable.
+// CurrentSchemaTag identifies the latest immutable release tag that introduced
+// a current schema contract. Product-only releases do not rewrite unchanged
+// schema bytes or identities.
 const CurrentSchemaTag = "reconc-v0.9.7"
 
 // PreviousSchemaTag identifies the last published source release whose

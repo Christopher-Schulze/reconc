@@ -5,8 +5,8 @@
 # Usage:
 #   sh install.sh                      # install the latest stable release
 #   sh install.sh --channel preview    # install the latest preview
-#   sh install.sh --version 0.9.7      # install this release after publication
-#   sh install.sh 0.9.7                # compatible form, after publication
+#   sh install.sh --version 0.9.8      # install this release after publication
+#   sh install.sh 0.9.8                # compatible form, after publication
 #   RECONC_INSTALL_DIR=/tmp sh install.sh
 #
 # Pre-install-bootstrap exception: the installer must run before the Go binary

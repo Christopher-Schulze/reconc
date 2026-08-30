@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/schema"
+	"reconc.dev/reconc/internal/semver"
 )
 
 func TestPolicyLockRFCReportsCurrentFormat(t *testing.T) {
@@ -32,15 +33,27 @@ func TestPolicyLockRFCReportsCurrentFormat(t *testing.T) {
 	}
 }
 
-func TestCurrentSchemaPublicationTagMatchesSourceVersion(t *testing.T) {
+func TestCurrentSchemaPublicationTagDoesNotExceedSourceVersion(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	source := readPublicSurfaceFile(t, root, "cmd/reconc/main.go")
 	match := regexp.MustCompile(`(?m)^var Version = "([0-9]+\.[0-9]+\.[0-9]+)"$`).FindStringSubmatch(source)
 	if len(match) != 2 {
 		t.Fatal("cmd/reconc/main.go does not declare one canonical source version")
 	}
-	if got, want := schema.CurrentSchemaTag, "reconc-v"+match[1]; got != want {
-		t.Fatalf("current schema publication tag = %q, want source tag %q", got, want)
+	sourceVersion, err := semver.Parse(match[1])
+	if err != nil {
+		t.Fatalf("parse source version: %v", err)
+	}
+	const tagPrefix = "reconc-v"
+	if !strings.HasPrefix(schema.CurrentSchemaTag, tagPrefix) {
+		t.Fatalf("current schema publication tag = %q, want %q prefix", schema.CurrentSchemaTag, tagPrefix)
+	}
+	schemaVersion, err := semver.Parse(strings.TrimPrefix(schema.CurrentSchemaTag, tagPrefix))
+	if err != nil {
+		t.Fatalf("parse current schema publication tag: %v", err)
+	}
+	if semver.Compare(schemaVersion, sourceVersion) > 0 {
+		t.Fatalf("current schema publication tag %q follows source version %q", schema.CurrentSchemaTag, match[1])
 	}
 }
 
