@@ -1966,7 +1966,12 @@ committable policy contract and should be reviewed with policy-source changes.
 Format 6 is checkout-independent and byte-identical across equivalent clones
 and worktrees. Source records contain only portable logical paths, SHA-256
 content identities, kinds, and bounded inline locations; raw source bodies and
-physical global-policy paths never enter the committable lock. Its
+physical global-policy paths never enter the committable lock. Source-path
+admission is host-independent: POSIX roots, Windows drive and UNC roots,
+drive-relative prefixes, backslashes, surrounding whitespace, parent segments,
+and non-canonical dot or repeated-separator forms are rejected on every host.
+Canonical slash-separated repository paths and the logical `global:` and
+`preset:` identities remain valid. Its
 `lock_digest` binds the complete canonical payload except for the digest field
 itself. Compilation freezes custom encoders and exact JSON numbers into one
 compact normalized representation, hashes those bytes, inserts the digest in
@@ -2074,8 +2079,12 @@ acquires the repository compile lock before loading the authoritative source
 bundle, rejects repository-root drift,
 and binds the repository, `.reconc` directory, and compile-lock file to opened
 filesystem identities. Concurrent refreshes therefore cannot publish an older
-pre-lock snapshot after a newer source state. This standalone product
-repository does not carry either file and must exercise policy compilation only
+pre-lock snapshot after a newer source state. If a hand-built discovery result
+claims that no policy marker exists but its loader completes successfully, the
+compiler returns an actionable typed policy-source error before acquiring that
+lock; no compiler entry point returns a nil policy with a nil error. This
+standalone product repository does not carry either file and must exercise
+policy compilation only
 inside isolated test repositories. Its ignore patterns remain as a defensive
 boundary against accidental local state and for nested bootstrap fixtures.
 

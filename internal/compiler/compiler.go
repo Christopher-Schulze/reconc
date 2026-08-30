@@ -19,9 +19,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"strings"
 
 	"reconc.dev/reconc/internal/action"
@@ -30,6 +30,7 @@ import (
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/schema"
 	"reconc.dev/reconc/internal/templates"
@@ -128,7 +129,10 @@ func CompileRepoPolicy(repoStartPath, compilerVersion string) (compiled *Compile
 func compileRepoPolicyWithDiscovery(discovery ingest.DiscoveryResult, compilerVersion string, load func() (*ingest.SourceBundle, error)) (compiled *CompiledPolicy, err error) {
 	if !discovery.Discovered {
 		_, loadErr := load()
-		return nil, loadErr
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		return nil, &rerrors.PolicySourceError{Message: "policy source load completed without error after discovery reported no policy markers; retry from the repository root"}
 	}
 	release, err := AcquireCompileLock(discovery.RepoRoot)
 	if err != nil {
@@ -1021,19 +1025,13 @@ func validateCompiledSources(payload map[string]interface{}) error {
 	return nil
 }
 
-var windowsAbsolutePathPattern = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
-
 func portableSourcePath(value string) bool {
 	cleaned := strings.TrimSpace(value)
-	if cleaned == "" || filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, `\`) || windowsAbsolutePathPattern.MatchString(cleaned) {
+	if cleaned == "" || cleaned != value || strings.Contains(cleaned, `\`) ||
+		pathidentity.Rooted(cleaned) || pathidentity.EscapesLexically(cleaned) {
 		return false
 	}
-	for _, component := range strings.FieldsFunc(cleaned, func(r rune) bool { return r == '/' || r == '\\' }) {
-		if component == ".." {
-			return false
-		}
-	}
-	return true
+	return cleaned != "." && path.Clean(cleaned) == cleaned
 }
 
 func sourceKindValid(kind policy.SourceKind) bool {
