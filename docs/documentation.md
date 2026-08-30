@@ -3808,11 +3808,14 @@ Reconc installs that namespace as its own matcher group on the generic tool
 events and routes it into the MCP path, so the exact selector is the identity
 the host itself uses. The namespace is the discriminator those generic surfaces
 lack, which makes `unclassified: deny` enforceable before execution on both
-hosts. Only the identity and the arguments continue past normalization; a
-payload that reaches the namespace route under a built-in tool name is envelope
-drift and fails closed. A completed call is still not a successful one: positive
-MCP evidence requires an explicit host success result. Server locators, credentials, arguments,
-results, prompts, and command bodies are not persisted in MCP status/audit.
+hosts. Normalized audit events record `before` or `after` independently from
+the route's blocking-pre-hook capability, so paired and post-only observations
+retain the same strict-enforcement identity. Only the identity and the arguments
+continue past normalization; a payload that reaches the namespace route under a
+built-in tool name is envelope drift and fails closed. A completed call is still
+not a successful one: positive MCP evidence requires an explicit host success
+result. Server locators, credentials, arguments, results, prompts, and command
+bodies are not persisted in MCP status/audit.
 Use `reconc why mcp .`, `reconc hook status . --json`, and
 `reconc doctor . --deep` to inspect the compiled mappings, redacted
 observations, and host limitation.

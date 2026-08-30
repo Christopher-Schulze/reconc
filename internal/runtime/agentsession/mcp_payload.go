@@ -15,19 +15,39 @@ type normalizedMCPEnvelope struct {
 	Tool              string             `json:"tool"`
 	ServerFingerprint string             `json:"server_fingerprint,omitempty"`
 	Observed          bool               `json:"observed"`
+	Phase             MCPEventPhase      `json:"phase"`
 	BlockingPreHook   bool               `json:"blocking_pre_hook"`
 	InputValid        bool               `json:"input_valid"`
 	Outcome           string             `json:"outcome,omitempty"`
 }
 
+// MCPEventPhase identifies the current host event independently of whether
+// the route has a blocking pre-execution hook.
+type MCPEventPhase string
+
+const (
+	MCPPhaseBefore MCPEventPhase = "before"
+	MCPPhaseAfter  MCPEventPhase = "after"
+)
+
+func (p MCPEventPhase) Valid() bool {
+	return p == MCPPhaseBefore || p == MCPPhaseAfter
+}
+
 func newNativeMCPEnvelope(platform policy.MCPPlatform, tool string, input json.RawMessage, event, successEvent, failureEvent string) *normalizedMCPEnvelope {
+	outcome := nativeMCPOutcome(event, successEvent, failureEvent)
+	phase := MCPPhaseBefore
+	if outcome != "" {
+		phase = MCPPhaseAfter
+	}
 	return &normalizedMCPEnvelope{
 		Platform:        platform,
 		Tool:            strings.TrimSpace(tool),
 		Observed:        false,
+		Phase:           phase,
 		BlockingPreHook: true,
 		InputValid:      jsonObject(input),
-		Outcome:         nativeMCPOutcome(event, successEvent, failureEvent),
+		Outcome:         outcome,
 	}
 }
 
@@ -48,6 +68,7 @@ func cursorMCPObject(raw map[string]interface{}, before bool) (map[string]interf
 		Platform:        policy.MCPPlatformCursor,
 		Tool:            cursorToolName(raw),
 		Observed:        true,
+		Phase:           MCPPhaseBefore,
 		BlockingPreHook: true,
 		InputValid:      inputValid,
 	}
@@ -57,6 +78,7 @@ func cursorMCPObject(raw map[string]interface{}, before bool) (map[string]interf
 		envelope.InputValid = false
 	}
 	if !before {
+		envelope.Phase = MCPPhaseAfter
 		envelope.Outcome = cursorMCPOutcome(raw)
 	}
 	return mcpEnvelopeToMap(envelope), input
@@ -67,6 +89,7 @@ func mcpEnvelopeToMap(envelope normalizedMCPEnvelope) map[string]interface{} {
 		"platform":          string(envelope.Platform),
 		"tool":              envelope.Tool,
 		"observed":          envelope.Observed,
+		"phase":             string(envelope.Phase),
 		"blocking_pre_hook": envelope.BlockingPreHook,
 		"input_valid":       envelope.InputValid,
 	}

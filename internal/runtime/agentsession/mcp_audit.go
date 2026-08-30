@@ -34,6 +34,7 @@ type MCPAuditEntry struct {
 	ServerFingerprint string             `json:"server_fingerprint,omitempty"`
 	Effect            policy.MCPEffect   `json:"effect,omitempty"`
 	Outcome           string             `json:"outcome"`
+	Phase             MCPEventPhase      `json:"phase,omitempty"`
 	Classified        bool               `json:"classified"`
 	StrictAvailable   bool               `json:"strict_available"`
 }
@@ -67,7 +68,7 @@ func mcpAuditLockPath(repoRoot string) string {
 	return filepath.Join(projectDir(repoRoot), "locks", "mcp-audit.lock")
 }
 
-func recordMCPAuditResolved(root string, envelope *MCPPayload, effect policy.MCPEffect, outcome string, classified, strictAvailable bool) error {
+func recordMCPAuditResolved(root string, envelope *MCPPayload, effect policy.MCPEffect, outcome string, classified bool) error {
 	if envelope == nil {
 		return errors.New("MCP audit envelope is nil")
 	}
@@ -78,8 +79,9 @@ func recordMCPAuditResolved(root string, envelope *MCPPayload, effect policy.MCP
 		ServerFingerprint: envelope.ServerFingerprint,
 		Effect:            effect,
 		Outcome:           strings.TrimSpace(outcome),
+		Phase:             envelope.Phase,
 		Classified:        classified,
-		StrictAvailable:   strictAvailable,
+		StrictAvailable:   envelope.BlockingPreHook,
 	}
 	if entry.Outcome == "" {
 		entry.Outcome = "observed"
@@ -188,7 +190,7 @@ func readMCPAuditResolved(root string) (MCPAuditSummary, error) {
 		return MCPAuditSummary{}, fmt.Errorf("MCP audit exceeds %d entries", maxMCPAuditEntries)
 	}
 	for _, entry := range summary.Events {
-		if !entry.Platform.Valid() || len(entry.SelectorHash) != 64 || entry.Outcome == "" {
+		if !entry.Platform.Valid() || len(entry.SelectorHash) != 64 || entry.Outcome == "" || (entry.Phase != "" && !entry.Phase.Valid()) {
 			return MCPAuditSummary{}, errors.New("MCP audit contains an invalid entry")
 		}
 		if _, err := hex.DecodeString(entry.SelectorHash); err != nil {

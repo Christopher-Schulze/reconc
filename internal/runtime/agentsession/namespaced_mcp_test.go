@@ -76,6 +76,9 @@ func TestNormalizeNamespacedMCPPayloadKeepsOnlyTheRedactedContract(t *testing.T)
 	if envelope["blocking_pre_hook"] != true {
 		t.Errorf("a pre-execution route must report a blocking pre hook")
 	}
+	if envelope["phase"] != "before" {
+		t.Errorf("phase = %v, want before", envelope["phase"])
+	}
 	if _, present := envelope["outcome"]; present {
 		t.Errorf("a pre-execution route must not claim an outcome")
 	}
@@ -173,10 +176,87 @@ func TestNormalizeNamespacedMCPPayloadRequiresExplicitSuccess(t *testing.T) {
 			if envelope["outcome"] != test.want {
 				t.Fatalf("outcome = %v, want %v", envelope["outcome"], test.want)
 			}
-			if envelope["blocking_pre_hook"] != false {
-				t.Fatalf("a post route must not claim a blocking pre hook")
+			if envelope["blocking_pre_hook"] != true {
+				t.Fatalf("a post route must retain its paired blocking capability")
+			}
+			if envelope["phase"] != "after" {
+				t.Fatalf("phase = %v, want after", envelope["phase"])
 			}
 		})
+	}
+}
+
+func TestNamespacedMCPAuditSeparatesPhaseFromStrictCapability(t *testing.T) {
+	t.Setenv(StateRootEnv, t.TempDir())
+	repo := setupNamespacedMCPAuditRepo(t)
+
+	run := func(platform policy.MCPPlatform, before bool, tool, path string, response map[string]interface{}, wantExit int) {
+		t.Helper()
+		body := map[string]interface{}{
+			"session_id": "session-" + string(platform),
+			"tool_name":  tool,
+			"tool_input": map[string]interface{}{"path": path},
+		}
+		if response != nil {
+			body["tool_response"] = response
+		}
+		normalized, err := NormalizeNamespacedMCPPayload(platform, before, []byte(mustJSON(t, body)))
+		if err != nil {
+			t.Fatalf("normalize %s: %v", platform, err)
+		}
+		var result Result
+		if before {
+			result = RunMCPBefore(repo, normalized)
+		} else {
+			result = RunMCPAfter(repo, normalized)
+		}
+		if result.ExitCode != wantExit {
+			t.Fatalf("%s before=%t exit=%d stderr=%q, want %d", platform, before, result.ExitCode, result.Stderr, wantExit)
+		}
+	}
+
+	writeTool := "mcp__filesystem__write_file"
+	run(policy.MCPPlatformClaudeCode, true, writeTool, "docs/claude.md", nil, 0)
+	run(policy.MCPPlatformClaudeCode, false, writeTool, "docs/claude.md", map[string]interface{}{"isError": false}, 0)
+	run(policy.MCPPlatformCodex, true, writeTool, "docs/codex.md", nil, 0)
+	run(policy.MCPPlatformCodex, false, writeTool, "docs/codex.md", map[string]interface{}{"isError": true}, 0)
+	run(policy.MCPPlatformCodex, false, writeTool, "docs/post-only.md", map[string]interface{}{"isError": false}, 0)
+	run(policy.MCPPlatformClaudeCode, true, writeTool, "vendor/locked.txt", nil, 2)
+	run(policy.MCPPlatformClaudeCode, true, "mcp__memory__query", "docs/unknown.md", nil, 2)
+	run(policy.MCPPlatformClaudeCode, false, "mcp__memory__query", "docs/unknown.md", map[string]interface{}{"isError": true}, 0)
+
+	summary, err := ReadMCPAudit(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Classified["claude-code/repository_write"] != 3 || summary.Classified["codex/repository_write"] != 3 {
+		t.Fatalf("classified counters = %#v", summary.Classified)
+	}
+	if summary.Unclassified["claude-code"] != 2 || summary.Denied["claude-code"] != 2 {
+		t.Fatalf("unclassified/denied counters = %#v / %#v", summary.Unclassified, summary.Denied)
+	}
+	if summary.Failures["codex"] != 1 || summary.Failures["claude-code"] != 0 {
+		t.Fatalf("failure counters = %#v", summary.Failures)
+	}
+	if len(summary.StrictUnavailable) != 0 {
+		t.Fatalf("namespaced blocking routes reported strict-unavailable: %#v", summary.StrictUnavailable)
+	}
+	if len(summary.Events) != 8 {
+		t.Fatalf("events = %d, want 8", len(summary.Events))
+	}
+	for index, entry := range summary.Events {
+		wantPhase := MCPPhaseBefore
+		if index == 1 || index == 3 || index == 4 || index == 7 {
+			wantPhase = MCPPhaseAfter
+		}
+		if entry.Phase != wantPhase || !entry.StrictAvailable {
+			t.Fatalf("event %d phase/capability = %q/%t, want %q/true", index, entry.Phase, entry.StrictAvailable, wantPhase)
+		}
+	}
+	for _, pair := range [][2]int{{0, 1}, {2, 3}, {6, 7}} {
+		if summary.Events[pair[0]].SelectorHash != summary.Events[pair[1]].SelectorHash {
+			t.Fatalf("paired events %v changed capability identity", pair)
+		}
 	}
 }
 
@@ -258,6 +338,36 @@ mcp:
 	}
 	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
 		t.Fatalf("compile namespaced MCP repo: %v", err)
+	}
+	return repo
+}
+
+func setupNamespacedMCPAuditRepo(t *testing.T) string {
+	t.Helper()
+	repo := setupPolicyRepo(t)
+	config := `rules:
+  - id: locked-vendor
+    kind: deny_write
+    paths: ['vendor/**']
+    mode: block
+    message: vendor is locked
+mcp:
+  unclassified: deny
+  tools:
+    - platform: claude-code
+      tool: mcp__filesystem__write_file
+      effect: repository_write
+      path_fields: [/path]
+    - platform: codex
+      tool: mcp__filesystem__write_file
+      effect: repository_write
+      path_fields: [/path]
+`
+	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
+		t.Fatalf("compile namespaced MCP audit repo: %v", err)
 	}
 	return repo
 }

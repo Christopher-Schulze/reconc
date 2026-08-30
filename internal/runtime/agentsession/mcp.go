@@ -87,7 +87,7 @@ func runMCPBeforeResolvedWithEvaluator(root string, payloadBytes []byte, hostIde
 	if result.ExitCode != 0 {
 		outcome = "denied"
 	}
-	if err := recordMCPAuditResolved(root, payload.MCP, classification.Effect, outcome, true, payload.MCP.BlockingPreHook); err != nil {
+	if err := recordMCPAuditResolved(root, payload.MCP, classification.Effect, outcome, true); err != nil {
 		result.Stderr = appendMCPWarning(result.Stderr, err)
 	}
 	return result
@@ -128,7 +128,7 @@ func runMCPAfterResolvedWithEvaluator(root string, payloadBytes []byte, hostIden
 		outcome = "failure"
 	}
 	result := recordClassifiedMCPAfterResolved(root, payload, classification, values, outcome)
-	if err := recordMCPAuditResolved(root, payload.MCP, classification.Effect, outcome, true, payload.MCP.BlockingPreHook); err != nil {
+	if err := recordMCPAuditResolved(root, payload.MCP, classification.Effect, outcome, true); err != nil {
 		result.Stderr = appendMCPWarning(result.Stderr, err)
 	}
 	return result
@@ -169,7 +169,7 @@ func handleUnclassifiedMCPBefore(repoRoot string, contract *policy.MCPPolicy, pa
 			result.Stderr = "reconc MCP: strict unclassified deny is unavailable on this host surface; no enforcement claim or repository evidence was recorded"
 		}
 	}
-	if err := recordMCPAuditResolved(repoRoot, payload.MCP, "", outcome, false, strictAvailable); err != nil {
+	if err := recordMCPAuditResolved(repoRoot, payload.MCP, "", outcome, false); err != nil {
 		result.Stderr = appendMCPWarning(result.Stderr, err)
 	}
 	return result
@@ -181,7 +181,7 @@ func observeUnclassifiedMCP(repoRoot string, contract *policy.MCPPolicy, payload
 		outcome = "strict-unavailable"
 	}
 	result := Result{ExitCode: 0, Stderr: "reconc MCP: unclassified result was not accepted as repository evidence"}
-	if err := recordMCPAuditResolved(repoRoot, payload.MCP, "", outcome, false, strictAvailable); err != nil {
+	if err := recordMCPAuditResolved(repoRoot, payload.MCP, "", outcome, false); err != nil {
 		result.Stderr = appendMCPWarning(result.Stderr, err)
 	}
 	return result

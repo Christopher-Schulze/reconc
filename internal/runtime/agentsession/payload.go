@@ -153,6 +153,7 @@ type MCPPayload struct {
 	Platform          policy.MCPPlatform
 	Tool              string
 	ServerFingerprint string
+	Phase             MCPEventPhase
 	BlockingPreHook   bool
 	InputValid        bool
 	Outcome           string
@@ -391,6 +392,17 @@ func parseMCPPayload(raw interface{}) (*MCPPayload, error) {
 	}
 	blocking, _ := mapping["blocking_pre_hook"].(bool)
 	inputValid, _ := mapping["input_valid"].(bool)
+	phase := MCPEventPhase("")
+	if rawPhase, present := mapping["phase"]; present {
+		phaseText, ok := rawPhase.(string)
+		if !ok {
+			return nil, errors.New("hook payload reconc_mcp.phase must be before or after")
+		}
+		phase = MCPEventPhase(phaseText)
+		if !phase.Valid() {
+			return nil, errors.New("hook payload reconc_mcp.phase must be before or after")
+		}
+	}
 	outcome, _ := mapping["outcome"].(string)
 	if outcome != "" && outcome != "success" && outcome != "failure" {
 		return nil, errors.New("hook payload reconc_mcp.outcome must be success or failure")
@@ -399,6 +411,7 @@ func parseMCPPayload(raw interface{}) (*MCPPayload, error) {
 		Platform:          platform,
 		Tool:              tool,
 		ServerFingerprint: fingerprint,
+		Phase:             phase,
 		BlockingPreHook:   blocking,
 		InputValid:        inputValid,
 		Outcome:           outcome,

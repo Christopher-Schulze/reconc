@@ -63,10 +63,12 @@ func NormalizeNamespacedMCPPayload(platform policy.MCPPlatform, before bool, pay
 		Platform:        platform,
 		Tool:            tool,
 		Observed:        true,
-		BlockingPreHook: before,
+		Phase:           MCPPhaseBefore,
+		BlockingPreHook: true,
 		InputValid:      inputValid,
 	}
 	if !before {
+		envelope.Phase = MCPPhaseAfter
 		envelope.Outcome = cursorMCPOutcome(raw)
 	}
 	// MCP arguments and results carry external server credentials and complete

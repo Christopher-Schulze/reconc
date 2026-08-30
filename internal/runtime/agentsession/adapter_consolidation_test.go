@@ -136,9 +136,10 @@ func TestNativeMCPEnvelopePreservesPlatformParity(t *testing.T) {
 			envelope := newNativeMCPEnvelope(test.platform, " tool ", json.RawMessage(`{"path":"README.md"}`), test.event, test.successEvent, test.failureEvent)
 			want := map[string]interface{}{
 				"platform": string(test.platform), "tool": "tool", "observed": false,
-				"blocking_pre_hook": true, "input_valid": true,
+				"phase": string(MCPPhaseBefore), "blocking_pre_hook": true, "input_valid": true,
 			}
 			if test.outcome != "" {
+				want["phase"] = string(MCPPhaseAfter)
 				want["outcome"] = test.outcome
 			}
 			if got := mcpEnvelopeToMap(*envelope); !reflect.DeepEqual(got, want) {

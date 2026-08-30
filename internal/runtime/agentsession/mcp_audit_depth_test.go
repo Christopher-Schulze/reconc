@@ -23,18 +23,20 @@ func TestMCPAuditRoundTripIsRedactedBoundedAndDeterministic(t *testing.T) {
 		Platform:          policy.MCPPlatformCursor,
 		Tool:              "read_file",
 		ServerFingerprint: "sha256:" + strings.Repeat("a", 64),
+		Phase:             MCPPhaseBefore,
+		BlockingPreHook:   true,
 	}
-	if err := recordMCPAuditResolved(root, nil, "", "", false, false); err == nil || !strings.Contains(err.Error(), "nil") {
+	if err := recordMCPAuditResolved(root, nil, "", "", false); err == nil || !strings.Contains(err.Error(), "nil") {
 		t.Fatalf("nil envelope error = %v", err)
 	}
-	if err := recordMCPAuditResolved(root, envelope, policy.MCPEffectRepositoryRead, "", true, true); err != nil {
+	if err := recordMCPAuditResolved(root, envelope, policy.MCPEffectRepositoryRead, "", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := recordMCPAuditResolved(root, envelope, policy.MCPEffectRepositoryRead, "denied", true, false); err != nil {
+	if err := recordMCPAuditResolved(root, envelope, policy.MCPEffectRepositoryRead, "denied", true); err != nil {
 		t.Fatal(err)
 	}
-	failure := &MCPPayload{Platform: policy.MCPPlatformOpenCode, Tool: "execute"}
-	if err := recordMCPAuditResolved(root, failure, "", "failure", false, false); err != nil {
+	failure := &MCPPayload{Platform: policy.MCPPlatformOpenCode, Tool: "execute", Phase: MCPPhaseAfter}
+	if err := recordMCPAuditResolved(root, failure, "", "failure", false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -45,7 +47,7 @@ func TestMCPAuditRoundTripIsRedactedBoundedAndDeterministic(t *testing.T) {
 	wantKey := "cursor/repository_read"
 	if summary.Classified[wantKey] != 2 || summary.Unclassified["opencode"] != 1 ||
 		summary.Denied["cursor"] != 1 || summary.Failures["opencode"] != 1 ||
-		summary.StrictUnavailable["cursor"] != 1 || summary.StrictUnavailable["opencode"] != 1 {
+		summary.StrictUnavailable["cursor"] != 0 || summary.StrictUnavailable["opencode"] != 1 {
 		t.Fatalf("summary counters = %+v", summary)
 	}
 	if got := strings.Join(SortedMCPClassifiedCounts(summary), ","); got != wantKey+"=2" {
@@ -69,6 +71,70 @@ func TestMCPAuditRoundTripIsRedactedBoundedAndDeterministic(t *testing.T) {
 	}
 	if mode := info.Mode().Perm(); runtime.GOOS != "windows" && mode != 0o600 {
 		t.Fatalf("audit mode = %04o, want 0600", mode)
+	}
+}
+
+func TestMCPAuditDerivesStrictCapabilityFromNormalizedRoute(t *testing.T) {
+	t.Setenv(StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parseNative := func(event string) *MCPPayload {
+		t.Helper()
+		envelope := newNativeMCPEnvelope(
+			policy.MCPPlatformPi,
+			"deploy_preview",
+			json.RawMessage(`{"target":"preview"}`),
+			event,
+			"pi-post-tool-use",
+			"pi-post-tool-use-failure",
+		)
+		body, err := json.Marshal(map[string]interface{}{
+			"session_id": "pi-session",
+			"reconc_mcp": mcpEnvelopeToMap(*envelope),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload, err := ParsePayload(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return payload.MCP
+	}
+
+	before := parseNative("pi-pre-tool-use")
+	after := parseNative("pi-post-tool-use")
+	if err := recordMCPAuditResolved(root, before, policy.MCPEffectExternal, "allowed", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordMCPAuditResolved(root, after, policy.MCPEffectExternal, after.Outcome, true); err != nil {
+		t.Fatal(err)
+	}
+	nonBlocking := &MCPPayload{
+		Platform: policy.MCPPlatformOpenCode,
+		Tool:     "host_observation",
+		Phase:    MCPPhaseAfter,
+	}
+	if err := recordMCPAuditResolved(root, nonBlocking, "", "observed", false); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, err := ReadMCPAudit(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Classified["pi/external"] != 2 || summary.Failures["pi"] != 0 {
+		t.Fatalf("native counters = %#v / %#v", summary.Classified, summary.Failures)
+	}
+	if summary.StrictUnavailable["pi"] != 0 || summary.StrictUnavailable["opencode"] != 1 {
+		t.Fatalf("strict capability counters = %#v", summary.StrictUnavailable)
+	}
+	if before.Phase != MCPPhaseBefore || after.Phase != MCPPhaseAfter ||
+		summary.Events[0].SelectorHash != summary.Events[1].SelectorHash {
+		t.Fatalf("native phase/identity = %q/%q selectors=%q/%q", before.Phase, after.Phase, summary.Events[0].SelectorHash, summary.Events[1].SelectorHash)
 	}
 }
 
@@ -96,6 +162,7 @@ func TestMCPAuditReaderFailsClosedOnEveryInvalidPersistenceShape(t *testing.T) {
 		{name: "too many entries", body: marshalMCPAudit(t, MCPAuditSummary{Events: make([]MCPAuditEntry, maxMCPAuditEntries+1)}), want: "entries"},
 		{name: "invalid platform", body: marshalMCPAudit(t, MCPAuditSummary{Events: []MCPAuditEntry{{Platform: "other", SelectorHash: strings.Repeat("a", 64), Outcome: "observed"}}}), want: "invalid entry"},
 		{name: "invalid digest", body: marshalMCPAudit(t, MCPAuditSummary{Events: []MCPAuditEntry{{Platform: policy.MCPPlatformCursor, SelectorHash: strings.Repeat("z", 64), Outcome: "observed"}}}), want: "selector hash"},
+		{name: "invalid phase", body: marshalMCPAudit(t, MCPAuditSummary{Events: []MCPAuditEntry{{Platform: policy.MCPPlatformCursor, SelectorHash: strings.Repeat("a", 64), Outcome: "observed", Phase: "during"}}}), want: "invalid entry"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
