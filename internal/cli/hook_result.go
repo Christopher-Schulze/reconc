@@ -14,8 +14,8 @@ func boundHookResult(result agentsession.Result, route hooks.RuntimeRoute) agent
 	if limit <= 0 {
 		return result
 	}
-	stderrLimit := limit / 2
-	stdoutLimit := limit - stderrLimit
+	stderrLimit := hookOutputBodyLimit(limit / 2)
+	stdoutLimit := hookOutputBodyLimit(limit - limit/2)
 	result.Stderr = truncateWithSuffix(result.Stderr, stderrLimit, "\n[reconc stderr truncated]")
 	if len(result.Stdout) <= stdoutLimit {
 		return result
@@ -38,9 +38,10 @@ func boundHookResult(result agentsession.Result, route hooks.RuntimeRoute) agent
 		result.ExitCode = 0
 		return result
 	}
-	if envelope := failClosedOversizeEnvelope(route); envelope != "" && len(envelope) <= limit {
+	if envelope := failClosedOversizeEnvelope(route); envelope != "" && framedHookOutputBytes(envelope) <= limit {
 		result.Stdout = envelope
-		result.Stderr = oversizeDiagnostic(result.Stderr, limit-len(envelope))
+		remaining := limit - framedHookOutputBytes(envelope)
+		result.Stderr = oversizeDiagnostic(result.Stderr, hookOutputBodyLimit(remaining))
 		result.ExitCode = 0
 		return result
 	}
@@ -48,6 +49,22 @@ func boundHookResult(result agentsession.Result, route hooks.RuntimeRoute) agent
 	result.Stderr = oversizeDiagnostic(result.Stderr, stderrLimit)
 	result.ExitCode = 2
 	return result
+}
+
+const hookOutputFrameBytes = 1
+
+func hookOutputBodyLimit(framedLimit int) int {
+	if framedLimit <= hookOutputFrameBytes {
+		return 0
+	}
+	return framedLimit - hookOutputFrameBytes
+}
+
+func framedHookOutputBytes(value string) int {
+	if value == "" {
+		return 0
+	}
+	return len(value) + hookOutputFrameBytes
 }
 
 const hookOversizeDiagnostic = "reconc hook output exceeded the platform byte budget"

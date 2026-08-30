@@ -3704,7 +3704,11 @@ and ZCode generators emit those host timeouts; OpenCode, Kilo Code, OMP, and Pi
 enforce them inside their adapters. OMP uses a 29-second internal Stop budget
 so its fail-closed response is returned before the host's 30-second
 extension-handler deadline.
-Each runtime route caps combined process output at 8 KiB.
+Each runtime route caps combined process output at 8 KiB, including the one-byte
+terminal newline emitted for each non-empty stdout or stderr stream. Exact-limit
+decision JSON therefore reaches worker and one-shot capture intact; an envelope
+that cannot fit with its framing is replaced by the route's minimal complete
+fail-closed contract rather than truncated JSON.
 Post-compaction recovery context is deduplicated and capped at 4 KiB.
 OpenCode, Kilo Code, OMP, and Pi keep one repository-owned `reconc hook worker`
 child for the lifetime of their plugin instance. Format-1 newline-framed JSON

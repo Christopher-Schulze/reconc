@@ -322,17 +322,23 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	}
 	result = boundHookResult(result, route)
 
+	emitHookRuntimeResult(result, stdout, stderr)
+	if result.ExitCode != 0 {
+		exitCode = result.ExitCode
+		return &CLIError{ExitCode: result.ExitCode, Message: ""}
+	}
+	return nil
+}
+
+// emitHookRuntimeResult owns the one-byte terminal framing included by every
+// non-empty stdout or stderr stream in the route output budget.
+func emitHookRuntimeResult(result agentsession.Result, stdout, stderr io.Writer) {
 	if result.Stdout != "" {
 		fmt.Fprintln(stdout, result.Stdout)
 	}
 	if result.Stderr != "" {
 		fmt.Fprintln(stderr, result.Stderr)
 	}
-	if result.ExitCode != 0 {
-		exitCode = result.ExitCode
-		return &CLIError{ExitCode: result.ExitCode, Message: ""}
-	}
-	return nil
 }
 
 type hookRuntimeFailureStage string
