@@ -2,8 +2,10 @@ package agentsession
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"reconc.dev/reconc/internal/retention"
 )
@@ -23,7 +25,9 @@ const (
 	maxCommandResultItems   = 512
 	maxCommandResultBytes   = 256 * 1024
 	maxPendingToolCalls     = 64
+	maxRetiredToolCallKeys  = 4 * maxPendingToolCalls
 	maxPendingToolCallBytes = 64 * 1024
+	pendingToolCallLifetime = 24 * time.Hour
 
 	maxPathBytes        = 8 * 1024
 	maxCommandBytes     = 32 * 1024
@@ -48,6 +52,7 @@ func normalizeSessionState(state SessionState) SessionState {
 	claims := sortedUnique(state.Claims)
 	results := append([]CommandResult(nil), state.CommandResults...)
 	pending := state.PendingToolCalls
+	retired := state.RetiredToolCallKeys
 
 	state.ReadPaths = []string{}
 	state.WritePaths = []string{}
@@ -57,6 +62,7 @@ func normalizeSessionState(state SessionState) SessionState {
 	state.CommandResults = []CommandResult{}
 	state.CommandResultBytes = 0
 	state.PendingToolCalls = nil
+	state.RetiredToolCallKeys = nil
 	appendNormalizedExactStrings(&state, &state.ReadPaths, reads, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "read_paths")
 	appendNormalizedExactStrings(&state, &state.WritePaths, writes, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "write_paths")
 	for _, value := range writes {
@@ -74,6 +80,14 @@ func normalizeSessionState(state SessionState) SessionState {
 	sort.Strings(keys)
 	for _, key := range keys {
 		state = putPendingToolCall(state, key, pending[key], false)
+	}
+	keys = keys[:0]
+	for key := range retired {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		state = putRetiredToolCallKey(state, key, retired[key], false)
 	}
 	if overflow {
 		state.EvidenceOverflow = true
@@ -229,6 +243,144 @@ func PutPendingToolCall(state SessionState, key string, call PendingToolCall) Se
 	return putPendingToolCall(state, key, call, true)
 }
 
+func putPendingToolCallTransient(state SessionState, key string, call PendingToolCall) (SessionState, error) {
+	key = strings.TrimSpace(key)
+	if _, retired := state.RetiredToolCallKeys[key]; retired {
+		return state, fmt.Errorf("pending tool correlation rejected: retired_key")
+	}
+	if _, exists := state.PendingToolCalls[key]; !exists && len(state.RetiredToolCallKeys) >= maxRetiredToolCallKeys {
+		return state, fmt.Errorf("pending tool correlation rejected: retired_key_capacity")
+	}
+	updated := PutPendingToolCall(state, key, call)
+	if state.EvidenceOverflow || !updated.EvidenceOverflow || updated.EvidenceOverflowReason != "pending_tool_calls" {
+		return updated, nil
+	}
+	limit := updated.EvidenceOverflowLimit
+	updated.EvidenceOverflow = state.EvidenceOverflow
+	updated.EvidenceOverflowReason = state.EvidenceOverflowReason
+	updated.EvidenceOverflowLimit = state.EvidenceOverflowLimit
+	return updated, fmt.Errorf("pending tool correlation rejected: %s", limit)
+}
+
+func takePendingToolCall(state SessionState, key string, now time.Time) (SessionState, PendingToolCall, bool) {
+	state = reapPendingToolCalls(state, now)
+	if _, retired := state.RetiredToolCallKeys[key]; retired {
+		return state, PendingToolCall{}, false
+	}
+	call, found := state.PendingToolCalls[key]
+	if !found {
+		state, _ = retireToolCallKey(state, key, now.UnixNano())
+		return state, PendingToolCall{}, false
+	}
+	var retired bool
+	state, retired = retireToolCallKey(state, key, now.UnixNano())
+	if !retired {
+		return state, PendingToolCall{}, false
+	}
+	pending := make(map[string]PendingToolCall, len(state.PendingToolCalls)-1)
+	for currentKey, currentCall := range state.PendingToolCalls {
+		if currentKey != key {
+			pending[currentKey] = currentCall
+		}
+	}
+	state.PendingToolCalls = pending
+	if len(pending) == 0 {
+		state.PendingToolCalls = nil
+	}
+	return state, call, true
+}
+
+func reapPendingToolCalls(state SessionState, now time.Time) SessionState {
+	if len(state.PendingToolCalls) == 0 {
+		return state
+	}
+	reapable := false
+	for key, call := range state.PendingToolCalls {
+		if !pendingToolCallExpired(call, now) {
+			continue
+		}
+		if _, exists := state.RetiredToolCallKeys[key]; exists || len(state.RetiredToolCallKeys) < maxRetiredToolCallKeys {
+			reapable = true
+			break
+		}
+	}
+	if !reapable {
+		return state
+	}
+	pending := make(map[string]PendingToolCall, len(state.PendingToolCalls))
+	for key, call := range state.PendingToolCalls {
+		pending[key] = call
+	}
+	retired := make(map[string]int64, len(state.RetiredToolCallKeys)+len(pending))
+	for key, retiredAt := range state.RetiredToolCallKeys {
+		retired[key] = retiredAt
+	}
+	for key, call := range pending {
+		if !pendingToolCallExpired(call, now) {
+			continue
+		}
+		if _, exists := retired[key]; !exists && len(retired) >= maxRetiredToolCallKeys {
+			continue
+		}
+		retired[key] = now.UnixNano()
+		delete(pending, key)
+	}
+	if len(pending) == len(state.PendingToolCalls) {
+		return state
+	}
+	state.PendingToolCalls = pending
+	state.RetiredToolCallKeys = retired
+	if len(pending) == 0 {
+		state.PendingToolCalls = nil
+	}
+	return state
+}
+
+func clearPendingToolCalls(state SessionState) SessionState {
+	state.PendingToolCalls = nil
+	state.RetiredToolCallKeys = nil
+	return state
+}
+
+func retireToolCallKey(state SessionState, key string, retiredAt int64) (SessionState, bool) {
+	if _, exists := state.RetiredToolCallKeys[key]; exists {
+		return state, true
+	}
+	if len(state.RetiredToolCallKeys) >= maxRetiredToolCallKeys {
+		return state, false
+	}
+	return putRetiredToolCallKey(state, key, retiredAt, true), true
+}
+
+func putRetiredToolCallKey(state SessionState, key string, retiredAt int64, clone bool) SessionState {
+	key = strings.TrimSpace(key)
+	if key == "" || len(key) > maxToolUseIDBytes || retiredAt <= 0 {
+		markEvidenceOverflowWithLimit(&state, "retired_tool_call_keys", "item_bytes")
+		return state
+	}
+	if _, exists := state.RetiredToolCallKeys[key]; !exists && len(state.RetiredToolCallKeys) >= maxRetiredToolCallKeys {
+		markEvidenceOverflowWithLimit(&state, "retired_tool_call_keys", "item_count")
+		return state
+	}
+	if clone || state.RetiredToolCallKeys == nil {
+		retired := make(map[string]int64, len(state.RetiredToolCallKeys)+1)
+		for currentKey, currentTime := range state.RetiredToolCallKeys {
+			retired[currentKey] = currentTime
+		}
+		state.RetiredToolCallKeys = retired
+	}
+	state.RetiredToolCallKeys[key] = retiredAt
+	return state
+}
+
+func pendingToolCallExpired(call PendingToolCall, now time.Time) bool {
+	if call.CreatedAtUnixNano <= 0 {
+		return true
+	}
+	created := time.Unix(0, call.CreatedAtUnixNano)
+	return now.Before(created) || !now.Before(created.Add(pendingToolCallLifetime))
+}
+
 func putPendingToolCall(state SessionState, key string, call PendingToolCall, clone bool) SessionState {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -249,7 +401,16 @@ func putPendingToolCall(state SessionState, key string, call PendingToolCall, cl
 		markEvidenceOverflowWithLimit(&state, "pending_tool_calls", "item_bytes")
 		return state
 	}
-	if _, exists := state.PendingToolCalls[key]; !exists && len(state.PendingToolCalls) >= maxPendingToolCalls {
+	if existing, exists := state.PendingToolCalls[key]; exists {
+		existing.CreatedAtUnixNano = call.CreatedAtUnixNano
+		existingEncoded, existingErr := json.Marshal(existing)
+		if existingErr == nil && string(existingEncoded) == string(encoded) {
+			return state
+		}
+		markEvidenceOverflowWithLimit(&state, "pending_tool_calls", "correlation_conflict")
+		return state
+	}
+	if len(state.PendingToolCalls) >= maxPendingToolCalls {
 		markEvidenceOverflowWithLimit(&state, "pending_tool_calls", "item_count")
 		return state
 	}

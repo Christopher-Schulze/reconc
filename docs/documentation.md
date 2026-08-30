@@ -3892,8 +3892,16 @@ suppresses compatible Claude-hook duplicates.
 Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
 `PostToolUse`, `PostInvocation`, and `Stop`; Reconc stores Antigravity PreTool
 metadata as pending evidence so PostToolUse can record exact evidence when the
-post payload only carries a step index/result. OpenCode and Kilo Code use thin Bun
-adapters at `.opencode/plugins/reconc.js` and `.kilo/plugin/reconc.js`. They
+post payload only carries a step index/result. Pending correlations use
+copy-on-write persistence, reject conflicting reuse of one stable host key,
+expire after 24 hours, and are cleared at PostInvocation. Expired or unmatched
+late post events are ignored and cannot consume or overwrite a live
+correlation. Bounded per-invocation tombstones prevent a consumed or expired
+host key from being reassigned before PostInvocation. Live capacity pressure
+denies only the affected PreToolUse event; it does not create durable
+repository evidence taint. OpenCode and Kilo Code
+use thin Bun adapters at `.opencode/plugins/reconc.js` and
+`.kilo/plugin/reconc.js`. They
 route `chat.message`, hard pre-tool and permission hooks, complete
 `tool.execute.after` title/output/metadata, terminal tool errors from
 `message.part.updated`, pre/post-compaction, and session lifecycle. Repeated

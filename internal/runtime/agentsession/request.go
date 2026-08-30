@@ -102,7 +102,7 @@ func RunHookRequestWithEvaluatorAndStopCache(
 	case HookHandlerAntigravityPostTool:
 		return runAntigravityPostToolUseResolved(root.path, payload)
 	case HookHandlerAntigravityPostInvoke:
-		return runAntigravityPostInvocationResolved(payload)
+		return runAntigravityPostInvocationResolved(root.path, payload)
 	case HookHandlerAntigravityStop:
 		return runAntigravityStopResolvedWithEvaluatorAndCache(root.path, payload, normalizeRuntimeName(runtimeEvent), evaluator, stopCache)
 	default:

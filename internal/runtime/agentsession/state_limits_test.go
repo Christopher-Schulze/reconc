@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestNormalizeSessionStatePreservesCollectionSemantics(t *testing.T) {
@@ -93,6 +94,94 @@ func TestNormalizeSessionStateRecomputesCommandResultBytes(t *testing.T) {
 	}
 	if normalized.CommandResultBytes != want {
 		t.Fatalf("normalized command-result bytes = %d, want %d", normalized.CommandResultBytes, want)
+	}
+}
+
+func TestPendingToolCallExpiryReclaimsCapacity(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	state := emptyState("/repo", "pending-expiry")
+	state.PendingToolCalls = make(map[string]PendingToolCall, maxPendingToolCalls)
+	for index := 0; index < maxPendingToolCalls; index++ {
+		key := fmt.Sprintf("stale-%02d", index)
+		state.PendingToolCalls[key] = PendingToolCall{
+			ToolName: "Read", ToolUseID: key,
+			CreatedAtUnixNano: now.Add(-pendingToolCallLifetime).UnixNano(),
+		}
+	}
+	state = reapPendingToolCalls(state, now)
+	if state.PendingToolCalls != nil {
+		t.Fatalf("expired host-crash correlations survived: %v", state.PendingToolCalls)
+	}
+	if len(state.RetiredToolCallKeys) != maxPendingToolCalls {
+		t.Fatalf("expired identities were not retained as tombstones: %v", state.RetiredToolCallKeys)
+	}
+	if reused, err := putPendingToolCallTransient(state, "stale-00", PendingToolCall{
+		ToolName: "Write", ToolUseID: "stale-00", CreatedAtUnixNano: now.UnixNano(),
+	}); err == nil || len(reused.PendingToolCalls) != 0 {
+		t.Fatalf("retired identity was reused: err=%v state=%+v", err, reused)
+	}
+	state = PutPendingToolCall(state, "fresh", PendingToolCall{
+		ToolName: "Read", ToolUseID: "fresh", CreatedAtUnixNano: now.UnixNano(),
+	})
+	if state.EvidenceOverflow || len(state.PendingToolCalls) != 1 {
+		t.Fatalf("reclaimed correlation capacity = %+v", state)
+	}
+	future := emptyState("/repo", "future-pending")
+	future.PendingToolCalls = map[string]PendingToolCall{"future": {
+		ToolName: "Read", ToolUseID: "fresh", CreatedAtUnixNano: now.Add(time.Second).UnixNano(),
+	}}
+	if reaped := reapPendingToolCalls(future, now); reaped.PendingToolCalls != nil {
+		t.Fatalf("future-dated correlation survived fail-closed reaping: %v", reaped.PendingToolCalls)
+	}
+}
+
+func TestPendingToolCallIdentityConflictPreservesOriginal(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	state := PutPendingToolCall(emptyState("/repo", "pending-conflict"), "step:1", PendingToolCall{
+		ToolName: "Read", ToolUseID: "step:1", ToolInput: map[string]interface{}{"file_path": "first.go"},
+		CreatedAtUnixNano: now.UnixNano(),
+	})
+	state = PutPendingToolCall(state, "step:1", PendingToolCall{
+		ToolName: "Write", ToolUseID: "step:1", ToolInput: map[string]interface{}{"file_path": "second.go"},
+		CreatedAtUnixNano: now.Add(time.Second).UnixNano(),
+	})
+	if !state.EvidenceOverflow || state.EvidenceOverflowReason != "pending_tool_calls" || state.EvidenceOverflowLimit != "correlation_conflict" {
+		t.Fatalf("identity conflict did not fail closed: %+v", state)
+	}
+	if got := state.PendingToolCalls["step:1"]; got.ToolName != "Read" || got.ToolInput["file_path"] != "first.go" {
+		t.Fatalf("identity conflict replaced original correlation: %+v", got)
+	}
+}
+
+func TestPendingToolCallCapacityFailureIsTransient(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	state := emptyState("/repo", "pending-capacity")
+	for index := 0; index < maxPendingToolCalls; index++ {
+		key := fmt.Sprintf("live-%02d", index)
+		state = PutPendingToolCall(state, key, PendingToolCall{
+			ToolName: "Read", ToolUseID: key, CreatedAtUnixNano: now.UnixNano(),
+		})
+	}
+	updated, err := putPendingToolCallTransient(state, "overflow", PendingToolCall{
+		ToolName: "Read", ToolUseID: "overflow", CreatedAtUnixNano: now.UnixNano(),
+	})
+	if err == nil || updated.EvidenceOverflow || len(updated.PendingToolCalls) != maxPendingToolCalls {
+		t.Fatalf("transient capacity failure = err=%v state=%+v", err, updated)
+	}
+}
+
+func TestPendingToolCallRetiredCapacityFailsClosedWithoutTaint(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	state := emptyState("/repo", "retired-capacity")
+	state.RetiredToolCallKeys = make(map[string]int64, maxRetiredToolCallKeys)
+	for index := 0; index < maxRetiredToolCallKeys; index++ {
+		state.RetiredToolCallKeys[fmt.Sprintf("retired-%03d", index)] = now.UnixNano()
+	}
+	updated, err := putPendingToolCallTransient(state, "new-call", PendingToolCall{
+		ToolName: "Read", ToolUseID: "new-call", CreatedAtUnixNano: now.UnixNano(),
+	})
+	if err == nil || updated.EvidenceOverflow || len(updated.PendingToolCalls) != 0 {
+		t.Fatalf("retired capacity failure = err=%v state=%+v", err, updated)
 	}
 }
 

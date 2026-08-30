@@ -65,9 +65,10 @@ type CommandResult struct {
 }
 
 type PendingToolCall struct {
-	ToolName  string                 `json:"tool_name"`
-	ToolInput map[string]interface{} `json:"tool_input"`
-	ToolUseID string                 `json:"tool_use_id,omitempty"`
+	ToolName          string                 `json:"tool_name"`
+	ToolInput         map[string]interface{} `json:"tool_input"`
+	ToolUseID         string                 `json:"tool_use_id,omitempty"`
+	CreatedAtUnixNano int64                  `json:"created_at_unix_nano,omitempty"`
 }
 
 // SessionState is the on-disk shape of one agent session's accumulated
@@ -99,6 +100,7 @@ type SessionState struct {
 	StopPolicyExpiresAt        int64                      `json:"stop_policy_expires_at,omitempty"`
 	LastStopBlockViolationHash string                     `json:"last_stop_block_violation_hash,omitempty"`
 	PendingToolCalls           map[string]PendingToolCall `json:"pending_tool_calls,omitempty"`
+	RetiredToolCallKeys        map[string]int64           `json:"retired_tool_call_keys,omitempty"`
 	MaterialEvents             uint64                     `json:"material_events,omitempty"`
 	LastMaterialSignature      string                     `json:"last_material_signature,omitempty"`
 	GrokSteerAttempts          uint64                     `json:"grok_steer_attempts,omitempty"`

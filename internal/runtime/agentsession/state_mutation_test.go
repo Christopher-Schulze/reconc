@@ -221,6 +221,87 @@ func TestStateMapMutatorsDoNotAliasLoadedState(t *testing.T) {
 	}
 }
 
+func TestPendingToolCallCardinalityMutationsPersist(t *testing.T) {
+	_, repo := withStateRoot(t)
+	const sessionID = "pending-cardinality"
+	if _, err := InitializeSessionState(repo, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_000, 0)
+	for _, key := range []string{"call-a", "call-b"} {
+		if _, err := MutateSessionState(repo, sessionID, func(state SessionState) SessionState {
+			return PutPendingToolCall(state, key, PendingToolCall{
+				ToolName: "Read", ToolUseID: key, CreatedAtUnixNano: now.UnixNano(),
+			})
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertPendingToolCallKeys(t, repo, sessionID, "call-a", "call-b")
+	if _, err := MutateSessionState(repo, sessionID, func(state SessionState) SessionState {
+		state, _, _ = takePendingToolCall(state, "call-a", now)
+		return state
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assertPendingToolCallKeys(t, repo, sessionID, "call-b")
+	if _, err := MutateSessionState(repo, sessionID, func(state SessionState) SessionState {
+		state, _, _ = takePendingToolCall(state, "call-b", now)
+		return state
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assertPendingToolCallKeys(t, repo, sessionID)
+}
+
+func TestPendingToolCallMutationRetryAfterRotationIsIdempotent(t *testing.T) {
+	_, repo := withStateRoot(t)
+	const sessionID = "pending-rotation-retry"
+	if _, err := InitializeSessionState(repo, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MutateSessionState(repo, sessionID, func(state SessionState) SessionState {
+		for index := 0; index < maxPathEvidenceItems; index++ {
+			state = AppendReadPath(state, fmt.Sprintf("src/file-%04d.go", index))
+		}
+		return state
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_700_000_000, 0)
+	mutationCalls := 0
+	updated, err := MutateSessionState(repo, sessionID, func(state SessionState) SessionState {
+		mutationCalls++
+		state = AppendReadPath(state, "src/after-rotation.go")
+		return PutPendingToolCall(state, "call-rotation", PendingToolCall{
+			ToolName: "Read", ToolUseID: "call-rotation", CreatedAtUnixNano: now.UnixNano(),
+		})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mutationCalls != 2 || updated.EvidenceSegmentCount != 1 || updated.EvidenceOverflow || len(updated.PendingToolCalls) != 1 {
+		t.Fatalf("rotation retry = calls=%d state=%+v", mutationCalls, updated)
+	}
+	assertPendingToolCallKeys(t, repo, sessionID, "call-rotation")
+}
+
+func assertPendingToolCallKeys(t *testing.T, repo, sessionID string, want ...string) {
+	t.Helper()
+	state, err := LoadSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.PendingToolCalls) != len(want) {
+		t.Fatalf("pending calls = %v, want %v", state.PendingToolCalls, want)
+	}
+	for _, key := range want {
+		if _, found := state.PendingToolCalls[key]; !found {
+			t.Fatalf("pending calls = %v, missing %q", state.PendingToolCalls, key)
+		}
+	}
+}
+
 func TestCompletionExecutionInputsOwnsEmptyEpochMap(t *testing.T) {
 	root := t.TempDir()
 	state := emptyState(root, "completion-alias")

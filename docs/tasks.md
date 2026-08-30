@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 423 Persist and expire pending tool correlations -> tasks/423-persist-and-expire-pending-tool-correlations.md
 - [ ] 424 Revalidate terminal Stop state -> tasks/424-revalidate-terminal-stop-state.md
 - [ ] 425 Make JSONL locking bounded and cancellable -> tasks/425-make-jsonl-locking-bounded-and-cancellable.md
 - [ ] 426 Preserve JSONL data through recovery -> tasks/426-preserve-jsonl-data-through-recovery.md
@@ -47,6 +46,7 @@
 
 ## Done
 
+- [x] 423 Persist and expire pending tool correlations -> tasks/done/423-persist-and-expire-pending-tool-correlations.md
 - [x] 422 Synchronize MCP progress shutdown -> tasks/done/422-synchronize-mcp-progress-shutdown.md
 - [x] 421 Return non-zero for incomplete hook verification -> tasks/done/421-return-non-zero-for-incomplete-hook-verification.md
 - [x] 420 Define deterministic repository control-directory permissions -> tasks/done/420-define-deterministic-repository-control-directory-permissions.md

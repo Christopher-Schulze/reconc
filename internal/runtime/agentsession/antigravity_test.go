@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNormalizeAntigravityPayloadPreToolUseWrite(t *testing.T) {
@@ -112,6 +113,65 @@ func TestAntigravityPendingKeyWithoutStepIDUsesToolFingerprint(t *testing.T) {
 	if docKey == startKey {
 		t.Fatalf("different no-step tool calls must not collide, got %q", docKey)
 	}
+}
+
+func TestAntigravityPendingLifecycleRejectsChangedAndLatePosts(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	for _, step := range []string{"21", "22"} {
+		result := RunAntigravityPreToolUse(repo, []byte(`{
+			"conversationId":"ag-pending-lifecycle",
+			"stepIdx":`+step+`,
+			"toolCall":{"name":"view_file","args":{"AbsolutePath":"docs/tasks.md"}}
+		}`))
+		if result.ExitCode != 0 || !strings.Contains(result.Stdout, `"decision":"allow"`) {
+			t.Fatalf("pre step %s = %+v", step, result)
+		}
+	}
+	changed := RunAntigravityPostToolUse(repo, []byte(`{"conversationId":"ag-pending-lifecycle","stepIdx":99}`))
+	if changed.ExitCode != 0 {
+		t.Fatalf("changed post = %+v", changed)
+	}
+	assertPendingToolCallKeys(t, repo, "ag-pending-lifecycle", "step:21", "step:22")
+	changedState, err := LoadSessionState(repo, "ag-pending-lifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, retired := changedState.RetiredToolCallKeys["step:99"]; !retired {
+		t.Fatalf("unmatched post identity was not retired: %+v", changedState.RetiredToolCallKeys)
+	}
+	if _, err := MutateSessionState(repo, "ag-pending-lifecycle", func(state SessionState) SessionState {
+		pending := make(map[string]PendingToolCall, len(state.PendingToolCalls))
+		for key, call := range state.PendingToolCalls {
+			pending[key] = call
+		}
+		stale := pending["step:21"]
+		stale.CreatedAtUnixNano = 1
+		pending["step:21"] = stale
+		live := pending["step:22"]
+		live.CreatedAtUnixNano = time.Now().UTC().UnixNano()
+		pending["step:22"] = live
+		state.PendingToolCalls = pending
+		return state
+	}); err != nil {
+		t.Fatal(err)
+	}
+	late := RunAntigravityPostToolUse(repo, []byte(`{"conversationId":"ag-pending-lifecycle","stepIdx":21}`))
+	if late.ExitCode != 0 {
+		t.Fatalf("late post = %+v", late)
+	}
+	assertPendingToolCallKeys(t, repo, "ag-pending-lifecycle", "step:22")
+	state, err := LoadSessionState(repo, "ag-pending-lifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.ReadPaths) != 0 {
+		t.Fatalf("late post was misassociated as read evidence: %v", state.ReadPaths)
+	}
+	ended := RunAntigravityPostInvocation(repo, []byte(`{"conversationId":"ag-pending-lifecycle"}`))
+	if ended.ExitCode != 0 {
+		t.Fatalf("post invocation = %+v", ended)
+	}
+	assertPendingToolCallKeys(t, repo, "ag-pending-lifecycle")
 }
 
 func TestAntigravityStopAdaptsBlockToContinue(t *testing.T) {

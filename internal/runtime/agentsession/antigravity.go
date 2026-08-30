@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"reconc.dev/reconc/internal/retention"
 	"reconc.dev/reconc/internal/runtime"
@@ -29,6 +30,12 @@ func runAntigravityPreInvocationResolved(root string, payloadBytes []byte) Resul
 		return antigravityResult(Result{ExitCode: 0, Stderr: err.Error()}, map[string]interface{}{"injectSteps": []interface{}{}})
 	}
 	if _, err := ensureSessionStateResolved(root, parsed.SessionID); err != nil {
+		return antigravityResult(Result{ExitCode: 0, Stderr: err.Error()}, map[string]interface{}{"injectSteps": []interface{}{}})
+	}
+	now := time.Now().UTC()
+	if _, err := mutateSessionStateResolved(root, parsed.SessionID, func(state SessionState) SessionState {
+		return reapPendingToolCalls(state, now)
+	}); err != nil {
 		return antigravityResult(Result{ExitCode: 0, Stderr: err.Error()}, map[string]interface{}{"injectSteps": []interface{}{}})
 	}
 	retentionStderr := retentionWarning(retention.RunIfDue(retention.Options{RepoRoot: root, StateRoot: stateRoot(), ActiveSession: parsed.SessionID}))
@@ -63,23 +70,31 @@ func runAntigravityPreToolUseResolvedWithEvaluator(root string, payloadBytes []b
 	if parsed.IsReadTool() || parsed.IsWriteTool() || parsed.IsCommandTool() {
 		var updated SessionState
 		var keyErr error
+		var correlationErr error
+		createdAt := time.Now().UTC().UnixNano()
 		updated, err = mutateSessionStateResolved(root, parsed.SessionID, func(state SessionState) SessionState {
+			state = reapPendingToolCalls(state, time.Unix(0, createdAt))
 			key, err := antigravityPendingKey(parsed)
 			if err != nil {
 				keyErr = err
 				return state
 			}
-			return PutPendingToolCall(state, key, PendingToolCall{
-				ToolName:  parsed.ToolName,
-				ToolInput: cloneObject(parsed.ToolInput),
-				ToolUseID: parsed.ToolUseID,
+			state, correlationErr = putPendingToolCallTransient(state, key, PendingToolCall{
+				ToolName:          parsed.ToolName,
+				ToolInput:         cloneObject(parsed.ToolInput),
+				ToolUseID:         parsed.ToolUseID,
+				CreatedAtUnixNano: createdAt,
 			})
+			return state
 		})
 		if err != nil {
 			return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: err.Error()})
 		}
 		if keyErr != nil {
 			return AdaptAntigravityResult("antigravity-pre-tool-use", resultWithEncodingError(Result{ExitCode: 2}, keyErr))
+		}
+		if correlationErr != nil {
+			return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: correlationErr.Error()})
 		}
 		if updated.EvidenceOverflow {
 			return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: evidenceOverflowMessage(updated)})
@@ -109,19 +124,14 @@ func runAntigravityPostToolUseResolved(root string, payloadBytes []byte) Result 
 	var pending PendingToolCall
 	var found bool
 	var keyErr error
+	now := time.Now().UTC()
 	_, err = mutateSessionStateResolved(root, parsed.SessionID, func(state SessionState) SessionState {
 		key, err := antigravityPendingKey(parsed)
 		if err != nil {
 			keyErr = err
 			return state
 		}
-		if state.PendingToolCalls != nil {
-			pending, found = state.PendingToolCalls[key]
-			delete(state.PendingToolCalls, key)
-			if len(state.PendingToolCalls) == 0 {
-				state.PendingToolCalls = nil
-			}
-		}
+		state, pending, found = takePendingToolCall(state, key, now)
 		return state
 	})
 	if err != nil {
@@ -155,18 +165,23 @@ func runAntigravityPostToolUseResolved(root string, payloadBytes []byte) Result 
 }
 
 func RunAntigravityPostInvocation(repoRoot string, payloadBytes []byte) Result {
-	if _, err := ResolveRepoRootRef(repoRoot); err != nil {
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
 		return antigravityResult(Result{ExitCode: 0, Stderr: err.Error()}, map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""})
 	}
-	return runAntigravityPostInvocationResolved(payloadBytes)
+	return runAntigravityPostInvocationResolved(root.path, payloadBytes)
 }
 
-func runAntigravityPostInvocationResolved(payloadBytes []byte) Result {
+func runAntigravityPostInvocationResolved(root string, payloadBytes []byte) Result {
 	payload, err := NormalizeAntigravityPayload("antigravity-post-invocation", payloadBytes)
 	if err != nil {
 		return antigravityResult(Result{ExitCode: 0, Stderr: err.Error()}, map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""})
 	}
-	if _, err := ParsePayload(payload); err != nil {
+	parsed, err := ParsePayload(payload)
+	if err != nil {
+		return antigravityResult(Result{ExitCode: 0, Stderr: err.Error()}, map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""})
+	}
+	if _, err := mutateSessionStateResolved(root, parsed.SessionID, clearPendingToolCalls); err != nil {
 		return antigravityResult(Result{ExitCode: 0, Stderr: err.Error()}, map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""})
 	}
 	return antigravityResult(Result{ExitCode: 0}, map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""})
