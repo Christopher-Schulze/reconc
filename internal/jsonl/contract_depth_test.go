@@ -51,6 +51,65 @@ func TestAppendRejectsOversizedRecordWithoutCreatingState(t *testing.T) {
 	}
 }
 
+func TestAppendRejectsInvalidRecordFramingWithoutCreatingState(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		record string
+	}{
+		{name: "empty"},
+		{name: "spaces", record: " \t "},
+		{name: "empty LF", record: "\n"},
+		{name: "empty CRLF", record: "\r\n"},
+		{name: "embedded CR", record: "first\rsecond"},
+		{name: "embedded LF", record: "first\nsecond"},
+		{name: "embedded CRLF", record: "first\r\nsecond"},
+		{name: "multiple terminators", record: "record\r\n\r\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "events.jsonl")
+			err := Append(path, []byte(test.record), Policy{MaxBytes: 64, MaxArchives: 1})
+			if err == nil {
+				t.Fatal("Append accepted invalid record framing")
+			}
+			for _, candidate := range []string{path, path + ".lock", path + ".append-transaction.json"} {
+				if _, statErr := os.Lstat(candidate); !errors.Is(statErr, os.ErrNotExist) {
+					t.Fatalf("invalid record created %s: %v", candidate, statErr)
+				}
+			}
+		})
+	}
+}
+
+func TestAppendTransactionRejectsInvalidRecordBeforeMutation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	want := []byte("existing\n")
+	if err := os.WriteFile(path, want, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	committed := false
+	err := AppendTransaction(path, Policy{MaxBytes: 64, MaxArchives: 1}, func() ([]byte, error) {
+		return []byte("forged\nrecord"), nil
+	}, func() error {
+		committed = true
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "must not contain CR or LF") {
+		t.Fatalf("transaction framing error = %v", err)
+	}
+	if committed {
+		t.Fatal("invalid record advanced the transaction commit")
+	}
+	body, readErr := os.ReadFile(path)
+	if readErr != nil || !reflect.DeepEqual(body, want) {
+		t.Fatalf("invalid transaction changed live JSONL: body=%q err=%v", body, readErr)
+	}
+	for _, candidate := range []string{path + ".append-transaction.json", path + ".append-backup.0"} {
+		if _, statErr := os.Lstat(candidate); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("invalid transaction created %s: %v", candidate, statErr)
+		}
+	}
+}
+
 func TestAppendWithNoArchivesReplacesFullLiveFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	if err := os.WriteFile(path, []byte("old-record\n"), 0o644); err != nil {

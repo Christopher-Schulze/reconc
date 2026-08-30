@@ -201,13 +201,25 @@ func appendLockedWithLayout(path string, record []byte, policy Policy, layout La
 }
 
 func normalizeRecord(record []byte, maximum int64) ([]byte, error) {
-	trimmed := bytes.TrimRight(record, "\r\n")
-	normalizedBytes := len(trimmed) + 1
+	payload := record
+	if len(payload) > 0 && payload[len(payload)-1] == '\n' {
+		payload = payload[:len(payload)-1]
+		if len(payload) > 0 && payload[len(payload)-1] == '\r' {
+			payload = payload[:len(payload)-1]
+		}
+	}
+	if len(bytes.TrimSpace(payload)) == 0 {
+		return nil, errors.New("jsonl record must be non-empty")
+	}
+	if bytes.ContainsAny(payload, "\r\n") {
+		return nil, errors.New("jsonl record must not contain CR or LF")
+	}
+	normalizedBytes := len(payload) + 1
 	if int64(normalizedBytes) > maximum {
 		return nil, fmt.Errorf("jsonl record is %d bytes; maximum is %d", normalizedBytes, maximum)
 	}
 	normalized := make([]byte, normalizedBytes)
-	copy(normalized, trimmed)
+	copy(normalized, payload)
 	normalized[len(normalized)-1] = '\n'
 	return normalized, nil
 }

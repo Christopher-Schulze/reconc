@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 387 Align JSONL writer and reader contracts -> tasks/387-align-jsonl-writer-and-reader-contracts.md
 - [ ] 388 Harden CLI value parsing and helper implementations -> tasks/388-harden-cli-value-parsing-and-helper-implementations.md
 - [ ] 389 Make run-log following duplicate-safe and incremental -> tasks/389-make-run-log-following-duplicate-safe-and-incremental.md
 - [ ] 390 Retain pre-decision and taint-resolution state -> tasks/390-retain-pre-decision-and-taint-resolution-state.md
@@ -83,6 +82,7 @@
 
 ## Done
 
+- [x] 387 Align JSONL writer and reader contracts -> tasks/done/387-align-jsonl-writer-and-reader-contracts.md
 - [x] 386 Protect live retention locks and sessions -> tasks/done/386-protect-live-retention-locks-and-sessions.md
 - [x] 385 Preserve stricter managed-artifact permissions -> tasks/done/385-preserve-stricter-managed-artifact-permissions.md
 - [x] 384 Hermeticize offline hook verification -> tasks/done/384-hermeticize-offline-hook-verification.md

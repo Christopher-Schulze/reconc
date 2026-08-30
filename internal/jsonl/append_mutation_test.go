@@ -17,7 +17,6 @@ func TestAppendDoesNotMutateCallerSlice(t *testing.T) {
 		{name: "plain", record: "hello", want: "hello\n"},
 		{name: "trailing newline", record: "hello\n", want: "hello\n"},
 		{name: "trailing CRLF", record: "hello\r\n", want: "hello\n"},
-		{name: "empty", record: "", want: "\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

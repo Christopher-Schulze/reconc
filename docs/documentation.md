@@ -2282,7 +2282,11 @@ through the same identity-bound
 parent before the next state transition. Unix persists those directory entries
 with a directory sync; Windows preserves the rooted identity boundary without
 claiming a directory flush that its read-only handle API cannot provide. Audit
-entries
+entries use exactly one non-whitespace record per line. Generic append accepts
+an optional single LF or CRLF terminator, rejects every embedded CR or LF before
+locking or mutation, and publishes exactly one terminal LF. Audit readers reject
+empty records with source-line context. A custom audit live-file cap may reduce
+the default but cannot exceed the fixed 2 MiB reader ceiling. Audit entries
 additionally carry one contiguous sequence and SHA-256 previous/current digest
 chain, with the latest identity stored in `.reconc/audit.head.json`. Every
 audit reader verifies all retained archives, the live file, and the detached

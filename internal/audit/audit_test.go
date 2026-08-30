@@ -82,6 +82,24 @@ func TestAppendMultipleProducesJSONL(t *testing.T) {
 	}
 }
 
+func TestAppendRejectsWriterCapAboveReaderLimitWithoutCreatingState(t *testing.T) {
+	repo := t.TempDir()
+	err := Append(repo, Entry{Event: "check", Decision: "pass"}, DefaultMaxSizeBytes+1)
+	want := fmt.Sprintf("exceeds the %d-byte reader limit", DefaultMaxSizeBytes)
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("oversized writer cap error = %v", err)
+	}
+	for _, path := range []string{
+		filepath.Join(repo, AuditFileRelative),
+		filepath.Join(repo, AuditHeadRelative),
+		filepath.Join(repo, AuditFileRelative+".lock"),
+	} {
+		if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("oversized writer cap created %s: %v", path, statErr)
+		}
+	}
+}
+
 func TestTailRecoversPublishedAuditTransaction(t *testing.T) {
 	repo := t.TempDir()
 	if err := Append(repo, Entry{Event: "before-crash", Decision: "pass"}, 0); err != nil {
@@ -250,6 +268,24 @@ func TestTailRejectsMalformedLines(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), path+":2 contains malformed JSON") {
 		t.Fatalf("malformed audit error = %v, want exact source and line", err)
+	}
+}
+
+func TestTailRejectsEmptyRecordWithLineContext(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(repo, AuditFileRelative)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := Tail(repo, TailOptions{})
+	if err == nil {
+		t.Fatalf("empty audit record unexpectedly decoded %d entries", len(entries))
+	}
+	if want := path + ":1 is an empty record"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("empty audit error = %v, want %q", err, want)
 	}
 }
 

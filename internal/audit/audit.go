@@ -134,6 +134,9 @@ func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 	if maxSizeBytes <= 0 {
 		maxSizeBytes = DefaultMaxSizeBytes
 	}
+	if maxSizeBytes > DefaultMaxSizeBytes {
+		return fmt.Errorf("audit: max size %d exceeds the %d-byte reader limit", maxSizeBytes, DefaultMaxSizeBytes)
+	}
 	releaseAppendGate, err := acquireAuditAppendGate(context.Background(), repoRoot, auditAppendGateTimeout)
 	if err != nil {
 		return fmt.Errorf("audit: append serialization: %w", err)
@@ -731,7 +734,7 @@ func decodeAuditFile(file *os.File, source string, entries *[]Entry) error {
 		lineNumber++
 		line = line[:len(line)-1]
 		if len(line) == 0 {
-			continue
+			return &auditReadError{err: fmt.Errorf("audit: %s:%d is an empty record", source, lineNumber)}
 		}
 		var entry Entry
 		if err := decodeStrictJSON(line, &entry); err != nil {
