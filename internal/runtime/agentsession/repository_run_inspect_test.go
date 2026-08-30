@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/jsonl"
+	"reconc.dev/reconc/internal/privatefs"
 	"reconc.dev/reconc/internal/repositorycontrol"
 )
 
@@ -82,7 +83,7 @@ func TestReadRunDecisionsStreamsValidatedTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path+".2", []byte("{malformed}\n"), 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(path+".2", []byte("{malformed}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadRunDecisions(repo, 1); err == nil || !strings.Contains(err.Error(), "malformed run decision") {
@@ -99,7 +100,10 @@ func TestReadRunDecisionsRejectsOversizeAndSymlinkFiles(t *testing.T) {
 	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
 		t.Fatal(err)
 	}
-	file, err := os.Create(path)
+	if _, err := privatefs.WritePrivateIfChanged(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +173,7 @@ func TestReadRunDecisionsRejectsUnknownField(t *testing.T) {
 	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("{\"event\":\"stop\",\"unexpected\":true}\n"), 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(path, []byte("{\"event\":\"stop\",\"unexpected\":true}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadRunDecisions(repo, 0); err == nil {
@@ -186,7 +190,7 @@ func TestReadRunDecisionsRejectsTruncatedRecord(t *testing.T) {
 	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"event":"stop"}`), 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(path, []byte(`{"event":"stop"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadRunDecisions(repo, 0); err == nil {
@@ -394,7 +398,7 @@ func writeRunDecisionBenchmarkFixture(b *testing.B, repo string, count int) {
 		body.Write(encoded)
 		body.WriteByte('\n')
 	}
-	if err := os.WriteFile(path, []byte(body.String()), 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(path, []byte(body.String()), 0o600); err != nil {
 		b.Fatal(err)
 	}
 }

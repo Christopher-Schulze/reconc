@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/audit"
+	"reconc.dev/reconc/internal/privatefs"
 	"reconc.dev/reconc/internal/repositorycontrol"
 )
 
@@ -676,16 +677,7 @@ func writeTimed(t *testing.T, path string, body []byte, modTime time.Time) {
 
 func writePrivateTimed(t *testing.T, path string, body []byte, modTime time.Time) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(path, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(path, modTime, modTime); err != nil {

@@ -8,6 +8,7 @@
 
 ## Done
 
+- [x] 463 Complete the native Windows final gate -> tasks/done/463-complete-the-native-windows-final-gate.md
 - [x] 462 Restore the Windows final gate -> tasks/done/462-restore-the-windows-final-gate.md
 - [x] 461 Keep self-host runtime contracts current -> tasks/done/461-keep-self-host-runtime-contracts-current.md
 - [x] 460 Render TUI width in terminal cells -> tasks/done/460-render-tui-width-in-terminal-cells.md

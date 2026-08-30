@@ -31,6 +31,10 @@ func newWindowsFakeLeader(t *testing.T, handle func(net.Conn)) *windowsFakeLeade
 		t.Fatal(err)
 	}
 	leader := &windowsFakeLeader{endpoint: endpoint, listener: listener}
+	if handle == nil {
+		t.Cleanup(func() { _ = listener.Close() })
+		return leader
+	}
 	leader.wg.Add(1)
 	go func() {
 		defer leader.wg.Done()
@@ -106,7 +110,7 @@ func TestWindowsLeaderPipeDiscovery(t *testing.T) {
 }
 
 func TestWindowsLeaderPipeEnumerationFindsLivePipe(t *testing.T) {
-	leader := newWindowsFakeLeader(t, func(net.Conn) {})
+	leader := newWindowsFakeLeader(t, nil)
 	candidates, err := listWindowsLeaderPipes()
 	if err != nil {
 		t.Fatal(err)

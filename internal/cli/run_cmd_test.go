@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/privatefs"
 	"reconc.dev/reconc/internal/repositorycontrol"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
@@ -119,7 +120,7 @@ func writeRunDecisions(t *testing.T, repo string, ds []agentsession.RunDecision)
 		b.Write(line)
 		b.WriteByte('\n')
 	}
-	if err := os.WriteFile(filepath.Join(dir, "decisions.jsonl"), []byte(b.String()), 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(filepath.Join(dir, "decisions.jsonl"), []byte(b.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -405,7 +406,7 @@ func TestRunResetCLIRecoversCorruptState(t *testing.T) {
 	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("corrupt"), 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(path, []byte("corrupt"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer

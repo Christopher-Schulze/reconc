@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"reconc.dev/reconc/internal/privatefs"
 	"reconc.dev/reconc/internal/repositorycontrol"
 )
 
@@ -198,7 +199,7 @@ func TestRepositoryRunStoreRejectsOversizedState(t *testing.T) {
 	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, make([]byte, repositoryRunSlotSize*2+1), 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(path, make([]byte, repositoryRunSlotSize*2+1), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := loadRepositoryRunState(repo); err == nil {
@@ -248,7 +249,7 @@ func TestRepositoryRunStateRejectsForeignRootAndResetPreservesLog(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(targetPath, body, 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(targetPath, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := appendRunDecision(target, RunDecision{Event: "sentinel", Branch: "preserve_me"}); err != nil {
@@ -279,7 +280,7 @@ func TestRepositoryRunResetRecoversFullyCorruptState(t *testing.T) {
 	if err := repositorycontrol.EnsureRunDirectory(repo); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("both slots are corrupt"), 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(path, []byte("both slots are corrupt"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadRepositoryRunStatus(repo); err == nil || !strings.Contains(err.Error(), "run reset") {

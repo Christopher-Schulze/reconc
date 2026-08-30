@@ -551,7 +551,10 @@ func rollbackRepositorySyncTransaction(
 				}
 			}
 			if err := removeCreatedRecord(&record); err != nil {
-				return restored, fmt.Errorf("remove interrupted repository sync artifact %s: %w", file.Path, err)
+				return restored, errors.Join(
+					fmt.Errorf("remove interrupted repository sync artifact %s: %w", file.Path, err),
+					record.close(),
+				)
 			}
 			restored = append(restored, file.Path)
 			continue
@@ -623,7 +626,7 @@ func removeRepositorySyncTransaction(root string, transaction *repositorySyncTra
 	}
 	removed, err := removeCreatedRecordOutcome(&record)
 	if err != nil {
-		return fmt.Errorf("remove repository sync transaction journal: %w", err)
+		return errors.Join(fmt.Errorf("remove repository sync transaction journal: %w", err), record.close())
 	}
 	if !removed {
 		return errors.New("repository sync transaction journal disappeared before durable removal")
