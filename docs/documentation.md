@@ -4043,7 +4043,11 @@ direct/manual calls, and `exec`s the selected Reconc binary so no avoidable shel
 parent remains;
 the Go hook runtime lowers observation-only events (`post/after/session-end`)
 with best-effort Unix process priority while keeping PreToolUse, permission,
-and Stop at normal priority. Routine executable repository continuation never
+and Stop at normal priority. Before handler execution, one typed failure adapter
+maps payload-read, repository-resolution, and normalization failures to the
+registry route's exact exit code, stdout decision envelope, or stderr warning;
+Copilot and Grok host-specific fail-closed transports therefore cannot drift
+between stages. Routine executable repository continuation never
 builds a Stop fingerprint. Terminal Stop uses one git status snapshot
 per report build with default `--untracked-files=normal`, dirty-path
 content/index hashes, policy-source identity, typed TASK state, direct
