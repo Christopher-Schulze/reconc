@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 436 Record manual retention completion -> tasks/436-record-manual-retention-completion.md
 - [ ] 437 Preserve completion drift error identity -> tasks/437-preserve-completion-drift-error-identity.md
 - [ ] 438 Bound impact filesystem snapshots -> tasks/438-bound-impact-filesystem-snapshots.md
 - [ ] 439 Redact CI host paths on boundaries -> tasks/439-redact-ci-host-paths-on-boundaries.md
@@ -34,6 +33,7 @@
 
 ## Done
 
+- [x] 436 Record manual retention completion -> tasks/done/436-record-manual-retention-completion.md
 - [x] 435 Harden bootstrap stage recovery -> tasks/done/435-harden-bootstrap-stage-recovery.md
 - [x] 434 Bind runtime executables to install trust -> tasks/done/434-bind-runtime-executables-to-install-trust.md
 - [x] 433 Preserve mixed hook configuration ownership -> tasks/done/433-preserve-mixed-hook-configuration-ownership.md

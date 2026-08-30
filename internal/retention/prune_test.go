@@ -428,6 +428,160 @@ func TestRunIfDueWritesOnceAndSkipsWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestSuccessfulManualRunRecordsCompletionAndSkipsImmediateDueRun(t *testing.T) {
+	repo := t.TempDir()
+	stateRoot := t.TempDir()
+	now := time.Date(2026, 8, 30, 12, 0, 0, 123, time.UTC)
+	options := Options{RepoRoot: repo, StateRoot: stateRoot, Policy: DefaultPolicy(), Now: now, TempRoot: t.TempDir()}
+
+	manual := Run(options)
+	if !manual.Ran || len(manual.Errors) != 0 {
+		t.Fatalf("manual retention report = %+v", manual)
+	}
+	marker := filepath.Join(ProjectDir(stateRoot, repo), retentionMarkerName)
+	body, err := os.ReadFile(marker)
+	if err != nil || string(body) != now.Format(time.RFC3339Nano)+"\n" {
+		t.Fatalf("manual completion marker = %q, err=%v", body, err)
+	}
+	if followUp := RunIfDue(options); followUp.Ran || len(followUp.Errors) != 0 {
+		t.Fatalf("immediate due follow-up = %+v", followUp)
+	}
+}
+
+func TestDryAndFailedRunsDoNotRecordCompletion(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		prepare func(*testing.T, string, string, *Policy)
+		dryRun  bool
+		due     bool
+	}{
+		{name: "dry run", dryRun: true},
+		{
+			name: "failed manual run",
+			prepare: func(t *testing.T, repo, stateRoot string, policy *Policy) {
+				path := filepath.Join(ProjectDir(stateRoot, repo), "policy-decisions", "latest.json")
+				writeTimed(t, path, []byte("unresolved-block"), time.Now().Add(-time.Hour))
+				policy.StateTotalBytes = 0
+			},
+		},
+		{
+			name: "failed due run",
+			due:  true,
+			prepare: func(t *testing.T, repo, stateRoot string, policy *Policy) {
+				path := filepath.Join(ProjectDir(stateRoot, repo), "policy-decisions", "latest.json")
+				writeTimed(t, path, []byte("unresolved-block"), time.Now().Add(-time.Hour))
+				policy.StateTotalBytes = 0
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := t.TempDir()
+			stateRoot := t.TempDir()
+			policy := DefaultPolicy()
+			if test.prepare != nil {
+				test.prepare(t, repo, stateRoot, &policy)
+			}
+			options := Options{
+				RepoRoot: repo, StateRoot: stateRoot, Policy: policy,
+				Now: time.Now().UTC(), TempRoot: t.TempDir(), DryRun: test.dryRun,
+			}
+			run := Run
+			if test.due {
+				run = RunIfDue
+			}
+			report := run(options)
+			if !report.Ran || (test.dryRun && len(report.Errors) != 0) || (!test.dryRun && len(report.Errors) == 0) {
+				t.Fatalf("retention report = %+v", report)
+			}
+			marker := filepath.Join(ProjectDir(stateRoot, repo), retentionMarkerName)
+			if _, err := os.Lstat(marker); !os.IsNotExist(err) {
+				t.Fatalf("non-successful run created completion marker: %v", err)
+			}
+		})
+	}
+}
+
+func TestManualAndDueRunsKeepCompletionMarkerMonotonic(t *testing.T) {
+	repo := t.TempDir()
+	stateRoot := t.TempDir()
+	policy := DefaultPolicy()
+	later := time.Date(2026, 8, 30, 18, 0, 0, 0, time.UTC)
+	earlier := later.Add(-policy.Interval)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	original := publishRetentionMarker
+	publishRetentionMarker = func(path string, completedAt time.Time) error {
+		if completedAt.Equal(later) {
+			close(entered)
+			<-release
+		}
+		return original(path, completedAt)
+	}
+	t.Cleanup(func() { publishRetentionMarker = original })
+
+	manualTemp := t.TempDir()
+	dueTemp := t.TempDir()
+	manualResult := make(chan Report, 1)
+	go func() {
+		manualResult <- Run(Options{
+			RepoRoot: repo, StateRoot: stateRoot, Policy: policy, Now: later, TempRoot: manualTemp,
+		})
+	}()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("manual retention did not reach completion publication")
+	}
+	dueResult := make(chan Report, 1)
+	go func() {
+		dueResult <- RunIfDue(Options{
+			RepoRoot: repo, StateRoot: stateRoot, Policy: policy, Now: earlier, TempRoot: dueTemp,
+		})
+	}()
+	close(release)
+	select {
+	case report := <-manualResult:
+		if !report.Ran || len(report.Errors) != 0 {
+			t.Fatalf("manual report = %+v", report)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("manual retention did not finish")
+	}
+	select {
+	case report := <-dueResult:
+		if report.Ran || len(report.Errors) != 0 {
+			t.Fatalf("concurrent due report = %+v", report)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("concurrent due retention did not finish")
+	}
+	marker := filepath.Join(ProjectDir(stateRoot, repo), retentionMarkerName)
+	body, err := os.ReadFile(marker)
+	if err != nil || string(body) != later.Format(time.RFC3339Nano)+"\n" {
+		t.Fatalf("monotonic completion marker = %q, err=%v", body, err)
+	}
+}
+
+func TestMarkerPublicationFailureLeavesImmediateFollowUpDue(t *testing.T) {
+	repo := t.TempDir()
+	stateRoot := t.TempDir()
+	now := time.Now().UTC()
+	options := Options{RepoRoot: repo, StateRoot: stateRoot, Policy: DefaultPolicy(), Now: now, TempRoot: t.TempDir()}
+	injected := fmt.Errorf("injected marker publication failure")
+	original := publishRetentionMarker
+	publishRetentionMarker = func(string, time.Time) error { return injected }
+	t.Cleanup(func() { publishRetentionMarker = original })
+
+	first := Run(options)
+	if len(first.Errors) != 1 || !strings.Contains(first.Errors[0], injected.Error()) {
+		t.Fatalf("failed marker report = %+v", first)
+	}
+	publishRetentionMarker = original
+	if followUp := RunIfDue(options); !followUp.Ran || len(followUp.Errors) != 0 {
+		t.Fatalf("follow-up report = %+v", followUp)
+	}
+}
+
 func TestRunIfDueSerializesConcurrentLifecycleCalls(t *testing.T) {
 	repo := t.TempDir()
 	stateRoot := t.TempDir()

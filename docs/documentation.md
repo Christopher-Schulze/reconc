@@ -2238,8 +2238,11 @@ equivalents; the complete source-repository list is in Git Ignore Policy.
 Runtime retention is product-owned rather than harness-owned. `SessionStart`
 and `SessionEnd` run a cross-process-safe due check with a six-hour interval;
 Stop never prunes. `reconc prune [repo] [--dry-run] [--json]` runs the same
-core explicitly. Unchanged session files, active-session pointers, reports,
-command proofs, and run state are byte-compared and never republished. Session
+core explicitly. A successful real run from either path publishes the same
+monotonic durable completion marker while holding the project retention lock;
+dry runs and runs with any reported error leave it unchanged. Unchanged session
+files, active-session pointers, reports, command proofs, and run state are
+byte-compared and never republished. Session
 mutations normalize once, compare the normalized result once, and skip atomic
 publication when the apparent change normalizes away; missing or non-private
 state and pointer modes are still repaired.

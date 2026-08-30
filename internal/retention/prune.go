@@ -36,12 +36,21 @@ type candidate struct {
 const (
 	maxRetentionDirectoryEntries = 16_384
 	maxRetentionWalkEntries      = 100_000
+	maxRetentionMarkerBytes      = 64
+	retentionMarkerName          = ".last-retention"
 	// ProjectRootRetentionLockName serializes root deletion with creation of
 	// durable action and agent-session state in another process.
 	ProjectRootRetentionLockName = ".project-root-retention.lock"
 )
 
-// Run executes an immediate, cross-process-serialized retention pass.
+var publishRetentionMarker = func(path string, completedAt time.Time) error {
+	body := []byte(completedAt.UTC().Format(time.RFC3339Nano) + "\n")
+	_, err := privatefs.WritePrivateIfChanged(path, body, 0o600)
+	return err
+}
+
+// Run executes an immediate, cross-process-serialized retention pass and
+// records a successful real pass for the shared due schedule.
 func Run(options Options) Report {
 	return RunContext(context.Background(), options)
 }
@@ -59,12 +68,12 @@ func RunContext(ctx context.Context, options Options) Report {
 		return runLockedContext(ctx, options, true)
 	}
 	return withPruneLockContext(ctx, options, func() Report {
-		return runLockedContext(ctx, options, true)
+		return recordRetentionCompletion(options, runLockedContext(ctx, options, true))
 	})
 }
 
-// RunIfDue executes at most once per Policy.Interval. A not-due call performs
-// one stat and one lock round-trip but writes nothing.
+// RunIfDue executes at most once per Policy.Interval. A not-due call reads one
+// bounded marker snapshot, takes one lock round-trip, and writes nothing.
 func RunIfDue(options Options) Report {
 	return RunIfDueContext(context.Background(), options)
 }
@@ -79,26 +88,67 @@ func RunIfDueContext(ctx context.Context, options Options) Report {
 		return retentionContextError(options, err)
 	}
 	if options.DryRun {
-		marker := filepath.Join(ProjectDir(options.StateRoot, options.RepoRoot), ".last-retention")
-		if info, err := os.Stat(marker); err == nil && options.Now.Sub(info.ModTime()) < options.Policy.Interval {
+		marker := retentionMarkerPath(options)
+		if !retentionDue(marker, options.Now, options.Policy.Interval) {
 			return emptyReport(options, true)
 		}
 		return runLockedContext(ctx, options, false)
 	}
 	return withPruneLockContext(ctx, options, func() Report {
-		marker := filepath.Join(ProjectDir(options.StateRoot, options.RepoRoot), ".last-retention")
-		if info, err := os.Stat(marker); err == nil && options.Now.Sub(info.ModTime()) < options.Policy.Interval {
+		marker := retentionMarkerPath(options)
+		if !retentionDue(marker, options.Now, options.Policy.Interval) {
 			return emptyReport(options, options.DryRun)
 		}
-		report := runLockedContext(ctx, options, false)
-		if !options.DryRun {
-			body := []byte(options.Now.UTC().Format(time.RFC3339Nano) + "\n")
-			if _, err := privatefs.WritePrivateIfChanged(marker, body, 0o600); err != nil {
-				report.Errors = append(report.Errors, fmt.Sprintf("write retention marker: %v", err))
-			}
-		}
-		return report
+		return recordRetentionCompletion(options, runLockedContext(ctx, options, false))
 	})
+}
+
+func recordRetentionCompletion(options Options, report Report) Report {
+	if options.DryRun || !report.Ran || len(report.Errors) != 0 {
+		return report
+	}
+	marker := retentionMarkerPath(options)
+	if current, ok := readRetentionCompletion(marker); ok && current.After(options.Now) {
+		return report
+	}
+	if err := publishRetentionMarker(marker, options.Now); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("write retention marker: %v", err))
+	}
+	return report
+}
+
+func retentionMarkerPath(options Options) string {
+	return filepath.Join(ProjectDir(options.StateRoot, options.RepoRoot), retentionMarkerName)
+}
+
+func retentionDue(marker string, now time.Time, interval time.Duration) bool {
+	completedAt, ok := readRetentionCompletion(marker)
+	if !ok {
+		return true
+	}
+	return !now.Before(completedAt) && now.Sub(completedAt) >= interval
+}
+
+func readRetentionCompletion(marker string) (time.Time, bool) {
+	body, err := boundedio.ReadRegularFile(marker, maxRetentionMarkerBytes)
+	if err != nil || len(body) < 2 || body[len(body)-1] != '\n' || bytesContainsLineBreak(body[:len(body)-1]) {
+		return time.Time{}, false
+	}
+	value := string(body[:len(body)-1])
+	completedAt, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil || value != completedAt.UTC().Format(time.RFC3339Nano) {
+		return time.Time{}, false
+	}
+	return completedAt, true
+}
+
+func bytesContainsLineBreak(body []byte) bool {
+	for _, value := range body {
+		if value == '\n' || value == '\r' {
+			return true
+		}
+	}
+	return false
 }
 
 func runLocked(options Options, forceOwnedTemp bool) Report {

@@ -1594,8 +1594,10 @@ because doing so could silently return consumed capacity, and it preserves the
 action ledger live file, archives, detached head, and active transaction because
 removing them would silently break retained-chain truth.
 SessionStart and SessionEnd invoke the same core through a
-six-hour due check; Stop never prunes. Historical parser compatibility is not
-part of the public command surface.
+six-hour due check; Stop never prunes. A successful non-dry explicit run resets
+that same due interval. Dry runs and runs with any reported error never advance
+the durable completion marker. Historical parser compatibility is not part of
+the public command surface.
 
 ### `reconc session-briefing [repo] [--json]`
 Compact delta-oriented session state: current TASK/Sub-Task, bounded blockers,
