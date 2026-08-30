@@ -39,6 +39,50 @@ func TestRecordStopBlockAndRepeatedPersistsFeedbackOnlyAfterMutation(t *testing.
 	}
 }
 
+func TestCleanStopClearsRepeatedBlockIdentity(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	const sessionID = "block-clean-block"
+	if _, err := InitializeSessionState(repo, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MutateSessionState(repo, sessionID, func(state SessionState) SessionState {
+		return AppendWritePath(state, "src/a.go")
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	first := RunStop(repo, []byte(`{"session_id":"block-clean-block"}`))
+	if first.ExitCode != 0 || !strings.Contains(first.Stdout, `"decision":"block"`) {
+		t.Fatalf("first block = %+v", first)
+	}
+	if _, err := MutateSessionState(repo, sessionID, func(state SessionState) SessionState {
+		return AppendClaim(state, "ci-green")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	clean := RunStop(repo, []byte(`{"session_id":"block-clean-block"}`))
+	if clean.ExitCode != 0 || clean.Stdout != "" {
+		t.Fatalf("clean Stop = %+v", clean)
+	}
+	state, err := LoadSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.LastStopBlockViolationHash != "" {
+		t.Fatalf("clean Stop retained obsolete block identity %q", state.LastStopBlockViolationHash)
+	}
+	if _, err := MutateSessionState(repo, sessionID, func(state SessionState) SessionState {
+		state.Claims = nil
+		return state
+	}); err != nil {
+		t.Fatal(err)
+	}
+	again := RunStop(repo, []byte(`{"session_id":"block-clean-block"}`))
+	if again.ExitCode != 0 || !strings.Contains(again.Stdout, `"decision":"block"`) {
+		t.Fatalf("same violation after a clean Stop was released as repeated: %+v", again)
+	}
+}
+
 func TestStopBlockJSONOutputDoesNotClaimUnconfirmedState(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	if _, err := InitializeSessionState(repo, "corrupt-repeat-state"); err != nil {

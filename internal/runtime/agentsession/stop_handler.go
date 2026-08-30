@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -145,7 +146,12 @@ func runStopResolvedWithEvaluatorAndCache(
 		if hashErr != nil {
 			return resultWithEncodingError(Result{ExitCode: 2}, hashErr)
 		}
-		if _, ok := cachedCleanStopPolicyReportForEvidenceWithCache(root, state, evidenceHash, stopCache, taskSnapshot); ok {
+		if cached, ok := cachedCleanStopPolicyReportForEvidenceWithCache(root, state, evidenceHash, stopCache, taskSnapshot); ok {
+			if terminalResult, handled, terminalErr := finalizeCleanStop(root, state.SessionID, cached); terminalErr != nil {
+				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): finalize clean Stop: %s", terminalErr)}
+			} else if handled {
+				return terminalResult
+			}
 			currentRun, _ := loadRepositoryRunStateResolved(root)
 			var logErr error
 			if repositoryRunEnabled(currentRun) {
@@ -198,10 +204,10 @@ func runStopResolvedWithEvaluatorAndCache(
 		return Result{ExitCode: 0, Stdout: blockOutput, Stderr: joinStderr(bestEffortStopDecisionDiagnostic(logErr), stopBlockStateDiagnostic(stateErr))}
 	}
 
-	if result, blocked, terminalErr := taskCompletionCommitGate(policyResult.TaskSnapshot, policyResult.GitSnapshot); terminalErr != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): TASK completion gate: %s", terminalErr)}
-	} else if blocked {
-		return result
+	if terminalResult, handled, terminalErr := finalizeCleanStop(root, state.SessionID, policyResult); terminalErr != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): finalize clean Stop: %s", terminalErr)}
+	} else if handled {
+		return terminalResult
 	}
 	if checkpointDue {
 		if err := markRepoPolicyCheckpoint(root, runFile, payload, runtimeName, state.MaterialEvents); err != nil {
@@ -218,6 +224,24 @@ func runStopResolvedWithEvaluatorAndCache(
 	}
 
 	return Result{ExitCode: 0}
+}
+
+func finalizeCleanStop(root, sessionID string, evaluated stopPolicyCheckResult) (Result, bool, error) {
+	currentTask, err := captureStopTaskSnapshot(root)
+	if err != nil {
+		return Result{}, false, fmt.Errorf("recapture TASK snapshot: %w", err)
+	}
+	currentGit := stopPolicyGitSnapshotFor(root)
+	if !reflect.DeepEqual(evaluated.TaskSnapshot, currentTask) || evaluated.GitSnapshot != currentGit {
+		return Result{}, false, fmt.Errorf("terminal repository state changed during Stop evaluation")
+	}
+	if _, err := mutateSessionStateResolved(root, sessionID, func(state SessionState) SessionState {
+		state.LastStopBlockViolationHash = ""
+		return state
+	}); err != nil {
+		return Result{}, false, fmt.Errorf("clear repeated-block state: %w", err)
+	}
+	return taskCompletionCommitGate(currentTask, currentGit)
 }
 
 func repoRunPolicyCheckpointDue(run repositoryRunState, state SessionState, now time.Time) bool {

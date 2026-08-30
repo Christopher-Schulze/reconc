@@ -4134,7 +4134,14 @@ loading and revalidated after the final evidence reload. If evidence or an
 exact cache input changes during policy evaluation, Stop re-evaluates current
 state up to three times and then fails closed instead of returning or warming a
 stale report. Re-entrant `stop_hook_active=true` calls apply the same final
-revalidation before reusing a clean report.
+revalidation before reusing a clean report. Every verified clean path then
+uses one terminal finalizer: it recaptures typed TASK and Git state, requires
+exact equality with the post-report snapshot, and executes the configured TASK
+completion commit gate even for a clean cache hit. Drift or recapture failure
+fails closed, including for policies that are intentionally non-cacheable. The
+per-session repeated-block identity is cleared only after that clean-state
+revalidation, so a later recurrence is blocked once before repeat release is
+eligible again.
 
 Report reuse additionally binds the repository paths the compiled policy names,
 including the `require_script` target itself.

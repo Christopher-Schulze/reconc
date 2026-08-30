@@ -596,56 +596,58 @@ func cachedCleanStopPolicyReportForEvidence(repoRoot string, state SessionState,
 	if err != nil {
 		return nil, false
 	}
-	return cachedCleanStopPolicyReportForEvidenceAndSnapshot(
+	result, ok := cachedCleanStopPolicyResultForEvidenceAndSnapshot(
 		root, state, evidenceHash, taskSnapshot, stopPolicyGitSnapshotFor(root),
 	)
+	return result.Report, ok
 }
 
-func cachedCleanStopPolicyReportForEvidenceAndSnapshot(
+func cachedCleanStopPolicyResultForEvidenceAndSnapshot(
 	repoRoot string,
 	state SessionState,
 	evidenceHash string,
 	taskSnapshot stopTaskSnapshot,
 	gitSnapshot stopPolicyGitSnapshot,
-) (*runtime.CheckReport, bool) {
+) (stopPolicyCheckResult, bool) {
 	scanCache := &stopPolicyScanCache{}
 	if evidenceHash == "" || state.StopPolicyEvidenceHash != evidenceHash || state.StopPolicyReportHash == "" {
-		return nil, false
+		return stopPolicyCheckResult{}, false
 	}
 	fingerprintInput := stopPolicyFingerprintInputForSnapshotWithScan(
 		repoRoot, state, gitSnapshot, taskSnapshot, stopGenerationCapture{}, scanCache,
 	)
 	if !stopPolicyFingerprintCacheableWithScan(fingerprintInput, scanCache) {
-		return nil, false
+		return stopPolicyCheckResult{}, false
 	}
 	currentFingerprint, err := hashStopPolicyFingerprintInputWithError(fingerprintInput)
 	if err != nil || currentFingerprint == "" || currentFingerprint != state.StopPolicyFingerprint {
-		return nil, false
+		return stopPolicyCheckResult{}, false
 	}
 	report, reportHash, err := readLatestReport(repoRoot, state.SessionID)
 	if err != nil || reportHash != state.StopPolicyReportHash {
-		return nil, false
+		return stopPolicyCheckResult{}, false
 	}
 	if len(blockingViolations(report)) != 0 {
-		return nil, false
+		return stopPolicyCheckResult{}, false
 	}
 	current, err := loadCurrentStopPolicyState(repoRoot, state.SessionID)
 	if err != nil || !stopPolicyCacheBindingMatches(current, state) {
-		return nil, false
+		return stopPolicyCheckResult{}, false
 	}
 	currentTask, err := captureStopTaskSnapshot(repoRoot)
 	if err != nil {
-		return nil, false
+		return stopPolicyCheckResult{}, false
 	}
+	currentGit := stopPolicyGitSnapshotFor(repoRoot)
 	currentInput := stopPolicyFingerprintInputForSnapshotWithScan(
-		repoRoot, current, stopPolicyGitSnapshotFor(repoRoot), currentTask, stopGenerationCapture{}, scanCache,
+		repoRoot, current, currentGit, currentTask, stopGenerationCapture{}, scanCache,
 	)
 	currentFingerprint, err = hashStopPolicyFingerprintInputWithError(currentInput)
 	if err != nil || !stopPolicyFingerprintCacheableWithScan(currentInput, scanCache) || currentFingerprint != current.StopPolicyFingerprint ||
 		stopPolicyReportExpired(current.StopPolicyExpiresAt) || !scanCache.stable(repoRoot, current.WritePaths) {
-		return nil, false
+		return stopPolicyCheckResult{}, false
 	}
-	return report, true
+	return stopPolicyCheckResult{Report: report, GitSnapshot: currentGit, TaskSnapshot: currentTask}, true
 }
 
 func cachedCleanStopPolicyReportForEvidenceWithCache(
@@ -654,9 +656,9 @@ func cachedCleanStopPolicyReportForEvidenceWithCache(
 	evidenceHash string,
 	cache *StopDecisionCache,
 	taskSnapshot stopTaskSnapshot,
-) (*runtime.CheckReport, bool) {
+) (stopPolicyCheckResult, bool) {
 	if evidenceHash == "" || state.StopPolicyEvidenceHash != evidenceHash || state.StopPolicyReportHash == "" {
-		return nil, false
+		return stopPolicyCheckResult{}, false
 	}
 	root := repoRoot
 	if state.RepoRoot != "" {
@@ -678,12 +680,12 @@ func cachedCleanStopPolicyReportForEvidenceWithCache(
 			if loadErr == nil && taskErr == nil && generationOK &&
 				stopPolicyCacheBindingMatches(current, state) &&
 				currentGeneration.Fingerprint == entry.generation {
-				return report, true
+				return stopPolicyCheckResult{Report: report, GitSnapshot: currentGit, TaskSnapshot: currentTask, GenerationHit: true}, true
 			}
 			cache.invalidate(root, state.SessionID)
 		}
 	}
-	return cachedCleanStopPolicyReportForEvidenceAndSnapshot(root, state, evidenceHash, taskSnapshot, gitSnapshot)
+	return cachedCleanStopPolicyResultForEvidenceAndSnapshot(root, state, evidenceHash, taskSnapshot, gitSnapshot)
 }
 
 func withStopPolicyReportLock(repoRoot, sessionID string, fn func() (stopPolicyCheckResult, error)) (stopPolicyCheckResult, error) {
