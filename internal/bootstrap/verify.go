@@ -135,7 +135,9 @@ func (verification *Verification) add(name string, pass bool, detail string) {
 
 func modeSatisfies(actual os.FileMode, desired uint32) bool {
 	if runtime.GOOS == "windows" {
-		return actual.IsRegular()
+		actualWritable := actual.Perm()&0o200 != 0
+		desiredWritable := os.FileMode(desired).Perm()&0o200 != 0
+		return actualWritable == desiredWritable
 	}
 	return uint32(actual.Perm()) == desired
 }
