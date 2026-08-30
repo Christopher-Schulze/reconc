@@ -2,16 +2,8 @@
 
 package bootstrap
 
-import (
-	"errors"
-	"os"
-	"path/filepath"
-)
+import "os"
 
-func syncRemovalParent(path string) error {
-	directory, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	return errors.Join(directory.Sync(), directory.Close())
+func syncRemovalParent(parent *os.Root, expected os.FileInfo, path string) error {
+	return syncMutatedRemovalParent(parent, expected, path)
 }

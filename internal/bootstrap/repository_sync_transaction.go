@@ -22,6 +22,7 @@ const (
 )
 
 var errRepositorySyncInterrupted = errors.New("injected repository sync interruption")
+var beforeRepositorySyncRollbackRemoval = func(string) error { return nil }
 
 type syncMutation struct {
 	Path    string
@@ -528,24 +529,27 @@ func rollbackRepositorySyncTransaction(
 			return restored, err
 		}
 		if file.Created {
-			info, lstatErr := os.Lstat(target)
-			if os.IsNotExist(lstatErr) {
+			record, captureErr := captureCreatedRecord(target)
+			if os.IsNotExist(captureErr) {
 				continue
 			}
-			if lstatErr != nil {
-				return restored, fmt.Errorf("inspect interrupted repository sync artifact %s: %w", file.Path, lstatErr)
+			if captureErr != nil {
+				return restored, fmt.Errorf("inspect interrupted repository sync artifact %s: %w", file.Path, captureErr)
 			}
-			if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-				return restored, fmt.Errorf("refuse rollback after concurrent change: %s is not a real regular file", file.Path)
+			if record.sha256 != file.AfterSHA256 || !modeSatisfies(record.info.Mode(), file.AfterMode) {
+				return restored, errors.Join(
+					fmt.Errorf("refuse rollback after concurrent change: %s", file.Path), record.close(),
+				)
 			}
-			body, readErr := boundedio.ReadRegularFile(target, maxBinaryBytes)
-			if readErr != nil {
-				return restored, fmt.Errorf("read interrupted repository sync artifact %s: %w", file.Path, readErr)
+			if beforeRepositorySyncRollbackRemoval != nil {
+				if hookErr := beforeRepositorySyncRollbackRemoval(target); hookErr != nil {
+					return restored, errors.Join(
+						fmt.Errorf("prepare interrupted repository sync artifact removal %s: %w", file.Path, hookErr),
+						record.close(),
+					)
+				}
 			}
-			if bytesSHA256(body) != file.AfterSHA256 || !modeSatisfies(info.Mode(), file.AfterMode) {
-				return restored, fmt.Errorf("refuse rollback after concurrent change: %s", file.Path)
-			}
-			if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+			if err := removeCreatedRecord(&record); err != nil {
 				return restored, fmt.Errorf("remove interrupted repository sync artifact %s: %w", file.Path, err)
 			}
 			restored = append(restored, file.Path)

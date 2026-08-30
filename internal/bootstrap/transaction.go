@@ -1070,42 +1070,48 @@ func captureCreatedDirectory(path string) (createdDirectory, error) {
 }
 
 func removeCreatedRecord(record *createdRecord) error {
+	_, err := removeCreatedRecordOutcome(record)
+	return err
+}
+
+func removeCreatedRecordOutcome(record *createdRecord) (bool, error) {
 	if record.parent == nil || record.file == nil || record.info == nil {
 		if _, err := os.Lstat(record.path); errors.Is(err, os.ErrNotExist) {
-			return record.close()
+			return false, record.close()
 		}
-		return fmt.Errorf("created file identity is unavailable")
+		return false, fmt.Errorf("created file identity is unavailable")
 	}
 	current, err := record.parent.Lstat(record.name)
 	if errors.Is(err, os.ErrNotExist) {
-		return record.close()
+		return false, record.close()
 	}
 	if err != nil {
-		return fmt.Errorf("inspect created file: %w", err)
+		return false, fmt.Errorf("inspect created file: %w", err)
 	}
 	if err := validateCreatedParent(record.parent, record.parentInfo, record.path); err != nil {
-		return fmt.Errorf("refuse removal after parent replacement: %w", err)
+		return false, fmt.Errorf("refuse removal after parent replacement: %w", err)
 	}
 	opened, err := record.file.Stat()
 	if err != nil || !sameCreatedFile(record.info, opened) || !sameCreatedFile(opened, current) {
-		return fmt.Errorf("refuse removal of externally replaced file")
+		return false, fmt.Errorf("refuse removal of externally replaced file")
 	}
 	digest, info, err := hashOpenedCreatedFile(record.file, record.path)
 	if err != nil {
-		return fmt.Errorf("verify created file: %w", err)
+		return false, fmt.Errorf("verify created file: %w", err)
 	}
 	if digest != record.sha256 {
-		return fmt.Errorf("refuse removal of externally changed file")
+		return false, fmt.Errorf("refuse removal of externally changed file")
 	}
 	record.info = info
 	if err := validateCreatedTarget(record); err != nil {
-		return fmt.Errorf("refuse removal after target replacement: %w", err)
+		return false, fmt.Errorf("refuse removal after target replacement: %w", err)
 	}
-	if err := record.parent.Remove(record.name); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	removeErr := record.parent.Remove(record.name)
+	if removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+		return false, removeErr
 	}
-	syncErr := syncMutatedBootstrapParent(record.parent, record.parentInfo, record.path)
-	return errors.Join(syncErr, record.close())
+	syncErr := syncRemovalParent(record.parent, record.parentInfo, record.path)
+	return removeErr == nil, errors.Join(syncErr, record.close())
 }
 
 func captureCreatedRecord(path string) (createdRecord, error) {

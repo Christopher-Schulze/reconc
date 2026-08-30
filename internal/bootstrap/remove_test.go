@@ -1,7 +1,9 @@
 package bootstrap
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -470,6 +472,171 @@ func TestApplyRemovalTransactionRejectsReplacementBeforeEachRemoval(t *testing.T
 				if body, err := os.ReadFile(replacement); err != nil || string(body) != test.wantBackup {
 					t.Fatalf("replacement target changed: body=%q err=%v", body, err)
 				}
+			}
+		})
+	}
+}
+
+func TestApplyRemovalTransactionRejectsReplacementAfterBinding(t *testing.T) {
+	t.Run("leaf replacement", func(t *testing.T) {
+		repo := t.TempDir()
+		path := filepath.Join(repo, "owned.txt")
+		verifiedPath := filepath.Join(repo, "verified.txt")
+		if err := os.WriteFile(path, []byte("owned\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		before, mode, identity, err := readRemovalSnapshot(path, maxBinaryBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		previousHook := beforeBoundRemoval
+		beforeBoundRemoval = func(removalMutation) error {
+			if err := os.Rename(path, verifiedPath); err != nil {
+				return err
+			}
+			return os.WriteFile(path, []byte("attacker\n"), 0o644)
+		}
+		t.Cleanup(func() { beforeBoundRemoval = previousHook })
+		mutation := removalMutation{relative: "owned.txt", path: path, before: before, mode: mode, remove: true, identity: identity}
+		if _, _, _, err := applyRemovalTransaction(repo, []removalMutation{mutation}); err == nil {
+			t.Fatal("leaf replacement was removed")
+		}
+		if body, err := os.ReadFile(path); err != nil || string(body) != "attacker\n" {
+			t.Fatalf("replacement changed: body=%q err=%v", body, err)
+		}
+		if body, err := os.ReadFile(verifiedPath); err != nil || string(body) != "owned\n" {
+			t.Fatalf("verified file changed: body=%q err=%v", body, err)
+		}
+	})
+
+	t.Run("parent replacement", func(t *testing.T) {
+		repo := t.TempDir()
+		parentPath := filepath.Join(repo, "owned")
+		if err := os.Mkdir(parentPath, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(parentPath, "target.txt")
+		if err := os.WriteFile(path, []byte("owned\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		before, mode, identity, err := readRemovalSnapshot(path, maxBinaryBytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		verifiedParent := filepath.Join(repo, "verified-parent")
+		attackerParent := t.TempDir()
+		attackerPath := filepath.Join(attackerParent, "target.txt")
+		if err := os.WriteFile(attackerPath, []byte("attacker\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		previousHook := beforeBoundRemoval
+		beforeBoundRemoval = func(removalMutation) error {
+			if err := os.Rename(parentPath, verifiedParent); err != nil {
+				return err
+			}
+			return os.Symlink(attackerParent, parentPath)
+		}
+		t.Cleanup(func() { beforeBoundRemoval = previousHook })
+		mutation := removalMutation{relative: "owned/target.txt", path: path, before: before, mode: mode, remove: true, identity: identity}
+		if _, _, _, err := applyRemovalTransaction(repo, []removalMutation{mutation}); err == nil {
+			t.Fatal("parent replacement was followed")
+		}
+		if body, err := os.ReadFile(attackerPath); err != nil || string(body) != "attacker\n" {
+			t.Fatalf("attacker file changed: body=%q err=%v", body, err)
+		}
+		verifiedPath := filepath.Join(verifiedParent, "target.txt")
+		if body, err := os.ReadFile(verifiedPath); err != nil || string(body) != "owned\n" {
+			t.Fatalf("verified file changed: body=%q err=%v", body, err)
+		}
+	})
+}
+
+func TestApplyRemovalTransactionRollsBackAfterBoundParentSyncFailure(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(repo, "owned.txt")
+	before := []byte("owned\n")
+	if err := os.WriteFile(path, before, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	current, mode, identity, err := readRemovalSnapshot(path, maxBinaryBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalSync := bootstrapDirectorySync
+	t.Cleanup(func() { bootstrapDirectorySync = originalSync })
+	bootstrapDirectorySync = func(*os.Root) error {
+		return errors.New("injected bound parent sync failure")
+	}
+	mutation := removalMutation{relative: "owned.txt", path: path, before: current, mode: mode, remove: true, identity: identity}
+	_, _, rolledBack, err := applyRemovalTransaction(repo, []removalMutation{mutation})
+	if err == nil || !strings.Contains(err.Error(), "bound parent sync failure") {
+		t.Fatalf("sync failure = %v", err)
+	}
+	if strings.Join(rolledBack, ",") != "owned.txt" {
+		t.Fatalf("rolled back = %v", rolledBack)
+	}
+	if body, err := os.ReadFile(path); err != nil || !bytes.Equal(body, before) {
+		t.Fatalf("removed file was not restored: body=%q err=%v", body, err)
+	}
+}
+
+func TestApplyRemovalTransactionRejectsReplacementBeforeBoundParentSync(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T, string)
+	}{
+		{
+			name: "leaf replacement",
+			mutate: func(t *testing.T, path string) {
+				if err := os.WriteFile(path, []byte("attacker\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "parent replacement",
+			mutate: func(t *testing.T, path string) {
+				parent := filepath.Dir(path)
+				if err := os.Rename(parent, parent+".verified"); err != nil {
+					t.Fatal(err)
+				}
+				attackerParent := t.TempDir()
+				if err := os.WriteFile(filepath.Join(attackerParent, filepath.Base(path)), []byte("attacker\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(attackerParent, parent); err != nil {
+					t.Skipf("symlink unavailable: %v", err)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := t.TempDir()
+			parent := filepath.Join(repo, "owned")
+			if err := os.Mkdir(parent, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(parent, "target.txt")
+			before := []byte("owned\n")
+			if err := os.WriteFile(path, before, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			current, mode, identity, err := readRemovalSnapshot(path, maxBinaryBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			previousHook := beforeBoundRemovalSync
+			beforeBoundRemovalSync = func(*os.Root, string) error {
+				test.mutate(t, path)
+				return nil
+			}
+			t.Cleanup(func() { beforeBoundRemovalSync = previousHook })
+			mutation := removalMutation{relative: "owned/target.txt", path: path, before: current, mode: mode, remove: true, identity: identity}
+			if _, _, _, err := applyRemovalTransaction(repo, []removalMutation{mutation}); err == nil {
+				t.Fatal("replacement before parent sync was accepted")
+			}
+			if body, err := os.ReadFile(path); err != nil || string(body) != "attacker\n" {
+				t.Fatalf("replacement changed: body=%q err=%v", body, err)
 			}
 		})
 	}

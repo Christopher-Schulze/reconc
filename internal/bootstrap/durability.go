@@ -2,12 +2,15 @@ package bootstrap
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 
 	"reconc.dev/reconc/internal/atomicfile"
 )
 
 var bootstrapDirectorySync = atomicfile.SyncDirectory
+var beforeBoundRemovalSync = func(*os.Root, string) error { return nil }
 
 func validateBoundBootstrapParent(parent *os.Root, expected os.FileInfo) error {
 	if parent == nil || expected == nil {
@@ -30,6 +33,20 @@ func syncBoundBootstrapParent(parent *os.Root, expected os.FileInfo) error {
 func syncMutatedBootstrapParent(parent *os.Root, expected os.FileInfo, path string) error {
 	syncErr := bootstrapDirectorySync(parent)
 	return errors.Join(syncErr, validateCreatedParent(parent, expected, path))
+}
+
+func syncMutatedRemovalParent(parent *os.Root, expected os.FileInfo, path string) error {
+	var hookErr error
+	if beforeBoundRemovalSync != nil {
+		hookErr = beforeBoundRemovalSync(parent, path)
+	}
+	_, lstatErr := parent.Lstat(filepath.Base(path))
+	if lstatErr == nil {
+		lstatErr = fmt.Errorf("removed bootstrap target reappeared before parent sync: %s", path)
+	} else if errors.Is(lstatErr, os.ErrNotExist) {
+		lstatErr = nil
+	}
+	return errors.Join(hookErr, lstatErr, syncMutatedBootstrapParent(parent, expected, path))
 }
 
 func removeBoundBootstrapEntry(

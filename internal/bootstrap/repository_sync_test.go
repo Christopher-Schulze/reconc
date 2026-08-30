@@ -674,6 +674,85 @@ func TestRepositorySyncRollsBackCreatedOwnedArtifact(t *testing.T) {
 	}
 }
 
+func TestRepositorySyncCreatedRollbackRejectsReplacementAfterBinding(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T, string) (string, string)
+	}{
+		{
+			name: "leaf replacement",
+			mutate: func(t *testing.T, target string) (string, string) {
+				verified := target + ".verified"
+				if err := os.Rename(target, verified); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(target, []byte("attacker\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return verified, target
+			},
+		},
+		{
+			name: "parent replacement",
+			mutate: func(t *testing.T, target string) (string, string) {
+				parent := filepath.Dir(target)
+				verifiedParent := parent + ".verified"
+				if err := os.Rename(parent, verifiedParent); err != nil {
+					t.Fatal(err)
+				}
+				attackerParent := t.TempDir()
+				attacker := filepath.Join(attackerParent, filepath.Base(target))
+				if err := os.WriteFile(attacker, []byte("attacker\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(attackerParent, parent); err != nil {
+					t.Skipf("symlink unavailable: %v", err)
+				}
+				return filepath.Join(verifiedParent, filepath.Base(target)), attacker
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo, err := canonicalRepoRoot(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			relative := "nested/created.txt"
+			after := []byte("published\n")
+			transaction, err := buildRepositorySyncTransaction(repo, syncTestVersion, strings.Repeat("a", 64), []syncMutation{{
+				Path: relative, Mode: 0o644, After: after, Created: true,
+			}}, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(repo, filepath.FromSlash(relative))
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(target, after, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			verifiedPath := ""
+			attackerPath := ""
+			previousHook := beforeRepositorySyncRollbackRemoval
+			beforeRepositorySyncRollbackRemoval = func(string) error {
+				verifiedPath, attackerPath = test.mutate(t, target)
+				return nil
+			}
+			t.Cleanup(func() { beforeRepositorySyncRollbackRemoval = previousHook })
+			if _, err := rollbackRepositorySyncTransaction(repo, transaction); err == nil {
+				t.Fatal("replacement was removed during repository sync rollback")
+			}
+			if body, err := os.ReadFile(verifiedPath); err != nil || !bytes.Equal(body, after) {
+				t.Fatalf("verified after-image changed: body=%q err=%v", body, err)
+			}
+			if body, err := os.ReadFile(attackerPath); err != nil || string(body) != "attacker\n" {
+				t.Fatalf("replacement changed: body=%q err=%v", body, err)
+			}
+		})
+	}
+}
+
 func TestRepositorySyncRecoversInterruptedTransaction(t *testing.T) {
 	repo, receipt := initializeSyncFixture(t, ProfileAdvanced)
 	index := firstHarnessManagedFile(t, receipt)

@@ -32,6 +32,7 @@ type removalCandidate struct {
 }
 
 var beforeRemovalMutation = func(removalMutation) error { return nil }
+var beforeBoundRemoval = func(removalMutation) error { return nil }
 
 // Remove reverses one applied bootstrap plan using its tamper-evident install
 // receipt. It never infers ownership from a filename alone.
@@ -523,11 +524,7 @@ func applyRemovalTransaction(repoRoot string, mutations []removalMutation) ([]st
 		var err error
 		mutationApplied := false
 		if mutation.remove {
-			err = os.Remove(mutation.path)
-			if err == nil {
-				mutationApplied = true
-				err = syncRemovalParent(mutation.path)
-			}
+			mutationApplied, err = removeRemovalMutation(mutation)
 		} else {
 			_, err = atomicfile.WriteIfChanged(mutation.path, mutation.after, mutation.mode)
 		}
@@ -552,6 +549,26 @@ func applyRemovalTransaction(repoRoot string, mutations []removalMutation) ([]st
 		return removed, updated, rolledBack, fmt.Errorf("apply removal mutation %s: %w", mutation.relative, errors.Join(err, rollbackErr))
 	}
 	return removed, updated, nil, nil
+}
+
+func removeRemovalMutation(mutation removalMutation) (removed bool, resultErr error) {
+	record, err := captureCreatedRecord(mutation.path)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, record.close())
+	}()
+	if !os.SameFile(mutation.identity, record.info) || record.sha256 != bytesSHA256(mutation.before) ||
+		record.info.Mode().Perm() != mutation.mode.Perm() {
+		return false, errors.New("removal target changed after preflight")
+	}
+	if beforeBoundRemoval != nil {
+		if err := beforeBoundRemoval(mutation); err != nil {
+			return false, err
+		}
+	}
+	return removeCreatedRecordOutcome(&record)
 }
 
 func validateRemovalMutation(mutation removalMutation) error {
