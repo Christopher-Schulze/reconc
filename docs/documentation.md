@@ -3528,7 +3528,11 @@ merges one marker-owned TOML block containing all 16 documented events:
 `SubagentStop`, `PreCompact`, `PostCompact`, and `Notification`. It preserves
 all unrelated bytes and the existing file mode, refuses invalid TOML or
 managed-block drift, and creates an exact private backup before a forced block
-replacement. Uninstall removes only a generator-exact managed block.
+replacement. Only exact standalone column-one TOML comment expressions define
+the managed boundaries; marker-like text in values, arrays, inline tables,
+multiline strings, trailing comments, and indented comments remains unrelated
+content. Duplicate, nested, reversed, or unpaired structural markers fail
+closed. Uninstall removes only a generator-exact managed block.
 
 Each global Kimi command uses bare `reconc`, starts in the host-supplied
 project working directory, discovers an explicit Reconc configuration, and

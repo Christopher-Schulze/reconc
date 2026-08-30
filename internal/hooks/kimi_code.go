@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+	tomlunstable "github.com/pelletier/go-toml/v2/unstable"
 
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/filelock"
@@ -21,6 +22,11 @@ const (
 	KimiCodeManagedBlockEnd   = "# <<< reconc kimi-code hooks"
 	kimiCodeLockName          = ".reconc-hooks.lock"
 )
+
+type kimiCodeManagedBlock struct {
+	start int
+	end   int
+}
 
 func installKimiCode(force bool) (*InstallReport, error) {
 	if err := verifyKimiCodeCLIIdentity(); err != nil {
@@ -178,7 +184,7 @@ func inspectKimiCodePlatform(platform Platform) (report PlatformStatus) {
 		return report
 	}
 	report.Installed = true
-	if generateErr != nil || block != artifact.Content {
+	if generateErr != nil || !bytes.Equal(data[block.start:block.end], []byte(artifact.Content)) {
 		report.State = StateDegraded
 		report.Detail = "managed hook block differs from the current generator"
 		report.remediation = hookInstallRemediation(platform.Kind, "", true)
@@ -236,13 +242,14 @@ func mergeKimiCodeBlock(existing []byte, generated string, force bool) ([]byte, 
 		return nil, "", false, err
 	}
 	if present {
-		if current == generated {
+		if bytes.Equal(existing[current.start:current.end], []byte(generated)) {
 			return append([]byte(nil), existing...), "unchanged", false, nil
 		}
 		if !force {
 			return nil, "", false, &rerrors.PolicySourceError{Message: "Kimi Code managed hook block differs from the current generator; review it and pass --force to replace only that marked block"}
 		}
-		return replaceKimiCodeBlock(existing, current, generated), "updated", true, nil
+		updated, err := replaceKimiCodeBlock(existing, current, generated)
+		return updated, "updated", true, err
 	}
 	return append(append([]byte(nil), existing...), generated...), "created", false, nil
 }
@@ -255,45 +262,71 @@ func removeKimiCodeBlock(existing []byte, generated string) ([]byte, bool, error
 	if !present {
 		return append([]byte(nil), existing...), false, nil
 	}
-	if current != generated {
+	if !bytes.Equal(existing[current.start:current.end], []byte(generated)) {
 		return nil, false, &rerrors.PolicySourceError{Message: "Kimi Code managed hook block differs from the current generator; refusing to remove modified content"}
 	}
-	return replaceKimiCodeBlock(existing, current, ""), true, nil
+	updated, err := replaceKimiCodeBlock(existing, current, "")
+	return updated, err == nil, err
 }
 
-func currentKimiCodeBlock(data []byte) (string, bool, error) {
-	text := string(data)
-	startCount := strings.Count(text, KimiCodeManagedBlockStart)
-	endCount := strings.Count(text, KimiCodeManagedBlockEnd)
+func currentKimiCodeBlock(data []byte) (kimiCodeManagedBlock, bool, error) {
+	parser := tomlunstable.Parser{KeepComments: true}
+	parser.Reset(data)
+	start, end := -1, -1
+	startCount, endCount := 0, 0
+	for parser.NextExpression() {
+		node := parser.Expression()
+		if node == nil || node.Kind != tomlunstable.Comment {
+			continue
+		}
+		offset := int(node.Raw.Offset)
+		if offset > 0 && data[offset-1] != '\n' {
+			continue
+		}
+		switch {
+		case bytes.Equal(node.Data, []byte(KimiCodeManagedBlockStart)):
+			startCount++
+			start = int(node.Raw.Offset)
+		case bytes.Equal(node.Data, []byte(KimiCodeManagedBlockEnd)):
+			endCount++
+			end = int(node.Raw.Offset + node.Raw.Length)
+		}
+	}
+	if err := parser.Error(); err != nil {
+		return kimiCodeManagedBlock{}, false, &rerrors.PolicySourceError{Message: "parse Kimi Code config while locating the Reconc managed block", Cause: err}
+	}
 	if startCount == 0 && endCount == 0 {
-		return "", false, nil
+		return kimiCodeManagedBlock{}, false, nil
 	}
 	if startCount != 1 || endCount != 1 {
-		return "", false, &rerrors.PolicySourceError{Message: "Kimi Code config has malformed or duplicate Reconc managed markers"}
+		return kimiCodeManagedBlock{}, false, &rerrors.PolicySourceError{Message: "Kimi Code config has malformed or duplicate Reconc managed markers"}
 	}
-	start := strings.Index(text, KimiCodeManagedBlockStart)
-	if start > 0 && text[start-1] == '\n' {
-		start--
-	}
-	end := strings.Index(text, KimiCodeManagedBlockEnd)
 	if end < start {
-		return "", false, &rerrors.PolicySourceError{Message: "Kimi Code config closes the Reconc managed block before it opens"}
+		return kimiCodeManagedBlock{}, false, &rerrors.PolicySourceError{Message: "Kimi Code config closes the Reconc managed block before it opens"}
 	}
-	end += len(KimiCodeManagedBlockEnd)
-	if end < len(text) && text[end] == '\n' {
+	if start > 0 && data[start-1] == '\n' {
+		start--
+		if start > 0 && data[start-1] == '\r' {
+			start--
+		}
+	}
+	if end < len(data) && data[end] == '\r' && end+1 < len(data) && data[end+1] == '\n' {
+		end += 2
+	} else if end < len(data) && data[end] == '\n' {
 		end++
 	}
-	return text[start:end], true, nil
+	return kimiCodeManagedBlock{start: start, end: end}, true, nil
 }
 
-func replaceKimiCodeBlock(existing []byte, current, replacement string) []byte {
-	text := string(existing)
-	start := strings.Index(text, current)
-	if start < 0 {
-		return append([]byte(nil), existing...)
+func replaceKimiCodeBlock(existing []byte, current kimiCodeManagedBlock, replacement string) ([]byte, error) {
+	if current.start < 0 || current.end < current.start || current.end > len(existing) {
+		return nil, &rerrors.PolicySourceError{Message: "Kimi Code managed hook block boundary is invalid"}
 	}
-	end := start + len(current)
-	return []byte(text[:start] + replacement + text[end:])
+	updated := make([]byte, 0, len(existing)-(current.end-current.start)+len(replacement))
+	updated = append(updated, existing[:current.start]...)
+	updated = append(updated, replacement...)
+	updated = append(updated, existing[current.end:]...)
+	return updated, nil
 }
 
 func validateKimiCodeTOML(data []byte) error {

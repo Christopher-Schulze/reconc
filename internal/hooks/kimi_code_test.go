@@ -82,6 +82,55 @@ func TestKimiCodeInstallPreservesConfigWithoutFinalNewline(t *testing.T) {
 	}
 }
 
+func TestKimiCodeManagedBlockRoundTripPreservesMarkerLikeTOML(t *testing.T) {
+	artifact, err := generateKimiCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "basic string", body: `note = "# >>> reconc kimi-code hooks / # <<< reconc kimi-code hooks"` + "\n"},
+		{name: "array strings", body: `markers = ["# >>> reconc kimi-code hooks", "# <<< reconc kimi-code hooks"]` + "\n"},
+		{name: "inline table strings", body: `marker = { start = "# >>> reconc kimi-code hooks", end = "# <<< reconc kimi-code hooks" }` + "\n"},
+		{name: "ordinary comment", body: "# marker-like text: " + KimiCodeManagedBlockStart + " and " + KimiCodeManagedBlockEnd + "\nkey = 1\n"},
+		{name: "indented comments", body: "  " + KimiCodeManagedBlockStart + "\n\t" + KimiCodeManagedBlockEnd + "\nkey = 1\n"},
+		{name: "trailing comments", body: "key = 1 " + KimiCodeManagedBlockStart + "\nother = 2 " + KimiCodeManagedBlockEnd + "\n"},
+		{name: "array comments", body: "values = [\n" + KimiCodeManagedBlockStart + "\n1,\n" + KimiCodeManagedBlockEnd + "\n]\n"},
+		{name: "multiline basic string", body: "note = \"\"\"\n" + KimiCodeManagedBlockStart + "\n" + KimiCodeManagedBlockEnd + "\n\"\"\"\n"},
+		{name: "multiline literal managed block", body: "note = '''" + artifact.Content + "'''\n"},
+		{name: "CRLF content", body: "key = 1\r\n# unrelated\r\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			enableKimiCodeCLIForTest(t)
+			original := []byte(test.body)
+			if err := validateKimiCodeTOML(original); err != nil {
+				t.Fatalf("invalid test TOML: %v\n%s", err, original)
+			}
+			if _, present, err := currentKimiCodeBlock(original); err != nil || present {
+				t.Fatalf("marker-like TOML detected as managed block: present=%t err=%v", present, err)
+			}
+			home := t.TempDir()
+			t.Setenv("KIMI_CODE_HOME", home)
+			configPath := filepath.Join(home, "config.toml")
+			if err := os.WriteFile(configPath, original, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Install(KindKimiCode, ".", false); err != nil {
+				t.Fatalf("Install: %v", err)
+			}
+			if _, err := Uninstall(KindKimiCode, "."); err != nil {
+				t.Fatalf("Uninstall: %v", err)
+			}
+			if current := readKimiCodeTestFile(t, configPath); !bytes.Equal(current, original) {
+				t.Fatalf("round trip changed unrelated TOML:\n got %q\nwant %q", current, original)
+			}
+		})
+	}
+}
+
 func TestKimiCodeInstallCreatesOnlyTheIsolatedPrivateHome(t *testing.T) {
 	enableKimiCodeCLIForTest(t)
 	home := filepath.Join(t.TempDir(), "new-kimi-home")
@@ -155,6 +204,9 @@ func TestKimiCodeInstallRefusesInvalidOrMalformedConfigWithoutMutation(t *testin
 	}{
 		{name: "invalid TOML", body: `[[hooks]`},
 		{name: "unpaired marker", body: KimiCodeManagedBlockStart + "\n"},
+		{name: "duplicate marker", body: KimiCodeManagedBlockStart + "\n" + KimiCodeManagedBlockEnd + "\n" + KimiCodeManagedBlockEnd + "\n"},
+		{name: "nested markers", body: KimiCodeManagedBlockStart + "\n" + KimiCodeManagedBlockStart + "\n" + KimiCodeManagedBlockEnd + "\n" + KimiCodeManagedBlockEnd + "\n"},
+		{name: "reversed markers", body: KimiCodeManagedBlockEnd + "\n" + KimiCodeManagedBlockStart + "\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -433,11 +485,14 @@ func TestKimiCodeManagedBlockHelpersRejectAmbiguousMarkers(t *testing.T) {
 	if err != nil || removed || !bytes.Equal(updated, plain) {
 		t.Fatalf("remove absent block = %q, %t, %v", updated, removed, err)
 	}
-	if replaced := replaceKimiCodeBlock(plain, "missing", "replacement"); !bytes.Equal(replaced, plain) {
-		t.Fatalf("replace missing block changed bytes: %q", replaced)
+	if _, err := replaceKimiCodeBlock(plain, kimiCodeManagedBlock{start: -1, end: 1}, "replacement"); err == nil {
+		t.Fatal("replace accepted an invalid structural boundary")
 	}
 	unsafe := []string{
+		KimiCodeManagedBlockStart + "\n",
+		KimiCodeManagedBlockEnd + "\n",
 		KimiCodeManagedBlockStart + "\n" + KimiCodeManagedBlockStart + "\n" + KimiCodeManagedBlockEnd + "\n",
+		KimiCodeManagedBlockStart + "\n" + KimiCodeManagedBlockEnd + "\n" + KimiCodeManagedBlockEnd + "\n",
 		KimiCodeManagedBlockEnd + "\n" + KimiCodeManagedBlockStart + "\n",
 	}
 	for _, body := range unsafe {
