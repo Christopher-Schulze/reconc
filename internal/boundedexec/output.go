@@ -46,7 +46,9 @@ func (output *Buffer) Bytes() []byte {
 
 // String returns the retained prefix as text.
 func (output *Buffer) String() string {
-	return string(output.Bytes())
+	output.mutex.Lock()
+	defer output.mutex.Unlock()
+	return output.body.String()
 }
 
 // Truncated reports whether bytes beyond the configured limit were dropped.

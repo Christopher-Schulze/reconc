@@ -1,7 +1,6 @@
 package grokacp
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,9 +9,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
+	"reconc.dev/reconc/internal/boundedexec"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/hooks"
 )
@@ -122,56 +121,27 @@ func InspectJSON(ctx context.Context, repoRoot, grokBinary string) ([]byte, erro
 
 func inspectJSONWithCommand(ctx context.Context, repoRoot, grokBinary string, command commandRunner) ([]byte, error) {
 	cmd := command(ctx, grokBinary, "--cwd", repoRoot, "inspect", "--json")
-	stdout := &cappedOutput{limit: maxGrokInspectBytes}
-	stderr := &cappedOutput{limit: maxGrokInspectBytes}
+	stdout, err := boundedexec.NewBuffer(maxGrokInspectBytes)
+	if err != nil {
+		return nil, fmt.Errorf("initialize grok inspect stdout capture: %w", err)
+	}
+	stderr, err := boundedexec.NewBuffer(maxGrokInspectBytes)
+	if err != nil {
+		return nil, fmt.Errorf("initialize grok inspect stderr capture: %w", err)
+	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	err := cmd.Run()
-	if stdout.truncatedOutput() {
-		return stdout.bytes(), fmt.Errorf("grok inspect stdout exceeds %d bytes", maxGrokInspectBytes)
+	err = cmd.Run()
+	if stdout.Truncated() {
+		return stdout.Bytes(), fmt.Errorf("grok inspect stdout exceeds %d bytes", maxGrokInspectBytes)
 	}
-	if stderr.truncatedOutput() {
-		return stdout.bytes(), fmt.Errorf("grok inspect stderr exceeds %d bytes", maxGrokInspectBytes)
+	if stderr.Truncated() {
+		return stdout.Bytes(), fmt.Errorf("grok inspect stderr exceeds %d bytes", maxGrokInspectBytes)
 	}
 	if err != nil {
-		if detail := strings.TrimSpace(string(stderr.bytes())); detail != "" {
-			return stdout.bytes(), fmt.Errorf("%w: %s", err, detail)
+		if detail := strings.TrimSpace(stderr.String()); detail != "" {
+			return stdout.Bytes(), fmt.Errorf("%w: %s", err, detail)
 		}
 	}
-	return stdout.bytes(), err
-}
-
-type cappedOutput struct {
-	mu        sync.Mutex
-	buffer    bytes.Buffer
-	limit     int
-	truncated bool
-}
-
-func (w *cappedOutput) Write(data []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	remaining := w.limit - w.buffer.Len()
-	if remaining > 0 {
-		if remaining > len(data) {
-			remaining = len(data)
-		}
-		_, _ = w.buffer.Write(data[:remaining])
-	}
-	if remaining < len(data) {
-		w.truncated = true
-	}
-	return len(data), nil
-}
-
-func (w *cappedOutput) bytes() []byte {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return append([]byte(nil), w.buffer.Bytes()...)
-}
-
-func (w *cappedOutput) truncatedOutput() bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.truncated
+	return stdout.Bytes(), err
 }

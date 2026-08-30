@@ -1,6 +1,8 @@
 package commandproof
 
 import (
+	"bytes"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -18,14 +20,19 @@ func TestValidateAndStoreRejectOversizedCommandProof(t *testing.T) {
 	}
 }
 
-func TestBoundedCommandOutputCapsMemoryWithoutShortWrite(t *testing.T) {
-	output := &boundedCommandOutput{limit: 4}
-	data := []byte("abcdefgh")
-	written, err := output.Write(data)
-	if err != nil || written != len(data) {
-		t.Fatalf("Write = %d, %v", written, err)
+func TestGitOutputBytesContextReturnsExactBytes(t *testing.T) {
+	repo := newProofRepo(t)
+	command := exec.Command("git", "rev-parse", "--verify", "HEAD")
+	command.Dir = repo
+	want, err := command.Output()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if output.String() != "abcd" || !output.overflow {
-		t.Fatalf("bounded output = %q overflow=%v", output.String(), output.overflow)
+	output, err := gitOutputBytesContext(t.Context(), repo, "rev-parse", "--verify", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(output, want) {
+		t.Fatalf("git output = %q, want %q", output, want)
 	}
 }

@@ -182,12 +182,17 @@ func TestRunScriptArgsArePassed(t *testing.T) {
 
 func TestRunScriptOutputCappedAtMaxBytes(t *testing.T) {
 	repo := t.TempDir()
-	// Print 200KB to stdout (more than the 64KB cap)
 	writeScript(t, repo, ".reconc/scripts/spam.sh",
-		"#!/bin/sh\nyes data | head -n 50000\nexit 2\n")
+		"#!/bin/sh\nyes data | head -n 50000\nyes error | head -n 50000 >&2\nexit 2\n")
 	out, _ := RunScript(repo, ".reconc/scripts/spam.sh", nil, ScriptInput{}, 0, 0)
-	if len(out.Stdout) > MaxScriptOutputBytes {
-		t.Errorf("stdout exceeded cap: %d bytes (max %d)", len(out.Stdout), MaxScriptOutputBytes)
+	if len(out.Stdout) != MaxScriptOutputBytes || !strings.HasPrefix(out.Stdout, "data\ndata\n") {
+		t.Errorf("stdout prefix length = %d, prefix=%q", len(out.Stdout), out.Stdout[:min(len(out.Stdout), 10)])
+	}
+	if len(out.Stderr) != MaxScriptOutputBytes || !strings.HasPrefix(out.Stderr, "error\nerror\n") {
+		t.Errorf("stderr prefix length = %d, prefix=%q", len(out.Stderr), out.Stderr[:min(len(out.Stderr), 12)])
+	}
+	if out.Status != "block" || out.ExitCode != 2 {
+		t.Fatalf("bounded output changed script disposition: %+v", out)
 	}
 }
 

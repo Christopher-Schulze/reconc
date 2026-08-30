@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/boundedexec"
 	"reconc.dev/reconc/internal/commandproof"
 	"reconc.dev/reconc/internal/gitexec"
 )
@@ -111,15 +111,21 @@ func syncGitOutput(root string, objects *gitexec.ObjectDirectories, args ...stri
 	ctx, cancel := context.WithTimeout(context.Background(), syncGitCommandTimeout)
 	defer cancel()
 	cmd := gitexec.CommandContext(ctx, root, objects, args...)
-	stdout := &syncBoundedOutput{limit: maxSyncGitOutputBytes}
-	stderr := &syncBoundedOutput{limit: maxSyncGitOutputBytes}
+	stdout, err := boundedexec.NewBuffer(maxSyncGitOutputBytes)
+	if err != nil {
+		return "", fmt.Errorf("initialize repository sync git stdout capture: %w", err)
+	}
+	stderr, err := boundedexec.NewBuffer(maxSyncGitOutputBytes)
+	if err != nil {
+		return "", fmt.Errorf("initialize repository sync git stderr capture: %w", err)
+	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	runErr := cmd.Run()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return "", fmt.Errorf("git %s timed out after %s", strings.Join(args, " "), syncGitCommandTimeout)
 	}
-	if stdout.overflow || stderr.overflow {
+	if stdout.Truncated() || stderr.Truncated() {
 		return "", fmt.Errorf("git %s output exceeds %d bytes", strings.Join(args, " "), maxSyncGitOutputBytes)
 	}
 	if runErr != nil {
@@ -134,25 +140,4 @@ func gitPathListEntry(path string) string {
 		return strconv.Quote(path)
 	}
 	return path
-}
-
-type syncBoundedOutput struct {
-	bytes.Buffer
-	limit    int
-	overflow bool
-}
-
-func (output *syncBoundedOutput) Write(data []byte) (int, error) {
-	remaining := output.limit - output.Len()
-	if remaining > 0 {
-		count := len(data)
-		if count > remaining {
-			count = remaining
-		}
-		_, _ = output.Buffer.Write(data[:count])
-	}
-	if len(data) > remaining {
-		output.overflow = true
-	}
-	return len(data), nil
 }

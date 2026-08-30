@@ -1,13 +1,12 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/boundedexec"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/gitexec"
 )
@@ -85,15 +84,21 @@ func CollectGitWritePaths(repoRoot string, staged bool, base, head string) ([]st
 	ctx, cancel := context.WithTimeout(context.Background(), gitDiffTimeout)
 	defer cancel()
 	cmd := gitexec.CommandContext(ctx, repoRoot, nil, args...)
-	stdout := &boundedGitOutput{limit: maxGitDiffOutputBytes}
-	stderr := &boundedGitOutput{limit: maxGitDiffOutputBytes}
+	stdout, err := boundedexec.NewBuffer(maxGitDiffOutputBytes)
+	if err != nil {
+		return nil, GitDiffMetadata{}, &rerrors.GitError{Message: "initialize bounded git stdout: " + err.Error(), Cause: err}
+	}
+	stderr, err := boundedexec.NewBuffer(maxGitDiffOutputBytes)
+	if err != nil {
+		return nil, GitDiffMetadata{}, &rerrors.GitError{Message: "initialize bounded git stderr: " + err.Error(), Cause: err}
+	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
 		return nil, GitDiffMetadata{}, &rerrors.GitError{Message: commandStr + " timed out", Cause: ctx.Err()}
 	}
-	if stdout.overflow || stderr.overflow {
+	if stdout.Truncated() || stderr.Truncated() {
 		return nil, GitDiffMetadata{}, &rerrors.GitError{Message: fmt.Sprintf("%s output exceeds %d bytes", commandStr, maxGitDiffOutputBytes)}
 	}
 	if err != nil {
@@ -130,28 +135,3 @@ func CollectGitWritePaths(repoRoot string, staged bool, base, head string) ([]st
 	}
 	return paths, metadata, nil
 }
-
-type boundedGitOutput struct {
-	bytes.Buffer
-	limit    int
-	overflow bool
-}
-
-func (w *boundedGitOutput) Write(data []byte) (int, error) {
-	remaining := w.limit - w.Len()
-	if remaining > 0 {
-		writeCount := len(data)
-		if writeCount > remaining {
-			writeCount = remaining
-		}
-		if _, err := w.Buffer.Write(data[:writeCount]); err != nil {
-			return 0, err
-		}
-	}
-	if len(data) > remaining {
-		w.overflow = true
-	}
-	return len(data), nil
-}
-
-var _ io.Writer = (*boundedGitOutput)(nil)

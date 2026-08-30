@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/boundedexec"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/pathidentity"
 )
@@ -166,8 +166,14 @@ func runScriptContext(caller context.Context, repoRoot, scriptPath string, args 
 	killGrace := normalizedScriptKillTimeout(killTimeoutSec)
 	configureScriptProcess(cmd, killGrace)
 
-	stdoutBuf := newCappedWriter(MaxScriptOutputBytes)
-	stderrBuf := newCappedWriter(MaxScriptOutputBytes)
+	stdoutBuf, err := boundedexec.NewBuffer(MaxScriptOutputBytes)
+	if err != nil {
+		return ScriptOutcome{Status: "error"}, fmt.Errorf("initialize script stdout capture: %w", err)
+	}
+	stderrBuf, err := boundedexec.NewBuffer(MaxScriptOutputBytes)
+	if err != nil {
+		return ScriptOutcome{Status: "error"}, fmt.Errorf("initialize script stderr capture: %w", err)
+	}
 	cmd.Stdout = stdoutBuf
 	cmd.Stderr = stderrBuf
 	if err := runScriptExecutionHook(hook, scriptStageCommandPrepared, full); err != nil {
@@ -367,34 +373,3 @@ func sanitizedEnv() []string {
 	}
 	return out
 }
-
-// cappedWriter implements io.Writer with a hard byte cap. Writes
-// beyond the cap are silently discarded so command output cannot OOM
-// the harness.
-type cappedWriter struct {
-	cap int
-	buf []byte
-}
-
-func newCappedWriter(cap int) *cappedWriter {
-	return &cappedWriter{cap: cap, buf: make([]byte, 0, 1024)}
-}
-
-func (w *cappedWriter) Write(p []byte) (int, error) {
-	remaining := w.cap - len(w.buf)
-	if remaining <= 0 {
-		return len(p), nil // pretend the write happened
-	}
-	if len(p) > remaining {
-		w.buf = append(w.buf, p[:remaining]...)
-		return len(p), nil
-	}
-	w.buf = append(w.buf, p...)
-	return len(p), nil
-}
-
-func (w *cappedWriter) String() string { return string(w.buf) }
-
-// Static interface assertion (compile-time check that cappedWriter
-// implements io.Writer without manually constructing one).
-var _ io.Writer = (*cappedWriter)(nil)

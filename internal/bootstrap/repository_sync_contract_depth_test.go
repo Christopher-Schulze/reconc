@@ -2,32 +2,24 @@ package bootstrap
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestSyncBoundedOutputPreservesPrefixAndSignalsOverflow(t *testing.T) {
-	output := &syncBoundedOutput{limit: 4}
-	if written, err := output.Write([]byte("ab")); err != nil || written != 2 {
-		t.Fatalf("bounded prefix write = %d, %v", written, err)
+func TestSyncGitOutputReturnsExactCommandResult(t *testing.T) {
+	repo := t.TempDir()
+	command := exec.Command("git", "init", "--quiet", repo)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, output)
 	}
-	if written, err := output.Write([]byte("cdefg")); err != nil || written != 5 {
-		t.Fatalf("bounded overflow write = %d, %v", written, err)
+	output, err := syncGitOutput(repo, nil, "rev-parse", "--is-inside-work-tree")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := output.String(); got != "abcd" {
-		t.Fatalf("bounded output prefix = %q", got)
-	}
-	if !output.overflow {
-		t.Fatal("bounded output did not record overflow")
-	}
-
-	zero := &syncBoundedOutput{}
-	if written, err := zero.Write([]byte("discarded")); err != nil || written != len("discarded") {
-		t.Fatalf("zero-limit write = %d, %v", written, err)
-	}
-	if zero.Len() != 0 || !zero.overflow {
-		t.Fatalf("zero-limit output = %q overflow=%t", zero.String(), zero.overflow)
+	if output != "true" {
+		t.Fatalf("sync git output = %q", output)
 	}
 }
 

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"reconc.dev/reconc/internal/boundedexec"
 )
 
 func TestACPClientKeepsTerminalErrorForFutureRequests(t *testing.T) {
@@ -29,15 +31,18 @@ func TestACPClientKeepsTerminalErrorForFutureRequests(t *testing.T) {
 	}
 }
 
-func TestCappedOutputRetainsPrefixAndFlagsOverflow(t *testing.T) {
-	output := &cappedOutput{limit: 4}
+func TestSharedCappedOutputRetainsPrefixAndFlagsOverflow(t *testing.T) {
+	output, err := boundedexec.NewBuffer(4)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if n, err := output.Write([]byte("abcdef")); err != nil || n != 6 {
 		t.Fatalf("write = %d, %v", n, err)
 	}
-	if got := string(output.bytes()); got != "abcd" {
+	if got := string(output.Bytes()); got != "abcd" {
 		t.Fatalf("capped bytes = %q", got)
 	}
-	if !output.truncatedOutput() {
+	if !output.Truncated() {
 		t.Fatal("overflow was not recorded")
 	}
 }

@@ -79,6 +79,32 @@ func TestInspectJSONPreservesStdoutAndStderrFailure(t *testing.T) {
 	}
 }
 
+func TestInspectJSONReportsEachStreamOverflow(t *testing.T) {
+	root := t.TempDir()
+	for _, test := range []struct {
+		name string
+		mode string
+		want string
+	}{
+		{name: "stdout", mode: "stdout-overflow", want: "grok inspect stdout exceeds 4194304 bytes"},
+		{name: "stderr", mode: "stderr-overflow", want: "grok inspect stderr exceeds 4194304 bytes"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output, err := inspectJSONWithCommand(t.Context(), root, "grok", grokInspectHelperCommand(test.mode))
+			if err == nil || err.Error() != test.want {
+				t.Fatalf("overflow error = %v, want %q", err, test.want)
+			}
+			wantOutput := 0
+			if test.mode == "stdout-overflow" {
+				wantOutput = maxGrokInspectBytes
+			}
+			if len(output) != wantOutput {
+				t.Fatalf("retained stdout length = %d, want %d", len(output), wantOutput)
+			}
+		})
+	}
+}
+
 func TestGrokInspectHelperProcess(t *testing.T) {
 	mode := os.Getenv("RECONC_GROK_INSPECT_HELPER")
 	if mode == "" {
@@ -92,6 +118,12 @@ func TestGrokInspectHelperProcess(t *testing.T) {
 		_, _ = io.WriteString(os.Stdout, "partial-output")
 		_, _ = io.WriteString(os.Stderr, "diagnostic")
 		os.Exit(7)
+	case "stdout-overflow":
+		_, _ = io.WriteString(os.Stdout, strings.Repeat("x", maxGrokInspectBytes+1))
+		os.Exit(0)
+	case "stderr-overflow":
+		_, _ = io.WriteString(os.Stderr, strings.Repeat("y", maxGrokInspectBytes+1))
+		os.Exit(0)
 	default:
 		os.Exit(64)
 	}

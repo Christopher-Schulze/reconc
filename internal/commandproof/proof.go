@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/boundedexec"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/gitexec"
@@ -438,21 +439,27 @@ func gitOutputContext(ctx context.Context, repoRoot string, args ...string) (str
 
 func gitOutputBytesContext(ctx context.Context, repoRoot string, args ...string) ([]byte, error) {
 	cmd := gitexec.CommandContext(ctx, repoRoot, nil, args...)
-	stdout := &boundedCommandOutput{limit: maxGitOutputBytes}
-	stderr := &boundedCommandOutput{limit: maxGitOutputBytes}
+	stdout, err := boundedexec.NewBuffer(maxGitOutputBytes)
+	if err != nil {
+		return nil, fmt.Errorf("initialize git stdout capture: %w", err)
+	}
+	stderr, err := boundedexec.NewBuffer(maxGitOutputBytes)
+	if err != nil {
+		return nil, fmt.Errorf("initialize git stderr capture: %w", err)
+	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), ctx.Err())
 	}
-	if stdout.overflow || stderr.overflow {
+	if stdout.Truncated() || stderr.Truncated() {
 		return nil, fmt.Errorf("git %s output exceeds %d bytes", strings.Join(args, " "), maxGitOutputBytes)
 	}
 	if err != nil {
 		return nil, &gitCommandError{args: append([]string(nil), args...), cause: err, stderr: strings.TrimSpace(stderr.String())}
 	}
-	return append([]byte(nil), stdout.Bytes()...), nil
+	return stdout.Bytes(), nil
 }
 
 type gitCommandError struct {
@@ -466,27 +473,6 @@ func (e *gitCommandError) Error() string {
 }
 
 func (e *gitCommandError) Unwrap() error { return e.cause }
-
-type boundedCommandOutput struct {
-	bytes.Buffer
-	limit    int
-	overflow bool
-}
-
-func (w *boundedCommandOutput) Write(data []byte) (int, error) {
-	remaining := w.limit - w.Len()
-	if remaining > 0 {
-		writeCount := len(data)
-		if writeCount > remaining {
-			writeCount = remaining
-		}
-		_, _ = w.Buffer.Write(data[:writeCount])
-	}
-	if len(data) > remaining {
-		w.overflow = true
-	}
-	return len(data), nil
-}
 
 func validateProof(proof Proof, snapshot Snapshot, now time.Time, maxAge time.Duration) error {
 	switch {
