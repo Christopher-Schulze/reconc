@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,7 +52,7 @@ func TestFreshnessFileReplacementBeforeOpenUsesOneCoherentSnapshot(t *testing.T)
 	wantDigest := sha256.Sum256(body)
 	if !observation.Exists || observation.Size != wantInfo.Size() ||
 		observation.Mode != uint32(wantInfo.Mode()) || observation.ModTime != wantInfo.ModTime().UnixNano() ||
-		observation.Identity != wantIdentity || observation.Digest != hex.EncodeToString(wantDigest[:]) ||
+		observation.Identity != wantIdentity || observation.Digest != wantDigest ||
 		total != wantInfo.Size() {
 		t.Fatalf("replacement freshness observation is mixed: %#v total=%d", observation, total)
 	}

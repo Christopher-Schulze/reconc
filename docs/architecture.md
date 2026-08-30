@@ -745,7 +745,12 @@ and byte-compares the notice before checksums and provenance are accepted.
      Runtime-plan cache misses use repository-root-scoped singleflight rather
      than holding the cache mutex across filesystem I/O. Lock and source
      identities are revalidated immediately before a compiled plan is
-     published; unrelated roots never serialize behind that work. Cache-hit
+     published. Cold loads stream canonical freshness fields into SHA-256
+     instead of materializing a JSON snapshot. Content digests from the
+     identity-bound source bundle seed the first observation, while an
+     independent full publication observation still catches same-metadata
+     content swaps, source-set changes, and root replacement. Unrelated roots
+     never serialize behind that work. Cache-hit
      source freshness derives content, metadata, identity, and aggregate-byte
      accounting from one opened stable file snapshot. Replacement before that
      open may yield one coherent new observation; replacement after it fails

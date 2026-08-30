@@ -1949,7 +1949,12 @@ physical global-policy paths never enter the committable lock. Its
 `lock_digest` binds the complete canonical payload except for the digest field
 itself. For current format-6 locks, runtime verifies that envelope and reads the
 bounded source bundle once to compare its complete identity digest, then
-strictly decodes one typed immutable repository-rule and action plan. Format-1
+strictly decodes one typed immutable repository-rule and action plan. Cold-load
+freshness streams canonical discovery, source, file, and directory fields
+directly into SHA-256. The loaded bundle supplies the first content identities;
+one full publication observation then detects content, inventory, metadata,
+filesystem-object drift, and repository-root replacement without rereading every
+loaded source twice. Format-1
 lockfiles are migrated in memory only after their legacy schema and historical
 source digest over `source_precedence` plus raw `sources` pass. That digest
 verifies source records, not the whole format-1 payload because `lock_digest`

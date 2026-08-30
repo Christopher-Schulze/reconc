@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,7 +45,7 @@ func TestFreshnessFileUsesCallerOwnedCopyBuffer(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := sha256.Sum256(body)
-	if observation.Digest != hex.EncodeToString(want[:]) || total != int64(len(body)) {
+	if observation.Digest != want || total != int64(len(body)) {
 		t.Fatalf("freshness observation = %#v, total %d", observation, total)
 	}
 	if _, err := observeFreshnessFile(path, &total, nil); err == nil {

@@ -18,6 +18,7 @@ type SourceLoadContext struct {
 	RepoRoot  string
 
 	rootIdentity   string
+	rootInfo       os.FileInfo
 	defaultMatches map[string][]string
 	configPath     string
 	configIdentity os.FileInfo
@@ -50,6 +51,10 @@ func NewSourceLoadContextFromDiscovery(discovery DiscoveryResult) (*SourceLoadCo
 	if err != nil {
 		return nil, fmt.Errorf("resolve policy source root: %w", err)
 	}
+	context.rootInfo, err = os.Stat(discovery.RepoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("inspect policy source root: %w", err)
+	}
 	context.defaultMatches, err = defaultPolicyMatches(discovery.RepoRoot)
 	if err != nil {
 		return nil, fmt.Errorf("capture default policy fragments: %w", err)
@@ -79,6 +84,13 @@ func (c *SourceLoadContext) Validate() error {
 		return fmt.Errorf("revalidate policy source root: %w", err)
 	}
 	if rootIdentity != c.rootIdentity {
+		return fmt.Errorf("policy source root identity changed while loading")
+	}
+	rootInfo, err := os.Stat(c.RepoRoot)
+	if err != nil {
+		return fmt.Errorf("inspect policy source root identity: %w", err)
+	}
+	if c.rootInfo == nil || !rootInfo.IsDir() || !os.SameFile(c.rootInfo, rootInfo) {
 		return fmt.Errorf("policy source root identity changed while loading")
 	}
 	current, err := defaultPolicyMatches(c.RepoRoot)

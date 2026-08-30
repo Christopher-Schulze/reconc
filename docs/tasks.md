@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 378 Stream source-freshness identity construction -> tasks/378-stream-source-freshness-identity-construction.md
 - [ ] 379 Reduce lockfile serialization passes -> tasks/379-reduce-lockfile-serialization-passes.md
 - [ ] 380 Bound violation diagnostic aggregation -> tasks/380-bound-violation-diagnostic-aggregation.md
 - [ ] 381 Bind require-script execution to validated identity -> tasks/381-bind-require-script-execution-to-validated-identity.md
@@ -92,6 +91,7 @@
 
 ## Done
 
+- [x] 378 Stream source-freshness identity construction -> tasks/done/378-stream-source-freshness-identity-construction.md
 - [x] 377 Align matched-rule traces with enforcement -> tasks/done/377-align-matched-rule-traces-with-enforcement.md
 - [x] 376 Deduplicate and reuse runtime match contexts -> tasks/done/376-deduplicate-and-reuse-runtime-match-contexts.md
 - [x] 375 Prioritize runtime matcher compilation within budget -> tasks/done/375-prioritize-runtime-matcher-compilation-within-budget.md

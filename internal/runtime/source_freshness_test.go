@@ -68,6 +68,128 @@ func TestRuntimePlanFreshnessDetectsSameSizeContentChange(t *testing.T) {
 	}
 }
 
+func TestRuntimePlanColdLoadRejectsSameMetadataReplacementAtEveryBoundary(t *testing.T) {
+	stages := []struct {
+		name  string
+		stage runtimePlanLoadStage
+	}{
+		{name: "after source snapshot", stage: runtimePlanLoadAfterSourceSnapshot},
+		{name: "after initial freshness", stage: runtimePlanLoadAfterInitialFreshness},
+		{name: "after publication lock", stage: runtimePlanLoadAfterPublicationLock},
+	}
+	for _, test := range stages {
+		t.Run(test.name, func(t *testing.T) {
+			withRECONCHome(t)
+			original := "rules:\n  - id: abc\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: one\n"
+			updated := strings.Replace(original, "message: one", "message: two", 1)
+			repo := makeRepo(t, "# project\n", "", original)
+			policyPath := filepath.Join(repo, "policies", "rules.yml")
+			before, err := os.Lstat(policyPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			replacement := filepath.Join(t.TempDir(), "rules.yml")
+			if err := os.WriteFile(replacement, []byte(updated), before.Mode().Perm()); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chtimes(replacement, before.ModTime(), before.ModTime()); err != nil {
+				t.Fatal(err)
+			}
+			evaluator := NewEvaluator()
+			var hookErr error
+			mutated := false
+			evaluator.loadHook = func(stage runtimePlanLoadStage) {
+				if mutated || stage != test.stage {
+					return
+				}
+				mutated = true
+				if removeErr := os.Remove(policyPath); removeErr != nil {
+					hookErr = removeErr
+					return
+				}
+				hookErr = os.Rename(replacement, policyPath)
+			}
+			_, err = evaluator.loadFreshRuntimePlan(repo)
+			if hookErr != nil {
+				t.Fatal(hookErr)
+			}
+			if !mutated || err == nil {
+				t.Fatalf("same-metadata replacement at stage %d was accepted: %v", test.stage, err)
+			}
+		})
+	}
+}
+
+func TestRuntimePlanColdLoadRejectsSourceSetMutationAfterSnapshot(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(string) error
+	}{
+		{name: "addition", mutate: func(repo string) error {
+			return os.WriteFile(filepath.Join(repo, "policies", "added.yml"), []byte("rules: []\n"), 0o600)
+		}},
+		{name: "removal", mutate: func(repo string) error {
+			return os.Remove(filepath.Join(repo, "policies", "rules.yml"))
+		}},
+		{name: "new compiler config", mutate: func(repo string) error {
+			return os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte("rules: []\n"), 0o600)
+		}},
+		{name: "new custom runtime", mutate: func(repo string) error {
+			directory := filepath.Join(repo, ".reconc", "runtimes")
+			if err := os.MkdirAll(directory, 0o700); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(directory, "added.json"), []byte("{}\n"), 0o600)
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			withRECONCHome(t)
+			repo := makeRepo(t, "# project\n", "", "rules: []\n")
+			evaluator := NewEvaluator()
+			var hookErr error
+			evaluator.loadHook = func(stage runtimePlanLoadStage) {
+				if stage == runtimePlanLoadAfterSourceSnapshot && hookErr == nil {
+					hookErr = test.mutate(repo)
+				}
+			}
+			_, err := evaluator.loadFreshRuntimePlan(repo)
+			if hookErr != nil {
+				t.Fatal(hookErr)
+			}
+			if err == nil {
+				t.Fatal("source-set mutation after the loaded snapshot was accepted")
+			}
+		})
+	}
+}
+
+func TestRuntimePlanColdLoadRejectsRepositoryRootReplacement(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	replacement := makeRepo(t, "# project\n", "", "rules: []\n")
+	oldRoot := repo + ".replaced"
+	evaluator := NewEvaluator()
+	var hookErr error
+	evaluator.loadHook = func(stage runtimePlanLoadStage) {
+		if stage != runtimePlanLoadAfterSourceSnapshot || hookErr != nil {
+			return
+		}
+		if err := os.Rename(repo, oldRoot); err != nil {
+			hookErr = err
+			return
+		}
+		hookErr = os.Rename(replacement, repo)
+	}
+	_, err := evaluator.loadFreshRuntimePlan(repo)
+	if hookErr != nil {
+		t.Fatal(hookErr)
+	}
+	if err == nil || !strings.Contains(err.Error(), "root changed") {
+		t.Fatalf("repository-root replacement was accepted: %v", err)
+	}
+}
+
 func freshnessInvalidationError(err error) bool {
 	if err == nil {
 		return false
@@ -168,13 +290,33 @@ func BenchmarkRuntimePlanConcurrentRoots(b *testing.B) {
 func BenchmarkRuntimePlanFreshnessColdLoad(b *testing.B) {
 	b.Setenv("RECONC_HOME", b.TempDir())
 	repo := benchmarkFreshnessRepo(b, 1)
+	stats := sourceFreshnessStats{}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		if _, err := NewEvaluator().loadFreshRuntimePlan(repo); err != nil {
+		evaluator := NewEvaluator()
+		evaluator.loadStats = &stats
+		if _, err := evaluator.loadFreshRuntimePlan(repo); err != nil {
 			b.Fatal(err)
 		}
 	}
+	b.ReportMetric(float64(stats.bytesRead)/float64(b.N), "freshness-bytes/op")
+}
+
+func BenchmarkRuntimePlanFreshnessColdLargeSourceSet(b *testing.B) {
+	b.Setenv("RECONC_HOME", b.TempDir())
+	repo := benchmarkFreshnessRepo(b, 128)
+	stats := sourceFreshnessStats{}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		evaluator := NewEvaluator()
+		evaluator.loadStats = &stats
+		if _, err := evaluator.loadFreshRuntimePlan(repo); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.ReportMetric(float64(stats.bytesRead)/float64(b.N), "freshness-bytes/op")
 }
 
 func BenchmarkRuntimePlanFreshnessSingleSourceEdit(b *testing.B) {

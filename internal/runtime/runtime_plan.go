@@ -30,6 +30,8 @@ type Evaluator struct {
 	plans     map[string]runtimePlanCacheEntry
 	loads     map[string]*runtimePlanLoad
 	useSerial uint64
+	loadHook  func(runtimePlanLoadStage)
+	loadStats *sourceFreshnessStats
 }
 
 const maxRuntimePlanCacheEntries = 32
@@ -47,6 +49,14 @@ type runtimePlanLoad struct {
 	plan *runtimePlan
 	err  error
 }
+
+type runtimePlanLoadStage uint8
+
+const (
+	runtimePlanLoadAfterSourceSnapshot runtimePlanLoadStage = iota + 1
+	runtimePlanLoadAfterInitialFreshness
+	runtimePlanLoadAfterPublicationLock
+)
 
 type runtimePlan struct {
 	defaultMode            policy.Mode
@@ -165,6 +175,7 @@ func (e *Evaluator) loadRuntimePlanOwned(root string) (*runtimePlan, error) {
 		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
+	e.runLoadHook(runtimePlanLoadAfterSourceSnapshot)
 	currentDigest, err := compiler.ComputeSourceDigest(bundle)
 	if err != nil {
 		e.invalidateRuntimePlan(root)
@@ -191,17 +202,19 @@ func (e *Evaluator) loadRuntimePlanOwned(root string) (*runtimePlan, error) {
 		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
-	freshness, err := observeRuntimeSourceFreshnessFromBundle(root, plan, bundle)
+	freshness, err := observeRuntimeSourceFreshnessFromBundleWithStats(root, plan, bundle, e.loadStats)
 	if err != nil {
 		e.invalidateRuntimePlan(root)
 		return nil, &rerrors.LockfileError{Message: "observe runtime source freshness", Cause: err}
 	}
+	e.runLoadHook(runtimePlanLoadAfterInitialFreshness)
 	publicationLock, err := readLockfileBytes(root)
 	if err != nil || sha256.Sum256(publicationLock) != lockHash {
 		e.invalidateRuntimePlan(root)
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile changed while preparing the runtime plan", Cause: err}
 	}
-	publicationFreshness, err := observeRuntimeSourceFreshness(root, plan)
+	e.runLoadHook(runtimePlanLoadAfterPublicationLock)
+	publicationFreshness, err := observeRuntimeSourceFreshnessWithStats(root, plan, e.loadStats)
 	if err != nil || publicationFreshness != freshness {
 		e.invalidateRuntimePlan(root)
 		return nil, &rerrors.LockfileError{Message: "policy sources changed while preparing the runtime plan", Cause: err}
@@ -215,6 +228,12 @@ func (e *Evaluator) loadRuntimePlanOwned(root string) (*runtimePlan, error) {
 	}
 	e.mu.Unlock()
 	return plan, nil
+}
+
+func (e *Evaluator) runLoadHook(stage runtimePlanLoadStage) {
+	if e != nil && e.loadHook != nil {
+		e.loadHook(stage)
+	}
 }
 
 func (e *Evaluator) invalidateRuntimePlan(root string) {

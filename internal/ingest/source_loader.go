@@ -45,6 +45,8 @@ type SourceBundle struct {
 	Sources   []policy.PolicySource `json:"sources"`
 
 	policyIncludePatterns []string
+	rootIdentity          string
+	rootInfo              os.FileInfo
 }
 
 // PolicyIncludePatterns returns a defensive copy of the validated, sorted,
@@ -54,6 +56,23 @@ func (b *SourceBundle) PolicyIncludePatterns() []string {
 		return nil
 	}
 	return append([]string(nil), b.policyIncludePatterns...)
+}
+
+// RootIdentity returns the stable repository identity captured for this
+// source snapshot. Candidate-only bundles may not carry a filesystem identity.
+func (b *SourceBundle) RootIdentity() string {
+	if b == nil {
+		return ""
+	}
+	return b.rootIdentity
+}
+
+// RootInfo returns the source snapshot's repository-directory identity.
+func (b *SourceBundle) RootInfo() os.FileInfo {
+	if b == nil {
+		return nil
+	}
+	return b.rootInfo
 }
 
 // LoadPolicySources is the second stage of the compile pipeline. Given
@@ -220,6 +239,8 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (bundle *SourceBun
 		Discovery:             discovery,
 		Sources:               sources,
 		policyIncludePatterns: append([]string(nil), includePatterns...),
+		rootIdentity:          context.rootIdentity,
+		rootInfo:              context.rootInfo,
 	}, nil
 }
 
