@@ -490,6 +490,9 @@ func selectorEmpty(selector Selector) bool {
 }
 
 func selectorCanMatchTool(selector Selector, tool Tool) bool {
+	// ToolContractDigests is an exact runtime constraint over the discovered
+	// MCP contract. Tool declarations intentionally contain no contract digest,
+	// so compile-time admission proves only declaration-owned dimensions.
 	return stringListed(selector.ToolIDs, tool.ID) &&
 		transportListed(selector.Transports, tool.Transport) &&
 		platformListed(selector.Platforms, tool.Platform) &&

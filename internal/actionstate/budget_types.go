@@ -295,3 +295,11 @@ func stateError(code action.ReasonCode, message string, cause error) error {
 	}
 	return &StateError{Code: code, Message: message, Cause: cause}
 }
+
+func actionRequestReason(err error, fallback action.ReasonCode) action.ReasonCode {
+	var requestErr *action.RequestError
+	if errors.As(err, &requestErr) && requestErr.Code.Valid() {
+		return requestErr.Code
+	}
+	return fallback
+}

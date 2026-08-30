@@ -55,7 +55,7 @@ func (s *Store) reserveLocked(input ReserveRequest) (ReserveResult, error) {
 	}
 	tool, declarations, err := input.Plan.BudgetContract(input.Request)
 	if err != nil {
-		return ReserveResult{}, stateError(action.ReasonStateCorrupt, "resolve compiled budget contract", err)
+		return ReserveResult{}, stateError(actionRequestReason(err, action.ReasonStateCorrupt), "resolve compiled budget contract", err)
 	}
 	if len(declarations) == 0 {
 		return ReserveResult{Snapshot: absentBudgetSnapshot(state.Digest)}, nil

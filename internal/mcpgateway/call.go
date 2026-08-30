@@ -165,7 +165,7 @@ func (g *Gateway) prepareCall(
 	}
 	tool, _, err := snapshot.Plan.BudgetContract(request)
 	if err != nil {
-		return nil, blockedGatewayResultValue(callID, action.ReasonPolicyMissing)
+		return nil, blockedGatewayResultValue(callID, gatewayReason(err, action.ReasonPolicyMissing))
 	}
 	evidence, err := g.evidence(ctx, snapshot, request, tool)
 	if err != nil {

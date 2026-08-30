@@ -219,7 +219,7 @@ func (s *Store) approvalBudgetSnapshot(
 	}
 	tool, declarations, err := input.Plan.BudgetContract(input.Request)
 	if err != nil {
-		return action.BudgetSnapshot{}, "", stateError(action.ReasonStateCorrupt, "resolve approval budget contract", err)
+		return action.BudgetSnapshot{}, "", stateError(actionRequestReason(err, action.ReasonStateCorrupt), "resolve approval budget contract", err)
 	}
 	if len(declarations) == 0 {
 		return absentBudgetSnapshot(state.Digest), "absent", nil
@@ -531,8 +531,11 @@ func (s *Store) validateApprovalReservation(
 		return err
 	}
 	tool, declarations, err := budget.Plan.BudgetContract(budget.Request)
-	if err != nil || tool.ID != record.Request.ToolID {
-		return stateError(action.ReasonPolicyMissing, "current approval tool contract changed", err)
+	if err != nil {
+		return stateError(actionRequestReason(err, action.ReasonPolicyMissing), "current approval tool contract changed", err)
+	}
+	if tool.ID != record.Request.ToolID {
+		return stateError(action.ReasonPolicyMissing, "current approval tool contract changed", nil)
 	}
 	if record.ReservationIdentity == "absent" {
 		if len(declarations) != 0 {

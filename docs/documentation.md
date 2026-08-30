@@ -3160,6 +3160,13 @@ constraints, JSON Pointers, and typed constants are compiled once into the
 immutable runtime plan. `reconc why action .` explains the result with operand
 values redacted.
 
+Budget selectors validate declaration-owned tool dimensions at compile time;
+`tool_contract_digests` remains an exact runtime constraint because policy tool
+declarations intentionally do not claim a discovered MCP contract digest. A
+runtime budget lookup for an undeclared exact tool identity fails closed as
+`tool_unclassified`; a declared tool with no matching budget remains a valid
+unbudgeted action.
+
 Each action-predicate doublestar match has one shared deterministic work budget
 across all brace-expanded programs: four units times the sum of the input byte
 length, compiled token count, and one terminal state per program. The shared

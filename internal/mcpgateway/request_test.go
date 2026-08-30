@@ -109,3 +109,13 @@ func TestBindRepositoryEffectIsOrderIndependentAndPathBound(t *testing.T) {
 		t.Fatal("duplicate repository-effect rule identity was accepted")
 	}
 }
+
+func TestGatewayReasonPreservesTypedActionRequestFailure(t *testing.T) {
+	t.Parallel()
+	err := &action.RequestError{
+		Code: action.ReasonToolUnclassified, Message: "request tool identity is undeclared",
+	}
+	if got := gatewayReason(err, action.ReasonPolicyMissing); got != action.ReasonToolUnclassified {
+		t.Fatalf("gateway reason = %s, want %s", got, action.ReasonToolUnclassified)
+	}
+}

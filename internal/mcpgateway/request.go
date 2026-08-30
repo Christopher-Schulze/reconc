@@ -419,5 +419,9 @@ func gatewayReason(err error, fallback action.ReasonCode) action.ReasonCode {
 	if errors.As(err, &approvalErr) && approvalErr.Code.Valid() {
 		return approvalErr.Code
 	}
+	var requestErr *action.RequestError
+	if errors.As(err, &requestErr) && requestErr.Code.Valid() {
+		return requestErr.Code
+	}
 	return fallback
 }

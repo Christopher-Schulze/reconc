@@ -7,7 +7,8 @@ import (
 )
 
 // BudgetContract returns the exact declared gateway tool and every canonical
-// budget selected for one normalized pre-call request.
+// budget selected for one normalized pre-call request. An undeclared exact
+// tool identity returns a ReasonToolUnclassified RequestError.
 func (p *CompiledPlan) BudgetContract(request Request) (Tool, []Budget, error) {
 	if p == nil {
 		return Tool{}, nil, fmt.Errorf("compiled action plan is unavailable")
@@ -19,7 +20,9 @@ func (p *CompiledPlan) BudgetContract(request Request) (Tool, []Budget, error) {
 	}
 	index, ok := lookupToolIndex(p.toolByExact, toolIdentity)
 	if !ok || index < 0 || index >= len(p.plan.Tools) {
-		return Tool{}, []Budget{}, nil
+		return Tool{}, nil, &RequestError{
+			Code: ReasonToolUnclassified, Message: "request tool identity is not declared by the compiled action plan",
+		}
 	}
 	tool := p.plan.Tools[index]
 	tool.Effect.PathFields = cloneSlice(tool.Effect.PathFields)

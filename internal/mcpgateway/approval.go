@@ -332,7 +332,7 @@ func (g *Gateway) consumeApproval(
 		call.stateVersion = retry.Snapshot.StateVersion
 		call.approvalCommitted = true
 		g.denyCall(ctx, call, true)
-		return nil, blockedGatewayResultValue(pending.callID, action.ReasonPolicyMissing)
+		return nil, blockedGatewayResultValue(pending.callID, gatewayReason(err, action.ReasonPolicyMissing))
 	}
 	evidence, err := g.evidence(ctx, pending.snapshot, request, tool)
 	if err != nil {
@@ -392,7 +392,7 @@ func (g *Gateway) refreshPreApprovalEvaluation(
 	request := pending.evaluation.Request
 	tool, _, err := pending.snapshot.Plan.BudgetContract(request)
 	if err != nil {
-		return action.EvaluationInput{}, pending.decision, action.ReasonPolicyMissing
+		return action.EvaluationInput{}, pending.decision, gatewayReason(err, action.ReasonPolicyMissing)
 	}
 	evidence, err := g.evidence(ctx, pending.snapshot, request, tool)
 	if err != nil {
@@ -507,7 +507,7 @@ func (g *Gateway) refreshPostApprovalEvaluation(
 	}
 	tool, _, err := pending.snapshot.Plan.BudgetContract(request)
 	if err != nil {
-		return action.EvaluationInput{}, pending.decision, action.ReasonPolicyMissing
+		return action.EvaluationInput{}, pending.decision, gatewayReason(err, action.ReasonPolicyMissing)
 	}
 	evidence, err := g.evidence(ctx, pending.snapshot, pending.preRequest, tool)
 	if err != nil {

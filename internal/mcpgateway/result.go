@@ -383,7 +383,7 @@ func (g *Gateway) inspectAndDeliver(
 ) (*mcp.CallToolResult, error) {
 	tool, _, err := call.snapshot.Plan.BudgetContract(postRequest)
 	if err != nil {
-		return g.withholdPostFailure(ctx, call, postRequest, action.ReasonPolicyMissing)
+		return g.withholdPostFailure(ctx, call, postRequest, gatewayReason(err, action.ReasonPolicyMissing))
 	}
 	evidence, err := g.evidence(ctx, call.snapshot, call.preRequest, tool)
 	if err != nil {

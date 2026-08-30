@@ -1,6 +1,7 @@
 package actionstate
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -38,4 +39,21 @@ func TestBudgetStoreAndEvaluatorShareWildcardToolResolution(t *testing.T) {
 	if decision.Failure != nil || decision.Reason == action.ReasonStateCorrupt {
 		t.Fatalf("wildcard budget evaluation = %#v", decision)
 	}
+}
+
+func TestBudgetStoreMapsUnknownToolContractFailClosed(t *testing.T) {
+	fixture := newStoreFixture(t, nil)
+	version, err := fixture.store.CurrentStateVersion(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := fixture.request
+	request.CallID = callID("u")
+	request.StateVersion = version
+	request.Tool = "undeclared"
+	_, err = fixture.store.Reserve(context.Background(), ReserveRequest{
+		Plan: fixture.plan, Request: request, Context: fixture.context,
+		Authority: fixture.authority, Server: fixture.server,
+	})
+	requireStateCode(t, err, action.ReasonToolUnclassified)
 }

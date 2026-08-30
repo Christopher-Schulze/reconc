@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 442 Validate budget selector and tool identities -> tasks/442-validate-budget-selector-and-tool-identities.md
 - [ ] 443 Reuse validated compiled action plans -> tasks/443-reuse-validated-compiled-action-plans.md
 - [ ] 444 Keep existing identity-key reads read-only -> tasks/444-keep-existing-identity-key-reads-read-only.md
 - [ ] 445 Add concurrent action-state read paths -> tasks/445-add-concurrent-action-state-read-paths.md
@@ -28,6 +27,7 @@
 
 ## Done
 
+- [x] 442 Validate budget selector and tool identities -> tasks/done/442-validate-budget-selector-and-tool-identities.md
 - [x] 441 Short-circuit conditions and bound glob expansion -> tasks/done/441-short-circuit-conditions-and-bound-glob-expansion.md
 - [x] 440 Bound Grok continuation prompts -> tasks/done/440-bound-grok-continuation-prompts.md
 - [x] 439 Redact CI host paths on boundaries -> tasks/done/439-redact-ci-host-paths-on-boundaries.md

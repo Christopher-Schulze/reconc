@@ -295,7 +295,7 @@ func (g *Gateway) evaluateProgress(
 	}
 	tool, _, err := call.snapshot.Plan.BudgetContract(request)
 	if err != nil {
-		return progressFailureDecision(call, action.ReasonPolicyMissing), false
+		return progressFailureDecision(call, gatewayReason(err, action.ReasonPolicyMissing)), false
 	}
 	evidence, err := g.evidence(inspectionCtx, call.snapshot, call.preRequest, tool)
 	if err != nil {
