@@ -3851,7 +3851,14 @@ terminal newline emitted for each non-empty stdout or stderr stream. Exact-limit
 decision JSON therefore reaches worker and one-shot capture intact; an envelope
 that cannot fit with its framing is replaced by the route's minimal complete
 fail-closed contract rather than truncated JSON.
-Post-compaction recovery context is deduplicated and capped at 4 KiB.
+Post-compaction recovery context is deduplicated and capped at 4 KiB. Each
+packet is one final standalone envelope with an exact versioned begin line, a
+lowercase SHA-256 digest of the complete bounded body, and an exact end line.
+A later compaction suppresses recovery only when that digest-valid envelope is
+the final non-whitespace summary block. Marker-like prose, code, paths, quoted
+payloads, malformed or truncated envelopes, and packets followed by unrelated
+text do not suppress recovery. Detection examines only the final 64 KiB of a
+summary; a missed packet safely emits another bounded packet.
 OpenCode, Kilo Code, OMP, and Pi keep one repository-owned `reconc hook worker`
 child for the lifetime of their plugin instance. Format-1 newline-framed JSON
 requests carry bounded IDs, event, repository, and payload fields and are

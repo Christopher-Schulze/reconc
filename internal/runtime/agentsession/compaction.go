@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -12,9 +13,13 @@ import (
 )
 
 const (
-	compactionContextMarker   = "reconc-context-v1"
-	maxCompactionContextBytes = 4 * 1024
-	maxTaskOverviewBytes      = 64 * 1024
+	compactionContextMarker      = "reconc-context-v1"
+	compactionContextBeginPrefix = "<<<" + compactionContextMarker + " sha256="
+	compactionContextBeginSuffix = ">>>"
+	compactionContextEnd         = "<<<end-" + compactionContextMarker + ">>>"
+	maxCompactionContextBytes    = 4 * 1024
+	maxCompactionSummaryScan     = 64 * 1024
+	maxTaskOverviewBytes         = 64 * 1024
 )
 
 // RunPostCompaction returns a small, project-neutral recovery packet instead
@@ -33,7 +38,7 @@ func runPostCompactionResolved(root string, payloadBytes []byte) Result {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (compaction, warn): %s", err)}
 	}
 	summary := cursorFirstString(payload.Raw, "summary", "compact_summary", "compactSummary")
-	if strings.Contains(summary, compactionContextMarker) {
+	if hasCompactionRecoveryEnvelope(summary) {
 		body, err := postCompactionJSONOutput("")
 		if err != nil {
 			return resultWithEncodingError(Result{ExitCode: 2}, err)
@@ -54,7 +59,6 @@ func runPostCompactionResolved(root string, payloadBytes []byte) Result {
 	}
 
 	lines := []string{
-		compactionContextMarker,
 		"Re-read the repository's agent instructions and bootstrap guide before changing files.",
 		"Inspect the live task overview and active task detail; never infer completion from the compaction summary.",
 	}
@@ -73,12 +77,82 @@ func runPostCompactionResolved(root string, payloadBytes []byte) Result {
 		lines = append(lines, "Repository run: disabled.")
 	}
 	lines = append(lines, "Re-run relevant verification before claiming the task is done.")
-	context := truncateUTF8(strings.Join(dedupeContextLines(lines), "\n"), maxCompactionContextBytes)
+	context := compactionRecoveryEnvelope(strings.Join(dedupeContextLines(lines), "\n"))
 	body, err := postCompactionJSONOutput(context)
 	if err != nil {
 		return resultWithEncodingError(Result{ExitCode: 2}, err)
 	}
 	return Result{ExitCode: 0, Stdout: body}
+}
+
+func compactionRecoveryEnvelope(body string) string {
+	overhead := len(compactionContextBeginPrefix) + sha256.Size*2 + len(compactionContextBeginSuffix) +
+		len(compactionContextEnd) + 2
+	body = truncateUTF8(body, maxCompactionContextBytes-overhead)
+	digest := sha256.Sum256([]byte(body))
+	return fmt.Sprintf("%s%x%s\n%s\n%s", compactionContextBeginPrefix, digest, compactionContextBeginSuffix, body, compactionContextEnd)
+}
+
+func hasCompactionRecoveryEnvelope(summary string) bool {
+	if len(summary) > maxCompactionSummaryScan {
+		summary = summary[len(summary)-maxCompactionSummaryScan:]
+	}
+	summary = strings.TrimRight(summary, " \t\r\n")
+	if !strings.HasSuffix(summary, compactionContextEnd) {
+		return false
+	}
+	endIndex := len(summary) - len(compactionContextEnd)
+	if endIndex == 0 || summary[endIndex-1] != '\n' {
+		return false
+	}
+	beginIndex := lastLinePrefix(summary[:endIndex-1], compactionContextBeginPrefix)
+	if beginIndex < 0 {
+		return false
+	}
+	lineEnd := strings.IndexByte(summary[beginIndex:endIndex], '\n')
+	if lineEnd < 0 {
+		return false
+	}
+	lineEnd += beginIndex
+	beginLine := summary[beginIndex:lineEnd]
+	wantBeginBytes := len(compactionContextBeginPrefix) + sha256.Size*2 + len(compactionContextBeginSuffix)
+	if len(beginLine) != wantBeginBytes || !strings.HasSuffix(beginLine, compactionContextBeginSuffix) {
+		return false
+	}
+	wantDigest := beginLine[len(compactionContextBeginPrefix) : len(beginLine)-len(compactionContextBeginSuffix)]
+	if !isLowerHexDigest(wantDigest) {
+		return false
+	}
+	body := summary[lineEnd+1 : endIndex-1]
+	digest := sha256.Sum256([]byte(body))
+	return fmt.Sprintf("%x", digest) == wantDigest
+}
+
+func lastLinePrefix(value, prefix string) int {
+	for searchEnd := len(value); searchEnd > 0; {
+		index := strings.LastIndex(value[:searchEnd], prefix)
+		if index < 0 {
+			return -1
+		}
+		if index == 0 || value[index-1] == '\n' {
+			return index
+		}
+		searchEnd = index
+	}
+	return -1
+}
+
+func isLowerHexDigest(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	for _, char := range value {
+		if char >= '0' && char <= '9' || char >= 'a' && char <= 'f' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func activeTaskLine(repoRoot string) string {

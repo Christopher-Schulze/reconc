@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 450 Bind compaction recovery markers structurally -> tasks/450-bind-compaction-recovery-markers-structurally.md
 - [ ] 451 Keep hook liveness routes consistent -> tasks/451-keep-hook-liveness-routes-consistent.md
 - [ ] 452 Preserve user interrupt on close failure -> tasks/452-preserve-user-interrupt-on-close-failure.md
 - [ ] 453 Preserve policy-relevant Git state -> tasks/453-preserve-policy-relevant-git-state.md
@@ -20,6 +19,7 @@
 
 ## Done
 
+- [x] 450 Bind compaction recovery markers structurally -> tasks/done/450-bind-compaction-recovery-markers-structurally.md
 - [x] 449 Retain and stream session evidence safely -> tasks/done/449-retain-and-stream-session-evidence-safely.md
 - [x] 448 Enforce action evaluation work deadlines -> tasks/done/448-enforce-action-evaluation-work-deadlines.md
 - [x] 447 Bound Git process cancellation -> tasks/done/447-bound-git-process-cancellation.md

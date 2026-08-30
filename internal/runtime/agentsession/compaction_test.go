@@ -33,14 +33,66 @@ func TestRunPostCompactionReturnsBoundedRecoveryContext(t *testing.T) {
 			t.Fatalf("context missing %q: %s", token, context)
 		}
 	}
+	if !hasCompactionRecoveryEnvelope(context) {
+		t.Fatalf("compaction context is not a valid recovery envelope: %s", context)
+	}
 }
 
 func TestRunPostCompactionDeduplicatesExistingPacket(t *testing.T) {
 	repo := t.TempDir()
 	t.Setenv(StateRootEnv, t.TempDir())
-	result := RunPostCompaction(repo, []byte(`{"session_id":"s1","summary":"already has reconc-context-v1"}`))
+	packet := compactionRecoveryEnvelope("preserved recovery\nUnicode: Wiederaufnahme ✓")
+	payload, err := json.Marshal(map[string]interface{}{"session_id": "s1", "summary": "host summary\n" + packet})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := RunPostCompaction(repo, payload)
 	if context := compactionContextFromResult(t, result); context != "" {
 		t.Fatalf("duplicate context should be empty, got %q", context)
+	}
+}
+
+func TestCompactionRecoveryEnvelopeRejectsMarkerLikeAndMalformedText(t *testing.T) {
+	packet := compactionRecoveryEnvelope("line one\nUnicode: Καλημέρα 世界")
+	beginLine := strings.SplitN(packet, "\n", 2)[0]
+	cases := []struct {
+		name    string
+		summary string
+		want    bool
+	}{
+		{name: "exact final packet", summary: packet, want: true},
+		{name: "multiline prefix then packet", summary: "ordinary summary\nsecond line\n" + packet, want: true},
+		{name: "bounded long prefix", summary: strings.Repeat("x", 2*maxCompactionSummaryScan) + "\n" + packet, want: true},
+		{name: "duplicate genuine packets", summary: packet + "\n" + packet, want: true},
+		{name: "marker prose", summary: "already has " + compactionContextMarker},
+		{name: "path", summary: "/tmp/" + compactionContextMarker + "/notes"},
+		{name: "quoted payload", summary: `{"message":"` + compactionContextMarker + `"}`},
+		{name: "prefix collision", summary: "x" + packet},
+		{name: "suffix collision", summary: packet + "x"},
+		{name: "truncated", summary: packet[:len(packet)-1]},
+		{name: "begin only", summary: beginLine + "\nbody"},
+		{name: "malformed digest", summary: strings.Replace(packet, "sha256=", "sha256=Z", 1)},
+		{name: "packet followed by prose", summary: packet + "\nquoted later"},
+		{name: "packet outside bounded tail", summary: packet + strings.Repeat(" ", maxCompactionSummaryScan+1)},
+		{name: "code marker", summary: "```text\n" + compactionContextMarker + "\n```"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if got := hasCompactionRecoveryEnvelope(test.summary); got != test.want {
+				t.Fatalf("envelope detection = %t, want %t\n%s", got, test.want, test.summary)
+			}
+		})
+	}
+}
+
+func TestCompactionRecoveryEnvelopeRemainsValidWhenBounded(t *testing.T) {
+	body := strings.Repeat("Wiederaufnahme ✓\n", maxCompactionContextBytes)
+	packet := compactionRecoveryEnvelope(body)
+	if len(packet) > maxCompactionContextBytes {
+		t.Fatalf("packet bytes = %d, want <= %d", len(packet), maxCompactionContextBytes)
+	}
+	if !strings.Contains(packet, "[reconc context truncated]") || !hasCompactionRecoveryEnvelope(packet) {
+		t.Fatalf("bounded packet is not valid: %q", packet)
 	}
 }
 
