@@ -221,7 +221,7 @@ func applySyncPlanLocked(plan *SyncPlan, report *SyncReport, productVersion stri
 		report.Status = SyncRolledBack
 		return errors.Join(primary, rollbackErr)
 	}
-	if err := removeRepositorySyncTransaction(plan.RepoRoot); err != nil {
+	if err := removeRepositorySyncTransaction(plan.RepoRoot, transaction); err != nil {
 		report.Status = SyncRefused
 		report.NextAction = "reconc repo sync recover " + quoteBootstrapArgument(plan.RepoRoot)
 		return err

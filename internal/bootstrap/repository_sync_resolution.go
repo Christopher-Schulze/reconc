@@ -228,7 +228,7 @@ func resolveRepositorySyncLocked(
 		return errors.Join(err, rollbackErr)
 	}
 	report.Verification = append(report.Verification, verification.Checks...)
-	if err := removeRepositorySyncTransaction(root); err != nil {
+	if err := removeRepositorySyncTransaction(root, transaction); err != nil {
 		report.NextAction = "reconc repo sync recover " + quoteBootstrapArgument(root)
 		return err
 	}

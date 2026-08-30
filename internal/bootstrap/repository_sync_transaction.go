@@ -23,6 +23,7 @@ const (
 
 var errRepositorySyncInterrupted = errors.New("injected repository sync interruption")
 var beforeRepositorySyncRollbackRemoval = func(string) error { return nil }
+var beforeRepositorySyncJournalRemoval = func(string) error { return nil }
 
 type syncMutation struct {
 	Path    string
@@ -103,7 +104,7 @@ func RecoverRepositorySync(repoRoot string) (*SyncRecovery, error) {
 			}
 			report.Verification = append(report.Verification, verification.Checks...)
 			if verification.Valid {
-				if removeErr := removeRepositorySyncTransaction(root); removeErr != nil {
+				if removeErr := removeRepositorySyncTransaction(root, transaction); removeErr != nil {
 					return removeErr
 				}
 				report.Status = SyncRecoveryFinalized
@@ -590,19 +591,42 @@ func rollbackRepositorySyncTransaction(
 		)
 	}
 	sort.Strings(restored)
-	if err := removeRepositorySyncTransaction(root); err != nil {
+	if err := removeRepositorySyncTransaction(root, transaction); err != nil {
 		return restored, err
 	}
 	return restored, nil
 }
 
-func removeRepositorySyncTransaction(root string) error {
+func removeRepositorySyncTransaction(root string, transaction *repositorySyncTransaction) error {
 	path, err := repositorySyncTransactionPath(root)
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	expected, err := encodeRepositorySyncTransaction(transaction)
+	if err != nil {
+		return err
+	}
+	record, err := captureCreatedRecord(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return errors.New("repository sync transaction journal disappeared before durable removal")
+	}
+	if err != nil {
+		return fmt.Errorf("capture repository sync transaction journal: %w", err)
+	}
+	if record.sha256 != bytesSHA256(expected) {
+		return errors.Join(errors.New("repository sync transaction journal changed before removal"), record.close())
+	}
+	if beforeRepositorySyncJournalRemoval != nil {
+		if err := beforeRepositorySyncJournalRemoval(path); err != nil {
+			return errors.Join(fmt.Errorf("prepare repository sync transaction journal removal: %w", err), record.close())
+		}
+	}
+	removed, err := removeCreatedRecordOutcome(&record)
+	if err != nil {
 		return fmt.Errorf("remove repository sync transaction journal: %w", err)
+	}
+	if !removed {
+		return errors.New("repository sync transaction journal disappeared before durable removal")
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -60,8 +61,8 @@ func TestPublishArtifactRecoversPublishedTargetWithExactStageEvidence(t *testing
 	if err := os.WriteFile(stage, artifact.content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(target, artifact.content, 0o600); err != nil {
-		t.Fatal(err)
+	if err := os.Link(stage, target); err != nil {
+		t.Skipf("hardlinks unavailable: %v", err)
 	}
 
 	record, directories, err := publishArtifact(root, artifact, artifact.path, expected, digest)
@@ -79,6 +80,52 @@ func TestPublishArtifactRecoversPublishedTargetWithExactStageEvidence(t *testing
 	info, err := os.Stat(target)
 	if err != nil || !modeSatisfies(info.Mode(), artifact.mode) {
 		t.Fatalf("recovered target mode = %v, err=%v", info, err)
+	}
+}
+
+func TestPublishArtifactRejectsStaleStageReplacementAtRemoval(t *testing.T) {
+	root := t.TempDir()
+	digest := strings.Repeat("d", 64)
+	artifact := desiredArtifact{
+		component: "recovery-test",
+		path:      "owned.txt",
+		mode:      0o644,
+		content:   []byte("owned\n"),
+	}
+	stage := filepath.Join(root, ".owned.txt.reconc-bootstrap-"+digest[:12]+".tmp")
+	verified := stage + ".verified"
+	if err := os.WriteFile(stage, artifact.content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	originalHook := beforeExactBootstrapStageRemoval
+	beforeExactBootstrapStageRemoval = func(path string) error {
+		if err := os.Rename(path, verified); err != nil {
+			return err
+		}
+		return os.WriteFile(path, []byte("attacker\n"), 0o644)
+	}
+	t.Cleanup(func() { beforeExactBootstrapStageRemoval = originalHook })
+
+	record, directories, err := publishArtifact(
+		root,
+		artifact,
+		artifact.path,
+		bytesSHA256(artifact.content),
+		digest,
+	)
+	defer record.close()
+	defer closeCreatedDirectoryIdentities(directories)
+	if err == nil || !strings.Contains(err.Error(), "changed identity during removal") {
+		t.Fatalf("stale-stage replacement error = %v", err)
+	}
+	if body, err := os.ReadFile(stage); err != nil || string(body) != "attacker\n" {
+		t.Fatalf("replacement stage changed: body=%q err=%v", body, err)
+	}
+	if body, err := os.ReadFile(verified); err != nil || string(body) != "owned\n" {
+		t.Fatalf("verified stage changed: body=%q err=%v", body, err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, artifact.path)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("replacement recovery published target: %v", err)
 	}
 }
 

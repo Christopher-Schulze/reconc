@@ -11,6 +11,7 @@ import (
 
 var bootstrapDirectorySync = atomicfile.SyncDirectory
 var beforeBoundRemovalSync = func(*os.Root, string) error { return nil }
+var beforeExactBootstrapStageRemoval = func(string) error { return nil }
 
 func validateBoundBootstrapParent(parent *os.Root, expected os.FileInfo) error {
 	if parent == nil || expected == nil {
@@ -61,5 +62,43 @@ func removeBoundBootstrapEntry(
 	if err := parent.Remove(name); err != nil {
 		return err
 	}
-	return syncMutatedBootstrapParent(parent, expected, path)
+	return syncMutatedRemovalParent(parent, expected, path)
+}
+
+func removeExactBootstrapStage(
+	parent *os.Root,
+	parentInfo os.FileInfo,
+	name string,
+	path string,
+	expected os.FileInfo,
+) error {
+	if err := validateCreatedParent(parent, parentInfo, path); err != nil {
+		return err
+	}
+	current, err := parent.Lstat(name)
+	if err != nil {
+		return err
+	}
+	if !sameCreatedFile(expected, current) {
+		return errors.New("bootstrap staging file changed identity before removal")
+	}
+	if beforeExactBootstrapStageRemoval != nil {
+		if err := beforeExactBootstrapStageRemoval(path); err != nil {
+			return err
+		}
+	}
+	if err := validateCreatedParent(parent, parentInfo, path); err != nil {
+		return err
+	}
+	current, err = parent.Lstat(name)
+	if err != nil {
+		return err
+	}
+	if !sameCreatedFile(expected, current) {
+		return errors.New("bootstrap staging file changed identity during removal")
+	}
+	if err := parent.Remove(name); err != nil {
+		return err
+	}
+	return syncMutatedRemovalParent(parent, parentInfo, path)
 }

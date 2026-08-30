@@ -1262,9 +1262,12 @@ class remains the fail-closed compatibility fallback.
 Bootstrap create-only publication adds an ordered entry protocol around this
 boundary. It syncs the staged payload and parent, publishes by hard link or
 exclusive copy, syncs the target parent, removes the reserved stage, and syncs
-that removal. Rollback applies the same parent barrier to owned target and
-directory removal. Windows retains payload `File.Sync`, rooted identity checks,
-and create-only semantics but does not claim unsupported directory fsync.
+that removal. Stage cleanup revalidates the exact leaf identity immediately
+before rooted deletion. Create-only atomic publication also removes only
+canonical temporary hardlinks to the exact published target after a crash.
+Rollback applies the same parent barrier to owned target and directory removal.
+Windows retains payload `File.Sync`, rooted identity checks, and create-only
+semantics but does not claim unsupported directory fsync.
 
 ### Private state filesystem boundary
 

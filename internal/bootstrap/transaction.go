@@ -764,14 +764,7 @@ func recoverBootstrapStage(
 		if closeErr != nil {
 			return nil, staleBootstrapStageError(stagePath, closeErr)
 		}
-		currentStage, inspectErr := parent.Lstat(stageName)
-		if inspectErr != nil || !sameCreatedFile(stageInfo, currentStage) {
-			if inspectErr == nil && !sameCreatedFile(stageInfo, currentStage) {
-				inspectErr = errors.New("staging file changed identity before recovery")
-			}
-			return nil, staleBootstrapStageError(stagePath, inspectErr)
-		}
-		if err := removeBoundBootstrapEntry(parent, parentInfo, stageName, stagePath); err != nil {
+		if err := removeExactBootstrapStage(parent, parentInfo, stageName, stagePath, stageInfo); err != nil {
 			return nil, staleBootstrapStageError(stagePath, fmt.Errorf("remove exact residue: %w", err))
 		}
 		return nil, nil
@@ -812,14 +805,7 @@ func recoverBootstrapStage(
 	if err := stage.Close(); err != nil {
 		return nil, errors.Join(staleBootstrapStageError(stagePath, err), target.Close())
 	}
-	currentStage, err := parent.Lstat(stageName)
-	if err != nil || !sameCreatedFile(stageInfo, currentStage) {
-		if err == nil {
-			err = errors.New("staging file changed identity before recovery")
-		}
-		return nil, errors.Join(staleBootstrapStageError(stagePath, err), target.Close())
-	}
-	if err := removeBoundBootstrapEntry(parent, parentInfo, stageName, stagePath); err != nil {
+	if err := removeExactBootstrapStage(parent, parentInfo, stageName, stagePath, stageInfo); err != nil {
 		return nil, errors.Join(staleBootstrapStageError(stagePath, fmt.Errorf("remove exact residue: %w", err)), target.Close())
 	}
 	record := &createdRecord{

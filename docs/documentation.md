@@ -797,9 +797,12 @@ Before the first target write, apply publishes the bounded strict
 before-image bytes and modes, after hashes and modes, created-path state,
 created parent paths, and a self-digest. All files and the receipt must pass
 complete pack, binary, policy, hook, and ownership verification before the
-journal is removed. Normal failures restore only exact transaction
-after-images. An interrupted process leaves the journal and blocks init,
-direct bootstrap apply, sync plan/apply/resolve/verify, and removal until:
+journal is removed. Journal cleanup revalidates the exact file identity,
+rejects disappearance or replacement, checks for resurrection, and commits the
+deletion through the bound parent before reporting completion. Normal failures
+restore only exact transaction after-images. An interrupted process leaves the
+journal and blocks init, direct bootstrap apply, sync plan/apply/resolve/verify,
+and removal until:
 
 ```bash
 reconc repo sync recover .

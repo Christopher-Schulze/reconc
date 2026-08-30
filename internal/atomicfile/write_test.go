@@ -318,6 +318,190 @@ func TestWriteNewPublishesCompleteBytesAndRefusesExistingTarget(t *testing.T) {
 	}
 }
 
+func TestWriteNewPrePublicationFailuresRemoveTemporary(t *testing.T) {
+	injected := errors.New("injected write-new boundary failure")
+	for _, test := range []struct {
+		name    string
+		install func(*testing.T)
+	}{
+		{
+			name: "file sync",
+			install: func(t *testing.T) {
+				original := syncWriteNewTemporary
+				syncWriteNewTemporary = func(*os.File) error { return injected }
+				t.Cleanup(func() { syncWriteNewTemporary = original })
+			},
+		},
+		{
+			name: "file close",
+			install: func(t *testing.T) {
+				original := closeWriteNewTemporary
+				closeWriteNewTemporary = func(file *os.File) error {
+					return errors.Join(file.Close(), injected)
+				}
+				t.Cleanup(func() { closeWriteNewTemporary = original })
+			},
+		},
+		{
+			name: "hardlink",
+			install: func(t *testing.T) {
+				original := linkWriteNewTemporary
+				linkWriteNewTemporary = func(*os.Root, string, string) error { return injected }
+				t.Cleanup(func() { linkWriteNewTemporary = original })
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			test.install(t)
+			path := filepath.Join(t.TempDir(), "state.json")
+			result, err := WriteNew(path, []byte("new\n"), 0o600)
+			if !errors.Is(err, injected) || result.Changed || result.Outcome != PublicationNotPublished {
+				t.Fatalf("result = %+v, err=%v", result, err)
+			}
+			if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("failed publication created target: %v", err)
+			}
+			assertNoWriteNewTemporary(t, path)
+		})
+	}
+}
+
+func TestWriteNewDirectorySyncFailuresCleanTemporary(t *testing.T) {
+	injected := errors.New("injected post-link directory sync failure")
+	for _, failCall := range []int{1, 2} {
+		t.Run(fmt.Sprintf("call %d", failCall), func(t *testing.T) {
+			original := syncParentDir
+			calls := 0
+			syncParentDir = func(*os.Root) error {
+				calls++
+				if calls == failCall {
+					return injected
+				}
+				return nil
+			}
+			t.Cleanup(func() { syncParentDir = original })
+
+			path := filepath.Join(t.TempDir(), "state.json")
+			result, err := WriteNew(path, []byte("published\n"), 0o600)
+			if !errors.Is(err, injected) || !result.Changed || result.Outcome != PublicationPublishedUncertain {
+				t.Fatalf("result = %+v, err=%v", result, err)
+			}
+			if calls != 2 {
+				t.Fatalf("directory sync calls = %d, want 2", calls)
+			}
+			if body, err := os.ReadFile(path); err != nil || string(body) != "published\n" {
+				t.Fatalf("published body = %q, err=%v", body, err)
+			}
+			assertNoWriteNewTemporary(t, path)
+		})
+	}
+}
+
+func TestWriteNewRemoveFailureLeavesRecoverableTemporary(t *testing.T) {
+	injected := errors.New("injected temporary removal failure")
+	original := removeWriteNewTemporary
+	calls := 0
+	removeWriteNewTemporary = func(directory *os.Root, name string) error {
+		calls++
+		if calls == 1 {
+			return injected
+		}
+		return original(directory, name)
+	}
+	t.Cleanup(func() { removeWriteNewTemporary = original })
+
+	path := filepath.Join(t.TempDir(), "state.json")
+	result, err := WriteNew(path, []byte("published\n"), 0o600)
+	if !errors.Is(err, injected) || !result.Changed || result.Outcome != PublicationPublishedUncertain {
+		t.Fatalf("result = %+v, err=%v", result, err)
+	}
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".state.json.*.tmp"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("recoverable temporary = %v, err=%v", matches, err)
+	}
+
+	removeWriteNewTemporary = original
+	if _, err := WriteNew(path, []byte("replacement\n"), 0o600); !errors.Is(err, ErrCurrentChanged) {
+		t.Fatalf("recovery refusal error = %v", err)
+	}
+	assertNoWriteNewTemporary(t, path)
+	if body, err := os.ReadFile(path); err != nil || string(body) != "published\n" {
+		t.Fatalf("recovered target body = %q, err=%v", body, err)
+	}
+}
+
+func TestWriteNewRecoversOnlyHardlinksToExactTarget(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	if err := os.WriteFile(path, []byte("published\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	residue := filepath.Join(root, ".state.json.00000000000000000000000000000001.tmp")
+	if err := os.Link(path, residue); err != nil {
+		t.Skipf("hardlinks unavailable: %v", err)
+	}
+	foreign := filepath.Join(root, ".state.json.00000000000000000000000000000002.tmp")
+	if err := os.WriteFile(foreign, []byte("foreign\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := WriteNew(path, []byte("replacement\n"), 0o600); !errors.Is(err, ErrCurrentChanged) {
+		t.Fatalf("existing-target refusal = %v", err)
+	}
+	if _, err := os.Lstat(residue); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale hardlink remains: %v", err)
+	}
+	if body, err := os.ReadFile(foreign); err != nil || string(body) != "foreign\n" {
+		t.Fatalf("foreign temporary changed: body=%q err=%v", body, err)
+	}
+	if body, err := os.ReadFile(path); err != nil || string(body) != "published\n" {
+		t.Fatalf("target changed: body=%q err=%v", body, err)
+	}
+}
+
+func TestWriteNewRecoveryRejectsTemporaryIdentityReplacement(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	if err := os.WriteFile(path, []byte("published\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	residueName := ".state.json.00000000000000000000000000000001.tmp"
+	residue := filepath.Join(root, residueName)
+	if err := os.Link(path, residue); err != nil {
+		t.Skipf("hardlinks unavailable: %v", err)
+	}
+	originalHook := beforeWriteNewRecoveryRemoval
+	beforeWriteNewRecoveryRemoval = func(directory *os.Root, name string) error {
+		if err := directory.Rename(name, name+".verified"); err != nil {
+			return err
+		}
+		return directory.WriteFile(name, []byte("attacker\n"), 0o600)
+	}
+	t.Cleanup(func() { beforeWriteNewRecoveryRemoval = originalHook })
+
+	if _, err := WriteNew(path, []byte("replacement\n"), 0o600); err == nil ||
+		!strings.Contains(err.Error(), "changed identity during recovery") {
+		t.Fatalf("replacement recovery error = %v", err)
+	}
+	if body, err := os.ReadFile(residue); err != nil || string(body) != "attacker\n" {
+		t.Fatalf("replacement temporary changed: body=%q err=%v", body, err)
+	}
+	if body, err := os.ReadFile(residue + ".verified"); err != nil || string(body) != "published\n" {
+		t.Fatalf("verified temporary changed: body=%q err=%v", body, err)
+	}
+	if body, err := os.ReadFile(path); err != nil || string(body) != "published\n" {
+		t.Fatalf("target changed: body=%q err=%v", body, err)
+	}
+}
+
+func assertNoWriteNewTemporary(t *testing.T, path string) {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp"))
+	if err != nil || len(matches) != 0 {
+		t.Fatalf("write-new temporary residue = %v, err=%v", matches, err)
+	}
+}
+
 func TestSecureExistingIfMatchesNeverReplacesContent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "backup")
 	if err := os.WriteFile(path, []byte("preserved\n"), 0o644); err != nil {

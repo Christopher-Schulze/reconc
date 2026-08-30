@@ -634,8 +634,11 @@ Before the first target mutation, apply writes the bounded strict
 bytes, before and after hashes and modes, created-path state, plan/product
 identity, and a self-digest. The complete result must pass receipt, pack,
 binary, artifact, generated policy, and hook verification before the journal
-is removed. A normal failure rolls back exact after-images immediately.
-Process interruption leaves the journal for explicit recovery.
+is removed. Removal revalidates the journal identity and durably commits its
+absence through the bound parent; replacement, disappearance, resurrection, or
+directory-sync failure prevents a completed result. A normal failure rolls
+back exact after-images immediately. Process interruption leaves the journal
+for explicit recovery.
 `user-drift`, `orphaned-legacy`, `incompatible`, and `manual-review` are
 non-mutating blockers.
 After a successful sync, historical bootstrap receipt/plan retention remains

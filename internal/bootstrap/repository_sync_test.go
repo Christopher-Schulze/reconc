@@ -804,6 +804,142 @@ func TestRepositorySyncRecoversInterruptedTransaction(t *testing.T) {
 	}
 }
 
+func TestRepositorySyncJournalRemovalRejectsReplacement(t *testing.T) {
+	repo, err := canonicalRepoRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutations := []syncMutation{{
+		Path: "owned.txt", Mode: 0o644, After: []byte("published\n"), Created: true,
+	}}
+	transaction, err := buildRepositorySyncTransaction(
+		repo,
+		syncTestVersion,
+		strings.Repeat("a", 64),
+		mutations,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRepositorySyncTransaction(repo, transaction); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := encodeRepositorySyncTransaction(transaction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal, err := repositorySyncTransactionPath(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified := journal + ".verified"
+	originalHook := beforeRepositorySyncJournalRemoval
+	beforeRepositorySyncJournalRemoval = func(path string) error {
+		if err := os.Rename(path, verified); err != nil {
+			return err
+		}
+		return os.WriteFile(path, []byte("attacker\n"), 0o600)
+	}
+	t.Cleanup(func() { beforeRepositorySyncJournalRemoval = originalHook })
+
+	if err := removeRepositorySyncTransaction(repo, transaction); err == nil ||
+		!strings.Contains(err.Error(), "externally replaced") {
+		t.Fatalf("journal replacement removal error = %v", err)
+	}
+	if body, err := os.ReadFile(verified); err != nil || !bytes.Equal(body, expected) {
+		t.Fatalf("verified journal changed: body=%q err=%v", body, err)
+	}
+	if body, err := os.ReadFile(journal); err != nil || string(body) != "attacker\n" {
+		t.Fatalf("replacement journal changed: body=%q err=%v", body, err)
+	}
+}
+
+func TestRepositorySyncJournalRemovalDetectsResurrection(t *testing.T) {
+	repo, err := canonicalRepoRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutations := []syncMutation{{
+		Path: "owned.txt", Mode: 0o644, After: []byte("published\n"), Created: true,
+	}}
+	transaction, err := buildRepositorySyncTransaction(
+		repo,
+		syncTestVersion,
+		strings.Repeat("b", 64),
+		mutations,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRepositorySyncTransaction(repo, transaction); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := encodeRepositorySyncTransaction(transaction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal, err := repositorySyncTransactionPath(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalHook := beforeBoundRemovalSync
+	beforeBoundRemovalSync = func(parent *os.Root, path string) error {
+		if path != journal {
+			return nil
+		}
+		return parent.WriteFile(filepath.Base(path), expected, 0o600)
+	}
+	t.Cleanup(func() { beforeBoundRemovalSync = originalHook })
+
+	if err := removeRepositorySyncTransaction(repo, transaction); err == nil ||
+		!strings.Contains(err.Error(), "reappeared before parent sync") {
+		t.Fatalf("journal resurrection removal error = %v", err)
+	}
+	if body, err := os.ReadFile(journal); err != nil || !bytes.Equal(body, expected) {
+		t.Fatalf("resurrected journal = %q, err=%v", body, err)
+	}
+}
+
+func TestRepositorySyncJournalRemovalRequiresDirectoryDurability(t *testing.T) {
+	repo, err := canonicalRepoRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutations := []syncMutation{{
+		Path: "owned.txt", Mode: 0o644, After: []byte("published\n"), Created: true,
+	}}
+	transaction, err := buildRepositorySyncTransaction(
+		repo,
+		syncTestVersion,
+		strings.Repeat("c", 64),
+		mutations,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRepositorySyncTransaction(repo, transaction); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := repositorySyncTransactionPath(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("injected journal directory sync failure")
+	originalSync := bootstrapDirectorySync
+	bootstrapDirectorySync = func(*os.Root) error { return injected }
+	t.Cleanup(func() { bootstrapDirectorySync = originalSync })
+
+	if err := removeRepositorySyncTransaction(repo, transaction); !errors.Is(err, injected) {
+		t.Fatalf("journal directory-sync error = %v", err)
+	}
+	if _, err := os.Lstat(journal); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("journal still exists after unlink: %v", err)
+	}
+}
+
 func TestRepositorySyncRecoveryFinalizesCompleteAfterImage(t *testing.T) {
 	repo, receipt := initializeSyncFixture(t, ProfileAdvanced)
 	index := firstHarnessManagedFile(t, receipt)
