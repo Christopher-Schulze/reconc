@@ -99,11 +99,16 @@ type InstallReport struct {
 	// updated, or reused the shared repository-local launcher.
 	WrapperPath   string `json:"wrapper_path,omitempty"`
 	WrapperAction string `json:"wrapper_action,omitempty"`
+	// WrapperTargetPath and WrapperTargetAction report publication of the
+	// optional direct-target receipt used by the shared wrapper.
+	WrapperTargetPath   string `json:"wrapper_target_path,omitempty"`
+	WrapperTargetAction string `json:"wrapper_target_action,omitempty"`
 	// ActivationPath and ActivationAction report explicit host-discovery
 	// configuration managed alongside the hook artifact.
 	ActivationPath   string `json:"activation_path,omitempty"`
 	ActivationAction string `json:"activation_action,omitempty"`
-	// Partial is true when the wrapper is ready but the platform target failed.
+	// Partial is true when a reported install artifact is ready but a later
+	// wrapper-setup, platform-target, or activation step failed.
 	Partial bool `json:"partial,omitempty"`
 }
 
@@ -186,6 +191,17 @@ func Generate(kind string) (*Artifact, error) {
 //   - JSON platforms merge reconc-owned entries without replacing unrelated
 //     hooks; plugin platforms replace only reconc-managed plugin files.
 func Install(kind, repoRoot string, force bool) (*InstallReport, error) {
+	return installWithWrapper(kind, repoRoot, force, ensureWrapper)
+}
+
+type wrapperInstallOutcome struct {
+	wrapperAction string
+	targetAction  string
+}
+
+type ensureWrapperFunc func(string, bool) (wrapperInstallOutcome, error)
+
+func installWithWrapper(kind, repoRoot string, force bool, ensure ensureWrapperFunc) (*InstallReport, error) {
 	definition, ok := lookupPlatformDefinition(kind)
 	if !ok {
 		return nil, &rerrors.PolicySourceError{
@@ -206,10 +222,19 @@ func Install(kind, repoRoot string, force bool) (*InstallReport, error) {
 			return nil, err
 		}
 	}
-	wrapperAction := ""
+	wrapperOutcome := wrapperInstallOutcome{}
 	if definition.Activation.RequiresWrapper {
-		wrapperAction, err = ensureWrapper(root, force)
+		wrapperOutcome, err = ensure(root, force)
 		if err != nil {
+			if wrapperOutcome.wrapperAction != "" || wrapperOutcome.targetAction != "" {
+				return &InstallReport{
+					Kind: kind, RepoRoot: root, TargetPath: definition.TargetPath, Action: "not-installed",
+					WrapperPath: WrapperPath, WrapperAction: wrapperOutcome.wrapperAction,
+					WrapperTargetPath: wrapperTargetReportPath(wrapperOutcome.targetAction), WrapperTargetAction: wrapperOutcome.targetAction,
+					Partial:    true,
+					NextAction: "Resolve the wrapper setup error, then rerun `reconc hook install " + kind + " " + root + "`.",
+				}, err
+			}
 			return nil, err
 		}
 	}
@@ -218,7 +243,9 @@ func Install(kind, repoRoot string, force bool) (*InstallReport, error) {
 		if definition.Activation.RequiresWrapper {
 			return &InstallReport{
 				Kind: kind, RepoRoot: root, TargetPath: definition.TargetPath, Action: "not-installed",
-				WrapperPath: WrapperPath, WrapperAction: wrapperAction, Partial: true,
+				WrapperPath: WrapperPath, WrapperAction: wrapperOutcome.wrapperAction,
+				WrapperTargetPath: wrapperTargetReportPath(wrapperOutcome.targetAction), WrapperTargetAction: wrapperOutcome.targetAction,
+				Partial:    true,
 				NextAction: "Resolve the target error, then rerun `reconc hook install " + kind + " " + root + "`.",
 			}, installErr
 		}
@@ -226,7 +253,9 @@ func Install(kind, repoRoot string, force bool) (*InstallReport, error) {
 	}
 	if definition.Activation.RequiresWrapper {
 		report.WrapperPath = WrapperPath
-		report.WrapperAction = wrapperAction
+		report.WrapperAction = wrapperOutcome.wrapperAction
+		report.WrapperTargetPath = wrapperTargetReportPath(wrapperOutcome.targetAction)
+		report.WrapperTargetAction = wrapperOutcome.targetAction
 	}
 	if activationPlan != nil {
 		report.ActivationPath = codexActivationPath
@@ -238,6 +267,13 @@ func Install(kind, repoRoot string, force bool) (*InstallReport, error) {
 		}
 	}
 	return report, nil
+}
+
+func wrapperTargetReportPath(action string) string {
+	if action == "" {
+		return ""
+	}
+	return WrapperTargetPath
 }
 
 func installPlatform(definition platformDefinition, repoRoot string, force bool) (*InstallReport, error) {
@@ -273,33 +309,42 @@ func installPlatform(definition platformDefinition, repoRoot string, force bool)
 	return nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("hook kind %q has no installer", definition.Kind)}
 }
 
-func ensureWrapper(root string, force bool) (string, error) {
+func ensureWrapper(root string, force bool) (wrapperInstallOutcome, error) {
+	return ensureWrapperWithTarget(root, force, ensureWrapperTarget)
+}
+
+type ensureWrapperTargetFunc func(string, bool) (string, error)
+
+func ensureWrapperWithTarget(root string, force bool, ensureTarget ensureWrapperTargetFunc) (wrapperInstallOutcome, error) {
 	artifact := GenerateWrapper()
 	target := filepath.Join(root, filepath.FromSlash(artifact.TargetPath))
 	if err := requireManagedTargetWithin(root, target); err != nil {
-		return "", err
+		return wrapperInstallOutcome{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return "", &rerrors.PolicySourceError{Message: "create wrapper parent directory", Cause: err}
+		return wrapperInstallOutcome{}, &rerrors.PolicySourceError{Message: "create wrapper parent directory", Cause: err}
 	}
 	snapshot, err := readManagedArtifactSnapshot(target)
 	if err != nil {
-		return "", &rerrors.PolicySourceError{Message: "read " + WrapperPath, Cause: err}
+		return wrapperInstallOutcome{}, &rerrors.PolicySourceError{Message: "read " + WrapperPath, Cause: err}
 	}
 	if snapshot.exists {
 		managed := wrapperManagedArtifact(snapshot.body)
 		if string(snapshot.body) != artifact.Content && !managed && !force {
-			return "", &rerrors.PolicySourceError{Message: WrapperPath + " exists and is not reconc-managed; pass --force to overwrite"}
+			return wrapperInstallOutcome{}, &rerrors.PolicySourceError{Message: WrapperPath + " exists and is not reconc-managed; pass --force to overwrite"}
 		}
 	}
 	action, err := writeGeneratedArtifact(target, artifact.Content, true, snapshot)
+	outcome := wrapperInstallOutcome{wrapperAction: action}
 	if err != nil {
-		return "", err
+		return outcome, err
 	}
-	if err := ensureWrapperTarget(root, force); err != nil {
-		return "", err
+	targetAction, err := ensureTarget(root, force)
+	outcome.targetAction = targetAction
+	if err != nil {
+		return outcome, err
 	}
-	return action, nil
+	return outcome, nil
 }
 
 // ScaffoldKinds returns every generated hook artifact that belongs in
@@ -460,7 +505,7 @@ func writeGeneratedArtifact(target, content string, executable bool, snapshot ma
 	perm := managedArtifactPublicationMode(currentMode, snapshot.exists, executable)
 	action, err := publishManagedArtifact(target, []byte(content), perm, snapshot)
 	if err != nil {
-		return "", &rerrors.PolicySourceError{Message: "write " + target, Cause: err}
+		return action, &rerrors.PolicySourceError{Message: "write " + target, Cause: err}
 	}
 	return action, nil
 }

@@ -3763,6 +3763,12 @@ only `0100`. Windows retains the equivalent writable/read-only proxy because
 host dispatch, not POSIX execute bits, defines executable intent there.
 Hook-install JSON always exposes an explicit `success` boolean; partial failure
 also retains the partial report and emits its error without claiming success.
+If the shared wrapper was created or updated before direct-target setup failed,
+the report preserves that exact wrapper action, the failed platform artifact as
+`not-installed`, and an idempotent rerun instruction. A direct-target receipt
+that reached publication before a later verification error is reported
+separately by `wrapper_target_path` and `wrapper_target_action`; no failure path
+claims rollback.
 
 The registry assigns 5-second observation/session budgets, 10-second pre-tool
 and permission budgets, and platform-specific Stop budgets instead of one

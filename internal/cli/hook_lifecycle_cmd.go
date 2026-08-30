@@ -144,6 +144,9 @@ func runHookInstall(args []string, stdout, stderr io.Writer) (resultErr error) {
 		if report.WrapperPath != "" {
 			fmt.Fprintf(out, "Wrapper: %s (%s)\n", report.WrapperPath, report.WrapperAction)
 		}
+		if report.WrapperTargetPath != "" {
+			fmt.Fprintf(out, "Direct:  %s (%s)\n", report.WrapperTargetPath, report.WrapperTargetAction)
+		}
 		if report.ActivationPath != "" {
 			fmt.Fprintf(out, "Activate: %s (%s)\n", report.ActivationPath, report.ActivationAction)
 		}

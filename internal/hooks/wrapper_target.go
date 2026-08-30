@@ -35,39 +35,52 @@ func stableWrapperTargetName(targetOS, targetArch string) (string, bool) {
 	}
 }
 
-func ensureWrapperTarget(root string, force bool) error {
+type wrapperTargetOperations struct {
+	lstat         func(string) (os.FileInfo, error)
+	readSnapshot  func(string) (managedArtifactSnapshot, error)
+	writeArtifact func(string, string, bool, managedArtifactSnapshot) (string, error)
+}
+
+func ensureWrapperTarget(root string, force bool) (string, error) {
+	return ensureWrapperTargetWithOperations(root, force, wrapperTargetOperations{
+		lstat:         os.Lstat,
+		readSnapshot:  readManagedArtifactSnapshot,
+		writeArtifact: writeGeneratedArtifact,
+	})
+}
+
+func ensureWrapperTargetWithOperations(root string, force bool, operations wrapperTargetOperations) (string, error) {
 	artifact, err := GenerateWrapperTarget(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
-		return nil
+		return "", nil
 	}
 	binaryRelative := strings.TrimSuffix(artifact.Content, "\n")
 	binaryPath := filepath.Join(root, filepath.FromSlash(binaryRelative))
-	info, err := os.Lstat(binaryPath)
+	info, err := operations.lstat(binaryPath)
 	if os.IsNotExist(err) {
-		return nil
+		return "", nil
 	}
 	if err != nil {
-		return &rerrors.PolicySourceError{Message: "inspect wrapper direct target", Cause: err}
+		return "", &rerrors.PolicySourceError{Message: "inspect wrapper direct target", Cause: err}
 	}
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || !executableFile(binaryPath) {
-		return nil
+		return "", nil
 	}
 
 	target := filepath.Join(root, filepath.FromSlash(artifact.TargetPath))
 	if err := requireManagedTargetWithin(root, target); err != nil {
-		return err
+		return "", err
 	}
-	snapshot, err := readManagedArtifactSnapshot(target)
+	snapshot, err := operations.readSnapshot(target)
 	if err != nil {
-		return &rerrors.PolicySourceError{Message: "read " + WrapperTargetPath, Cause: err}
+		return "", &rerrors.PolicySourceError{Message: "read " + WrapperTargetPath, Cause: err}
 	}
 	if snapshot.exists {
 		if string(snapshot.body) != artifact.Content && !validWrapperTargetContent(snapshot.body) && !force {
-			return &rerrors.PolicySourceError{Message: WrapperTargetPath + " exists and is not a valid reconc-managed direct target; pass --force to overwrite"}
+			return "", &rerrors.PolicySourceError{Message: WrapperTargetPath + " exists and is not a valid reconc-managed direct target; pass --force to overwrite"}
 		}
 	}
-	_, err = writeGeneratedArtifact(target, artifact.Content, false, snapshot)
-	return err
+	return operations.writeArtifact(target, artifact.Content, false, snapshot)
 }
 
 func validWrapperTargetContent(content []byte) bool {

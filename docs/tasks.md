@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 432 Report partial wrapper installation -> tasks/432-report-partial-wrapper-installation.md
 - [ ] 433 Preserve mixed hook configuration ownership -> tasks/433-preserve-mixed-hook-configuration-ownership.md
 - [ ] 434 Bind runtime executables to install trust -> tasks/434-bind-runtime-executables-to-install-trust.md
 - [ ] 435 Harden bootstrap stage recovery -> tasks/435-harden-bootstrap-stage-recovery.md
@@ -38,6 +37,7 @@
 
 ## Done
 
+- [x] 432 Report partial wrapper installation -> tasks/done/432-report-partial-wrapper-installation.md
 - [x] 431 Fail closed on truncated adapter output -> tasks/done/431-fail-closed-on-truncated-adapter-output.md
 - [x] 430 Share builtin secret-detector programs -> tasks/done/430-share-builtin-secret-detector-programs.md
 - [x] 429 Parse Kimi managed blocks structurally -> tasks/done/429-parse-kimi-managed-blocks-structurally.md
