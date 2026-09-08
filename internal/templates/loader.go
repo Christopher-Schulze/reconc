@@ -19,6 +19,7 @@
 package templates
 
 import (
+	"crypto/sha256"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -56,10 +57,12 @@ const (
 // parsed body as a generic map so merging into the rule item is a
 // simple field-level merge -- no special cases per rule kind.
 type Template struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Source      Source `json:"source"`
-	Path        string `json:"path"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	Source        Source `json:"source"`
+	Path          string `json:"path"`
+	contentDigest [sha256.Size]byte
+	contentBytes  int
 	// Body is the raw YAML body as a map. Fields that aren't recognised
 	// by the rule parser will be rejected at parse time, which is the
 	// correct behaviour -- templates can't invent new rule kinds.
@@ -90,7 +93,7 @@ func Resolve(name string) (*Template, error) {
 		}
 		return &Template{
 			Name: cleaned, Description: description, Source: SourceUser,
-			Path: path, Body: body,
+			Path: path, Body: body, contentDigest: sha256.Sum256(data), contentBytes: len(data),
 		}, nil
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("read user template %s: %w", cleaned, err)
@@ -108,7 +111,7 @@ func Resolve(name string) (*Template, error) {
 	}
 	return &Template{
 		Name: cleaned, Description: description, Source: SourceBuiltin,
-		Path: path, Body: body,
+		Path: path, Body: body, contentDigest: sha256.Sum256(data), contentBytes: len(data),
 	}, nil
 }
 
@@ -141,7 +144,7 @@ func List() ([]Template, error) {
 		}
 		out[name] = Template{
 			Name: name, Description: description, Source: SourceBuiltin,
-			Path: path, Body: body,
+			Path: path, Body: body, contentDigest: sha256.Sum256(data), contentBytes: len(data),
 		}
 	}
 
@@ -173,7 +176,7 @@ func List() ([]Template, error) {
 		}
 		out[name] = Template{
 			Name: name, Description: description, Source: SourceUser,
-			Path: path, Body: body,
+			Path: path, Body: body, contentDigest: sha256.Sum256(data), contentBytes: len(data),
 		}
 	}
 

@@ -189,7 +189,7 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 	}
 
 	root := bundle.RepoRoot
-	provenance, err := compileSourceProvenance(bundle)
+	provenance, err := compileSourceProvenanceWithTemplates(bundle, parsed.TemplateDependencies)
 	if err != nil {
 		return nil, nil, &rerrors.LockfileError{Message: "compute source digest", Cause: err}
 	}
@@ -240,6 +240,9 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := templates.ValidateCurrentDependencies(parsed.TemplateDependencies); err != nil {
+		return nil, nil, fmt.Errorf("template inputs changed while rendering policy: %w", err)
+	}
 
 	return &CompiledPolicy{
 		RepoRoot:        root,
@@ -289,15 +292,43 @@ type sourceProvenance struct {
 }
 
 func compileSourceProvenance(bundle *ingest.SourceBundle) (sourceProvenance, error) {
+	dependencies, err := parser.ResolveTemplateDependencies(bundle)
+	if err != nil {
+		return sourceProvenance{}, err
+	}
+	return compileSourceProvenanceWithTemplates(bundle, dependencies)
+}
+
+func compileSourceProvenanceWithTemplates(bundle *ingest.SourceBundle, dependencies []templates.Dependency) (sourceProvenance, error) {
 	sources := make([]interface{}, 0, len(bundle.Sources))
 	for _, source := range bundle.Sources {
 		sources = append(sources, sourceToMap(source))
 	}
-	digest, err := computeSerializedSourceDigest(sources)
+	digest, err := computeSourceDigestWithTemplates(sources, dependencies)
 	if err != nil {
 		return sourceProvenance{}, err
 	}
 	return sourceProvenance{records: sources, digest: digest}, nil
+}
+
+func computeSourceDigestWithTemplates(sources []interface{}, dependencies []templates.Dependency) (string, error) {
+	digest, err := computeSerializedSourceDigest(sources)
+	if err != nil {
+		return "", err
+	}
+	if len(dependencies) > 0 {
+		if err := templates.ValidateDependencies(dependencies); err != nil {
+			return "", err
+		}
+		body, err := encodeCanonicalJSON(map[string]interface{}{
+			"source_digest": digest, "template_dependencies": dependencies,
+		})
+		if err != nil {
+			return "", err
+		}
+		digest = digestCanonicalJSON(body)
+	}
+	return digest, nil
 }
 
 func computeSerializedSourceDigest(sources []interface{}) (string, error) {
@@ -607,6 +638,9 @@ func buildLockPayload(
 		"sources":           provenance.records,
 		"rules":             rulesOut,
 		"actions":           actions,
+	}
+	if len(parsed.TemplateDependencies) > 0 {
+		payload["template_dependencies"] = parsed.TemplateDependencies
 	}
 	if len(customRuntimes) > 0 {
 		out := make([]interface{}, 0, len(customRuntimes))
@@ -962,7 +996,7 @@ func ValidateLockfileEnvelope(payload map[string]interface{}) error {
 		return &rerrors.LockfileError{Message: "compiled lockfile format_version does not match this checker; re-run `reconc refresh`"}
 	}
 	schemaURL, _ := payload["$schema"].(string)
-	if schemaURL != DefaultLockfileSchema && schemaURL != LockfileSchema() {
+	if !schema.AcceptsVersion(schema.PolicyLock, LockfileFormatVersion, schemaURL) {
 		return &rerrors.LockfileError{Message: "compiled lockfile schema does not match this checker; re-run `reconc refresh`"}
 	}
 	if root, _ := payload["repo_root"].(string); root != PortableRepoRoot {

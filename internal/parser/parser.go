@@ -47,10 +47,11 @@ const DefaultMode = policy.ModeWarn
 // SourceBundle. Order of rules matches their order in the source
 // precedence chain so the compiler digest is stable.
 type ParsedPolicy struct {
-	DefaultMode policy.Mode       `json:"default_mode"`
-	Rules       []policy.Rule     `json:"rules"`
-	Actions     *action.Plan      `json:"actions,omitempty"`
-	MCP         *policy.MCPPolicy `json:"mcp,omitempty"`
+	DefaultMode          policy.Mode            `json:"default_mode"`
+	Rules                []policy.Rule          `json:"rules"`
+	Actions              *action.Plan           `json:"actions,omitempty"`
+	MCP                  *policy.MCPPolicy      `json:"mcp,omitempty"`
+	TemplateDependencies []templates.Dependency `json:"template_dependencies,omitempty"`
 }
 
 // ParseRuleDocuments walks the source bundle, validates every rule
@@ -80,7 +81,7 @@ func parseRuleDocumentsWithDecoder(bundle *ingest.SourceBundle, decode sourceDoc
 	seen := map[string]string{} // rule id -> source path of first sighting
 	var mcpPolicy *policy.MCPPolicy
 	var actionPolicy *action.Plan
-	templateCache := make(map[string]*templates.Template)
+	templateCache := &templateSnapshot{}
 
 	for _, src := range bundle.Sources {
 		// Skip context-only sources; their fenced blocks land as
@@ -177,10 +178,11 @@ func parseRuleDocumentsWithDecoder(bundle *ingest.SourceBundle, decode sourceDoc
 	}
 
 	return &ParsedPolicy{
-		DefaultMode: defaultMode,
-		Rules:       rules,
-		Actions:     actionPolicy,
-		MCP:         mcpPolicy,
+		DefaultMode:          defaultMode,
+		Rules:                rules,
+		Actions:              actionPolicy,
+		MCP:                  mcpPolicy,
+		TemplateDependencies: templateDependencies(templateCache),
 	}, nil
 }
 
@@ -313,7 +315,7 @@ func mcpStringList(mapping map[string]interface{}, field, context, sourcePath st
 func coerceScopes(
 	src policy.PolicySource,
 	doc map[string]interface{},
-	templateCache map[string]*templates.Template,
+	templateCache *templateSnapshot,
 ) ([]policy.Rule, error) {
 	rawScopes, ok := doc["scopes"]
 	if !ok || rawScopes == nil {
@@ -386,7 +388,7 @@ func coerceScopes(
 func coerceRules(
 	src policy.PolicySource,
 	doc map[string]interface{},
-	templateCache map[string]*templates.Template,
+	templateCache *templateSnapshot,
 ) ([]policy.Rule, error) {
 	rawRules, ok := doc["rules"]
 	if !ok || rawRules == nil {
@@ -421,7 +423,7 @@ func validateRuleItem(
 	item map[string]interface{},
 	src policy.PolicySource,
 	index int,
-	templateCache map[string]*templates.Template,
+	templateCache *templateSnapshot,
 ) (policy.Rule, error) {
 	// Template expansion (W18): if the rule references a template, merge
 	// the template's fields as defaults before schema validation. User
@@ -1350,17 +1352,9 @@ func expandTemplate(
 	name string,
 	src policy.PolicySource,
 	index int,
-	cache map[string]*templates.Template,
+	cache *templateSnapshot,
 ) (map[string]interface{}, error) {
-	cacheKey := strings.TrimSpace(name)
-	tmpl := cache[cacheKey]
-	var err error
-	if tmpl == nil {
-		tmpl, err = templates.Resolve(name)
-		if err == nil {
-			cache[cacheKey] = tmpl
-		}
-	}
+	tmpl, err := cache.resolve(name)
 	if err != nil {
 		return nil, &rerrors.RuleValidationError{
 			Message: "rule #" + strconv.Itoa(index) + " in " + src.Path + ": " + err.Error(),
@@ -1370,15 +1364,15 @@ func expandTemplate(
 	return templates.Apply(tmpl, userItem), nil
 }
 
-func validateTemplateCache(cache map[string]*templates.Template) error {
-	names := make([]string, 0, len(cache))
-	for name := range cache {
+func validateTemplateCache(cache *templateSnapshot) error {
+	names := make([]string, 0, len(cache.entries))
+	for name := range cache.entries {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
 		current, err := templates.Resolve(name)
-		if err != nil || !reflect.DeepEqual(current, cache[name]) {
+		if err != nil || !reflect.DeepEqual(current, cache.entries[name]) {
 			return &rerrors.RuleValidationError{
 				Message: "template '" + name + "' changed during policy compilation",
 				Cause:   err,

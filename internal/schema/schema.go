@@ -2,10 +2,10 @@
 // contracts and the enterprise base-URL override.
 package schema
 
-// CurrentSchemaTag identifies the latest immutable release tag that introduced
-// a current schema contract. Product-only releases do not rewrite unchanged
-// schema bytes or identities.
-const CurrentSchemaTag = "reconc-v0.9.7"
+// CurrentSchemaTag identifies the approved publication target for changed
+// current contracts. It may remain untagged during development; publication
+// must bind the final schema bytes to this exact tag.
+const CurrentSchemaTag = "reconc-v0.9.9"
 
 // PreviousSchemaTag identifies the last published source release whose
 // unchanged schema contracts remain canonical compatibility inputs and
@@ -63,6 +63,7 @@ const (
 	LegacyPolicyLockURL            = DefaultBaseURL + "/policy-lock.schema.json"
 	PolicyLockURL                  = PolicyLockBaseURL + "/policy-lock.schema.json"
 	PreviousPolicyLockV6URL        = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + PreviousSchemaTag + "/schemas/v6/policy-lock.schema.json"
+	PolicyLockV6URLV097            = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.7/schemas/v6/policy-lock.schema.json"
 	PolicyConfigURL                = Version4BaseURL + "/policy-config.schema.json"
 	PolicyReportURL                = DefaultBaseURL + "/policy-report.schema.json"
 	PolicyFixPlanURL               = DefaultBaseURL + "/policy-fix-plan.schema.json"

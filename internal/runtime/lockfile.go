@@ -379,6 +379,9 @@ func validateLockfileFreshnessSnapshot(payload map[string]interface{}, migrated 
 	if stored != currentDigest {
 		return &rerrors.LockfileError{Message: "compiled lockfile source_digest does not match the current policy sources"}
 	}
+	if err := compiler.ValidateTemplateProvenance(payload); err != nil {
+		return &rerrors.LockfileError{Message: "compiled template provenance is invalid", Cause: err}
+	}
 	if !migrated {
 		return nil
 	}

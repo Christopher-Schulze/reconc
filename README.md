@@ -275,15 +275,15 @@ state exactly what remains outside the boundary.
 
 ## Install and Bootstrap
 
-Install the checksummed, provenance-attested v0.9.7 release once.
+Install the checksummed, provenance-attested v0.9.8 release once.
 
 ### Native release installation
 
 macOS or Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.7/install.sh \
-  | sh -s -- --version 0.9.7
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.8/install.sh \
+  | sh -s -- --version 0.9.8
 export PATH="$HOME/.local/bin:$PATH"
 reconc --version
 ```
@@ -292,14 +292,14 @@ Windows x64:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.7/install.ps1 -OutFile $installer
-& $installer -Version 0.9.7
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.8/install.ps1 -OutFile $installer
+& $installer -Version 0.9.8
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
 reconc --version
 ```
 
-The protected `reconc-v0.9.7` tag contains both installer scripts, so these
+The protected `reconc-v0.9.8` tag contains both installer scripts, so these
 commands do not fetch executable installation logic from mutable `main`. The
 installers:
 
@@ -1212,10 +1212,11 @@ through the private route in
 
 ## Status
 
-The source line is `v0.9.x`, and the current source version is `v0.9.8`.
-The latest published release is `reconc-v0.9.7`. The `reconc-v0.9.8` source
-remains a candidate until the protected tag and matching release workflow
-publish it. Version text alone is not release identity; use the exact tag
+The source line is `v0.9.x`, and the current source version is `v0.9.9`.
+The latest published release is `reconc-v0.9.8`.
+Development does not create a tag or publish a release. The changed policy-lock
+schema targets `reconc-v0.9.9`; unchanged contracts retain their published
+identities. Version text alone is not release identity; use the exact tag
 commit, artifact checksum, and build provenance. An explicitly authorized
 same-version replacement remains an update when its verified artifact digest
 changes. Any later source commit remains unreleased until the protected tag and

@@ -462,9 +462,9 @@ The v0.9 platform contract is one matrix:
 Direct installers own only the verified binary and receipt. No path silently
 edits a shell profile or global environment.
 
-The protected v0.9.7 tag contains both `install.sh` and `install.ps1`. Public
+The protected v0.9.8 tag contains both `install.sh` and `install.ps1`. Public
 bootstrap commands fetch the appropriate script from that tag, never from
-mutable `main`, and install the matching checksummed v0.9.7 binary.
+mutable `main`, and install the matching checksummed v0.9.8 binary.
 
 Both native installers require GitHub CLI (`gh`) and verify the downloaded
 binary against its GitHub build-provenance attestation before execution or
@@ -2224,6 +2224,21 @@ User preset manifests and templates enter this same bounded YAML admission
 path. Template resolution is cached once per compile by normalized name and
 exact resolved source content, then re-resolved before publication so
 replacement during the compile fails closed.
+Named rule templates use `template: name`; `$RECONC_HOME/templates/name.yml`
+overrides the embedded definition with that name. Each referenced template
+contributes its normalized name, selected `builtin` or `user` origin, and
+SHA-256 of the exact input bytes to the lock's sorted `template_dependencies`
+and `source_digest`. Private installation paths and template bodies are not
+published. Compilation admits at most 4,096 distinct dependencies and 64 MiB
+of aggregate template input, with the existing 8 MiB per-template limit.
+Repeated references share one admitted definition. Runtime checks the current
+selection and content before reusing a loaded policy. Editing even a comment,
+removing an override, or adding an override for a referenced built-in requires
+`reconc refresh .`; changing an unused template does not. A template-bearing
+lock produced without this provenance also requires refresh. Locks without
+named template references retain their previous source-digest representation.
+Equivalent checkouts with identical selected template origins and bytes produce
+identical locks, regardless of the physical user-template directory.
 Runtime resolves every such path against the filesystem identity of the
 repository root and rejects symlink, reparse-point, or missing-tail resolution
 that escapes it. One evaluation owns one resolved root identity and one bounded
@@ -4996,11 +5011,15 @@ current-state documentation.
 
 ## Release State
 
-The current source line is `v0.9.x`; the source version is `v0.9.8`. The latest
-published release is `reconc-v0.9.7`; the protected `reconc-v0.9.8` tag and
-matching release workflow have not published the candidate yet. Its schema
-identities, tag commit, artifact checksums, and build provenance jointly define
-the release identity; version text alone does not.
+The current source line is `v0.9.x`; the source version is `v0.9.9`.
+This approved development cycle may span multiple sessions. Creating a tag
+and publishing a release require separate explicit authorization.
+The latest published release is `reconc-v0.9.8`.
+The changed format-6 policy-lock schema targets `reconc-v0.9.9`; its previously
+published identities remain accepted inputs, and unchanged schema contracts
+retain their existing publication identities. Schema identities, tag commit,
+artifact checksums, and build provenance jointly define release identity;
+development version text alone does not establish publication.
 Release artifacts are produced only through an explicit manual Release
 workflow dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never
 publish a release.

@@ -70,6 +70,7 @@ type runtimePlan struct {
 	actions                *action.CompiledPlan
 	customRuntimeDigests   map[string]string
 	sources                []runtimeSource
+	templateDependencies   []templates.Dependency
 	sourceFreshness        sourceFreshnessRecipe
 	pathMatchers           *runtimePathMatchers
 	templateMatchers       *runtimeTemplateMatchers
@@ -78,21 +79,22 @@ type runtimePlan struct {
 }
 
 type runtimeEnvelope struct {
-	Schema           string                  `json:"$schema"`
-	CompilerVersion  string                  `json:"compiler_version"`
-	FormatVersion    string                  `json:"format_version"`
-	RepoRoot         string                  `json:"repo_root"`
-	DefaultMode      policy.Mode             `json:"default_mode"`
-	RuleCount        int                     `json:"rule_count"`
-	SourceCount      int                     `json:"source_count"`
-	SourceDigest     string                  `json:"source_digest"`
-	LockDigest       string                  `json:"lock_digest"`
-	SourcePrecedence []policy.SourceKind     `json:"source_precedence"`
-	Discovery        ingest.DiscoveryResult  `json:"discovery"`
-	Sources          []runtimeSource         `json:"sources"`
-	Rules            json.RawMessage         `json:"rules"`
-	Actions          json.RawMessage         `json:"actions"`
-	CustomRuntimes   []customruntime.Summary `json:"custom_runtimes,omitempty"`
+	Schema               string                  `json:"$schema"`
+	CompilerVersion      string                  `json:"compiler_version"`
+	FormatVersion        string                  `json:"format_version"`
+	RepoRoot             string                  `json:"repo_root"`
+	DefaultMode          policy.Mode             `json:"default_mode"`
+	RuleCount            int                     `json:"rule_count"`
+	SourceCount          int                     `json:"source_count"`
+	SourceDigest         string                  `json:"source_digest"`
+	LockDigest           string                  `json:"lock_digest"`
+	SourcePrecedence     []policy.SourceKind     `json:"source_precedence"`
+	Discovery            ingest.DiscoveryResult  `json:"discovery"`
+	Sources              []runtimeSource         `json:"sources"`
+	TemplateDependencies []templates.Dependency  `json:"template_dependencies,omitempty"`
+	Rules                json.RawMessage         `json:"rules"`
+	Actions              json.RawMessage         `json:"actions"`
+	CustomRuntimes       []customruntime.Summary `json:"custom_runtimes,omitempty"`
 }
 
 type runtimeSource struct {
@@ -335,6 +337,7 @@ func compileRuntimePlanPrepared(
 		actions:              actions,
 		customRuntimeDigests: customRuntimeDigests,
 		sources:              append([]runtimeSource(nil), envelope.Sources...),
+		templateDependencies: append([]templates.Dependency(nil), envelope.TemplateDependencies...),
 	}
 	for index := range plan.rules {
 		rule := &plan.rules[index]
@@ -527,6 +530,9 @@ func decodeRuntimeEnvelopeJSON(data []byte) (*runtimeEnvelope, error) {
 	}
 	if envelope.CompilerVersion == "" || !envelope.DefaultMode.Valid() || envelope.Rules == nil || envelope.Actions == nil {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile typed envelope is incomplete"}
+	}
+	if err := templates.ValidateDependencies(envelope.TemplateDependencies); err != nil {
+		return nil, &rerrors.LockfileError{Message: "compiled template dependencies are invalid", Cause: err}
 	}
 	precedence := policy.SourcePrecedence()
 	if len(envelope.SourcePrecedence) != len(precedence) {

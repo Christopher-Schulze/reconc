@@ -154,7 +154,7 @@ func TestLangChainProofPinsVersionsAndUnenforcedBoundary(t *testing.T) {
 	doctor := readPublicSurfaceFile(t, root, "internal/cli/doctor_deep.go")
 	status := readPublicSurfaceFile(t, root, "internal/cli/inspect_cmd.go")
 
-	assertContainsAll(t, "source version", mainSource, `var Version = "0.9.8"`)
+	assertContainsAll(t, "source version", mainSource, `var Version = "0.9.9"`)
 	assertContainsAll(t, "Go SDK pin", goModule, "github.com/modelcontextprotocol/go-sdk v1.7.0")
 	assertContainsAll(t, "external direct pins", requirements,
 		"langchain-core==1.5.4",

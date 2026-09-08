@@ -18,6 +18,7 @@ import (
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/presets"
+	"reconc.dev/reconc/internal/templates"
 )
 
 const (
@@ -99,6 +100,9 @@ func observeRuntimeSourceFreshnessWithStats(root string, plan *runtimePlan, stat
 	if plan == nil {
 		return [sha256.Size]byte{}, errors.New("runtime source freshness requires a plan")
 	}
+	if err := templates.ValidateCurrentDependencies(plan.templateDependencies); err != nil {
+		return [sha256.Size]byte{}, err
+	}
 	discovery, err := ingest.DiscoverPolicyRepo(root)
 	if err != nil {
 		return [sha256.Size]byte{}, err
@@ -114,6 +118,9 @@ func observeRuntimeSourceFreshnessFromBundleWithStats(
 ) ([sha256.Size]byte, error) {
 	if plan == nil || bundle == nil {
 		return [sha256.Size]byte{}, errors.New("runtime source freshness requires a plan and bundle")
+	}
+	if err := templates.ValidateCurrentDependencies(plan.templateDependencies); err != nil {
+		return [sha256.Size]byte{}, err
 	}
 	seed, err := newSourceFreshnessSeed(root, bundle)
 	if err != nil {
