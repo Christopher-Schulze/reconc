@@ -914,6 +914,11 @@ candidate can populate `policy_blockers` or replace the executable remediation.
 Older or unbound reports remain under `historical_policy_blockers` with their
 exact report path and binding identities; malformed, missing, inaccessible, or
 wrong-root reports stay structured diagnostics and never become current gates.
+TASK remediation is derived from the same pure board decision as repository-run
+state. Active, claimable, dependency-waiting, resumable-blocked, and completed
+dispositions therefore agree; a ready queue entry remains selectable beside an
+unrelated blocker, and claim or resume actions include the selected TASK ID and
+detail path rather than a placeholder.
 
 Review candidate policy before changing the live contract:
 

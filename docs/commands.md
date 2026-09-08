@@ -1639,7 +1639,11 @@ require `reconc refresh .`. Saved reports also expose
 evidence, and candidate identities. Only `current` reports populate
 `policy_blockers`; older or unbound reports remain in
 `historical_policy_blockers`, while malformed, missing, inaccessible, or
-wrong-root reports stay bounded diagnostics.
+wrong-root reports stay bounded diagnostics. TASK remediation and durable
+repository-run state use the same read-only board decision: an executable
+queued TASK remains claimable even when an unrelated TASK is blocked, while
+dependency-waiting and resumable blocked states carry the exact selected TASK
+ID and detail path in their claim or resume action.
 
 ### `reconc context size [repo] [--limit N] [--files PATH,PATH,...] [--json]`
 Guards the auto-loaded session-file token budget (default 20000 tokens).

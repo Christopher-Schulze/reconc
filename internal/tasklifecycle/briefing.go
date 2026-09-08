@@ -1,6 +1,9 @@
 package tasklifecycle
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 const (
 	maxBriefingBlockers  = 5
@@ -62,17 +65,28 @@ func BuildBriefing(board *Board) Briefing {
 		}
 		briefing.Blockers = append(briefing.Blockers, BriefingBlocker{ID: task.ID, Reason: truncateBriefing(reason)})
 	}
-	switch {
-	case board.Active != nil:
-		briefing.Remediation = "continue the current Sub-Task; run `reconc task check-done` before promotion"
-	case len(board.Blocked) > 0:
-		briefing.Remediation = "resolve a blocker, then run `reconc task resume <id>`"
-	case len(board.Queue) > 0:
-		briefing.Remediation = "run `reconc task claim <id>`"
-	default:
-		briefing.Remediation = "no open TASK remains"
-	}
+	briefing.Remediation = remediationForRunState(RunStateFromBoard(board))
 	return briefing
+}
+
+func remediationForRunState(state RunState) string {
+	switch state.Disposition {
+	case RunContinue:
+		return "continue the current Sub-Task; run `reconc task check-done` before promotion"
+	case RunClaim:
+		return fmt.Sprintf("run `reconc task claim %s` for %s", state.TaskID, state.TaskPath)
+	case RunBlocked:
+		if state.Blocker == runDependencyBlocker {
+			return fmt.Sprintf("resolve dependencies for TASK %s at %s, then run `reconc task claim %s`", state.TaskID, state.TaskPath, state.TaskID)
+		}
+		return fmt.Sprintf("resolve the blocker for TASK %s at %s, then run `reconc task resume %s`", state.TaskID, state.TaskPath, state.TaskID)
+	case RunComplete:
+		return "no open TASK remains"
+	case RunInvalid:
+		return "repair TASK state: " + truncateBriefing(state.Blocker)
+	default:
+		return "no TASK run state is available"
+	}
 }
 
 func currentSubTask(task *Task) string {

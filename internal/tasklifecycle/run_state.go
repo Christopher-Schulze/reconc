@@ -21,6 +21,8 @@ const (
 	RunInvalid  RunDisposition = "invalid"
 )
 
+const runDependencyBlocker = "queued TASKs have unfinished dependencies"
+
 // RunState is a compact, typed continuation snapshot. It intentionally omits
 // completed history, acceptance prose, notes, and other token-heavy fields.
 type RunState struct {
@@ -57,6 +59,16 @@ func InspectRunStateResolved(root string) (RunState, error) {
 	if board == nil {
 		return RunState{Disposition: RunAbsent}, nil
 	}
+	return RunStateFromBoard(board), nil
+}
+
+// RunStateFromBoard reduces one validated board to the same pure continuation
+// decision used by briefing and run control. It never mutates the board or
+// promotes a task.
+func RunStateFromBoard(board *Board) RunState {
+	if board == nil {
+		return RunState{Disposition: RunAbsent}
+	}
 	openTasks := len(board.Queue) + len(board.Blocked)
 	if board.Active != nil {
 		openTasks++
@@ -65,26 +77,29 @@ func InspectRunStateResolved(root string) (RunState, error) {
 			TaskID: board.Active.ID, TaskTitle: board.Active.Title,
 			TaskPath: board.Active.Path, SubTask: currentSubTask(board.Active),
 			OpenTasks: openTasks,
-		}, nil
+		}
 	}
 	if len(board.Queue) > 0 {
 		next, err := selectNext(board, "", false)
 		if err != nil {
-			return RunState{}, err
+			return RunState{
+				Profile: board.Profile, Disposition: RunInvalid,
+				Blocker: err.Error(), OpenTasks: openTasks,
+			}
 		}
 		if next != nil {
 			return RunState{
 				Profile: board.Profile, Disposition: RunClaim,
 				TaskID: next.ID, TaskTitle: next.Title, TaskPath: next.Path,
 				OpenTasks: openTasks,
-			}, nil
+			}
 		}
 		waiting := board.Queue[0]
 		return RunState{
 			Profile: board.Profile, Disposition: RunBlocked,
 			TaskID: waiting.ID, TaskTitle: waiting.Title, TaskPath: waiting.Path,
-			Blocker: "queued TASKs have unfinished dependencies", OpenTasks: openTasks,
-		}, nil
+			Blocker: runDependencyBlocker, OpenTasks: openTasks,
+		}
 	}
 	if len(board.Blocked) > 0 {
 		blocked := board.Blocked[0]
@@ -93,9 +108,9 @@ func InspectRunStateResolved(root string) (RunState, error) {
 			TaskID: blocked.ID, TaskTitle: blocked.Title, TaskPath: blocked.Path,
 			Blocker:   truncateBriefing(strings.TrimSpace(blocked.Blocker)),
 			OpenTasks: openTasks,
-		}, nil
+		}
 	}
-	return RunState{Profile: board.Profile, Disposition: RunComplete}, nil
+	return RunState{Profile: board.Profile, Disposition: RunComplete}
 }
 
 // inspectActiveSectionsRunState validates only the live sections-v1 row and

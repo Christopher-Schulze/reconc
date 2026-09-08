@@ -5,7 +5,6 @@
 ## Queue
 
 - [ ] 472 Require bound approval before authority file changes -> tasks/472-require-bound-approval-before-authority-file-changes.md
-- [ ] 478 Unify task briefing and run next action -> tasks/478-unify-task-briefing-and-run-next-action.md
 - [ ] 479 Preserve machine identifiers and structure agent actions -> tasks/479-preserve-machine-identifiers-and-structure-agent-actions.md
 - [ ] 480 Expire abandoned MCP approval state -> tasks/480-expire-abandoned-mcp-approval-state.md
 - [ ] 481 Bound Antigravity replay state without wedging long invocations -> tasks/481-bound-antigravity-replay-state-without-wedging-long-invocations.md
@@ -32,6 +31,7 @@
 
 ## Done
 
+- [x] 478 Unify task briefing and run next action -> tasks/done/478-unify-task-briefing-and-run-next-action.md
 - [x] 477 Bind briefing reports to current policy and evidence -> tasks/done/477-bind-briefing-reports-to-current-policy-and-evidence.md
 - [x] 476 Make session briefing inspection side-effect free -> tasks/done/476-make-session-briefing-inspection-side-effect-free.md
 - [x] 475 Preserve both paths of Git renames -> tasks/done/475-preserve-both-paths-of-git-renames.md
@@ -41,4 +41,3 @@
 - [x] 470 Bind template provenance to policy freshness -> tasks/done/470-bind-template-provenance-to-policy-freshness.md
 - [x] 469 Complete v0.9.8 Windows and release gate -> tasks/done/469-complete-v0-9-8-windows-and-release-gate.md
 - [x] 468 Complete OMP v18 integration -> tasks/done/468-complete-omp-v18-integration.md
-- [x] 467 Make Windows identity replacement tests deterministic -> tasks/done/467-make-windows-identity-replacement-tests-deterministic.md
