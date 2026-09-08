@@ -229,7 +229,7 @@ var commandCatalog = []Command{
 		sub("recover", "reconc task recover [repo] [--json]", "recover an interrupted TASK transaction", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON)),
 	command("prune", CategoryMaintenance, "reconc prune [repo] [--dry-run] [--json]", "bound runtime state and owned temporary residue", flags(f("--dry-run", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
-	command("session-briefing", CategoryMaintenance, "reconc session-briefing [repo] [--json]", "print the versioned session and reentry delta", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
+	command("session-briefing", CategoryMaintenance, "reconc session-briefing [repo] [--json]", "print the versioned session and reentry delta with bound report status", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("context", CategoryMaintenance, "reconc context size [repo] [flags]", "check canonical session files against a token budget", nil, []Subcommand{
 		sub("size", "reconc context size [repo] [--limit N] [--files PATH,...] [--json]", "measure canonical session context", flags(f("--limit", "N"), f("--files", "PATH,..."), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON)),

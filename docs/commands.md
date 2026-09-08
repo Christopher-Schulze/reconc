@@ -110,7 +110,7 @@ Generated from `internal/commandmeta`; run `make reference-docs` after changing 
 | `reconc task archive` | `reconc task archive [repo] [--json]` | archive the terminal current TASK | text, json |
 | `reconc task recover` | `reconc task recover [repo] [--json]` | recover an interrupted TASK transaction | text, json |
 | `reconc prune` | `reconc prune [repo] [--dry-run] [--json]` | bound runtime state and owned temporary residue | text, json |
-| `reconc session-briefing` | `reconc session-briefing [repo] [--json]` | print the versioned session and reentry delta | text, json |
+| `reconc session-briefing` | `reconc session-briefing [repo] [--json]` | print the versioned session and reentry delta with bound report status | text, json |
 | `reconc context` | `reconc context size [repo] [flags]` | check canonical session files against a token budget | text, json |
 | `reconc context size` | `reconc context size [repo] [--limit N] [--files PATH,...] [--json]` | measure canonical session context | text, json |
 | `reconc start` | `reconc start [repo] [--minimal \| --json]` | render canonical onboarding context without mutation | text, json |
@@ -1634,7 +1634,12 @@ machine consumers. Aggregate audit history and Git are intentionally excluded
 from this hot path. Active-session state is read through bounded, lock-free
 snapshots; malformed, oversized, replaced, or overflowed state is reported as
 uncertainty and never repaired. It is read-only; missing or stale lockfiles
-require `reconc refresh .`.
+require `reconc refresh .`. Saved reports also expose
+`policy_report_status=current|historical|unavailable` plus exact report,
+evidence, and candidate identities. Only `current` reports populate
+`policy_blockers`; older or unbound reports remain in
+`historical_policy_blockers`, while malformed, missing, inaccessible, or
+wrong-root reports stay bounded diagnostics.
 
 ### `reconc context size [repo] [--limit N] [--files PATH,PATH,...] [--json]`
 Guards the auto-loaded session-file token budget (default 20000 tokens).

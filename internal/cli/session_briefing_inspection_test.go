@@ -171,3 +171,27 @@ func TestSessionBriefingMalformedActiveStateReportsUncertaintyReadOnly(t *testin
 		t.Fatalf("malformed active state was not reported: %s", stdout.String())
 	}
 }
+
+func TestSessionBriefingMissingReportReportsUnavailableReadOnly(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo, state, projectRoot, _ := overflowBriefingFixture(t)
+	before := briefingFilesystemInventory(t, repo, projectRoot)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"session-briefing", repo, "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatalf("session-briefing: %v", err)
+	}
+	after := briefingFilesystemInventory(t, repo, projectRoot)
+	if len(before) != len(after) {
+		t.Fatalf("missing report briefing changed file membership")
+	}
+	for path, want := range before {
+		if got, ok := after[path]; !ok || got != want {
+			t.Fatalf("missing report briefing changed %s: before=%+v after=%+v", path, want, got)
+		}
+	}
+	for _, want := range []string{"policy_report_status", "unavailable", state.SessionID, "no such file"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("missing report diagnostic lacks %q: %s", want, stdout.String())
+		}
+	}
+}

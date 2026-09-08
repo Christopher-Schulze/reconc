@@ -107,6 +107,21 @@ func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 	if evidenceStatus, ok := briefing["session_evidence_status"].(string); ok && evidenceStatus != "" {
 		fmt.Fprintf(stdout, "  Evidence status: %s\n", evidenceStatus)
 	}
+	if reportStatus, ok := briefing["policy_report_status"].(string); ok && reportStatus != "" {
+		fmt.Fprintf(stdout, "  Policy report:  %s", reportStatus)
+		if reason, ok := briefing["policy_report_reason"].(string); ok && reason != "" {
+			fmt.Fprintf(stdout, " (%s)", boundedBriefingText(reason))
+		}
+		fmt.Fprintln(stdout)
+	}
+	if historical, ok := briefing["historical_policy_blockers"].([]policyBriefingBlocker); ok {
+		for _, blocker := range historical {
+			fmt.Fprintf(stdout, "  Historical gate: [%s] %s\n", blocker.ID, blocker.Action)
+		}
+	}
+	if omitted, ok := briefing["omitted_historical_policy_blockers"].(int); ok && omitted > 0 {
+		fmt.Fprintf(stdout, "  Historical gate: +%d more\n", omitted)
+	}
 	if task, ok := briefing["task"].(tasklifecycle.Briefing); ok && task.OmittedEvidence > 0 {
 		fmt.Fprintf(stdout, "  Evidence:      +%d more\n", task.OmittedEvidence)
 	}
@@ -133,7 +148,7 @@ func compactSessionBriefing(full map[string]interface{}) map[string]interface{} 
 	if nextAction, exists := full["next_action"]; exists && nextAction != nil {
 		out["remediation"] = nextAction
 	}
-	for _, key := range []string{"task", "task_error", "run", "run_error", "policy_report_error", "session_evidence_status", "policy_blockers", "omitted_policy_blockers", "required_evidence", "report_path"} {
+	for _, key := range []string{"task", "task_error", "run", "run_error", "policy_report_error", "policy_report_status", "policy_report_reason", "policy_report_hash", "policy_report_evidence_hash", "policy_report_candidate_fingerprint", "policy_report_session_id", "session_evidence_status", "policy_blockers", "omitted_policy_blockers", "historical_policy_blockers", "omitted_historical_policy_blockers", "required_evidence", "report_path"} {
 		if value, exists := full[key]; exists && value != nil {
 			out[key] = value
 		}
@@ -235,21 +250,24 @@ func addTaskBriefing(out map[string]interface{}, repoRoot string) {
 }
 
 func addActivePolicyBriefing(out map[string]interface{}, repoRoot string) {
-	if status, _ := out["lockfile_status"].(string); status != "fresh" {
-		return
-	}
+	lockfileStatus, _ := out["lockfile_status"].(string)
+	lockfileFresh := lockfileStatus == "fresh"
 	sessionID, state, err := agentsession.InspectActiveSessionState(repoRoot)
 	if err != nil {
+		out["policy_report_status"] = string(agentsession.SessionReportUnavailable)
 		out["policy_report_error"] = boundedBriefingText("active session state: " + err.Error())
 		return
 	}
 	if sessionID == "" {
 		return
 	}
+	out["policy_report_session_id"] = sessionID
 	if state.ReportPath == "" {
+		out["policy_report_status"] = string(agentsession.SessionReportUnavailable)
 		out["policy_report_error"] = "active session state has no report path"
 		return
 	}
+	out["report_path"] = state.ReportPath
 	if state.EvidenceOverflow {
 		detail := "active session evidence is overflowed"
 		if reason := strings.TrimSpace(state.EvidenceOverflowReason); reason != "" {
@@ -262,17 +280,41 @@ func addActivePolicyBriefing(out map[string]interface{}, repoRoot string) {
 	}
 	body, err := boundedio.ReadRegularFile(state.ReportPath, maxBriefingReportBytes)
 	if err != nil {
+		out["policy_report_status"] = string(agentsession.SessionReportUnavailable)
 		out["policy_report_error"] = boundedBriefingText(err.Error())
 		return
 	}
 	var report runtime.CheckReport
 	if err := json.Unmarshal(body, &report); err != nil {
+		out["policy_report_status"] = string(agentsession.SessionReportUnavailable)
 		out["policy_report_error"] = boundedBriefingText("saved report is malformed: " + err.Error())
 		return
 	}
-	if filepath.Clean(report.RepoRoot) != filepath.Clean(repoRoot) {
-		out["policy_report_error"] = "saved report belongs to a different repository"
+	binding, err := agentsession.InspectSessionReportBinding(repoRoot, state, &report)
+	if err != nil {
+		out["policy_report_status"] = string(agentsession.SessionReportUnavailable)
+		out["policy_report_error"] = boundedBriefingText("inspect saved report binding: " + err.Error())
 		return
+	}
+	if !lockfileFresh && binding.Status == agentsession.SessionReportCurrent {
+		binding.Status = agentsession.SessionReportHistorical
+		binding.Reason = "current policy lock is not fresh"
+	}
+	out["policy_report_status"] = string(binding.Status)
+	if binding.Reason != "" {
+		out["policy_report_reason"] = boundedBriefingText(binding.Reason)
+		if binding.Status == agentsession.SessionReportUnavailable {
+			out["policy_report_error"] = boundedBriefingText(binding.Reason)
+		}
+	}
+	if binding.ReportHash != "" {
+		out["policy_report_hash"] = binding.ReportHash
+	}
+	if binding.EvidenceHash != "" {
+		out["policy_report_evidence_hash"] = binding.EvidenceHash
+	}
+	if binding.CandidateFingerprint != "" {
+		out["policy_report_candidate_fingerprint"] = binding.CandidateFingerprint
 	}
 	blockers := make([]policyBriefingBlocker, 0, 3)
 	omittedBlockers := 0
@@ -298,13 +340,19 @@ func addActivePolicyBriefing(out map[string]interface{}, repoRoot string) {
 	if len(blockers) == 0 {
 		return
 	}
-	out["policy_blockers"] = blockers
-	if omittedBlockers > 0 {
-		out["omitted_policy_blockers"] = omittedBlockers
+	if binding.Status == agentsession.SessionReportCurrent {
+		out["policy_blockers"] = blockers
+		if omittedBlockers > 0 {
+			out["omitted_policy_blockers"] = omittedBlockers
+		}
+		out["required_evidence"] = cleanBriefingStrings(evidence)
+		out["next_action"] = "resolve the listed gate(s), then rerun their exact command; full details are in the saved report"
+		return
 	}
-	out["required_evidence"] = cleanBriefingStrings(evidence)
-	out["report_path"] = state.ReportPath
-	out["next_action"] = "resolve the listed gate(s), then rerun their exact command; full details are in the saved report"
+	out["historical_policy_blockers"] = blockers
+	if omittedBlockers > 0 {
+		out["omitted_historical_policy_blockers"] = omittedBlockers
+	}
 }
 
 func cleanBriefingStrings(values []string) []string {

@@ -2305,10 +2305,13 @@ func TestRunSessionBriefingBoundsCurrentPolicyFeedback(t *testing.T) {
 	if stdout.Len() > 1800 {
 		t.Fatalf("briefing exceeded bounded output: %d bytes\n%s", stdout.Len(), stdout.String())
 	}
-	for _, want := range []string{"very-long-gate", "report_path", "run exact evidence command"} {
+	for _, want := range []string{"very-long-gate", "report_path", "historical_policy_blockers", "policy_report_status", "run exact evidence command"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("briefing missing %q: %s", want, stdout.String())
 		}
+	}
+	if strings.Contains(stdout.String(), `"policy_blockers"`) {
+		t.Fatalf("unbound saved report must not override current remediation: %s", stdout.String())
 	}
 }
 
@@ -2338,6 +2341,79 @@ func TestRunSessionBriefingReportsOversizedSavedPolicyReport(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"policy_report_error"`) || !strings.Contains(stdout.String(), "exceeds 1048576 bytes") {
 		t.Fatalf("oversized report diagnostic = %s", stdout.String())
+	}
+}
+
+func TestRunSessionBriefingReportsWrongRootSavedPolicyReport(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := makeAssertRepo(t, "rules: []\n")
+	state, err := agentsession.InitializeSessionState(repo, "briefing-wrong-root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := t.TempDir()
+	report := runtime.NewEmptyReport(foreign, filepath.Join(foreign, ".reconc", "policy.lock.json"), policy.ModeBlock, runtime.Empty())
+	report.Violations = []runtime.Violation{{RuleID: "foreign-gate", Mode: policy.ModeBlock, Message: "foreign"}}
+	report.Finalize()
+	body, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(state.ReportPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"session-briefing", repo, "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatalf("session-briefing: %v", err)
+	}
+	if !strings.Contains(stdout.String(), `"policy_report_status": "unavailable"`) || !strings.Contains(stdout.String(), "different repository") {
+		t.Fatalf("wrong-root report diagnostic = %s", stdout.String())
+	}
+	if strings.Contains(stdout.String(), `"policy_blockers"`) {
+		t.Fatalf("wrong-root report must not become current blockers: %s", stdout.String())
+	}
+}
+
+func TestRunSessionBriefingKeepsReportHistoricalWhenLockfileIsStale(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := makeAssertRepo(t, "rules:\n  - id: current-rule\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: current\n")
+	state, err := agentsession.InitializeSessionState(repo, "briefing-stale-lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := runtime.NewEmptyReport(repo, filepath.Join(repo, ".reconc", "policy.lock.json"), policy.ModeBlock, runtime.Empty())
+	report.Violations = []runtime.Violation{{RuleID: "old-rule", Mode: policy.ModeBlock, Message: "old"}}
+	report.Finalize()
+	body, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(state.ReportPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	policyPath := filepath.Join(repo, "policies", "rules.yml")
+	policyBody, err := os.ReadFile(policyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(policyPath, append(policyBody, []byte("\n# changed after report\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"session-briefing", repo, "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatalf("session-briefing: %v", err)
+	}
+	if !strings.Contains(stdout.String(), `"policy_report_status": "historical"`) || !strings.Contains(stdout.String(), "old-rule") {
+		t.Fatalf("stale lockfile report was not retained historically: %s", stdout.String())
+	}
+	if strings.Contains(stdout.String(), `"policy_blockers"`) {
+		t.Fatalf("stale lockfile report must not become current blockers: %s", stdout.String())
 	}
 }
 
