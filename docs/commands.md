@@ -864,8 +864,11 @@ part of that value. Non-evidence value flags reject leading-dash values.
 
 ### `reconc ci [repo] (--staged | --base REF [--head REF]) [--read PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--auto-claim] [--json] [--format text|json|sarif|junit] [--output PATH]`
 Git-aware check. Derives write paths from the working-tree index or a
-`base..head` range instead of explicit `--write` flags. It inherits recorded
-read paths, commands, and claims from the active agent session. In `--staged`
+`base..head` range instead of explicit `--write` flags. The underlying Git
+diff uses `--no-renames --name-only -z`, so a rename contributes both its
+source deletion and destination creation regardless of Git rename settings.
+It inherits recorded read paths, commands, and claims from the active agent
+session. In `--staged`
 mode, successful-command rules accept only current `reconc exec --staged`
 proofs bound to the exact HEAD and index; mutable active-session command
 outcomes are not commit evidence. The CLI and its help reject explicit

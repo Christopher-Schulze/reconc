@@ -56,6 +56,28 @@ func gitRun(t *testing.T, repo string, args ...string) {
 	}
 }
 
+func gitRename(t *testing.T, repo, oldPath, newPath string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(repo, newPath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(repo, oldPath), filepath.Join(repo, newPath)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func requireGitPaths(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("paths=%q, want %q", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("paths=%q, want %q", got, want)
+		}
+	}
+}
+
 func TestCollectGitWritePathsRejectsNeither(t *testing.T) {
 	_, _, err := CollectGitWritePaths(".", false, "", "")
 	if err == nil {
@@ -113,6 +135,129 @@ func TestCollectGitWritePathsStagedNonEmpty(t *testing.T) {
 	if meta.WritePathCount != 2 {
 		t.Errorf("metadata count: %d", meta.WritePathCount)
 	}
+}
+
+func TestCollectGitWritePathsStagedRenameIncludesBothPaths(t *testing.T) {
+	repo := initGitRepo(t)
+	oldPath, newPath := "protected/source.txt", "allowed/destination.txt"
+	gitWrite(t, repo, oldPath, "original\n")
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-q", "-m", "initial")
+	gitRename(t, repo, oldPath, newPath)
+	gitRun(t, repo, "add", "-A")
+
+	for _, setting := range []string{"true", "false"} {
+		t.Run("diff.renames="+setting, func(t *testing.T) {
+			gitRun(t, repo, "config", "diff.renames", setting)
+			paths, metadata, err := CollectGitWritePaths(repo, true, "", "")
+			if err != nil {
+				t.Fatalf("collect: %v", err)
+			}
+			requireGitPaths(t, paths, []string{newPath, oldPath})
+			if metadata.GitCommand != "git diff --cached --no-renames --name-only -z" {
+				t.Fatalf("git command=%q", metadata.GitCommand)
+			}
+		})
+	}
+}
+
+func TestCollectGitWritePathsRangeRenameIncludesBothPaths(t *testing.T) {
+	repo := initGitRepo(t)
+	oldPath, newPath := "protected/source.txt", "allowed/destination.txt"
+	gitWrite(t, repo, oldPath, "original\n")
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-q", "-m", "initial")
+	gitRename(t, repo, oldPath, newPath)
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-q", "-m", "rename")
+
+	for _, setting := range []string{"true", "false"} {
+		t.Run("diff.renames="+setting, func(t *testing.T) {
+			gitRun(t, repo, "config", "diff.renames", setting)
+			paths, metadata, err := CollectGitWritePaths(repo, false, "HEAD~1", "HEAD")
+			if err != nil {
+				t.Fatalf("collect: %v", err)
+			}
+			requireGitPaths(t, paths, []string{newPath, oldPath})
+			if metadata.GitCommand != "git diff HEAD~1...HEAD --no-renames --name-only -z" {
+				t.Fatalf("git command=%q", metadata.GitCommand)
+			}
+		})
+	}
+}
+
+func TestCollectGitWritePathsModifiedRenameIncludesBothPaths(t *testing.T) {
+	repo := initGitRepo(t)
+	oldPath, newPath := "protected/source.txt", "allowed/destination.txt"
+	gitWrite(t, repo, oldPath, "original\n")
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-q", "-m", "initial")
+	gitRename(t, repo, oldPath, newPath)
+	gitWrite(t, repo, newPath, "modified\n")
+	gitRun(t, repo, "add", "-A")
+
+	paths, _, err := CollectGitWritePaths(repo, true, "", "")
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	requireGitPaths(t, paths, []string{newPath, oldPath})
+}
+
+func TestCollectGitWritePathsRenamePreservesSpecialNames(t *testing.T) {
+	repo := initGitRepo(t)
+	oldPath, newPath := "protected/old \tüber name.txt", "allowed/new \tüber name.txt"
+	gitWrite(t, repo, oldPath, "original\n")
+	gitRun(t, repo, "add", "--", oldPath)
+	gitRun(t, repo, "commit", "-q", "-m", "initial")
+	gitRename(t, repo, oldPath, newPath)
+	gitRun(t, repo, "add", "-A")
+
+	paths, _, err := CollectGitWritePaths(repo, true, "", "")
+	if err != nil {
+		t.Fatalf("staged collect: %v", err)
+	}
+	requireGitPaths(t, paths, []string{newPath, oldPath})
+
+	gitRun(t, repo, "commit", "-q", "-m", "rename")
+	paths, _, err = CollectGitWritePaths(repo, false, "HEAD~1", "HEAD")
+	if err != nil {
+		t.Fatalf("range collect: %v", err)
+	}
+	requireGitPaths(t, paths, []string{newPath, oldPath})
+}
+
+func TestCollectGitWritePathsRenameTriggersSourcePolicy(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules:\n  - id: protected-source\n    kind: deny_write\n    paths: ['protected/**']\n    mode: block\n    message: source path is protected\n")
+	runGit := func(args ...string) { gitRun(t, repo, args...) }
+	runGit("init", "--quiet", "-b", "main")
+	runGit("config", "user.email", "test@example.com")
+	runGit("config", "user.name", "Test")
+	oldPath, newPath := "protected/source.txt", "allowed/destination.txt"
+	gitWrite(t, repo, oldPath, "original\n")
+	runGit("add", ".")
+	runGit("commit", "-q", "-m", "initial")
+	gitRename(t, repo, oldPath, newPath)
+	runGit("add", "-A")
+
+	paths, _, err := CollectGitWritePaths(repo, true, "", "")
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	requireGitPaths(t, paths, []string{newPath, oldPath})
+	report, err := CheckRepoPolicy(repo, ExecutionInputs{WritePaths: paths})
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if report.Decision != DecisionBlock {
+		t.Fatalf("decision=%s, want block; violations=%+v", report.Decision, report.Violations)
+	}
+	for _, violation := range report.Violations {
+		if violation.RuleID == "protected-source" {
+			return
+		}
+	}
+	t.Fatalf("source-path violation missing: %+v", report.Violations)
 }
 
 func TestCollectGitWritePathsUnicodeAndSpacedNames(t *testing.T) {

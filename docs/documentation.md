@@ -1074,6 +1074,12 @@ evaluation failures to errors. Findings without an exact source location stay
 rule-level; matched paths receive repository-relative URI-safe artifact
 locations without invented line numbers.
 
+For Git-derived CI write evidence, `reconc ci` invokes `git diff` with
+`--no-renames --name-only -z`. A detected rename therefore contributes both
+the source deletion and destination creation, independent of repository Git
+rename configuration. NUL-delimited bytes remain verbatim, so spaces,
+Unicode, tabs, and newlines in either path stay policy-matchable.
+
 The shared neutral report model includes bounded rule, mode, message,
 remediation, matched-path, candidate-fingerprint, policy-lock, worktree, and
 optional Git-range metadata. It excludes absolute host identity and escapes

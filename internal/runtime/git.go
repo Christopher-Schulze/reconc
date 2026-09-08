@@ -40,8 +40,8 @@ type GitDiffMetadata struct {
 // what the evaluator expects).
 //
 // Modes:
-//   - staged=true:                 git diff --cached --name-only
-//   - staged=false, base+head set: git diff <base>...<head> --name-only
+//   - staged=true:                 git diff --cached --no-renames --name-only
+//   - staged=false, base+head set: git diff <base>...<head> --no-renames --name-only
 //   - both staged and base/head -> error (caller must pick one)
 //
 // head defaults to "HEAD" when base is set but head is empty.
@@ -69,16 +69,16 @@ func CollectGitWritePaths(repoRoot string, staged bool, base, head string) ([]st
 	mode := GitModeStaged
 	resolvedHead := head
 	if staged {
-		args = []string{"diff", "--cached", "--name-only", "-z"}
-		commandStr = "git diff --cached --name-only -z"
+		args = []string{"diff", "--cached", "--no-renames", "--name-only", "-z"}
+		commandStr = "git diff --cached --no-renames --name-only -z"
 	} else {
 		if resolvedHead == "" {
 			resolvedHead = "HEAD"
 		}
 		mode = GitModeRange
 		spec := fmt.Sprintf("%s...%s", base, resolvedHead)
-		args = []string{"diff", spec, "--name-only", "-z"}
-		commandStr = "git diff " + spec + " --name-only -z"
+		args = []string{"diff", spec, "--no-renames", "--name-only", "-z"}
+		commandStr = "git diff " + spec + " --no-renames --name-only -z"
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), gitDiffTimeout)
