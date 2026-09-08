@@ -2733,6 +2733,24 @@ the existing per-alias inspection path. Dynamic alias definitions, excessive
 alias recursion, inspection failures, and unknown Git subcommands fail closed
 instead of bypassing the destructive-command guard.
 
+Pre-decision cache version 3 binds every reusable decision to a dependency
+snapshot in addition to the tool payload, policy lock/source provenance, session
+state, taint, and Git-alias state. Repository-scoped read/write evidence and
+pending write targets use prospective filesystem identities: existing targets
+include bounded metadata, generation, and regular-file content observations;
+missing targets include the nearest existing ancestor and missing suffix.
+This catches symlink or junction retargeting, ancestor creation/removal, target
+replacement, and relevant file-content changes. A verified evidence-prefix
+identity also binds every sealed segment digest, file identity, generation, and
+chain head. Missing, malformed, oversized, unstable, or otherwise unprovable
+dependencies disable reuse and force the normal pre-evaluation path, which
+fails closed when the dependency cannot be loaded. Cache lookup samples before
+reading the candidate and re-samples after that read; cache publication samples
+again after evaluation, so a concurrent dependency mutation cannot warm or serve
+a stale decision within the available hook boundary. The snapshot is bounded
+to 2,048 paths and 32 MiB of observed regular-file content; no cache hit is
+claimed when those bounds or platform identity guarantees are unavailable.
+
 Literal `eval` uses the shell's two parsing passes, not source-level quote
 reconstruction. The outer parse first produces argument bytes; `eval` then
 concatenates those arguments with one space and reparses the result. Thus outer
