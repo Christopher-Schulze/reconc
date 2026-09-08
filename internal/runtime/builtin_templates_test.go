@@ -5,6 +5,28 @@ package runtime
 import "testing"
 
 func TestBuiltinGuardrailTemplatesEnforceBehavior(t *testing.T) {
+	t.Run("legacy CI claim", func(t *testing.T) {
+		for _, test := range []struct {
+			name     string
+			claims   []string
+			decision Decision
+		}{
+			{name: "missing claim warns", decision: DecisionWarn},
+			{name: "self claim satisfies legacy rule", claims: []string{"ci-green"}, decision: DecisionPass},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				withRECONCHome(t)
+				repo := makeRepo(t, "# project\n", "", "rules:\n  - id: ci\n    template: ci-green-before-merge\n    when_paths: ['**']\n")
+				inputs := Empty()
+				inputs.WritePaths = []string{"src/main.go"}
+				inputs.Claims = test.claims
+				report, err := CheckRepoPolicy(repo, inputs)
+				if err != nil || report.Decision != test.decision {
+					t.Fatalf("legacy CI decision = %v, want %v; error = %v", report.Decision, test.decision, err)
+				}
+			})
+		}
+	})
 	t.Run("authority approval", func(t *testing.T) {
 		withRECONCHome(t)
 		repo := makeRepo(t, "# project\n", "", "rules:\n  - id: authority\n    template: authority-change-approval\n    when_paths: ['AGENTS.md']\n")

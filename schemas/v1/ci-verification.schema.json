@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v1/ci-verification.schema.json",
+  "title": "Reconc CI Verification Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "format_version", "status", "candidate", "detail"],
+  "properties": {
+    "schema": {"const": "reconc.ci-verification/v1"},
+    "format_version": {"const": "1"},
+    "status": {"enum": ["verified", "blocked"]},
+    "candidate": {"type": "object", "additionalProperties": false, "required": ["kind", "object_id"], "properties": {"kind": {"type": "string"}, "object_id": {"type": "string"}}},
+    "evidence_identity": {"$ref": "#/$defs/evidenceIdentity"},
+    "detail": {"type": "string", "minLength": 1}
+  },
+  "if": {"properties": {"status": {"const": "verified"}}},
+  "then": {
+    "required": ["candidate", "evidence_identity"],
+    "properties": {
+      "candidate": {"$ref": "ci-statement.schema.json#/$defs/candidate"},
+      "evidence_identity": {"$ref": "#/$defs/evidenceIdentity"}
+    }
+  },
+  "else": {"not": {"required": ["evidence_identity"]}},
+  "$defs": {
+    "evidenceIdentity": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

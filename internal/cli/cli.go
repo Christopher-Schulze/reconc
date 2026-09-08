@@ -209,6 +209,11 @@ func printTargetHelp(argv []string, stdout io.Writer, strictTarget bool) (bool, 
 	if helpIndex < 0 || len(argv) == 0 {
 		return false, nil
 	}
+	// CI retains its positional repository and evidence flags alongside the
+	// explicit verification subcommand. Its legacy parser owns those arguments.
+	if !strictTarget && argv[0] == "ci" && (len(argv) < 2 || argv[1] != "verify-evidence") {
+		return false, nil
+	}
 	command, ok := commandmeta.Lookup(argv[0])
 	if !ok {
 		return false, nil

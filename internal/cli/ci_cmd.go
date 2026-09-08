@@ -24,6 +24,9 @@ import (
 //   - reconc ci --base main               (used by PR / CI pipelines)
 //   - reconc ci --base main --head HEAD   (explicit range)
 func runCI(args []string, reconcVersion string, stdout, stderr io.Writer) (resultErr error) {
+	if len(args) > 0 && args[0] == "verify-evidence" {
+		return runCIVerifyEvidence(args[1:], stdout)
+	}
 	options, help, err := parseCIOptions(args, stdout)
 	if err != nil || help {
 		return err

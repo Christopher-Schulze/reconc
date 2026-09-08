@@ -505,6 +505,7 @@ func exampleString(t *testing.T, definition *jsonschema.Schema) string {
 	t.Helper()
 	candidates := []string{
 		"a",
+		"1",
 		"/a",
 		"0.9.6",
 		"reconc-v0.9.6",

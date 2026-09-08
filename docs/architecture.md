@@ -62,6 +62,13 @@ load the lockfile and run the runtime evaluator. `fix` / `explain`
 also use the runtime then render the result. `done` binds the evaluated
 candidate through `completiongate`; `proof` renders that same candidate through
 `proofbundle`. `why`, `diff`, and `sources` inspect compiled policy state.
+`ci verify-evidence` is a separate offline authentication path: bounded evidence
+and independent operator requirements enter `cievidence`, which verifies the
+signed exact candidate and required results. It loads no repository policy or
+session claims. Only the independently controlled caller can enforce that
+decision before publishing the same immutable object. The issuer and boundary
+contract are documented in
+[Signed CI Candidate Evidence](documentation.md#signed-ci-candidate-evidence).
 Proof self-digests hash one compact canonical payload per generation or
 verification; indented JSON and Markdown remain separate presentation encodings.
 Policy-decision receipts reuse the one canonical report encoding for both the
@@ -106,6 +113,7 @@ internal/
   boundedexec/    concurrency-safe bounded stdout/stderr capture for subprocess boundaries
   boundedio/      exact-size reads for untrusted and repository-controlled files
   bootstrap/      init, repository sync/remove/recovery, portable receipts, journals, and binary resolution
+  cievidence/     pure signed CI snapshot verification against independent requirements and exact candidates
   cireport/       bounded provider-neutral SARIF 2.1.0, JUnit XML, and GitHub report rendering
   cli/            command dispatch plus responsibility-owned command modules
   commandmeta/    canonical dependency-neutral command, flag, help, and output contract
@@ -233,6 +241,10 @@ Generated from `internal/schema`. Canonical URLs are immutable publication ident
 | `action-evidence` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/action-evidence.schema.json> | `schemas/v1/action-evidence.schema.json` |
 | `action-ledger` | `v1` | 1 | `legacy` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/action-ledger.schema.json> | `schemas/v1/action-ledger.schema.json` |
 | `action-ledger` | `v2` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/action-ledger.schema.json> | `schemas/v2/action-ledger.schema.json` |
+| `ci-evidence` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v1/ci-evidence.schema.json> | `schemas/v1/ci-evidence.schema.json` |
+| `ci-requirement` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v1/ci-requirement.schema.json> | `schemas/v1/ci-requirement.schema.json` |
+| `ci-statement` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v1/ci-statement.schema.json> | `schemas/v1/ci-statement.schema.json` |
+| `ci-verification` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v1/ci-verification.schema.json> | `schemas/v1/ci-verification.schema.json` |
 | `completion-report` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/completion-report.schema.json> | `schemas/v1/completion-report.schema.json` |
 | `custom-runtime-conformance` | `v1` | reconc-custom-runtime-conformance/v1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/custom-runtime-conformance.schema.json> | `schemas/v1/custom-runtime-conformance.schema.json` |
 | `custom-runtime-liveness` | `v1` | reconc-custom-runtime-liveness/v1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/custom-runtime-liveness.schema.json> | `schemas/v1/custom-runtime-liveness.schema.json` |
@@ -533,7 +545,7 @@ LangChain tools and alternate MCP entries remain outside the gateway graph.
   rule applies. Additive and breaking shape changes both receive a new schema
   version; breaking semantic changes also require a superseding RFC.
 
-- **Published schema documents**: `internal/schema` owns all 36 Draft 2020-12
+- **Published schema documents**: `internal/schema` owns all 40 Draft 2020-12
   contracts as independently versioned registry entries. Each entry binds one
   local path, immutable release-tagged `$id`, release asset, SHA-256 digest,
   enterprise mirror path, current or legacy state, and input-only compatibility
@@ -863,6 +875,7 @@ literal braces require escaping on both sides.
         │              ├──► assurance ──► policy
         │              └── template substitution, script runner, git
         ├──► cireport
+        ├──► cievidence ──► action (canonical JSON)
         │
         ├──► hooks
         ├──► bootstrap ──► harnesspack, stackdetect, presets, hooks, repositoryignore

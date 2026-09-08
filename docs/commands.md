@@ -41,7 +41,8 @@ Generated from `internal/commandmeta`; run `make reference-docs` after changing 
 | `reconc doctor` | `reconc doctor [repo] [--deep] [--json] [--output PATH] \| reconc doctor --global [--json] [--output PATH]` | inspect repository or global installation state | text, json, file |
 | `reconc refresh` | `reconc refresh [repo] [--strict-conflicts] [--json] [--output PATH]` | explicitly refresh the policy lockfile | text, json, file |
 | `reconc sources` | `reconc sources [repo] [--json]` | inspect effective policy-source provenance without source bodies | text, json |
-| `reconc ci` | `reconc ci [repo] (--staged \| --base REF [--head REF]) [evidence flags] [--format text\|json\|sarif\|junit]` | evaluate Git-derived changes under policy | text, json, sarif, junit, file |
+| `reconc ci` | `reconc ci [repo] (--staged \| --base REF [--head REF]) [evidence flags] [--format text\|json\|sarif\|junit]` | evaluate Git-derived changes under policy or verify signed CI evidence | text, json, sarif, junit, file |
+| `reconc ci verify-evidence` | `reconc ci verify-evidence --evidence FILE --requirement FILE --candidate SHA --candidate-kind commit\|merge-queue [--json]` | verify signed CI evidence offline against operator-owned requirements; caller must gate the exact action; exit 0 verified, 2 blocked, 1 usage/output error | text, json |
 | `reconc impact` | `reconc impact [repo] (--candidate FILE \| --pack NAME) [--corpus FILE \| --fixture FILE] [evidence flags] [--delta-manifest FILE] [--format text\|json\|sarif\|junit\|github]` | compare an in-memory additive policy candidate over privacy-bounded replay evidence | text, json, sarif, junit, github, file |
 | `reconc impact export` | `reconc impact export [repo] (--session \| evidence flags) [--complete CLASS] [--case-id ID] [--output PATH]` | export a deterministic privacy-bounded replay corpus | json, file |
 | `reconc policy` | `reconc policy author [repo] (--candidate FILE \| --detected) [authoring flags]` | validate, explain, and explicitly adopt a repository policy fragment | text, json |
@@ -852,7 +853,8 @@ or unreadable sources fail closed.
 ### `reconc check [repo] [--read PATH] [--write PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--auto-claim] [--json] [--terse] [--format text|json|terse|sarif|junit] [--output PATH]`
 The core policy evaluator. Exit 0 = pass/warn, 2 = block, 1 = error.
 `--terse` emits ~50-token JSON optimised for hook-loop calls.
-`--auto-claim` detects CI environment and auto-asserts `ci-green`.
+`--auto-claim` detects CI environment and auto-asserts `ci-green`; this is a
+self-reported acknowledgment, not authenticated CI success.
 Missing or stale lockfiles fail closed without writing and require
 `reconc refresh .`.
 Every value flag rejects a following option token instead of consuming it.
@@ -906,6 +908,22 @@ reconc ci . --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --head "$CI_COMMIT_SHA" --f
 # Jenkins, Azure Pipelines, or another JUnit consumer.
 reconc ci . --base origin/main --head HEAD --format junit --output reconc-junit.xml
 ```
+
+### `reconc ci verify-evidence --evidence FILE --requirement FILE --candidate SHA --candidate-kind commit|merge-queue [--json]`
+
+Verify an externally signed CI snapshot offline against independent trusted
+requirements and the operation's exact candidate. This command accepts no
+repository operand or claim flags, does not load policy or session state, and
+does not perform the publication. Exit 0 = verified; 2 = blocked, including
+unreadable or invalid evidence/requirements; 1 = invocation or output failure.
+The JSON report uses `reconc.ci-verification/v1` and contains an evidence
+identity only after successful verification.
+
+The caller must control the requirement, bind the destination independently,
+and publish that same immutable SHA only after exit zero. See
+[Signed CI Candidate Evidence](documentation.md#signed-ci-candidate-evidence)
+for the issuer contract, exact encodings, publication recipe, trust limits,
+and migration from the legacy warning-only `ci-green-before-merge` template.
 
 ### `reconc impact [repo] (--candidate FILE | --pack NAME) [--corpus FILE | --fixture FILE] [evidence flags] [--delta-manifest FILE] [--format text|json|sarif|junit|github | --json] [--output PATH]`
 

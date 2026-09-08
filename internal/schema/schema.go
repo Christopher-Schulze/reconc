@@ -26,6 +26,8 @@ const Version6BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/r
 
 const PolicyLockBaseURL = Version6BaseURL
 
+const CISchemaBaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v1"
+
 // Artifact identifies one stable JSON contract emitted by Reconc.
 type Artifact string
 
@@ -35,6 +37,10 @@ const (
 	ActionControlMapSignature   Artifact = "action-control-map-signature"
 	ActionControlMapAuthorities Artifact = "action-control-map-authorities"
 	ActionEvidence              Artifact = "action-evidence"
+	CIEvidence                  Artifact = "ci-evidence"
+	CIRequirement               Artifact = "ci-requirement"
+	CIStatement                 Artifact = "ci-statement"
+	CIVerification              Artifact = "ci-verification"
 	PolicyLock                  Artifact = "policy-lock"
 	PolicyConfig                Artifact = "policy-config"
 	PolicyReport                Artifact = "policy-report"
@@ -60,6 +66,10 @@ const (
 	ActionControlMapSignatureURL   = DefaultBaseURL + "/action-control-map-signature.schema.json"
 	ActionControlMapAuthoritiesURL = DefaultBaseURL + "/action-control-map-authorities.schema.json"
 	ActionEvidenceURL              = DefaultBaseURL + "/action-evidence.schema.json"
+	CIEvidenceURL                  = CISchemaBaseURL + "/ci-evidence.schema.json"
+	CIRequirementURL               = CISchemaBaseURL + "/ci-requirement.schema.json"
+	CIStatementURL                 = CISchemaBaseURL + "/ci-statement.schema.json"
+	CIVerificationURL              = CISchemaBaseURL + "/ci-verification.schema.json"
 	LegacyPolicyLockURL            = DefaultBaseURL + "/policy-lock.schema.json"
 	PolicyLockURL                  = PolicyLockBaseURL + "/policy-lock.schema.json"
 	PreviousPolicyLockV6URL        = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + PreviousSchemaTag + "/schemas/v6/policy-lock.schema.json"

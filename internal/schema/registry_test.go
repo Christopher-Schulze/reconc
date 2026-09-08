@@ -55,8 +55,13 @@ func TestRegistryHasOneCurrentContractPerArtifact(t *testing.T) {
 			current[contract.Artifact]++
 		}
 	}
-	if len(current) != 24 {
-		t.Fatalf("current artifact count = %d, want 24", len(current))
+	if len(current) != 28 {
+		t.Fatalf("current artifact count = %d, want 28", len(current))
+	}
+	for _, artifact := range []schema.Artifact{schema.CIEvidence, schema.CIRequirement, schema.CIStatement, schema.CIVerification} {
+		if current[artifact] != 1 {
+			t.Errorf("CI contract %q is missing or ambiguous", artifact)
+		}
 	}
 	for artifact, count := range current {
 		if count != 1 {

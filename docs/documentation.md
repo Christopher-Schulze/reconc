@@ -13,6 +13,7 @@ usage, architecture, release, and security facts should be kept here first.
 - [Transactional Bootstrap](#transactional-bootstrap)
 - [v0.9 CLI Product Contract](#v09-cli-product-contract)
 - [Daily Workflow](#daily-workflow)
+- [Signed CI Candidate Evidence](#signed-ci-candidate-evidence)
 - [FAQ](#faq)
 - [Troubleshooting](#troubleshooting)
 - [Upgrading](#upgrading)
@@ -363,7 +364,7 @@ still require their matching platform jobs or integration boundaries.
 
 `make release` cross-compiles five binaries into `dist/`, copies the native
 POSIX and Windows installers, generates three flat shell-completion artifacts,
-generates a man page, copies all 36 independently versioned schemas from the
+generates a man page, copies all 40 independently versioned schemas from the
 typed registry under unique current or legacy release names, and generates
 deterministic SPDX 2.3 and CycloneDX
 1.6 SBOMs, copies the project license, generates deterministic exact
@@ -379,7 +380,7 @@ inventories directly. Generated surfaces and target-derived binary names are
 owned once by `scripts/release/generated-assets.sh`; the Makefile generates
 from that executable inventory and the verifier lists from it.
 
-The release verifier requires exactly those fifty-three checksummed artifacts,
+The release verifier requires exactly those fifty-seven checksummed artifacts,
 rejects missing, extra, duplicate, unsafe, mutable, or corrupted entries, and
 never accepts an empty manifest. It independently verifies every manifest
 asset and digest, then regenerates Bash, Zsh, Fish, and the versioned man page
@@ -1135,6 +1136,127 @@ Exit codes:
 - `0`: pass, warn, or informational success
 - `1`: runtime or input error
 - `2`: blocking policy violation or fully rendered incomplete verification
+
+## Signed CI Candidate Evidence
+
+`reconc ci verify-evidence` verifies an externally signed CI snapshot offline.
+It accepts only the operator's pinned Ed25519 authority, exact repository and
+candidate identity, current validity interval, and successful results for every
+required check. It does not run CI, obtain provider results, merge, push, or
+intercept direct remote operations. An operator-controlled publication job
+enforces the result by performing its action only after exit zero.
+
+| Evidence | Established fact | Boundary |
+| --- | --- | --- |
+| `ci-green` claim | The caller supplied an acknowledgment. | The legacy `ci-green-before-merge` template warns when absent; supplying the claim clears that warning. |
+| Observed successful command | An instrumented process succeeded for its recorded local evidence or staged candidate. | `require_command_success` and staged command receipts; this is not provider authentication. |
+| Verified signed CI snapshot | The pinned authority attested successful required checks for the exact repository and candidate within the accepted interval. | An independent caller gates publication using that same immutable candidate. |
+
+### Trusted issuer and requirements
+
+Keep the signing key, issuer executable, requirement file, and publication
+job outside candidate and governed-agent write authority. A file located outside
+the checkout alone does not establish that separation. The verifier does not
+inspect access control or certify the caller's deployment. Use an independently
+controlled job, account, or execution boundary for adversarial enforcement.
+
+The external integration obtains authenticated provider results and verifies
+the provider's repository identity, exact tested object ID, workflow/check
+identity, run attempt, completion, and conclusion before constructing a
+statement. Check IDs must identify the provider and trusted workflow contract;
+an arbitrary display name is insufficient. For a merge queue, attest the actual
+synthetic merge candidate with kind `merge-queue`, not the source branch SHA.
+The integration maps incomplete, failed, or cancelled runs to their matching
+outcomes and never translates missing results into success. A provider adapter
+or live provider lookup is not included in Reconc.
+
+Build the issuer from reviewed Reconc source in that trusted environment:
+
+```bash
+go build -o /trusted/bin/sign-ci-evidence ./scripts/release/sign-ci-evidence
+```
+
+The statement follows `schemas/v1/ci-statement.schema.json`: schema
+`reconc.ci-evidence/v1`, `format_version: "1"`, `repository`,
+`candidate: {kind, object_id}`, decimal-string Unix seconds `issued_at` and
+`expires_at`, and `checks: [{id, run_id, outcome}]`. Outcomes are exactly
+`success`, `failure`, `pending`, or `cancelled`; check IDs must be unique and
+lexically sorted. The trusted integration chooses the issuance and expiry
+from its authenticated observation and clock. Signing arbitrary caller JSON
+does not establish that any CI run occurred.
+
+The independent verifier configuration follows
+`schemas/v1/ci-requirement.schema.json`. Set schema
+`reconc.ci-requirement/v1`, `format_version: "1"`, the exact `repository` and
+`authority_key_id`, `public_key` as the unpadded base64url encoding of the raw
+32-byte Ed25519 public key, unique sorted `required_checks`, and a positive
+decimal-string `max_age_seconds`. The signer accepts exactly one unencrypted
+Ed25519 PKCS#8 `PRIVATE KEY` PEM block. Never derive the trusted public key or
+required-check list from the received statement or candidate.
+
+Once the trusted job has produced its authenticated statement, issue evidence
+into a new private job artifact. The shell variables below are trusted job
+inputs; the paths and candidate must not be supplied unchecked by the agent:
+
+```bash
+set -eu
+umask 077
+set -C
+"$CI_ISSUER" --statement "$CI_STATEMENT" --key "$CI_PRIVATE_KEY" \
+  --authority "$CI_AUTHORITY_ID" > "$CI_EVIDENCE"
+```
+
+The issuer writes canonical `reconc.ci-signed-evidence/v1` bytes with no
+trailing newline. Preserve those bytes when transporting the artifact; a JSON
+formatter changes its accepted representation. Evidence and requirements are
+bounded to 256 KiB, and each check list to 256 entries. Duplicate, unknown,
+case-aliased, missing, malformed, and noncanonical fields fail closed.
+Schema validation proves structure only; the verifier additionally checks
+cryptography, candidate equality, sorted identities, and time relationships.
+
+### Publication boundary
+
+The trusted publication job binds its destination to the configured repository,
+resolves and retains the exact operation candidate once, then runs:
+
+```bash
+"$RECONC_BINARY" ci verify-evidence \
+  --evidence "$CI_EVIDENCE" --requirement "$CI_REQUIREMENT" \
+  --candidate "$CI_CANDIDATE_SHA" --candidate-kind "$CI_CANDIDATE_KIND" --json
+```
+
+Exit `0` means verified; `2` means blocked, including unreadable evidence or
+requirements; `1` means an invocation or output failure. Only exit zero permits
+the caller's next publication step. A local Git ref boundary can enforce that
+step with the already bound repository, destination ref, old object ID, and
+the same candidate SHA:
+
+```bash
+set -eu
+"$RECONC_BINARY" ci verify-evidence \
+  --evidence "$CI_EVIDENCE" --requirement "$CI_REQUIREMENT" \
+  --candidate "$CI_CANDIDATE_SHA" --candidate-kind "$CI_CANDIDATE_KIND"
+git -C "$CI_DESTINATION_REPOSITORY" update-ref \
+  "$CI_DESTINATION_REF" "$CI_CANDIDATE_SHA" "$CI_EXPECTED_OLD_SHA"
+```
+
+The caller must independently validate these job inputs and Git environment.
+The compare-and-swap refuses a changed destination. Never resolve a mutable
+branch again as the publication candidate after verification. Remote merge or
+push integrations need the equivalent exact-object and destination-precondition
+contract from their provider; an operation that cannot guarantee those bindings
+is unsupported by this recipe. Direct Git commands and remote APIs outside the
+job remain unenforced. Offline verification cannot discover a later rerun or
+revocation; obtain fresh evidence when that distinction matters. Evidence is
+reusable for the same candidate while valid and is not a one-use approval.
+
+Existing `ci-green-before-merge` policies retain their `require_claim`/`warn`
+behavior. For stronger enforcement, explicitly deploy the trusted issuer and
+publication gate above, pin the independent requirement, and verify negative
+candidate and failed-run cases before enabling publication. Keep or remove the
+legacy acknowledgment deliberately; changing its warning mode cannot turn a
+claim into authenticated CI evidence. The normal repository `reconc ci`
+policy check remains separate and compatible.
 
 ## FAQ
 
@@ -3388,6 +3510,7 @@ summarizes the core runtime responsibilities:
 - `internal/jsonl`: bounded, locked JSONL append and archive rings
 - `internal/pathidentity`: Unix symlink and Windows reparse-point/8.3 filesystem identity
 - `internal/commandproof`: commit-candidate-bound staged command-success receipts
+- `internal/cievidence`: offline authenticated CI snapshots bound to independently required checks and an exact Git candidate
 - `internal/completiongate`: final policy, candidate, command-proof, and TASK completion contract
 - `internal/proofbundle`: deterministic portable JSON and Markdown completion evidence
 - `internal/policyproof`: tamper-evident unresolved policy-decision receipts
@@ -3402,7 +3525,7 @@ summarizes the core runtime responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields; all 36 current and legacy contracts are registry-owned and ship under unique names, current artifact schemas span v1-v6, legacy portable policy locks use v1-v5, and current portable policy locks use v6
+- Stable schema and `format_version` fields; all 40 current and legacy contracts are registry-owned and ship under unique names, current artifact schemas span v1-v6, legacy portable policy locks use v1-v5, and current portable policy locks use v6
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
 - No core policy-runtime network calls; supported agent hosts own their
   authenticated inference traffic
