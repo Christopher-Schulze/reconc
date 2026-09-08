@@ -104,6 +104,9 @@ func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 	if evidence, ok := briefing["required_evidence"].([]string); ok && len(evidence) > 0 {
 		fmt.Fprintf(stdout, "  Evidence:      %s\n", strings.Join(evidence, "; "))
 	}
+	if evidenceStatus, ok := briefing["session_evidence_status"].(string); ok && evidenceStatus != "" {
+		fmt.Fprintf(stdout, "  Evidence status: %s\n", evidenceStatus)
+	}
 	if task, ok := briefing["task"].(tasklifecycle.Briefing); ok && task.OmittedEvidence > 0 {
 		fmt.Fprintf(stdout, "  Evidence:      +%d more\n", task.OmittedEvidence)
 	}
@@ -130,7 +133,7 @@ func compactSessionBriefing(full map[string]interface{}) map[string]interface{} 
 	if nextAction, exists := full["next_action"]; exists && nextAction != nil {
 		out["remediation"] = nextAction
 	}
-	for _, key := range []string{"task", "task_error", "run", "run_error", "policy_report_error", "policy_blockers", "omitted_policy_blockers", "required_evidence", "report_path"} {
+	for _, key := range []string{"task", "task_error", "run", "run_error", "policy_report_error", "session_evidence_status", "policy_blockers", "omitted_policy_blockers", "required_evidence", "report_path"} {
 		if value, exists := full[key]; exists && value != nil {
 			out[key] = value
 		}
@@ -235,13 +238,27 @@ func addActivePolicyBriefing(out map[string]interface{}, repoRoot string) {
 	if status, _ := out["lockfile_status"].(string); status != "fresh" {
 		return
 	}
-	sessionID, err := agentsession.ResolveActiveSessionID(repoRoot)
-	if err != nil || sessionID == "" {
+	sessionID, state, err := agentsession.InspectActiveSessionState(repoRoot)
+	if err != nil {
+		out["policy_report_error"] = boundedBriefingText("active session state: " + err.Error())
 		return
 	}
-	state, err := agentsession.LoadSessionState(repoRoot, sessionID)
-	if err != nil || state.ReportPath == "" {
+	if sessionID == "" {
 		return
+	}
+	if state.ReportPath == "" {
+		out["policy_report_error"] = "active session state has no report path"
+		return
+	}
+	if state.EvidenceOverflow {
+		detail := "active session evidence is overflowed"
+		if reason := strings.TrimSpace(state.EvidenceOverflowReason); reason != "" {
+			detail += " at " + reason
+		}
+		if limit := strings.TrimSpace(state.EvidenceOverflowLimit); limit != "" {
+			detail += " due to " + limit
+		}
+		out["session_evidence_status"] = boundedBriefingText("uncertain: " + detail)
 	}
 	body, err := boundedio.ReadRegularFile(state.ReportPath, maxBriefingReportBytes)
 	if err != nil {

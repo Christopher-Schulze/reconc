@@ -5,7 +5,6 @@
 ## Queue
 
 - [ ] 472 Require bound approval before authority file changes -> tasks/472-require-bound-approval-before-authority-file-changes.md
-- [ ] 476 Make session briefing inspection side-effect free -> tasks/476-make-session-briefing-inspection-side-effect-free.md
 - [ ] 477 Bind briefing reports to current policy and evidence -> tasks/477-bind-briefing-reports-to-current-policy-and-evidence.md
 - [ ] 478 Unify task briefing and run next action -> tasks/478-unify-task-briefing-and-run-next-action.md
 - [ ] 479 Preserve machine identifiers and structure agent actions -> tasks/479-preserve-machine-identifiers-and-structure-agent-actions.md
@@ -34,6 +33,7 @@
 
 ## Done
 
+- [x] 476 Make session briefing inspection side-effect free -> tasks/done/476-make-session-briefing-inspection-side-effect-free.md
 - [x] 475 Preserve both paths of Git renames -> tasks/done/475-preserve-both-paths-of-git-renames.md
 - [x] 474 Bind pre-decision cache to path and evidence identity -> tasks/done/474-bind-pre-decision-cache-to-path-and-evidence-identity.md
 - [x] 473 Bind CI gates to the current merge candidate -> tasks/done/473-bind-ci-gates-to-the-current-merge-candidate.md
@@ -43,4 +43,3 @@
 - [x] 468 Complete OMP v18 integration -> tasks/done/468-complete-omp-v18-integration.md
 - [x] 467 Make Windows identity replacement tests deterministic -> tasks/done/467-make-windows-identity-replacement-tests-deterministic.md
 - [x] 466 Prepare Reconc v0.9.8 release -> tasks/done/466-prepare-reconc-v0-9-8-release.md
-- [x] 465 Clear CI and code-scanning findings -> tasks/done/465-clear-ci-and-code-scanning-findings.md

@@ -174,6 +174,7 @@ type evidenceTaint struct {
 
 type EvidenceTaintStatus struct {
 	Present       bool   `json:"present"`
+	Persisted     bool   `json:"persisted"`
 	Token         string `json:"token,omitempty"`
 	SessionID     string `json:"session_id,omitempty"`
 	Field         string `json:"field,omitempty"`
@@ -816,18 +817,21 @@ func ReadEvidenceTaintStatus(repoRoot string) (EvidenceTaintStatus, error) {
 	if err != nil {
 		return EvidenceTaintStatus{}, err
 	}
+	persisted := taint != nil
 	if taint == nil {
-		active, activeErr := resolveActiveSessionIDResolved(root)
+		active, state, activeErr := inspectActiveSessionStateResolved(root)
 		if activeErr != nil {
 			return EvidenceTaintStatus{}, activeErr
 		}
-		if active != "" {
-			if _, loadErr := loadSessionStateWithLockResolved(root, active); loadErr != nil {
-				return EvidenceTaintStatus{}, loadErr
-			}
-			taint, err = loadEvidenceTaint(root)
-			if err != nil {
-				return EvidenceTaintStatus{}, err
+		if active != "" && state.EvidenceOverflow {
+			taint = &evidenceTaint{
+				FormatVersion: evidenceTaintFormatVersion,
+				RepoRoot:      root,
+				SessionID:     active,
+				Field:         state.EvidenceOverflowReason,
+				Limit:         state.EvidenceOverflowLimit,
+				SegmentCount:  state.EvidenceSegmentCount,
+				SegmentDigest: state.EvidenceSegmentDigest,
 			}
 		}
 	}
@@ -839,7 +843,7 @@ func ReadEvidenceTaintStatus(repoRoot string) (EvidenceTaintStatus, error) {
 		return EvidenceTaintStatus{}, err
 	}
 	return EvidenceTaintStatus{
-		Present: true, Token: token, SessionID: taint.SessionID,
+		Present: true, Persisted: persisted, Token: token, SessionID: taint.SessionID,
 		Field: taint.Field, Limit: taint.Limit,
 		SegmentCount: taint.SegmentCount, SegmentDigest: taint.SegmentDigest,
 	}, nil
@@ -901,7 +905,7 @@ func ResolveEvidenceTaint(repoRoot, expectedToken, reason string) (EvidenceTaint
 		return EvidenceTaintStatus{}, fmt.Errorf("remove resolved evidence taint: %w", err)
 	}
 	return EvidenceTaintStatus{
-		Present: true, Token: token, SessionID: taint.SessionID,
+		Present: true, Persisted: true, Token: token, SessionID: taint.SessionID,
 		Field: taint.Field, Limit: taint.Limit,
 		SegmentCount: taint.SegmentCount, SegmentDigest: taint.SegmentDigest,
 	}, nil

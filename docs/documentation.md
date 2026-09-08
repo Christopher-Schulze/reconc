@@ -903,6 +903,10 @@ and reentry. Its versioned compact contract combines current TASK/Sub-Task,
 policy delta, required evidence, exact remediation, and durable repository-run
 state without Git or writes. Static reference material stays on demand through
 `reconc agent-intro --section NAME` instead of inflating every agent prompt.
+Active-session inspection uses bounded snapshots without session or active-pointer
+locks and never repairs state or persists evidence taint. Malformed, oversized,
+replaced, or overflowed state is reported as uncertainty; enforcement loads keep
+their existing lock and durable-taint guarantees.
 
 Review candidate policy before changing the live contract:
 
@@ -2479,6 +2483,9 @@ Recovery is explicit: end the active session, inspect
 reason to `reconc hook evidence-resolve . --token TOKEN --reason TEXT`. Reconc
 writes an immutable resolution receipt before removing the live taint; the next
 session starts a new evidence window and must reproduce every required proof.
+Read-only evidence-status inspection can expose an overflow directly from the
+active state before that durable taint exists; JSON marks this observation with
+`persisted=false` and does not create repair state.
 The latest unresolved policy block is retained without an age limit and also
 protects its project-state root from global cleanup. A validated non-blocking
 decision removes that receipt durably; retention never converts block to pass.

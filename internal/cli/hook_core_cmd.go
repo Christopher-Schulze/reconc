@@ -109,7 +109,11 @@ func runHookEvidenceStatus(args []string, stdout io.Writer) error {
 		fmt.Fprintln(stdout, "evidence taint: none")
 		return nil
 	}
-	fmt.Fprintf(stdout, "evidence taint: %s/%s session=%s token=%s\n", status.Field, status.Limit, status.SessionID, status.Token)
+	state := "persisted"
+	if !status.Persisted {
+		state = "observed"
+	}
+	fmt.Fprintf(stdout, "evidence taint: %s/%s session=%s token=%s state=%s\n", status.Field, status.Limit, status.SessionID, status.Token, state)
 	return nil
 }
 

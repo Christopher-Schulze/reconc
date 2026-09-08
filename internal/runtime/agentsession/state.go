@@ -331,15 +331,32 @@ func loadSessionStateWithLockResolved(root, sessionID string) (SessionState, err
 }
 
 func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
+	state, err := readSessionStateResolved(root, sessionID)
+	if err != nil {
+		return SessionState{}, err
+	}
+	if taint, err := loadEvidenceTaint(root); err != nil {
+		return SessionState{}, err
+	} else if taint != nil {
+		applyEvidenceTaint(&state, *taint)
+	} else if state.EvidenceOverflow {
+		if err := persistEvidenceTaint(root, state); err != nil {
+			return SessionState{}, err
+		}
+	}
+	return state, nil
+}
+
+func readSessionStateResolved(root, sessionID string) (SessionState, error) {
 	if err := validateSessionID(sessionID); err != nil {
 		return SessionState{}, err
 	}
 	path := sessionStatePath(root, sessionID)
-	data, err := boundedio.ReadRegularFile(path, maxLegacySessionStateBytes)
+	data, _, err := boundedio.ReadRegularFileSnapshot(path, maxLegacySessionStateBytes)
 	loadedLegacyPath := false
 	legacyPath := legacySessionStatePath(root, sessionID)
 	if os.IsNotExist(err) && legacyPath != path {
-		data, err = boundedio.ReadRegularFile(legacyPath, maxLegacySessionStateBytes)
+		data, _, err = boundedio.ReadRegularFileSnapshot(legacyPath, maxLegacySessionStateBytes)
 		if err == nil {
 			path = legacyPath
 			loadedLegacyPath = true
@@ -351,7 +368,10 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 		}
 		return SessionState{}, fmt.Errorf("read session state %s: %w", path, err)
 	}
+	return decodeSessionState(data, path, root, sessionID, loadedLegacyPath)
+}
 
+func decodeSessionState(data []byte, path, root, sessionID string, loadedLegacyPath bool) (SessionState, error) {
 	var state SessionState
 	if err := json.Unmarshal(data, &state); err != nil {
 		return SessionState{}, fmt.Errorf("session state is not valid JSON: %s: %w", path, err)
@@ -405,15 +425,6 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 	}
 	state.ReportPath = expectedReportPath
 	state = normalizeSessionState(state)
-	if taint, err := loadEvidenceTaint(root); err != nil {
-		return SessionState{}, err
-	} else if taint != nil {
-		applyEvidenceTaint(&state, *taint)
-	} else if state.EvidenceOverflow {
-		if err := persistEvidenceTaint(root, state); err != nil {
-			return SessionState{}, err
-		}
-	}
 	return state, nil
 }
 
@@ -861,6 +872,85 @@ func ResolveActiveSessionID(repoRoot string) (string, error) {
 	return resolveActiveSessionIDResolved(root)
 }
 
+const maxInspectionAttempts = 3
+
+// InspectSessionState reads one session snapshot without acquiring locks,
+// creating state directories, normalizing the file on disk, or persisting
+// evidence taint. Enforcement callers must continue using LoadSessionState.
+func InspectSessionState(repoRoot, sessionID string) (SessionState, error) {
+	if err := validateSessionID(sessionID); err != nil {
+		return SessionState{}, err
+	}
+	root, err := ResolveRepoRoot(repoRoot)
+	if err != nil {
+		return SessionState{}, err
+	}
+	return inspectSessionStateResolved(root, sessionID)
+}
+
+func inspectSessionStateResolved(root, sessionID string) (SessionState, error) {
+	state, err := readSessionStateResolved(root, sessionID)
+	if err != nil {
+		return SessionState{}, err
+	}
+	taint, err := loadEvidenceTaint(root)
+	if err != nil {
+		return SessionState{}, err
+	}
+	if taint != nil {
+		applyEvidenceTaint(&state, *taint)
+	}
+	return state, nil
+}
+
+// InspectActiveSessionState returns one lock-free, bounded snapshot of the
+// active session for read-oriented status and briefing commands. Atomic
+// replacement of the active pointer is retried a small, fixed number of times;
+// persistent churn returns an explicit error instead of spinning forever.
+func InspectActiveSessionState(repoRoot string) (string, SessionState, error) {
+	root, err := ResolveRepoRoot(repoRoot)
+	if err != nil {
+		return "", SessionState{}, err
+	}
+	return inspectActiveSessionStateResolved(root)
+}
+
+func inspectActiveSessionStateResolved(root string) (string, SessionState, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxInspectionAttempts; attempt++ {
+		sessionID, before, err := readActiveSessionIDSnapshot(activeSessionPath(root))
+		if errors.Is(err, os.ErrNotExist) {
+			return "", SessionState{}, nil
+		}
+		if err != nil {
+			return "", SessionState{}, err
+		}
+		if sessionID == "" {
+			return "", SessionState{}, nil
+		}
+		state, err := inspectSessionStateResolved(root, sessionID)
+		if err != nil {
+			return sessionID, SessionState{}, err
+		}
+		afterID, after, err := readActiveSessionIDSnapshot(activeSessionPath(root))
+		if errors.Is(err, os.ErrNotExist) {
+			lastErr = errors.New("active session pointer disappeared during inspection")
+			continue
+		}
+		if err != nil {
+			return sessionID, SessionState{}, err
+		}
+		if sessionID == afterID && sameActiveSessionSnapshot(before, after) {
+			return sessionID, state, nil
+		}
+		lastErr = errors.New("active session pointer changed during inspection")
+	}
+	if lastErr == nil {
+		lastErr = errors.New("active session changed during inspection")
+	}
+	return "", SessionState{}, fmt.Errorf("%w; retry", lastErr)
+}
+
 func resolveActiveSessionIDResolved(root string) (string, error) {
 	var sessionID string
 	err := withActiveSessionLock(root, func() error {
@@ -879,11 +969,30 @@ func readActiveSessionID(path string) (string, error) {
 		}
 		return "", fmt.Errorf("read active session file: %w", err)
 	}
+	return decodeActiveSessionID(data)
+}
+
+func readActiveSessionIDSnapshot(path string) (string, os.FileInfo, error) {
+	data, info, err := boundedio.ReadRegularFileSnapshot(path, maxSessionIDBytes+1)
+	if err != nil {
+		return "", nil, err
+	}
+	sessionID, err := decodeActiveSessionID(data)
+	return sessionID, info, err
+}
+
+func decodeActiveSessionID(data []byte) (string, error) {
 	sessionID := strings.TrimSuffix(string(data), "\n")
 	if err := validateSessionID(sessionID); err != nil {
 		return "", fmt.Errorf("invalid active session file: %w", err)
 	}
 	return sessionID, nil
+}
+
+func sameActiveSessionSnapshot(left, right os.FileInfo) bool {
+	return left != nil && right != nil && os.SameFile(left, right) &&
+		left.Mode() == right.Mode() && left.Size() == right.Size() &&
+		left.ModTime().Equal(right.ModTime())
 }
 
 func writeActiveSession(repoRoot, sessionID string) error {

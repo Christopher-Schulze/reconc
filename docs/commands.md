@@ -72,7 +72,7 @@ Generated from `internal/commandmeta`; run `make reference-docs` after changing 
 | `reconc hook conform` | `reconc hook conform <manifest.json> <fixtures.json> [--json]` | verify a custom runtime adapter contract offline | text, json |
 | `reconc hook sync-scaffold` | `reconc hook sync-scaffold <repo-root-scaffold> [--json]` | synchronize generated scaffold hook artifacts | text, json |
 | `reconc hook claim` | `reconc hook claim <repo> <claim-name> [--session ID] [--json] [--output PATH]` | record one explicit session claim | text, json, file |
-| `reconc hook evidence-status` | `reconc hook evidence-status [repo] [--json]` | inspect persistent evidence taint without mutation | text, json |
+| `reconc hook evidence-status` | `reconc hook evidence-status [repo] [--json]` | inspect effective evidence taint without mutation | text, json |
 | `reconc hook evidence-resolve` | `reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]` | resolve reviewed persistent evidence taint explicitly | text, json |
 | `reconc agent-intro` | `reconc agent-intro [--section NAME \| --list-sections] [--json]` | print the embedded agent integration guide | text, json |
 | `reconc audit` | `reconc audit <tail\|stats\|export\|verify>` | inspect, export, or cryptographically verify decision evidence | text, json, jsonl |
@@ -1450,10 +1450,12 @@ state consulted by later hook-runtime checks and `ci` calls. `--session`
 selects an exact existing session instead of resolving the active pointer.
 
 ### `reconc hook evidence-status [repo] [--json]`
-Read-only inspection of persistent project evidence taint. Reports the exact
-overflow or chain-integrity cause, affected limit, active-session state, and
-operator resolution token without clearing or certifying the abandoned
-evidence window.
+Read-only inspection of project evidence taint. Reports the exact overflow or
+chain-integrity cause, affected limit, active-session state, and operator
+resolution token without clearing or certifying the abandoned evidence window.
+When an active state reports overflow before enforcement has persisted its
+taint, JSON sets `persisted` to `false`; that observation is not resolvable
+until the mutating enforcement path has recorded the durable taint.
 
 ### `reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]`
 Explicitly abandon one reviewed tainted evidence window. The command requires
@@ -1629,8 +1631,10 @@ Compact delta-oriented session state: current TASK/Sub-Task, bounded blockers,
 current policy delta, required evidence, durable repository-run status, saved
 report path, and one exact next action. JSON includes `format_version` for
 machine consumers. Aggregate audit history and Git are intentionally excluded
-from this hot path. It is read-only; missing or stale lockfiles require
-`reconc refresh .`.
+from this hot path. Active-session state is read through bounded, lock-free
+snapshots; malformed, oversized, replaced, or overflowed state is reported as
+uncertainty and never repaired. It is read-only; missing or stale lockfiles
+require `reconc refresh .`.
 
 ### `reconc context size [repo] [--limit N] [--files PATH,PATH,...] [--json]`
 Guards the auto-loaded session-file token budget (default 20000 tokens).

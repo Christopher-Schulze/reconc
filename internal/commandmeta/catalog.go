@@ -182,7 +182,7 @@ var commandCatalog = []Command{
 		internalSub("kimi-runtime", "reconc hook kimi-runtime receipt-v1 <event>", "dispatch one receipt-bound global Kimi Code runtime event"),
 		internalSub("grok-pre-tool-guard", "reconc hook grok-pre-tool-guard <repo>", "run the internal fail-closed Grok pre-tool guard"),
 		sub("claim", "reconc hook claim <repo> <claim-name> [--session ID] [--json] [--output PATH]", "record one explicit session claim", flags(f("--session", "ID"), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
-		sub("evidence-status", "reconc hook evidence-status [repo] [--json]", "inspect persistent evidence taint without mutation", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
+		sub("evidence-status", "reconc hook evidence-status [repo] [--json]", "inspect effective evidence taint without mutation", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("evidence-resolve", "reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]", "resolve reviewed persistent evidence taint explicitly", flags(f("--token", "TOKEN"), f("--reason", "TEXT"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON, OutputFile)),
 
