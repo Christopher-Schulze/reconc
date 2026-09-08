@@ -698,7 +698,7 @@ func BenchmarkRuntimePlanIndexesFor(b *testing.B) {
 		b.Run(name, func(b *testing.B) {
 			b.ReportAllocs()
 			for range b.N {
-				indexes := plan.indexesFor(kinds, false)
+				indexes := plan.indexesFor(kinds, evaluationComplete)
 				if name == "all" && indexes != nil {
 					b.Fatal("all-rule selection did not use nil sentinel")
 				}
@@ -827,7 +827,7 @@ func BenchmarkEvaluateEvidencePaths(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
-				report, err := evaluateRuntimePlan(repo, plan, inputs, nil, false)
+				report, err := evaluateRuntimePlan(repo, plan, inputs, nil, evaluationComplete)
 				if err != nil || report.Decision != DecisionPass {
 					b.Fatalf("evaluation = (%v, %v)", report, err)
 				}

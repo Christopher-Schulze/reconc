@@ -37,7 +37,7 @@ func TestEvaluationReusesOneResolvedRootForEvidencePaths(t *testing.T) {
 	}
 	inputs := ExecutionInputs{WritePaths: []string{"src/main.go"}, Commands: []string{"echo safe"}}
 	rootResolutions := 0
-	report, err := evaluateRuntimePlanWithRootResolver(repo, plan, inputs, nil, false, func(path string) (string, error) {
+	report, err := evaluateRuntimePlanWithRootResolver(repo, plan, inputs, nil, evaluationComplete, func(path string) (string, error) {
 		rootResolutions++
 		return pathidentity.ResolveExisting(path)
 	})

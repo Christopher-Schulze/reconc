@@ -661,6 +661,9 @@ func validateRuleItem(
 				Message: "rule '" + id + "' (kind not) requires exactly one check, got " + strconv.Itoa(len(checks)),
 			}
 		}
+		if err := policy.ValidateCompositeWritePhase(kind, checks); err != nil {
+			return policy.Rule{}, &rerrors.RuleValidationError{Message: "rule '" + id + "': " + err.Error()}
+		}
 	}
 
 	assurance, err := optionalAssuranceGateList(item, "assurance", id)

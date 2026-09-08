@@ -37,6 +37,9 @@ func evalAllOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inp
 	failures := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
 	for _, mc := range contexts {
 		for i, c := range checks {
+			if ctx.preWrite && c.Kind != policy.KindDenyWrite {
+				continue
+			}
 			ok, reason, err := evalCheck(ctx, c, mc.captures, inputs, inputs.WriteEpochs[mc.path])
 			if err != nil {
 				var evalErr *checkEvalError

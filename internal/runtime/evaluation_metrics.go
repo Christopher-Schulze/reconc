@@ -89,7 +89,7 @@ func (e *CompiledPolicyEvaluator) CheckWithTraceContext(ctx context.Context, rep
 		return nil, EvaluationMetrics{}, EvaluationTrace{}, fmt.Errorf("compiled policy evaluator is nil")
 	}
 	plan := e.planForRoot(repoRoot)
-	report, err := evaluateRuntimePlanContext(ctx, repoRoot, plan, inputs, nil, false)
+	report, err := evaluateRuntimePlanContext(ctx, repoRoot, plan, inputs, nil, evaluationComplete)
 	if err != nil {
 		return nil, EvaluationMetrics{}, EvaluationTrace{}, err
 	}
@@ -177,7 +177,7 @@ func (e *Evaluator) CheckRepoPolicyWithMetrics(startPath string, inputs Executio
 	if err != nil {
 		return nil, EvaluationMetrics{}, err
 	}
-	report, err := evaluateRuntimePlan(discovery.RepoRoot, plan, inputs, nil, false)
+	report, err := evaluateRuntimePlan(discovery.RepoRoot, plan, inputs, nil, evaluationComplete)
 	if err != nil {
 		return nil, EvaluationMetrics{}, err
 	}

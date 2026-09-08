@@ -596,11 +596,11 @@ func TestRuntimePlanReusesImmutableCommandExpectationsAcrossEvaluations(t *testi
 			Command: "go test ./...", Outcome: CommandOutcomeSuccess,
 		}},
 	}
-	firstReport, err := evaluateRuntimePlan(repo, plan, inputs, nil, false)
+	firstReport, err := evaluateRuntimePlan(repo, plan, inputs, nil, evaluationComplete)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondReport, err := evaluateRuntimePlan(repo, plan, inputs, nil, false)
+	secondReport, err := evaluateRuntimePlan(repo, plan, inputs, nil, evaluationComplete)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -626,22 +626,27 @@ func TestRuntimePlanIndexesForReusesSelectionsAndPreservesOrder(t *testing.T) {
 			policy.KindRequireRead: {1},
 		},
 		preCommandRules: []int{2},
+		preWriteRules:   []int{0, 1, 2},
 	}
-	if got := plan.indexesFor(nil, false); got != nil {
+	if got := plan.indexesFor(nil, evaluationComplete); got != nil {
 		t.Fatalf("unfiltered indexes = %#v, want nil", got)
 	}
-	preCommand := plan.indexesFor(nil, true)
+	preCommand := plan.indexesFor(nil, evaluationPreCommand)
 	if !reflect.DeepEqual(preCommand, []int{2}) || &preCommand[0] != &plan.preCommandRules[0] {
 		t.Fatalf("pre-command indexes were not reused: %#v", preCommand)
 	}
-	deny := plan.indexesFor(map[policy.Kind]struct{}{policy.KindDenyWrite: {}}, false)
+	preWrite := plan.indexesFor(nil, evaluationPreWrite)
+	if !reflect.DeepEqual(preWrite, []int{0, 1, 2}) || &preWrite[0] != &plan.preWriteRules[0] {
+		t.Fatalf("pre-write indexes were not reused: %#v", preWrite)
+	}
+	deny := plan.indexesFor(map[policy.Kind]struct{}{policy.KindDenyWrite: {}}, evaluationComplete)
 	if !reflect.DeepEqual(deny, []int{0, 2}) || &deny[0] != &plan.rulesByKind[policy.KindDenyWrite][0] {
 		t.Fatalf("single-kind indexes were not reused: %#v", deny)
 	}
 	mixed := plan.indexesFor(map[policy.Kind]struct{}{
 		policy.KindDenyWrite:   {},
 		policy.KindRequireRead: {},
-	}, false)
+	}, evaluationComplete)
 	if mixed != nil {
 		t.Fatalf("all-rule selection = %#v, want nil", mixed)
 	}
@@ -649,7 +654,7 @@ func TestRuntimePlanIndexesForReusesSelectionsAndPreservesOrder(t *testing.T) {
 		"empty":   {},
 		"unknown": {policy.Kind("future"): {}},
 	} {
-		if got := plan.indexesFor(kinds, false); got == nil || len(got) != 0 {
+		if got := plan.indexesFor(kinds, evaluationComplete); got == nil || len(got) != 0 {
 			t.Fatalf("%s selection = %#v, want non-nil empty", name, got)
 		}
 	}

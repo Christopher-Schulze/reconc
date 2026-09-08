@@ -64,11 +64,14 @@ var blockingModes = map[policy.Mode]struct{}{
 
 // preWriteBlockKinds are the subset of rule kinds that are meaningful
 // to enforce at PreToolUse time (before a file is actually written).
-// Other kinds (require_command, require_claim, ...) are Stop-time
-// gates because their evidence only accrues after the agent runs.
+// Composite selection and phase semantics belong to the runtime plan;
+// this map only preserves its blocking violations in the adapter response.
 var preWriteBlockKinds = map[policy.Kind]struct{}{
 	policy.KindDenyWrite:   {},
 	policy.KindRequireRead: {},
+	policy.KindAllOf:       {},
+	policy.KindAnyOf:       {},
+	policy.KindNot:         {},
 }
 
 // preCommandBlockKinds are the policy rules whose effect must happen before a
@@ -770,7 +773,7 @@ func runPreWritePolicyCheckWithEvaluator(
 	claims []string,
 ) (*runtime.CheckReport, error) {
 	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, readPaths), writePaths, writeEpochs, commands, cmdResults, claims)
-	return evaluator.CheckRepoPolicyForKinds(repoRoot, inputs, preWriteBlockKinds)
+	return evaluator.CheckRepoPolicyForPreWrite(repoRoot, inputs)
 }
 
 func runPreCommandPolicyCheckWithEvaluator(evaluator *runtime.Evaluator, repoRoot string, state SessionState, command string) (*runtime.CheckReport, error) {

@@ -22,6 +22,7 @@ type evalContext struct {
 	rawCommands      []string
 	currentCommands  []string
 	preCommand       bool
+	preWrite         bool
 	matchers         *runtimePathMatchers
 	templateMatchers *runtimeTemplateMatchers
 	commandCache     *commandInvocationCache
@@ -380,7 +381,7 @@ func (e *Evaluator) CheckRepoPolicy(startPath string, inputs ExecutionInputs) (*
 
 // CheckRepoPolicyContext evaluates every rule under the caller lifecycle.
 func (e *Evaluator) CheckRepoPolicyContext(ctx context.Context, startPath string, inputs ExecutionInputs) (*CheckReport, error) {
-	return e.checkRepoPolicy(ctx, startPath, inputs, nil, false)
+	return e.checkRepoPolicy(ctx, startPath, inputs, nil, evaluationComplete)
 }
 
 // CheckRepoPolicyForKinds evaluates only the requested top-level rule kinds
@@ -402,7 +403,7 @@ func (e *Evaluator) CheckRepoPolicyForKinds(startPath string, inputs ExecutionIn
 
 // CheckRepoPolicyForKindsContext evaluates indexed kinds under the caller lifecycle.
 func (e *Evaluator) CheckRepoPolicyForKindsContext(ctx context.Context, startPath string, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}) (*CheckReport, error) {
-	return e.checkRepoPolicy(ctx, startPath, inputs, allowedKinds, false)
+	return e.checkRepoPolicy(ctx, startPath, inputs, allowedKinds, evaluationComplete)
 }
 
 // CheckRepoPolicyForPreCommand evaluates prevention rules before a shell
@@ -425,10 +426,10 @@ func (e *Evaluator) CheckRepoPolicyForPreCommand(startPath string, inputs Execut
 
 // CheckRepoPolicyForPreCommandContext evaluates the prevention subset under the caller lifecycle.
 func (e *Evaluator) CheckRepoPolicyForPreCommandContext(ctx context.Context, startPath string, inputs ExecutionInputs) (*CheckReport, error) {
-	return e.checkRepoPolicy(ctx, startPath, inputs, nil, true)
+	return e.checkRepoPolicy(ctx, startPath, inputs, nil, evaluationPreCommand)
 }
 
-func (e *Evaluator) checkRepoPolicy(ctx context.Context, startPath string, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool) (*CheckReport, error) {
+func (e *Evaluator) checkRepoPolicy(ctx context.Context, startPath string, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, phase evaluationPhase) (*CheckReport, error) {
 	if ctx == nil {
 		return nil, errors.New("runtime evaluation context is required")
 	}
@@ -452,22 +453,22 @@ func (e *Evaluator) checkRepoPolicy(ctx context.Context, startPath string, input
 	if err != nil {
 		return nil, err
 	}
-	return evaluateRuntimePlanContext(ctx, root, plan, inputs, allowedKinds, preCommand)
+	return evaluateRuntimePlanContext(ctx, root, plan, inputs, allowedKinds, phase)
 }
 
-func evaluateRuntimePlan(root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool) (*CheckReport, error) {
-	return evaluateRuntimePlanContext(context.Background(), root, plan, inputs, allowedKinds, preCommand)
+func evaluateRuntimePlan(root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, phase evaluationPhase) (*CheckReport, error) {
+	return evaluateRuntimePlanContext(context.Background(), root, plan, inputs, allowedKinds, phase)
 }
 
-func evaluateRuntimePlanContext(ctx context.Context, root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool) (*CheckReport, error) {
-	return evaluateRuntimePlanWithRootResolverContext(ctx, root, plan, inputs, allowedKinds, preCommand, pathidentity.ResolveExisting)
+func evaluateRuntimePlanContext(ctx context.Context, root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, phase evaluationPhase) (*CheckReport, error) {
+	return evaluateRuntimePlanWithRootResolverContext(ctx, root, plan, inputs, allowedKinds, phase, pathidentity.ResolveExisting)
 }
 
-func evaluateRuntimePlanWithRootResolver(root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool, resolveRoot func(string) (string, error)) (*CheckReport, error) {
-	return evaluateRuntimePlanWithRootResolverContext(context.Background(), root, plan, inputs, allowedKinds, preCommand, resolveRoot)
+func evaluateRuntimePlanWithRootResolver(root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, phase evaluationPhase, resolveRoot func(string) (string, error)) (*CheckReport, error) {
+	return evaluateRuntimePlanWithRootResolverContext(context.Background(), root, plan, inputs, allowedKinds, phase, resolveRoot)
 }
 
-func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool, resolveRoot func(string) (string, error)) (*CheckReport, error) {
+func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, phase evaluationPhase, resolveRoot func(string) (string, error)) (*CheckReport, error) {
 	if lifecycle == nil {
 		return nil, errors.New("runtime evaluation context is required")
 	}
@@ -485,7 +486,8 @@ func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root 
 		paths:            normalized.paths,
 		rawCommands:      normalized.rawCommands,
 		currentCommands:  normalized.currentCommands,
-		preCommand:       preCommand,
+		preCommand:       phase == evaluationPreCommand,
+		preWrite:         phase == evaluationPreWrite,
 		matchers:         plan.pathMatchers,
 		templateMatchers: plan.templateMatchers,
 		commandCache:     newCommandInvocationCache(plan.commandExpectations),
@@ -494,7 +496,7 @@ func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root 
 		evidenceMemo:     newEvidenceMatchMemo(),
 		contextMemo:      newMatchContextMemo(normalized.inputs.WritePaths),
 	}
-	ruleIndexes := plan.indexesFor(allowedKinds, preCommand)
+	ruleIndexes := plan.indexesFor(allowedKinds, phase)
 	ruleCount := len(ruleIndexes)
 	if ruleIndexes == nil {
 		ruleCount = len(plan.rules)
@@ -513,7 +515,7 @@ func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root 
 		if err := ctx.lifecycleContext().Err(); err != nil {
 			return nil, err
 		}
-		if preCommand && rule.Kind.IsComposite() {
+		if phase == evaluationPreCommand && rule.Kind.IsComposite() {
 			matched, err := compositeRuleTriggerMatches(ctx, rule, normalized.inputs)
 			if err != nil {
 				return nil, err
@@ -545,9 +547,12 @@ func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root 
 	return &report, nil
 }
 
-func (plan *runtimePlan) indexesFor(allowedKinds map[policy.Kind]struct{}, preCommand bool) []int {
-	if preCommand {
+func (plan *runtimePlan) indexesFor(allowedKinds map[policy.Kind]struct{}, phase evaluationPhase) []int {
+	if phase == evaluationPreCommand {
 		return plan.preCommandRules
+	}
+	if phase == evaluationPreWrite {
+		return plan.preWriteRules
 	}
 	if allowedKinds == nil {
 		return nil

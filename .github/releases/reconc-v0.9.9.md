@@ -16,6 +16,14 @@ Template provenance excludes private installation paths and raw bodies.
 Compilation bounds distinct template input to 64 MiB, retaining the existing
 8 MiB per-template limit and sharing repeated references within one snapshot.
 
+## Composite write prevention
+
+Supported composite `deny_write` rules are enforced before PreToolUse and
+PermissionRequest file mutations. Mixed `all_of` rules enforce their necessary
+write checks before execution and retain completion checks for Stop. Mixed
+`any_of` rules combining `deny_write` with other check kinds are rejected with
+an authoring diagnostic instead of silently permitting a protected write.
+
 ## Compatibility
 
 The format-6 policy-lock schema adds optional `template_dependencies` and targets

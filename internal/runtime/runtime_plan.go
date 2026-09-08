@@ -64,6 +64,7 @@ type runtimePlan struct {
 	ruleByID               map[string]int
 	rulesByKind            map[policy.Kind][]int
 	preCommandRules        []int
+	preWriteRules          []int
 	sourceDigest           string
 	lockDigest             string
 	sourceCount            int
@@ -331,6 +332,7 @@ func compileRuntimePlanPrepared(
 		ruleByID:             make(map[string]int, len(rules)),
 		rulesByKind:          make(map[policy.Kind][]int, len(policy.AllKinds())),
 		preCommandRules:      make([]int, 0),
+		preWriteRules:        make([]int, 0),
 		sourceDigest:         envelope.SourceDigest,
 		lockDigest:           envelope.LockDigest,
 		sourceCount:          envelope.SourceCount,
@@ -351,6 +353,9 @@ func compileRuntimePlanPrepared(
 		plan.rulesByKind[rule.Kind] = append(plan.rulesByKind[rule.Kind], index)
 		if runtimeRuleContainsForbidCommand(rule) {
 			plan.preCommandRules = append(plan.preCommandRules, index)
+		}
+		if runtimeRulePreventsWrite(rule) {
+			plan.preWriteRules = append(plan.preWriteRules, index)
 		}
 	}
 	pathMatchers, err := compileRuntimePathMatchers(plan.rules)
@@ -942,6 +947,9 @@ func validateRuntimeRuleShape(rule *policy.Rule) error {
 		}
 		if rule.Kind == policy.KindNot && len(rule.Checks) != 1 {
 			return fmt.Errorf("kind not requires exactly one check")
+		}
+		if err := policy.ValidateCompositeWritePhase(rule.Kind, rule.Checks); err != nil {
+			return err
 		}
 		return require("when_paths", rule.WhenPaths)
 	case policy.KindRequireAssurance:

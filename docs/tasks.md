@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 471 Enforce composite write prevention before execution -> tasks/471-enforce-composite-write-prevention-before-execution.md
 - [ ] 472 Require bound approval before authority file changes -> tasks/472-require-bound-approval-before-authority-file-changes.md
 - [ ] 473 Bind CI gates to the current merge candidate -> tasks/473-bind-ci-gates-to-the-current-merge-candidate.md
 - [ ] 474 Bind pre-decision cache to path and evidence identity -> tasks/474-bind-pre-decision-cache-to-path-and-evidence-identity.md
@@ -38,6 +37,7 @@
 
 ## Done
 
+- [x] 471 Enforce composite write prevention before execution -> tasks/done/471-enforce-composite-write-prevention-before-execution.md
 - [x] 470 Bind template provenance to policy freshness -> tasks/done/470-bind-template-provenance-to-policy-freshness.md
 - [x] 469 Complete v0.9.8 Windows and release gate -> tasks/done/469-complete-v0-9-8-windows-and-release-gate.md
 - [x] 468 Complete OMP v18 integration -> tasks/done/468-complete-omp-v18-integration.md
@@ -47,4 +47,3 @@
 - [x] 464 Redact every host path in public impact actions -> tasks/done/464-redact-every-host-path-in-public-impact-actions.md
 - [x] 463 Complete the native Windows final gate -> tasks/done/463-complete-the-native-windows-final-gate.md
 - [x] 462 Restore the Windows final gate -> tasks/done/462-restore-the-windows-final-gate.md
-- [x] 461 Keep self-host runtime contracts current -> tasks/done/461-keep-self-host-runtime-contracts-current.md

@@ -2565,6 +2565,20 @@ matching. Repository path evidence is normalized to slash separators but never
 trimmed: leading and trailing spaces are legal filename bytes and remain part
 of the match identity.
 
+Write-prevention checks run before supported PreToolUse and PermissionRequest
+file mutations. The runtime plan indexes primitive `deny_write` and
+`require_read` rules plus composites containing `deny_write`. Write-only
+`all_of`, `any_of`, and `not` preserve their complete truth semantics. A mixed
+`all_of` enforces its necessary `deny_write` checks before the write and retains
+all other checks for completion; missing future claims, commands, files, and
+script results do not prematurely block the work that produces them. An
+`any_of` that mixes `deny_write` with another check kind is rejected during
+authoring and compiled-lock admission: future evidence cannot safely decide
+write authorization. Separate prevention and completion rules, or use
+`all_of` when both conditions are required. Composite checks remain primitive;
+recursive composite nesting is unsupported. Parent path triggers, scopes and
+rule modes continue to apply at every evaluation boundary.
+
 Command-prevention checks examine executable shell segments rather than one
 flat string. Top-level and composite `forbid_command` rules therefore run at
 PreToolUse and cannot be hidden behind `sh -c`, `bash -lc`, literal `eval`,
@@ -2581,7 +2595,7 @@ of an absolute executable path; explicitly path-qualified rules remain exact.
 Every dynamic `find` expression argument is treated as structurally unknown and
 fails closed, including dynamic paths or predicates before, inside, or after a
 command-running action.
-During PreToolUse, a composite violation blocks only when the current command
+During shell PreToolUse, a composite violation blocks only when the current command
 itself hits a direct `forbid_command`, so historical results and unrelated
 failing subchecks cannot poison later safe commands. Recursion is bounded;
 unresolved dynamic executable names and exhausted nesting fail closed. The
