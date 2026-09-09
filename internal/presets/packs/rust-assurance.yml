@@ -24,7 +24,7 @@ rules:
     kind: require_assurance
     mode: warn
     when_paths: ["**/*.rs", "Cargo.toml", "Cargo.lock"]
-    message: Rust changes require current tests, canonical formatting, warning-free Clippy, and shipped-source hygiene.
+    message: Rust changes require module-scoped current tests, canonical formatting, warning-free Clippy, and shipped-source hygiene.
     assurance:
       - id: rust-verification
         type: live_verification

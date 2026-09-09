@@ -25,7 +25,7 @@ rules:
     kind: require_assurance
     mode: warn
     when_paths: ["**/*.py", "pyproject.toml", "requirements.txt", "setup.cfg", "setup.py"]
-    message: Python changes require current test evidence and shipped-source hygiene.
+    message: Python changes require module-scoped current test evidence and shipped-source hygiene.
     assurance:
       - id: python-tests
         type: live_verification

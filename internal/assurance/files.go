@@ -18,6 +18,9 @@ import (
 
 type evaluationState struct {
 	budget                    *scanBudget
+	scopePrefix               string
+	scoped                    []*evaluationState
+	commandEvidence           []CommandEvidence
 	paths                     map[string]resolvedPath
 	facts                     map[string]*fileFacts
 	changedPaths              []normalizedChangedPath

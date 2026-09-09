@@ -154,7 +154,7 @@ func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode polic
 	requiredPaths := newStableStringCollector([]string{})
 	details := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
 	for _, finding := range findings {
-		details.add("[" + finding.GateID + "] " + finding.Message)
+		details.add(assuranceFindingDetail(finding))
 		for _, path := range finding.Paths {
 			requiredPaths.add(path)
 		}
@@ -167,6 +167,20 @@ func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode polic
 		v.RecommendedAction = truncateViolationText(findings[0].Remediation, MaxViolationTextBytes-len(suffix)) + suffix
 	}
 	return v, nil
+}
+
+func assuranceFindingDetail(finding assurance.Finding) string {
+	prefix := "[" + finding.GateID + "]"
+	if finding.ModuleRoot != "" {
+		prefix += " module=" + finding.ModuleRoot
+	}
+	if finding.Manifest != "" {
+		prefix += " manifest=" + finding.Manifest
+	}
+	if len(finding.EffectiveScope) > 0 {
+		prefix += " scope=" + strings.Join(finding.EffectiveScope, ",")
+	}
+	return prefix + " " + finding.Message
 }
 
 // evalRequireScript runs an external script for each match context.

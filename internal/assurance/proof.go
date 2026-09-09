@@ -36,7 +36,7 @@ type proofRecord struct {
 	VerifiedAt     string    `json:"verified_at"`
 }
 
-func evaluateSubstantiveProof(root string, gate policy.AssuranceGate, inputs Inputs, state *evaluationState) ([]Finding, error) {
+func evaluateSubstantiveProof(root string, gate policy.AssuranceGate, inputs Inputs, state *evaluationState, scope *moduleScope) ([]Finding, error) {
 	resolved, err := state.resolve(root, gate.ProofFile)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func evaluateSubstantiveProof(root string, gate policy.AssuranceGate, inputs Inp
 	if len(document.Proofs) == 0 {
 		findings = append(findings, proofFinding(gate, gate.ProofFile, "proofs must contain at least one measured proof"))
 	}
-	successful := stringSetNormalized(inputs.SuccessfulCommands)
+	successful := scopeCommandEvidence(root, inputs, scope)
 	seen := map[string]bool{}
 	for index, proof := range document.Proofs {
 		label := fmt.Sprintf("proofs[%d]", index)
@@ -96,7 +96,7 @@ func evaluateSubstantiveProof(root string, gate policy.AssuranceGate, inputs Inp
 				findings = append(findings, proofFinding(gate, gate.ProofFile, fmt.Sprintf("%s measured value %.9g does not satisfy %s %.9g", label, computed, proof.Comparator, *proof.Threshold)))
 			}
 		}
-		if !successful[normalizeCommand(proof.Command)] {
+		if !successful[normalizeScopedCommand(proof.Command)] {
 			findings = append(findings, proofFinding(gate, gate.ProofFile, label+" command has no current successful runtime evidence: "+proof.Command))
 		}
 		verifiedAt, parseErr := time.Parse(time.RFC3339, proof.VerifiedAt)

@@ -253,7 +253,7 @@ func (state *evaluationState) prepareGoFacts(files []changedFile, syntax, format
 }
 
 func (state *evaluationState) analysisStats() analysisStats {
-	return analysisStats{
+	stats := analysisStats{
 		BodyReads:                     state.stats.bodyReads.Load(),
 		LineBuilds:                    state.stats.lineBuilds.Load(),
 		JSONParses:                    state.stats.jsonParses.Load(),
@@ -266,4 +266,17 @@ func (state *evaluationState) analysisStats() analysisStats {
 		Files:                         int64(len(state.budget.files)),
 		Bytes:                         state.budget.bytes,
 	}
+	for _, scoped := range state.scoped {
+		child := scoped.analysisStats()
+		stats.BodyReads += child.BodyReads
+		stats.LineBuilds += child.LineBuilds
+		stats.JSONParses += child.JSONParses
+		stats.GoParses += child.GoParses
+		stats.GoFormats += child.GoFormats
+		stats.PathMatches += child.PathMatches
+		stats.PathResolutions += child.PathResolutions
+		stats.PackageManagerDirectoryProbes += child.PackageManagerDirectoryProbes
+		stats.PackageManagerLockProbes += child.PackageManagerLockProbes
+	}
+	return stats
 }

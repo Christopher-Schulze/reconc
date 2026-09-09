@@ -36,7 +36,7 @@ rules:
     kind: require_assurance
     mode: warn
     when_paths: ["**/*.go", "go.mod", "go.sum"]
-    message: Go changes require canonical formatting, current verification, and guarded network/process sites.
+    message: Go changes require canonical formatting, module-scoped current verification, and guarded network/process sites.
     assurance:
       - id: go-live
         type: live_verification

@@ -2920,6 +2920,19 @@ an `id`, `type`, and optional `applicable_if`. Fields that do not belong to the
 selected gate type are rejected instead of being silently ignored. Reconc
 validates the complete `applicable_if` pattern set before checking whether any
 one pattern matches, so an earlier match cannot hide a malformed later pattern.
+For Go, Rust, and Python gates, when an applicable manifest is detected below
+the repository root, assurance selects the nearest changed module root for
+that stack and evaluates the gate against that module's canonical root.
+Findings carry the module root, manifest, and effective changed-path scope.
+Root manifests own otherwise unassigned paths; Cargo workspace members and Go modules covered by `go.work` keep the
+workspace root as an explicitly proven command scope. Selection is
+deterministic by canonical root, stack, and manifest, and overlapping roots
+choose the deepest owner. A nested command must carry an explicit module
+working directory or a literal `cd <module> && ...`/runner directory prefix;
+root-scoped command strings cannot satisfy another module. If changed Go,
+Rust, or Python source has no detected applicable module root, evaluation fails
+closed instead of silently skipping the gate. Missing, symlinked, or unreadable
+applicable manifests are likewise errors.
 
 | Gate type | Contract | Authority surface |
 |---|---|---|

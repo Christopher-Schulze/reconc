@@ -178,6 +178,68 @@ func TestDetectReportsManagersMarkersAndSameDirectoryAmbiguity(t *testing.T) {
 	}
 }
 
+func TestDetectBuildsDeterministicModuleScopesAndWorkspaces(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"go.work":                          "go 1.26\nuse ./services/api\n",
+		"services/api/go.mod":              "module example/api\n",
+		"services/api/main.go":             "package api\n",
+		"Cargo.toml":                       "[workspace]\nmembers = [\"crates/api\"]\n",
+		"crates/api/Cargo.toml":            "[package]\nname = \"api\"\nversion = \"0.1.0\"\n",
+		"services/python/pyproject.toml":   "[project]\nname = \"python\"\n",
+		"services/python/requirements.txt": "pytest\n",
+	}
+	for relative, body := range files {
+		writeDetectionFile(t, root, relative, body)
+	}
+	result, err := Detect(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Module{
+		{Root: ".", Manifest: "Cargo.toml", Stack: "rust", WorkspaceRoot: "."},
+		{Root: "crates/api", Manifest: "crates/api/Cargo.toml", Stack: "rust", WorkspaceRoot: "."},
+		{Root: "services/api", Manifest: "services/api/go.mod", Stack: "go", WorkspaceRoot: "."},
+		{Root: "services/python", Manifest: "services/python/pyproject.toml", Stack: "python"},
+	}
+	if !reflect.DeepEqual(result.Modules, want) {
+		t.Fatalf("modules = %#v, want %#v", result.Modules, want)
+	}
+}
+
+func TestDetectWorkspaceOwnershipUsesDeclaredMembers(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"go.work":                   "go 1.26\nuse ./services/api\n",
+		"services/api/go.mod":       "module example/api\n",
+		"services/other/go.mod":     "module example/other\n",
+		"Cargo.toml":                "[workspace]\nmembers = [\"crates/api\"]\nexclude = [\"crates/ignored\"]\n",
+		"crates/api/Cargo.toml":     "[package]\nname = \"api\"\nversion = \"0.1.0\"\n",
+		"crates/ignored/Cargo.toml": "[package]\nname = \"ignored\"\nversion = \"0.1.0\"\n",
+		"services/api/main.go":      "package api\n",
+		"services/other/main.go":    "package other\n",
+		"crates/api/src/lib.rs":     "pub fn api() {}\n",
+		"crates/ignored/src/lib.rs": "pub fn ignored() {}\n",
+	}
+	for relative, body := range files {
+		writeDetectionFile(t, root, relative, body)
+	}
+	result, err := Detect(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceRoots := map[string]string{}
+	for _, module := range result.Modules {
+		workspaceRoots[module.Root+":"+module.Stack] = module.WorkspaceRoot
+	}
+	if workspaceRoots["services/api:go"] != "." || workspaceRoots["crates/api:rust"] != "." {
+		t.Fatalf("declared workspace members lost workspace ownership: %#v", workspaceRoots)
+	}
+	if workspaceRoots["services/other:go"] != "" || workspaceRoots["crates/ignored:rust"] != "" {
+		t.Fatalf("undeclared workspace modules incorrectly owned: %#v", workspaceRoots)
+	}
+}
+
 func writeDetectionFile(t *testing.T, root, relative, body string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(relative))

@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/bmatcuk/doublestar/v4"
+	"github.com/pelletier/go-toml/v2"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/pathidentity"
 )
@@ -39,6 +41,17 @@ type Result struct {
 	PackageManagers   map[string][]string `json:"package_managers"`
 	RepositoryMarkers []string            `json:"repository_markers"`
 	Ambiguities       []string            `json:"ambiguities"`
+	Modules           []Module            `json:"modules"`
+}
+
+// Module identifies one bounded manifest-owned project scope. Root and
+// Manifest are repository-relative slash paths; WorkspaceRoot is set when a
+// workspace manifest is proven to cover the module.
+type Module struct {
+	Root          string `json:"root"`
+	Manifest      string `json:"manifest"`
+	Stack         string `json:"stack"`
+	WorkspaceRoot string `json:"workspace_root,omitempty"`
 }
 
 // Detect scans conventional manifests and source extensions without following
@@ -63,6 +76,8 @@ func Detect(root string) (Result, error) {
 	packageManagers := map[string][]string{}
 	repositoryMarkers := []string{}
 	inspectionWarnings := []string{}
+	moduleCandidates := map[string]moduleCandidate{}
+	goWorkRoots := map[string]string{}
 	entries := 0
 	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -92,6 +107,12 @@ func Detect(root string) (Result, error) {
 		}
 		if depth > maxDepth || entry.Type()&os.ModeSymlink != 0 {
 			return nil
+		}
+		if stack, ok := moduleManifestStack(entry.Name()); ok {
+			moduleCandidates[relative] = moduleCandidate{manifest: relative, root: filepath.ToSlash(filepath.Dir(relative)), stack: stack}
+		}
+		if strings.EqualFold(entry.Name(), "go.work") {
+			goWorkRoots[filepath.ToSlash(filepath.Dir(relative))] = relative
 		}
 		stacks, err := stacksForFile(path, entry)
 		if err != nil {
@@ -127,11 +148,238 @@ func Detect(root string) (Result, error) {
 	sort.Strings(stacks)
 	sort.Strings(repositoryMarkers)
 	sort.Strings(inspectionWarnings)
+	modules, moduleWarnings := buildModules(root, moduleCandidates, goWorkRoots)
 	ambiguities := append(packageManagerAmbiguities(packageManagers), inspectionWarnings...)
+	ambiguities = append(ambiguities, moduleWarnings...)
+	sort.Strings(ambiguities)
 	return Result{
 		Stacks: stacks, Evidence: evidence, PackageManagers: packageManagers,
-		RepositoryMarkers: repositoryMarkers, Ambiguities: ambiguities,
+		RepositoryMarkers: repositoryMarkers, Ambiguities: ambiguities, Modules: modules,
 	}, nil
+}
+
+type moduleCandidate struct {
+	manifest string
+	root     string
+	stack    string
+}
+
+type cargoWorkspace struct {
+	Workspace struct {
+		Members []string `toml:"members"`
+		Exclude []string `toml:"exclude"`
+	} `toml:"workspace"`
+}
+
+func moduleManifestStack(name string) (string, bool) {
+	switch strings.ToLower(name) {
+	case "go.mod":
+		return "go", true
+	case "cargo.toml":
+		return "rust", true
+	case "pyproject.toml", "requirements.txt", "setup.cfg", "setup.py":
+		return "python", true
+	case "package.json":
+		return "javascript", true
+	default:
+		return "", false
+	}
+}
+
+func buildModules(root string, candidates map[string]moduleCandidate, goWorkRoots map[string]string) ([]Module, []string) {
+	ordered := make([]moduleCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		ordered = append(ordered, candidate)
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].root != ordered[j].root {
+			return ordered[i].root < ordered[j].root
+		}
+		if ordered[i].stack != ordered[j].stack {
+			return ordered[i].stack < ordered[j].stack
+		}
+		return ordered[i].manifest < ordered[j].manifest
+	})
+
+	// Keep one deterministic manifest for a root/stack pair. Python projects
+	// commonly carry both pyproject.toml and requirements.txt; pyproject is
+	// the stronger project identity while the other files remain evidence.
+	selected := make([]moduleCandidate, 0, len(ordered))
+	seenRootStack := map[string]bool{}
+	for _, candidate := range ordered {
+		key := candidate.root + "\x00" + candidate.stack
+		if seenRootStack[key] {
+			continue
+		}
+		seenRootStack[key] = true
+		selected = append(selected, candidate)
+	}
+
+	workspaceRoots := map[string]string{}
+	cargoWorkspaces := map[string]cargoWorkspace{}
+	warnings := []string{}
+	for _, candidate := range selected {
+		if candidate.stack != "rust" || filepath.Base(candidate.manifest) != "Cargo.toml" {
+			continue
+		}
+		path := filepath.Join(root, filepath.FromSlash(candidate.manifest))
+		body, err := boundedio.ReadRegularFile(path, maxPackageJSONBytes)
+		if err != nil {
+			warnings = append(warnings, "module manifest "+candidate.manifest+" could not be inspected: "+err.Error())
+			continue
+		}
+		var document cargoWorkspace
+		if err := toml.Unmarshal(body, &document); err != nil {
+			warnings = append(warnings, "module manifest "+candidate.manifest+" could not be inspected: "+err.Error())
+			continue
+		}
+		if len(document.Workspace.Members) > 0 {
+			cargoWorkspaces[candidate.root] = document
+		}
+	}
+	for workspaceRoot, workspace := range cargoWorkspaces {
+		for _, candidate := range selected {
+			if candidate.stack == "rust" && cargoWorkspaceOwnsModule(candidate.root, workspaceRoot, workspace.Workspace.Members, workspace.Workspace.Exclude) {
+				workspaceRoots[candidate.root+"\x00rust"] = workspaceRoot
+			}
+		}
+	}
+	for workspaceRoot, manifest := range goWorkRoots {
+		members, err := readGoWorkspaceMembers(root, manifest, workspaceRoot)
+		if err != nil {
+			warnings = append(warnings, "workspace manifest "+manifest+" could not be inspected: "+err.Error())
+			continue
+		}
+		for _, candidate := range selected {
+			if candidate.stack == "go" && goWorkspaceOwnsModule(candidate.root, workspaceRoot, members) {
+				workspaceRoots[candidate.root+"\x00go"] = workspaceRoot
+			}
+		}
+	}
+
+	modules := make([]Module, 0, len(selected))
+	for _, candidate := range selected {
+		workspaceRoot := workspaceRoots[candidate.root+"\x00"+candidate.stack]
+		if workspaceRoot == candidate.root {
+			workspaceRoot = candidate.root
+		}
+		modules = append(modules, Module{
+			Root:          normalizedModuleRoot(candidate.root),
+			Manifest:      candidate.manifest,
+			Stack:         candidate.stack,
+			WorkspaceRoot: normalizedWorkspaceRoot(workspaceRoot),
+		})
+	}
+	sort.Slice(modules, func(i, j int) bool {
+		if modules[i].Root != modules[j].Root {
+			return modules[i].Root < modules[j].Root
+		}
+		if modules[i].Stack != modules[j].Stack {
+			return modules[i].Stack < modules[j].Stack
+		}
+		return modules[i].Manifest < modules[j].Manifest
+	})
+	sort.Strings(warnings)
+	return modules, warnings
+}
+
+func cargoWorkspaceOwnsModule(moduleRoot, workspaceRoot string, members, excludes []string) bool {
+	if moduleRoot == workspaceRoot {
+		return true
+	}
+	if workspaceRoot != "." && !strings.HasPrefix(moduleRoot, workspaceRoot+"/") {
+		return false
+	}
+	relative := strings.TrimPrefix(moduleRoot, workspaceRoot+"/")
+	if workspaceRoot == "." {
+		relative = moduleRoot
+	}
+	for _, pattern := range excludes {
+		if doublestar.ValidatePattern(filepath.ToSlash(pattern)) && doublestar.MatchUnvalidated(filepath.ToSlash(pattern), relative) {
+			return false
+		}
+	}
+	for _, pattern := range members {
+		if doublestar.ValidatePattern(filepath.ToSlash(pattern)) && doublestar.MatchUnvalidated(filepath.ToSlash(pattern), relative) {
+			return true
+		}
+	}
+	return false
+}
+
+func goWorkspaceOwnsModule(moduleRoot, workspaceRoot string, members []string) bool {
+	for _, member := range members {
+		if moduleRoot == member {
+			return true
+		}
+	}
+	return false
+}
+
+func readGoWorkspaceMembers(root, manifest, workspaceRoot string) ([]string, error) {
+	body, err := boundedio.ReadRegularFile(filepath.Join(root, filepath.FromSlash(manifest)), maxPackageJSONBytes)
+	if err != nil {
+		return nil, err
+	}
+	members := []string{}
+	inBlock := false
+	for _, rawLine := range strings.Split(string(body), "\n") {
+		line := rawLine
+		if comment := strings.Index(line, "//"); comment >= 0 {
+			line = line[:comment]
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if line == "use (" {
+			inBlock = true
+			continue
+		}
+		if inBlock && line == ")" {
+			inBlock = false
+			continue
+		}
+		if !inBlock && strings.HasPrefix(line, "use ") {
+			line = strings.TrimSpace(strings.TrimPrefix(line, "use "))
+		}
+		if !inBlock && !strings.HasPrefix(line, "use ") && !strings.HasPrefix(line, "./") && !strings.HasPrefix(line, "../") && line != "." {
+			continue
+		}
+		member := strings.TrimSpace(line)
+		if strings.HasPrefix(member, "use ") {
+			member = strings.TrimSpace(strings.TrimPrefix(member, "use "))
+		}
+		if member == "" || filepath.IsAbs(filepath.FromSlash(member)) {
+			return nil, fmt.Errorf("invalid use path %q", member)
+		}
+		resolved := filepath.Clean(filepath.Join(filepath.FromSlash(workspaceRoot), filepath.FromSlash(member)))
+		relative, err := filepath.Rel(".", resolved)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("use path escapes workspace root: %q", member)
+		}
+		members = append(members, normalizedModuleRoot(relative))
+	}
+	if inBlock {
+		return nil, fmt.Errorf("unterminated use block")
+	}
+	sort.Strings(members)
+	return members, nil
+}
+
+func normalizedModuleRoot(root string) string {
+	root = filepath.ToSlash(filepath.Clean(root))
+	if root == "" || root == "." {
+		return "."
+	}
+	return root
+}
+
+func normalizedWorkspaceRoot(root string) string {
+	if root == "" {
+		return ""
+	}
+	return normalizedModuleRoot(root)
 }
 
 func appendBoundedEvidence(target map[string][]string, name, relative string) {

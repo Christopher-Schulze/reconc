@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 483 Scope assurance gates to detected module roots -> tasks/483-scope-assurance-gates-to-detected-module-roots.md
 - [ ] 484 Detect package manager conflicts before truncating evidence -> tasks/484-detect-package-manager-conflicts-before-truncating-evidence.md
 - [ ] 485 Reuse validated policy snapshots in pre-decision hot paths -> tasks/485-reuse-validated-policy-snapshots-in-pre-decision-hot-paths.md
 - [ ] 486 Reuse verified evidence prefixes in pre-hooks -> tasks/486-reuse-verified-evidence-prefixes-in-pre-hooks.md
@@ -25,6 +24,8 @@
 ## Blocked
 
 ## Done
+
+- [x] 483 Scope assurance gates to detected module roots -> tasks/done/483-scope-assurance-gates-to-detected-module-roots.md
 
 - [x] 482 Propagate cancellation through runtime plan loading -> tasks/done/482-propagate-cancellation-through-runtime-plan-loading.md
 

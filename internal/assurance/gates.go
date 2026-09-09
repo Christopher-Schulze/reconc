@@ -83,15 +83,12 @@ func evaluateRepositoryLayout(root string, gate policy.AssuranceGate, state *eva
 	return findings, nil
 }
 
-func evaluateCommands(gate policy.AssuranceGate, successful []string) ([]Finding, error) {
-	successSet := map[string]bool{}
-	for _, command := range successful {
-		successSet[normalizeCommand(command)] = true
-	}
+func evaluateCommands(root string, gate policy.AssuranceGate, inputs Inputs, scope *moduleScope) ([]Finding, error) {
+	successSet := scopeCommandEvidence(root, inputs, scope)
 	missing := []string{}
 	matched := 0
 	for _, command := range gate.Commands {
-		if successSet[normalizeCommand(command)] {
+		if successSet[normalizeScopedCommand(command)] {
 			matched++
 			continue
 		}

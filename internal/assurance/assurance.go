@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/stackdetect"
 )
 
 const (
@@ -26,17 +27,30 @@ const (
 
 // Inputs is the runtime evidence available to native gates.
 type Inputs struct {
-	ChangedPaths       []string
-	SuccessfulCommands []string
-	Now                time.Time
+	ChangedPaths              []string
+	SuccessfulCommands        []string
+	SuccessfulCommandEvidence []CommandEvidence
+	Now                       time.Time
+}
+
+// CommandEvidence binds a successful command to the directory in which the
+// runner executed it. Empty WorkingDirectory keeps legacy root-scoped command
+// evidence compatible; nested module scopes require an explicit directory or
+// an equivalent command prefix such as `cd services/api && ...`.
+type CommandEvidence struct {
+	Command          string
+	WorkingDirectory string
 }
 
 // Finding is one precise gate failure and its direct remediation.
 type Finding struct {
-	GateID      string
-	Paths       []string
-	Message     string
-	Remediation string
+	GateID         string
+	Paths          []string
+	Message        string
+	Remediation    string
+	ModuleRoot     string
+	Manifest       string
+	EffectiveScope []string
 }
 
 // Evaluate runs configured gates in declaration order. It returns operational
@@ -85,8 +99,36 @@ func evaluateWithState(repoRoot string, gates []policy.AssuranceGate, inputs Inp
 		inputs.Now = time.Now().UTC()
 	}
 	state := newEvaluationState(inputs.ChangedPaths, workerLimit)
+	state.commandEvidence = commandEvidenceForInputs(inputs)
+	detection, err := stackdetect.Detect(root)
+	if err != nil {
+		return nil, state, fmt.Errorf("detect assurance module roots: %w", err)
+	}
 	findings := []Finding{}
 	for _, gate := range gates {
+		scopes, moduleAware, err := selectModuleScopes(root, detection, gate, inputs.ChangedPaths)
+		if err != nil {
+			return nil, state, fmt.Errorf("assurance gate %s module scope: %w", gate.ID, err)
+		}
+		if moduleAware {
+			for _, scope := range scopes {
+				scopedState := newEvaluationState(scope.changedPaths, workerLimit)
+				scopedState.budget = state.budget
+				scopedState.commandEvidence = append([]CommandEvidence(nil), state.commandEvidence...)
+				scopedState.scopePrefix = scope.rootRel
+				scopedInputs := inputs
+				scopedInputs.ChangedPaths = scope.changedPaths
+				scopedGate := gate
+				scopedGate.ApplicableIf = nil
+				gateFindings, err := evaluateGate(scope.rootAbs, scopedGate, scopedInputs, scopedState, &scope)
+				if err != nil {
+					return nil, state, fmt.Errorf("assurance gate %s module %s: %w", gate.ID, scope.rootRel, err)
+				}
+				findings = append(findings, rebaseScopedFindings(gateFindings, scope)...)
+				state.scoped = append(state.scoped, scopedState)
+			}
+			continue
+		}
 		applies, err := state.applies(root, gate.ApplicableIf)
 		if err != nil {
 			return nil, state, fmt.Errorf("assurance gate %s applicability: %w", gate.ID, err)
@@ -94,37 +136,46 @@ func evaluateWithState(repoRoot string, gates []policy.AssuranceGate, inputs Inp
 		if !applies {
 			continue
 		}
-		var gateFindings []Finding
-		switch gate.Type {
-		case policy.AssuranceRepositoryLayout:
-			gateFindings, err = evaluateRepositoryLayout(root, gate, state)
-		case policy.AssuranceGeneratedReference, policy.AssuranceLiveVerification:
-			gateFindings, err = evaluateCommands(gate, inputs.SuccessfulCommands)
-		case policy.AssuranceLanguageBoundary:
-			gateFindings, err = evaluateLanguageBoundary(root, gate, state)
-		case policy.AssuranceDependencyPins:
-			gateFindings, err = evaluateDependencyPins(root, gate, state)
-		case policy.AssurancePackageScripts:
-			gateFindings, err = evaluatePackageScripts(root, gate, inputs.SuccessfulCommands, state)
-		case policy.AssuranceNetworkBoundary, policy.AssuranceProcessBoundary:
-			gateFindings, err = evaluateGuardBoundary(root, gate, state)
-		case policy.AssuranceSubstantiveProof:
-			gateFindings, err = evaluateSubstantiveProof(root, gate, inputs, state)
-		case policy.AssuranceGoConcurrency:
-			gateFindings, err = evaluateGoConcurrencyBoundary(root, gate, state)
-		case policy.AssuranceGoFormat:
-			gateFindings, err = evaluateGoFormat(root, gate, state)
-		case policy.AssuranceSourceHygiene:
-			gateFindings, err = evaluateSourceHygiene(root, gate, state)
-		default:
-			err = fmt.Errorf("unsupported assurance kind %q", gate.Type)
-		}
+		gateFindings, err := evaluateGate(root, gate, inputs, state, nil)
 		if err != nil {
 			return nil, state, fmt.Errorf("assurance gate %s: %w", gate.ID, err)
 		}
 		findings = append(findings, gateFindings...)
 	}
 	return limitFindings(findings), state, nil
+}
+
+func evaluateGate(root string, gate policy.AssuranceGate, inputs Inputs, state *evaluationState, scope *moduleScope) ([]Finding, error) {
+	var gateFindings []Finding
+	var err error
+	switch gate.Type {
+	case policy.AssuranceRepositoryLayout:
+		gateFindings, err = evaluateRepositoryLayout(root, gate, state)
+	case policy.AssuranceGeneratedReference, policy.AssuranceLiveVerification:
+		gateFindings, err = evaluateCommands(root, gate, inputs, scope)
+	case policy.AssuranceLanguageBoundary:
+		gateFindings, err = evaluateLanguageBoundary(root, gate, state)
+	case policy.AssuranceDependencyPins:
+		gateFindings, err = evaluateDependencyPins(root, gate, state)
+	case policy.AssurancePackageScripts:
+		gateFindings, err = evaluatePackageScripts(root, gate, inputs, state, scope)
+	case policy.AssuranceNetworkBoundary, policy.AssuranceProcessBoundary:
+		gateFindings, err = evaluateGuardBoundary(root, gate, state)
+	case policy.AssuranceSubstantiveProof:
+		gateFindings, err = evaluateSubstantiveProof(root, gate, inputs, state, scope)
+	case policy.AssuranceGoConcurrency:
+		gateFindings, err = evaluateGoConcurrencyBoundary(root, gate, state)
+	case policy.AssuranceGoFormat:
+		gateFindings, err = evaluateGoFormat(root, gate, state)
+	case policy.AssuranceSourceHygiene:
+		gateFindings, err = evaluateSourceHygiene(root, gate, state)
+	default:
+		err = fmt.Errorf("unsupported assurance kind %q", gate.Type)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return gateFindings, nil
 }
 
 type assuranceIdentityPath struct {
@@ -148,15 +199,23 @@ type assuranceIdentityChangedPath struct {
 	Extension string `json:"extension"`
 }
 
+type assuranceIdentityCommandEvidence struct {
+	Command          string `json:"command"`
+	WorkingDirectory string `json:"working_directory,omitempty"`
+}
+
 type assuranceIdentityInput struct {
-	ChangedPaths     []assuranceIdentityChangedPath `json:"changed_paths"`
-	Paths            []assuranceIdentityPath        `json:"paths"`
-	Files            []assuranceIdentityFile        `json:"files"`
-	Applicability    map[string]bool                `json:"applicability"`
-	PackageManifests []assuranceIdentityManifests   `json:"package_manifests"`
-	ManifestMarkers  map[string]bool                `json:"manifest_markers"`
-	Observations     map[string]string              `json:"observations"`
-	Findings         []Finding                      `json:"findings"`
+	ScopePrefix      string                             `json:"scope_prefix,omitempty"`
+	ChangedPaths     []assuranceIdentityChangedPath     `json:"changed_paths"`
+	CommandEvidence  []assuranceIdentityCommandEvidence `json:"command_evidence"`
+	Paths            []assuranceIdentityPath            `json:"paths"`
+	Files            []assuranceIdentityFile            `json:"files"`
+	Applicability    map[string]bool                    `json:"applicability"`
+	PackageManifests []assuranceIdentityManifests       `json:"package_manifests"`
+	ManifestMarkers  map[string]bool                    `json:"manifest_markers"`
+	Observations     map[string]string                  `json:"observations"`
+	Scoped           []string                           `json:"scoped,omitempty"`
+	Findings         []Finding                          `json:"findings"`
 }
 
 func (state *evaluationState) inputIdentity(findings []Finding) (string, error) {
@@ -189,12 +248,34 @@ func (state *evaluationState) inputIdentity(findings []Finding) (string, error) 
 		manifests = append(manifests, assuranceIdentityManifests{Selector: selector, Paths: paths})
 	}
 	sort.Slice(manifests, func(i, j int) bool { return manifests[i].Selector < manifests[j].Selector })
+	commandEvidence := make([]assuranceIdentityCommandEvidence, 0, len(state.commandEvidence))
+	for _, evidence := range state.commandEvidence {
+		commandEvidence = append(commandEvidence, assuranceIdentityCommandEvidence(evidence))
+	}
+	sort.Slice(commandEvidence, func(i, j int) bool {
+		if commandEvidence[i].Command != commandEvidence[j].Command {
+			return commandEvidence[i].Command < commandEvidence[j].Command
+		}
+		return commandEvidence[i].WorkingDirectory < commandEvidence[j].WorkingDirectory
+	})
+	scoped := make([]string, 0, len(state.scoped))
+	for _, child := range state.scoped {
+		identity, err := child.inputIdentity(nil)
+		if err != nil {
+			return "", err
+		}
+		scoped = append(scoped, identity)
+	}
+	sort.Strings(scoped)
 
 	body, err := json.Marshal(assuranceIdentityInput{
-		ChangedPaths: changedPaths,
-		Paths:        paths, Files: files,
+		ScopePrefix:     state.scopePrefix,
+		ChangedPaths:    changedPaths,
+		CommandEvidence: commandEvidence,
+		Paths:           paths, Files: files,
 		Applicability: cloneBoolMap(state.applicability), PackageManifests: manifests,
 		ManifestMarkers: cloneBoolMap(state.manifestMarkers), Observations: cloneStringMap(state.observations),
+		Scoped:   scoped,
 		Findings: append([]Finding(nil), findings...),
 	})
 	if err != nil {
@@ -222,14 +303,6 @@ func cloneStringMap(values map[string]string) map[string]string {
 
 func normalizeCommand(command string) string {
 	return strings.Join(strings.Fields(command), " ")
-}
-
-func stringSetNormalized(values []string) map[string]bool {
-	out := make(map[string]bool, len(values))
-	for _, value := range values {
-		out[normalizeCommand(value)] = true
-	}
-	return out
 }
 
 func limitFindings(findings []Finding) []Finding {

@@ -58,7 +58,7 @@ type packageManagerAncestryObservation struct {
 	directories []packageManagerAncestryDirectory
 }
 
-func evaluatePackageScripts(root string, gate policy.AssuranceGate, successful []string, state *evaluationState) ([]Finding, error) {
+func evaluatePackageScripts(root string, gate policy.AssuranceGate, inputs Inputs, state *evaluationState, scope *moduleScope) ([]Finding, error) {
 	commandsByScript := map[string][]packageScriptCommand{}
 	for _, command := range gate.Commands {
 		parsed, err := policy.ParsePackageScriptCommand(command)
@@ -72,10 +72,7 @@ func evaluatePackageScripts(root string, gate policy.AssuranceGate, successful [
 	if err != nil {
 		return nil, err
 	}
-	successSet := map[string]bool{}
-	for _, command := range successful {
-		successSet[normalizePackageScriptEvidence(command)] = true
-	}
+	successSet := scopePackageScriptEvidence(root, inputs, scope)
 	findings := []Finding{}
 	for _, manifest := range manifests {
 		document, err := state.packageDocument(manifest.full)
