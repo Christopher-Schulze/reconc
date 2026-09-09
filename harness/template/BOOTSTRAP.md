@@ -452,7 +452,9 @@ transition-only `decisions.jsonl`. It is gitignored above. No per-repo
 scaffolding is needed: `reconc run on|off|status|log` ships in the binary and
 operates this directory in any repo. The agent operates the switch. The per-TASK
 Reality-Check loop (`docs/task-loop-workflow.md`, scaffolded) and its AGENTS.md
-excerpt are merged into the repo's `AGENTS.md` like the other sections.
+excerpt are merged into the repo's `AGENTS.md` like the other sections;
+completion is bounded by explicit acceptance, required verification, and review
+of the changed surface, while unrelated findings remain visible queued work.
 
 Reconc owns runtime retention in the product binary. SessionStart and
 SessionEnd perform a cheap six-hour due check; Stop never performs cleanup.

@@ -18,8 +18,8 @@
     {
       "path": "tools/reconc/harness/template/BOOTSTRAP.md",
       "mode": 420,
-      "size": 48238,
-      "sha256": "d26cdbb9b60c231b4529f0a2595eaa6ea7b60e915e4d742ddb048eb1915b06df",
+      "size": 48395,
+      "sha256": "c642dea0ad9beb64eeba85181a5b846516c53f25de2e7e7c07a82344d46276f4",
       "ownership": "pack-file"
     },
     {
@@ -627,8 +627,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/AGENTS.md",
       "mode": 420,
-      "size": 44132,
-      "sha256": "4b0d3f909eeddd5d654babbe19bfdcb6ca113a1ea2bf2751d9c2fbe306df3a8f",
+      "size": 44521,
+      "sha256": "132114b1efe524e2729f39950cd933bf59bbdee757019370503dd21739fbe1b7",
       "ownership": "pack-file"
     },
     {
@@ -648,8 +648,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/docs/documentation.md",
       "mode": 420,
-      "size": 1706,
-      "sha256": "12ea4dc558aa523f80dc91ee324ea2565f6d149ca3aab52b4018744530be0f5c",
+      "size": 2083,
+      "sha256": "39111da3ec195173a3f1e12566b088bd15e7af63dea1cd5c6a75f0e49df3351e",
       "ownership": "pack-file"
     },
     {
@@ -662,8 +662,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/docs/task-loop-workflow.md",
       "mode": 420,
-      "size": 1893,
-      "sha256": "5709970195dd99e4bc7ad423b6c19ac246d1f253363e54100378fec0251f9afc",
+      "size": 2325,
+      "sha256": "8ea99b066cc6388ef4037f03579f9187bbe745d21af2b2add9899e63f6289954",
       "ownership": "pack-file"
     },
     {
@@ -849,6 +849,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 866983,
-  "digest": "3e0044d34963cc918dc3db0a4997cc7ac4be88842a04008c18d8b6493acb196b"
+  "total_bytes": 868338,
+  "digest": "a4f36232e1044d6d9d93d3b06f8c77390dade6279f222797591b55e8bfb35a6a"
 }

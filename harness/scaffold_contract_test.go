@@ -49,6 +49,98 @@ func TestBootstrapAndScaffoldKeepReceiptSourceAndRunStateContracts(t *testing.T)
 	}
 }
 
+func TestTaskCompletionLoopIsBoundedByAcceptanceAndRequiredGates(t *testing.T) {
+	workflow := readHarnessContractFile(t, "template/repo-root-scaffold/docs/task-loop-workflow.md")
+	agents := readHarnessContractFile(t, "template/repo-root-scaffold/AGENTS.md")
+	for _, source := range []struct {
+		name string
+		body string
+	}{
+		{name: "task-loop-workflow.md", body: workflow},
+		{name: "AGENTS.md", body: agents},
+	} {
+		t.Run(source.name, func(t *testing.T) {
+			for _, forbidden := range []string{
+				"If there is ANY potential work - ALWAYS do it",
+				"nothing left to fix or improve",
+				"until everything passes this honest, hard Reality-Check and there is nothing left to do",
+			} {
+				if strings.Contains(source.body, forbidden) {
+					t.Fatalf("%s retains unbounded continuation text %q", source.name, forbidden)
+				}
+			}
+		})
+	}
+
+	scenarios := []struct {
+		name     string
+		required []string
+	}{
+		{
+			name: "acceptance and optional improvement",
+			required: []string{
+				"explicit acceptance",
+				"required verification",
+				"scoped review",
+				"optional improvement belongs in the",
+				"current TASK only when its acceptance explicitly includes it",
+			},
+		},
+		{
+			name: "failed required gate",
+			required: []string{
+				"failed required gate",
+				"real fix",
+				"never permits bypassing safety, test integrity",
+			},
+		},
+		{
+			name: "unrelated finding",
+			required: []string{
+				"separate visible proposal or queued TASK",
+				"do not silently expand this",
+				"unrelated proposals remain",
+				"visible for later prioritization",
+			},
+		},
+		{
+			name: "empty in-scope queue",
+			required: []string{
+				"empty queue of",
+				"in-scope findings is a valid terminal state",
+				"When acceptance, required",
+				"verification, and scoped review pass",
+			},
+		},
+		{
+			name: "explicit user stop",
+			required: []string{
+				"explicit user stop pauses the TASK and never certifies it",
+			},
+		},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			for _, required := range scenario.required {
+				if !strings.Contains(workflow, required) {
+					t.Fatalf("workflow is missing %q", required)
+				}
+			}
+		})
+	}
+
+	for _, required := range []string{
+		"Reality Check",
+		"Loop` field",
+		"promote-task-done",
+		"remains blocked unless this field is present",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Fatalf("workflow dropped required completion gate text %q", required)
+		}
+	}
+}
+
 func readHarnessContractFile(t *testing.T, path string) string {
 	t.Helper()
 	body, err := os.ReadFile(path)

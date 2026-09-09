@@ -2,17 +2,40 @@
 
 ## Per-TASK Reality-Check Loop (MANDATORY)
 
-After finishing ANY TASK, you MUST run this loop before you advance to the next TASK. It is not optional and not a formality. No TASK is Done until this loop finds nothing left to fix or improve.
+After finishing any TASK, run this loop before advancing. It is not optional
+or a formality. A TASK is Done only when its explicit acceptance, required
+verification, and scoped review of the changed surface all pass. The loop does
+not require implementing every imaginable improvement.
 
-1. **Fresh-eyes review.** Review with fresh eyes: strict, paranoid, hard, and forensically deep - as an absolutely merciless, honest, rigorous Reality-Check. Read the changed code LINE BY LINE. Zero guessing. Nothing from memory. No sampling and no spot-checks - explicitly, hard, line by line and goal by goal, critically. Verify every goal and every changed line hard and explicitly.
+1. **Fresh-eyes review.** Review the changed code and stated goals line by
+   line: strict, evidence-based, and without guessing. Check the actual
+   acceptance criteria, every required gate, and every changed line.
 2. **Interrogate the result, honestly:**
-   - Are there any gaps?
-   - Is this REALLY, EXACTLY what we wanted - or is it something else? (This has happened often.)
-   - Does everything honestly meet our high quality standards? Reference them exactly again - the Hard Quality Mandate in AGENTS.md.
-   - Is there anything to fix, or can anything be done more optimally per our quality requirements?
-3. **If there is ANY potential work - ALWAYS do it.** Then restart this loop for the same TASK and review again.
-4. **Repeat per TASK.** Keep running the loop on the TASK, reviewing again and again, until everything passes this honest, hard Reality-Check and there is nothing left to do. ONLY THEN continue to the next TASK.
+   - Is any acceptance criterion unresolved or contradicted?
+   - Did every required verification run and pass on the candidate?
+   - Does the changed surface meet the Hard Quality Mandate in `AGENTS.md`?
+   - Is there a necessary fix within this TASK's stated scope?
+   - Is a finding unrelated to the acceptance or changed surface? Record it as
+     a separate visible proposal or queued TASK; do not silently expand this
+     TASK.
+3. **Continue only for real in-scope work.** Fix an unresolved acceptance
+   defect, a failed required gate, or a necessary fix within the changed
+   surface, then restart the loop. An optional improvement belongs in the
+   current TASK only when its acceptance explicitly includes it. A failed gate
+   requires a real fix; it never permits bypassing safety, test integrity,
+   completion evidence, or the gate itself.
+4. **Stop at the bounded terminal state.** When acceptance, required
+   verification, and scoped review pass, record the result and advance. An
+   explicit user stop pauses the TASK and never certifies it. An empty queue of
+   in-scope findings is a valid terminal state; unrelated proposals remain
+   visible for later prioritization.
 
 ## Recording (gated, non-skippable)
 
-The loop is enforced, not advisory. Record its outcome in the `Reality Check Loop` field of the TASK's `## Final Reality Check`, starting with `PASS` and stating the loop ran to completion with nothing left (e.g. `PASS - 2 passes, nothing left`). The `promote-task-done` step that archives the TASK to `docs/tasks/done/` is blocked unless this field is present and asserts completion, so the loop cannot fall under the table between finishing a TASK and the next continuation prompt.
+The loop is enforced, not advisory. Record its outcome in the `Reality Check
+Loop` field of the TASK's `## Final Reality Check`, starting with `PASS` and
+stating that acceptance, required verification, and scoped review completed
+with no unresolved in-scope work (for example, `PASS - 2 passes, acceptance,
+gates, and scoped review complete`). The `promote-task-done` step that archives
+the TASK to `docs/tasks/done/` remains blocked unless this field is present and
+asserts completion.

@@ -161,12 +161,26 @@ This operationalizes the quality bar as a hard per-TASK gate. Every TASK is brou
 
 ### Per-TASK Reality-Check Loop (MANDATORY)
 
-Full workflow: `docs/task-loop-workflow.md`. After finishing ANY TASK you MUST run this loop before advancing to the next TASK; no TASK is Done until the loop finds nothing left to fix or improve.
+Full workflow: `docs/task-loop-workflow.md`. After finishing any TASK, run
+this loop before advancing; no TASK is Done until its explicit acceptance,
+required verification, and scoped review of the changed surface pass. This
+bounded loop does not require implementing every imaginable improvement.
 
-1. Fresh-eyes review: strict, paranoid, hard, forensically deep, as an absolutely merciless, honest, rigorous Reality-Check. Read the changed code LINE BY LINE. Zero guessing, nothing from memory, no sampling and no spot-checks - explicitly, line by line and goal by goal; verify every goal and every changed line hard and explicitly.
-2. Interrogate honestly: any gaps? Is this REALLY, EXACTLY what we wanted or something else (this has happened often)? Does everything meet our high quality standards (the Hard Quality Mandate above)? Anything to fix or do more optimally per our quality requirements?
-3. If there is ANY potential work - ALWAYS do it, then restart the loop for the same TASK and review again.
-4. Repeat per TASK until everything passes this honest, hard Reality-Check and there is nothing left to do. ONLY THEN continue to the next TASK.
+1. Fresh-eyes review: strict, evidence-based, and line by line; verify every
+   acceptance criterion, required gate, changed line, and applicable Hard
+   Quality Mandate item without guessing.
+2. Interrogate honestly: identify unresolved acceptance defects, failed
+   required verification, necessary fixes within the changed surface, and
+   findings unrelated to the TASK's acceptance or surface.
+3. Continue only for an unresolved acceptance defect, failed required gate, or
+   necessary in-scope fix, then restart the loop. Optional work belongs here
+   only when acceptance explicitly includes it. Failed gates require real
+   fixes and never authorize bypassing safety, test integrity, completion
+   evidence, or required gates. Record an unrelated finding as a separate
+   visible proposal or queued TASK; do not silently expand the current TASK.
+4. When acceptance, required verification, and scoped review pass, record the
+   `PASS` attestation and advance. An explicit user stop pauses the TASK and
+   never certifies it; an empty in-scope finding set is a valid terminal state.
 
 Every proposal, spec edit, architecture change, code path, optimization, and research import must survive a real-world usefulness check.
 
@@ -334,7 +348,7 @@ Propagation per change: (1) update importing/referencing files; (2) documentatio
 
 Flush triggers (update documentation.md immediately if touched): 5 Sub-Tasks without flush; 30min since last; pre-build/test; pre-session-end/tool-shutdown.
 
-TASK Done: all Sub-Tasks [x] + Acceptance met + changed code has same-TASK substantive tests + tests green + build clean + no unresolved deps/redundancies + `## Final Reality Check` complete. Final Reality Check must state `Spec Parity` as one of `MATCHES`, `EXCEEDS_SPEC_UPDATED`, `EXCEEDS_USER_ACCEPTED_NO_SPEC_EDIT`, `NO_SPEC_SURFACE`; `Spec Scope` names exact spec sections or says no spec surface touched; `Reality Check` starts with `PASS -` and names real benefit/drawdown; `Reality Check Loop` is mandatory and starts with `PASS` and confirms the per-TASK Reality-Check loop in `docs/task-loop-workflow.md` was actually run to completion with nothing left (e.g. `PASS - 2 passes, nothing left`); the `promote-task-done` step that archives the TASK is blocked unless this field is present and asserts PASS, so the loop cannot be skipped between finishing a TASK and continuing to the next; `Tests` names the test files/commands/coverage proof or explicitly says `NO_CODE_CHANGED`; `Evidence` names commands/files/manual proof; `Beyond Spec Handling` says `N/A`, spec updated, or user-directed exception/follow-up. Then update documentation.md if touched -> finalize detail (Why/Acceptance/Sub-Tasks-log/Notes/Deviations/Final Reality Check complete) = this TASK's changelog entry, no separate synthesis -> move detail to `docs/tasks/done/TASK-NNNN-Name.md` -> tasks.md row `[ ]->[x]` and target `tasks/` -> `tasks/done/`; the completed row stays permanently visible.
+TASK Done: all Sub-Tasks [x] + Acceptance met + changed code has same-TASK substantive tests + tests green + build clean + no unresolved deps/redundancies + `## Final Reality Check` complete. Final Reality Check must state `Spec Parity` as one of `MATCHES`, `EXCEEDS_SPEC_UPDATED`, `EXCEEDS_USER_ACCEPTED_NO_SPEC_EDIT`, `NO_SPEC_SURFACE`; `Spec Scope` names exact spec sections or says no spec surface touched; `Reality Check` starts with `PASS -` and names real benefit/drawdown; `Reality Check Loop` is mandatory and starts with `PASS` and confirms the bounded per-TASK loop in `docs/task-loop-workflow.md` completed with acceptance, required verification, and scoped review satisfied (e.g. `PASS - 2 passes, acceptance, gates, and scoped review complete`); the `promote-task-done` step that archives the TASK is blocked unless this field is present and asserts PASS, so the loop cannot be skipped between finishing a TASK and continuing to the next; `Tests` names the test files/commands/coverage proof or explicitly says `NO_CODE_CHANGED`; `Evidence` names commands/files/manual proof; `Beyond Spec Handling` says `N/A`, spec updated, or user-directed exception/follow-up. Then update documentation.md if touched -> finalize detail (Why/Acceptance/Sub-Tasks-log/Notes/Deviations/Final Reality Check complete) = this TASK's changelog entry, no separate synthesis -> move detail to `docs/tasks/done/TASK-NNNN-Name.md` -> tasks.md row `[ ]->[x]` and target `tasks/` -> `tasks/done/`; the completed row stays permanently visible.
 
 New TASK: append a new `[ ] TASK-NNNN-Name - Description -> tasks/TASK-NNNN-Name.md` row with number=max+1; create matching detail with Why/Status/Scheduling/Technical Plan/Acceptance/Sub-Tasks/Notes/Deviations. `Scheduling` must include real `Expected Touch Surfaces` before the TASK is accepted. No stock planning; the plan must be concrete enough that a fresh agent can resume without chat history. Do not renumber, reorder, or insert rows between historical tasks after commit; before commit, reorder only newly added rows to get the best dependency/efficiency sequence.
 

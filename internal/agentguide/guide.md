@@ -193,6 +193,12 @@ reconc done .
 reconc done . --json
 ```
 
+Completion is bounded by the TASK's explicit acceptance, required verification,
+and review of the changed surface. Continue only for an unresolved acceptance
+defect, a failed required gate, or a necessary in-scope fix; record unrelated
+improvements as visible proposals or queued TASKs. Failed gates require real
+fixes, and an explicit user stop pauses the TASK without certifying it.
+
 The versioned completion report binds the current policy lock, HEAD, index,
 worktree, active-session evidence, saved report, current policy result, staged
 command proofs, and typed TASK state. A previous explicit block for the same

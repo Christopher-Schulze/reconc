@@ -32,6 +32,18 @@ When no policy exists:
 - ask whether to bootstrap if repository controls are relevant
 - otherwise proceed normally
 
+## Task Completion Boundaries
+
+For a TASK, use its explicit acceptance, required verification, and review of
+the changed surface as the completion boundary. Continue only for an
+unresolved acceptance defect, a failed required gate, or a necessary fix within
+that surface. An optional improvement is current work only when acceptance
+explicitly includes it. Record unrelated findings as visible proposals or
+queued TASKs instead of silently expanding the current work. A failed gate
+requires a real fix and never authorizes weakening evidence; an explicit user
+stop pauses the TASK without certifying it. An empty in-scope finding set is a
+valid terminal state once the gates pass.
+
 ## Output Discipline
 
 When reporting to the user, keep it concrete:

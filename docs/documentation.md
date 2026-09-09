@@ -941,6 +941,12 @@ reconc next .
 reconc done .
 ```
 
+TASK completion is bounded by explicit acceptance, required verification, and
+review of the changed surface. Continue only for unresolved acceptance defects,
+failed required gates, or necessary in-scope fixes. Record unrelated
+improvements as visible proposals or queued TASKs; failed gates require real
+fixes, and an explicit user stop pauses the TASK without certifying it.
+
 `session-briefing --json` is the bounded machine handshake for session entry
 and reentry. Its versioned compact contract combines current TASK/Sub-Task,
 policy delta, exact task paths and evidence identifiers with separate bounded
