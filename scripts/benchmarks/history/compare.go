@@ -57,24 +57,45 @@ func compareResults(baseline BenchmarkBaseline, current BenchmarkResult) (Benchm
 				currentGroup.Calibration.Median.NSPerOp,
 				baseline.Tolerances.AbsoluteNSPerOp,
 			)
+			cpuCalibrationAbsoluteNS := compareMetric(
+				baselineGroup.CPUCalibration.Median.NSPerOp,
+				currentGroup.CPUCalibration.Median.NSPerOp,
+				baseline.Tolerances.AbsoluteNSPerOp,
+			)
+			rawAbsoluteNS := compareMetric(
+				baselineTarget.Benchmark.Median.NSPerOp,
+				currentTarget.Benchmark.Median.NSPerOp,
+				baseline.Tolerances.AbsoluteNSPerOp,
+			)
+			adjustedCurrentNS, err := cpuAdjustedNSPerOp(
+				currentTarget.Benchmark.Median.NSPerOp,
+				baselineGroup.CPUCalibration.Median.NSPerOp,
+				currentGroup.CPUCalibration.Median.NSPerOp,
+			)
+			if err != nil {
+				return report, fmt.Errorf("adjust %s CPU timing: %w", currentTarget.Benchmark.Name, err)
+			}
 			comparison := GroupComparison{
-				Name: currentGroup.Name, Benchmark: currentTarget.Benchmark.Name,
-				BaselineAbsolute:      baselineTarget.Benchmark.Median,
-				CurrentAbsolute:       currentTarget.Benchmark.Median,
-				CalibrationAbsoluteNS: calibrationAbsoluteNS,
-				BaselineP50:           baselineTarget.Benchmark.P50,
-				CurrentP50:            currentTarget.Benchmark.P50,
-				BaselineP95:           baselineTarget.Benchmark.P95,
-				CurrentP95:            currentTarget.Benchmark.P95,
-				BaselinePeakRSSBytes:  baselineTarget.Benchmark.PeakRSSBytes,
-				CurrentPeakRSSBytes:   currentTarget.Benchmark.PeakRSSBytes,
-				NormalizedNSPerOp:     compareMetric(baselineTarget.Normalized.NSPerOp, currentTarget.Normalized.NSPerOp, baseline.Tolerances.NormalizedNSPerOp),
-				NormalizedBytesPerOp:  compareMetric(baselineTarget.Normalized.BytesPerOp, currentTarget.Normalized.BytesPerOp, baseline.Tolerances.NormalizedBytesPerOp),
-				NormalizedAllocsPerOp: compareMetric(baselineTarget.Normalized.AllocsPerOp, currentTarget.Normalized.AllocsPerOp, baseline.Tolerances.NormalizedAllocsPerOp),
-				AbsoluteNSPerOp:       compareMetric(baselineTarget.Benchmark.Median.NSPerOp, currentTarget.Benchmark.Median.NSPerOp, baseline.Tolerances.AbsoluteNSPerOp),
-				AbsoluteBytesPerOp:    compareMetric(baselineTarget.Benchmark.Median.BytesPerOp, currentTarget.Benchmark.Median.BytesPerOp, baseline.Tolerances.AbsoluteBytesPerOp),
-				AbsoluteAllocsPerOp:   compareMetric(baselineTarget.Benchmark.Median.AllocsPerOp, currentTarget.Benchmark.Median.AllocsPerOp, baseline.Tolerances.AbsoluteAllocsPerOp),
-				AbsolutePeakRSSBytes:  compareMetric(float64(baselineTarget.Benchmark.PeakRSSBytes), float64(currentTarget.Benchmark.PeakRSSBytes), baseline.Tolerances.AbsolutePeakRSSBytes),
+				Name:                     currentGroup.Name,
+				Benchmark:                currentTarget.Benchmark.Name,
+				BaselineAbsolute:         baselineTarget.Benchmark.Median,
+				CurrentAbsolute:          currentTarget.Benchmark.Median,
+				CalibrationAbsoluteNS:    calibrationAbsoluteNS,
+				CPUCalibrationAbsoluteNS: cpuCalibrationAbsoluteNS,
+				BaselineP50:              baselineTarget.Benchmark.P50,
+				CurrentP50:               currentTarget.Benchmark.P50,
+				BaselineP95:              baselineTarget.Benchmark.P95,
+				CurrentP95:               currentTarget.Benchmark.P95,
+				BaselinePeakRSSBytes:     baselineTarget.Benchmark.PeakRSSBytes,
+				CurrentPeakRSSBytes:      currentTarget.Benchmark.PeakRSSBytes,
+				NormalizedNSPerOp:        compareMetric(baselineTarget.Normalized.NSPerOp, currentTarget.Normalized.NSPerOp, baseline.Tolerances.NormalizedNSPerOp),
+				NormalizedBytesPerOp:     compareMetric(baselineTarget.Normalized.BytesPerOp, currentTarget.Normalized.BytesPerOp, baseline.Tolerances.NormalizedBytesPerOp),
+				NormalizedAllocsPerOp:    compareMetric(baselineTarget.Normalized.AllocsPerOp, currentTarget.Normalized.AllocsPerOp, baseline.Tolerances.NormalizedAllocsPerOp),
+				RawAbsoluteNSPerOp:       rawAbsoluteNS,
+				AbsoluteNSPerOp:          compareMetric(baselineTarget.Benchmark.Median.NSPerOp, adjustedCurrentNS, baseline.Tolerances.AbsoluteNSPerOp),
+				AbsoluteBytesPerOp:       compareMetric(baselineTarget.Benchmark.Median.BytesPerOp, currentTarget.Benchmark.Median.BytesPerOp, baseline.Tolerances.AbsoluteBytesPerOp),
+				AbsoluteAllocsPerOp:      compareMetric(baselineTarget.Benchmark.Median.AllocsPerOp, currentTarget.Benchmark.Median.AllocsPerOp, baseline.Tolerances.AbsoluteAllocsPerOp),
+				AbsolutePeakRSSBytes:     compareMetric(float64(baselineTarget.Benchmark.PeakRSSBytes), float64(currentTarget.Benchmark.PeakRSSBytes), baseline.Tolerances.AbsolutePeakRSSBytes),
 			}
 			report.Groups = append(report.Groups, comparison)
 			appendRegressions(&report, comparison)
@@ -85,6 +106,18 @@ func compareResults(baseline BenchmarkBaseline, current BenchmarkResult) (Benchm
 		return report, errRegression
 	}
 	return report, nil
+}
+
+func cpuAdjustedNSPerOp(current, baselineSentinel, currentSentinel float64) (float64, error) {
+	if !finite(current) || !finite(baselineSentinel) || !finite(currentSentinel) ||
+		current <= 0 || baselineSentinel <= 0 || currentSentinel <= 0 {
+		return 0, errors.New("CPU timing values must be finite and positive")
+	}
+	adjusted := current * baselineSentinel / currentSentinel
+	if !finite(adjusted) || adjusted <= 0 {
+		return 0, errors.New("CPU-adjusted timing is outside the finite positive range")
+	}
+	return adjusted, nil
 }
 
 func compatibilityIssues(baseline, current BenchmarkResult) []string {
@@ -141,12 +174,6 @@ func appendRegressions(report *BenchmarkComparison, group GroupComparison) {
 		{"absolute_peak_rss_bytes", group.AbsolutePeakRSSBytes},
 	}
 	for _, metric := range metrics {
-		if metric.name == "absolute_ns_per_op" &&
-			!group.NormalizedNSPerOp.Regression &&
-			group.CalibrationAbsoluteNS.ChangeFraction != nil &&
-			*group.CalibrationAbsoluteNS.ChangeFraction > 0 {
-			continue
-		}
 		if metric.comparison.Regression {
 			report.Regressions = append(report.Regressions, Regression{
 				Group: group.Name, Benchmark: group.Benchmark, Metric: metric.name,

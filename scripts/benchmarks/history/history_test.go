@@ -123,7 +123,7 @@ func TestProfileManifestValidationRejectsUnsafeArtifacts(t *testing.T) {
 }
 
 func TestBuildGroupsRefusesMissingBenchmark(t *testing.T) {
-	_, err := buildGroups(map[string][]MetricSample{}, 5)
+	_, err := buildGroups(map[string][]MetricSample{}, map[string][]MetricSample{}, 5)
 	if err == nil || !strings.Contains(err.Error(), benchmarkSuite[0].Calibration) {
 		t.Fatalf("missing benchmark error = %v", err)
 	}
@@ -237,7 +237,85 @@ func TestComparisonRejectsEqualRatioSlowdownWithAbsoluteBudgets(t *testing.T) {
 	}
 }
 
-func TestComparisonSuppressesCalibrationExplainedTimingNoise(t *testing.T) {
+func TestComparisonSuppressesTimingDriftMeasuredByCPUSentinel(t *testing.T) {
+	baselineResult := syntheticResult()
+	baseline, err := refreshBaseline(baselineResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := syntheticResult()
+	for groupIndex := range current.Groups {
+		cpuCalibration := &current.Groups[groupIndex].CPUCalibration
+		cpuCalibration.Median.NSPerOp *= 2
+		cpuCalibration.P50.NSPerOp *= 2
+		cpuCalibration.P95.NSPerOp *= 2
+		for index := range cpuCalibration.Samples {
+			cpuCalibration.Samples[index].NSPerOp *= 2
+		}
+		calibration := &current.Groups[groupIndex].Calibration
+		calibration.Median.NSPerOp *= 2
+		calibration.P50.NSPerOp *= 2
+		calibration.P95.NSPerOp *= 2
+		for index := range calibration.Samples {
+			calibration.Samples[index].NSPerOp *= 2
+		}
+		for targetIndex := range current.Groups[groupIndex].Targets {
+			target := &current.Groups[groupIndex].Targets[targetIndex]
+			target.Benchmark.Median.NSPerOp *= 2
+			target.Benchmark.P50.NSPerOp *= 2
+			target.Benchmark.P95.NSPerOp *= 2
+			for index := range target.Benchmark.Samples {
+				target.Benchmark.Samples[index].NSPerOp *= 2
+			}
+			normalized, normalizeErr := normalize(target.Benchmark.Median, calibration.Median)
+			if normalizeErr != nil {
+				t.Fatal(normalizeErr)
+			}
+			target.Normalized = normalized
+		}
+	}
+	report, err := compareResults(baseline, current)
+	if err != nil || !report.Passed {
+		t.Fatalf("CPU-sentinel-explained slowdown = report=%+v err=%v", report, err)
+	}
+	for _, group := range report.Groups {
+		if !group.CalibrationAbsoluteNS.Regression || !group.CPUCalibrationAbsoluteNS.Regression {
+			t.Fatalf("calibration slowdown was not recorded: %+v", group)
+		}
+		if !group.RawAbsoluteNSPerOp.Regression {
+			t.Fatalf("raw target slowdown was not retained: %+v", group)
+		}
+		if group.AbsoluteNSPerOp.Regression {
+			t.Fatalf("CPU-adjusted target slowdown was not suppressed: %+v", group)
+		}
+	}
+
+	targetOnly := syntheticResult()
+	target := &targetOnly.Groups[0].Targets[0]
+	target.Benchmark.Median.NSPerOp *= 2
+	target.Benchmark.P50.NSPerOp *= 2
+	target.Benchmark.P95.NSPerOp *= 2
+	for index := range target.Benchmark.Samples {
+		target.Benchmark.Samples[index].NSPerOp *= 2
+	}
+	normalized, err := normalize(target.Benchmark.Median, targetOnly.Groups[0].Calibration.Median)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target.Normalized = normalized
+	report, err = compareResults(baseline, targetOnly)
+	if !errors.Is(err, errRegression) || report.Passed {
+		t.Fatalf("target-specific slowdown was accepted: report=%+v err=%v", report, err)
+	}
+	for _, regression := range report.Regressions {
+		if regression.Group == targetOnly.Groups[0].Name && regression.Metric == "normalized_ns_per_op" {
+			return
+		}
+	}
+	t.Fatalf("target-specific normalized timing regression missing: %+v", report.Regressions)
+}
+
+func TestComparisonRejectsEqualTargetAndCalibrationSlowdownWithoutCPUSentinelDrift(t *testing.T) {
 	baselineResult := syntheticResult()
 	baseline, err := refreshBaseline(baselineResult)
 	if err != nil {
@@ -268,38 +346,15 @@ func TestComparisonSuppressesCalibrationExplainedTimingNoise(t *testing.T) {
 		}
 	}
 	report, err := compareResults(baseline, current)
-	if err != nil || !report.Passed {
-		t.Fatalf("calibration-explained slowdown = report=%+v err=%v", report, err)
-	}
-	for _, group := range report.Groups {
-		if !group.CalibrationAbsoluteNS.Regression {
-			t.Fatalf("calibration slowdown was not recorded: %+v", group)
-		}
-	}
-
-	targetOnly := syntheticResult()
-	target := &targetOnly.Groups[0].Targets[0]
-	target.Benchmark.Median.NSPerOp *= 2
-	target.Benchmark.P50.NSPerOp *= 2
-	target.Benchmark.P95.NSPerOp *= 2
-	for index := range target.Benchmark.Samples {
-		target.Benchmark.Samples[index].NSPerOp *= 2
-	}
-	normalized, err := normalize(target.Benchmark.Median, targetOnly.Groups[0].Calibration.Median)
-	if err != nil {
-		t.Fatal(err)
-	}
-	target.Normalized = normalized
-	report, err = compareResults(baseline, targetOnly)
 	if !errors.Is(err, errRegression) || report.Passed {
-		t.Fatalf("target-specific slowdown was accepted: report=%+v err=%v", report, err)
+		t.Fatalf("equal target/calibration slowdown was accepted: report=%+v err=%v", report, err)
 	}
 	for _, regression := range report.Regressions {
-		if regression.Group == targetOnly.Groups[0].Name && regression.Metric == "normalized_ns_per_op" {
+		if regression.Metric == "absolute_ns_per_op" {
 			return
 		}
 	}
-	t.Fatalf("target-specific normalized timing regression missing: %+v", report.Regressions)
+	t.Fatalf("CPU-independent absolute timing regression missing: %+v", report.Regressions)
 }
 
 func TestComparisonReportsIncompatibleEvidence(t *testing.T) {
@@ -547,7 +602,8 @@ func syntheticResult() BenchmarkResult {
 	}
 	for _, spec := range benchmarkSuite {
 		calibration := syntheticStats(spec.Calibration, MetricValues{NSPerOp: 100, BytesPerOp: 100, AllocsPerOp: 10})
-		group := GroupResult{Name: spec.Name, Package: spec.Package, Calibration: calibration}
+		cpuCalibration := syntheticStats(cpuSentinelName, MetricValues{NSPerOp: 100, BytesPerOp: 0, AllocsPerOp: 0})
+		group := GroupResult{Name: spec.Name, Package: spec.Package, Calibration: calibration, CPUCalibration: cpuCalibration}
 		for _, targetName := range spec.Targets {
 			target := syntheticStats(targetName, MetricValues{NSPerOp: 50, BytesPerOp: 50, AllocsPerOp: 5})
 			normalized, _ := normalize(target.Median, calibration.Median)

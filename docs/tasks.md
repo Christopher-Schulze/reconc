@@ -1,6 +1,7 @@
 # TASK Control Plane
 
 ## Active
+- [~] 501 Harden CPU-normalized benchmark evidence -> tasks/501-harden-cpu-normalized-benchmark-evidence.md
 
 ## Queue
 

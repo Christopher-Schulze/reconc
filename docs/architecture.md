@@ -1558,17 +1558,21 @@ loader, path resolver, runtime evaluator and session evidence. `make
 benchmark-record` runs five 250-millisecond samples with one logical CPU,
 records the raw medians plus Go version, OS, architecture, CPU identity,
 commit, dirty state, and benchmark parameters, and normalizes every target
-against a same-package reference from the same run. `make benchmark-compare`
-accepts only the same suite, Go version, OS, architecture, sample count,
-benchtime, and logical CPU count. CPU models may differ because the ratios are
-same-run calibrated; this reduces host noise but does not make different
-machines equivalent. Absolute medians remain visible and informational.
+against a same-package reference from the same run. Each package sample is
+bracketed by an independent CPU sentinel benchmark; its averaged median is
+retained per group for host-drift adjustment. `make benchmark-compare` accepts
+only the same suite, Go version, OS, architecture, sample count, benchtime,
+and logical CPU count. Different CPU identities are incompatible; the sentinel
+adjusts timing noise within the same identified environment and does not make
+different machines equivalent.
 
 The checked baseline allows at most 20% normalized time growth and 5%
 normalized bytes or allocation growth. Absolute bytes and allocations retain
-their independent budgets; raw absolute nanoseconds remain visible, with
-calibration-explained host drift excluded when normalized target time is within
-budget. `make benchmark-baseline
+their independent budgets. Raw absolute nanoseconds and the same-package and
+CPU-sentinel comparisons remain visible. The gated absolute time comparison
+uses the current target median multiplied by baseline-sentinel/current-sentinel
+time, so host-wide CPU drift is adjusted while an equal target/calibrator
+slowdown with an unchanged sentinel still fails. `make benchmark-baseline
 CONFIRM_BENCHMARK_BASELINE=1` is the only baseline-refresh path and requires a
 fresh `make benchmark-record`; comparison never rewrites either input. The
 `Calibrated Benchmarks` workflow records and compares on macOS for

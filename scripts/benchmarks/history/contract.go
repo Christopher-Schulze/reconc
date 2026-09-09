@@ -17,11 +17,12 @@ import (
 )
 
 const (
-	resultFormat     = "reconc.benchmark-result/v2"
-	baselineFormat   = "reconc.benchmark-baseline/v2"
-	comparisonFormat = "reconc.benchmark-comparison/v3"
+	resultFormat     = "reconc.benchmark-result/v3"
+	baselineFormat   = "reconc.benchmark-baseline/v3"
+	comparisonFormat = "reconc.benchmark-comparison/v4"
 	profileFormat    = "reconc.benchmark-profile/v1"
 	suiteVersion     = "reconc.performance-history/v10"
+	cpuSentinelName  = "BenchmarkReconcCPUSentinel"
 	maxContractBytes = 4 << 20
 	maxProfileBytes  = 64 << 20
 )
@@ -68,10 +69,11 @@ type TargetResult struct {
 }
 
 type GroupResult struct {
-	Name        string         `json:"name"`
-	Package     string         `json:"package"`
-	Calibration BenchmarkStats `json:"calibration"`
-	Targets     []TargetResult `json:"targets"`
+	Name           string         `json:"name"`
+	Package        string         `json:"package"`
+	Calibration    BenchmarkStats `json:"calibration"`
+	CPUCalibration BenchmarkStats `json:"cpu_calibration"`
+	Targets        []TargetResult `json:"targets"`
 }
 
 type BenchmarkResult struct {
@@ -128,24 +130,26 @@ type MetricComparison struct {
 }
 
 type GroupComparison struct {
-	Name                  string           `json:"name"`
-	Benchmark             string           `json:"benchmark"`
-	BaselineAbsolute      MetricValues     `json:"baseline_absolute"`
-	CurrentAbsolute       MetricValues     `json:"current_absolute"`
-	CalibrationAbsoluteNS MetricComparison `json:"calibration_absolute_ns_per_op"`
-	BaselineP50           MetricValues     `json:"baseline_p50"`
-	CurrentP50            MetricValues     `json:"current_p50"`
-	BaselineP95           MetricValues     `json:"baseline_p95"`
-	CurrentP95            MetricValues     `json:"current_p95"`
-	BaselinePeakRSSBytes  uint64           `json:"baseline_peak_rss_bytes"`
-	CurrentPeakRSSBytes   uint64           `json:"current_peak_rss_bytes"`
-	NormalizedNSPerOp     MetricComparison `json:"normalized_ns_per_op"`
-	NormalizedBytesPerOp  MetricComparison `json:"normalized_bytes_per_op"`
-	NormalizedAllocsPerOp MetricComparison `json:"normalized_allocs_per_op"`
-	AbsoluteNSPerOp       MetricComparison `json:"absolute_ns_per_op"`
-	AbsoluteBytesPerOp    MetricComparison `json:"absolute_bytes_per_op"`
-	AbsoluteAllocsPerOp   MetricComparison `json:"absolute_allocs_per_op"`
-	AbsolutePeakRSSBytes  MetricComparison `json:"absolute_peak_rss_bytes"`
+	Name                     string           `json:"name"`
+	Benchmark                string           `json:"benchmark"`
+	BaselineAbsolute         MetricValues     `json:"baseline_absolute"`
+	CurrentAbsolute          MetricValues     `json:"current_absolute"`
+	CalibrationAbsoluteNS    MetricComparison `json:"calibration_absolute_ns_per_op"`
+	CPUCalibrationAbsoluteNS MetricComparison `json:"cpu_calibration_absolute_ns_per_op"`
+	BaselineP50              MetricValues     `json:"baseline_p50"`
+	CurrentP50               MetricValues     `json:"current_p50"`
+	BaselineP95              MetricValues     `json:"baseline_p95"`
+	CurrentP95               MetricValues     `json:"current_p95"`
+	BaselinePeakRSSBytes     uint64           `json:"baseline_peak_rss_bytes"`
+	CurrentPeakRSSBytes      uint64           `json:"current_peak_rss_bytes"`
+	NormalizedNSPerOp        MetricComparison `json:"normalized_ns_per_op"`
+	NormalizedBytesPerOp     MetricComparison `json:"normalized_bytes_per_op"`
+	NormalizedAllocsPerOp    MetricComparison `json:"normalized_allocs_per_op"`
+	RawAbsoluteNSPerOp       MetricComparison `json:"raw_absolute_ns_per_op"`
+	AbsoluteNSPerOp          MetricComparison `json:"absolute_ns_per_op"`
+	AbsoluteBytesPerOp       MetricComparison `json:"absolute_bytes_per_op"`
+	AbsoluteAllocsPerOp      MetricComparison `json:"absolute_allocs_per_op"`
+	AbsolutePeakRSSBytes     MetricComparison `json:"absolute_peak_rss_bytes"`
 }
 
 type Regression struct {
@@ -343,6 +347,12 @@ func validateResult(result BenchmarkResult) error {
 		}
 		if err := validateStats(group.Calibration, result.Parameters.Count); err != nil {
 			return fmt.Errorf("calibration %s: %w", spec.Calibration, err)
+		}
+		if group.CPUCalibration.Name != cpuSentinelName {
+			return fmt.Errorf("group %s has CPU calibration %q, want %q", group.Name, group.CPUCalibration.Name, cpuSentinelName)
+		}
+		if err := validateStats(group.CPUCalibration, result.Parameters.Count); err != nil {
+			return fmt.Errorf("CPU calibration %s: %w", cpuSentinelName, err)
 		}
 		for targetIndex, targetName := range spec.Targets {
 			target := group.Targets[targetIndex]

@@ -292,12 +292,15 @@ result under `.build/benchmarks/`. The bounded duration avoids both the
 scheduler noise of very short fixed-iteration samples and the thermal drift of
 longer samples across the full suite. `make benchmark-compare` normalizes every
 target against its same-package calibration benchmark and independently
-compares absolute bytes and allocations against the checked baseline. Raw
-absolute nanoseconds remain in the report; a slowdown explained by the same
-calibration slowdown is treated as host noise when normalized target time is
-within budget, while target-specific time regressions still fail. Equal
-target/calibrator slowdowns remain visible in the report and are still gated by
-independent absolute resource budgets. The suite
+compares absolute bytes and allocations against the checked baseline. Every
+package sample also runs an independent CPU sentinel before and after the
+product benchmarks; the averaged sentinel median is retained per group. Raw
+absolute nanoseconds, same-package calibration drift, and sentinel drift remain
+in the report. The gated absolute time comparison adjusts the current target by
+the baseline-sentinel/current-sentinel ratio, while equal target/calibrator
+slowdowns with an unchanged sentinel still fail. Target-specific normalized
+time regressions and independent absolute resource regressions remain blocking.
+The suite
 covers bounded action traces and context operands, prepared action-decision
 caching, incremental action-ledger checkpoints, structured action inspection,
 canonical JSON, contextual source ingestion, prospective path resolution,

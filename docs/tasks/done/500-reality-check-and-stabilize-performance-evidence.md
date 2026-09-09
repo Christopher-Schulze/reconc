@@ -56,10 +56,12 @@ weakening regression detection or refreshing a baseline to hide a real change.
 - The benchmark contract remains five 250-millisecond samples, one logical CPU,
   same-suite normalization, absolute time/bytes/allocation budgets, and clean
   source identity checks. No version, tag or remote publication changes.
-- Absolute timing comparisons now retain raw values and expose the calibration
-  comparison in the report; host-wide calibration drift is excluded only when
-  normalized target time remains within budget. Target-specific normalized time
-  regressions and independent bytes/allocation budgets remain blocking.
+- Absolute timing comparisons retain raw values, same-package calibration
+  drift, and an independent CPU-sentinel comparison. The gated absolute time
+  uses the baseline/current sentinel ratio for host-wide CPU drift, while an
+  equal target/calibrator slowdown with an unchanged sentinel remains blocking.
+  Target-specific normalized time regressions and independent bytes/allocation
+  budgets remain blocking.
 - Repeated one-second recordings exposed transient absolute timing/RSS outliers
   on this Apple M1 as the long suite thermally drifted. The bounded 250ms
   protocol keeps the final full-suite comparison within every budget; the
