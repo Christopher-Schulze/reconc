@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	resultFormat     = "reconc.benchmark-result/v1"
-	baselineFormat   = "reconc.benchmark-baseline/v1"
-	comparisonFormat = "reconc.benchmark-comparison/v1"
-	suiteVersion     = "reconc.performance-history/v9"
+	resultFormat     = "reconc.benchmark-result/v2"
+	baselineFormat   = "reconc.benchmark-baseline/v2"
+	comparisonFormat = "reconc.benchmark-comparison/v2"
+	suiteVersion     = "reconc.performance-history/v10"
 	maxContractBytes = 4 << 20
 )
 
@@ -43,14 +43,18 @@ type MetricValues struct {
 }
 
 type MetricSample struct {
-	Iterations uint64 `json:"iterations"`
+	Iterations   uint64 `json:"iterations"`
+	PeakRSSBytes uint64 `json:"peak_rss_bytes"`
 	MetricValues
 }
 
 type BenchmarkStats struct {
-	Name    string         `json:"name"`
-	Samples []MetricSample `json:"samples"`
-	Median  MetricValues   `json:"median"`
+	Name         string         `json:"name"`
+	Samples      []MetricSample `json:"samples"`
+	Median       MetricValues   `json:"median"`
+	P50          MetricValues   `json:"p50"`
+	P95          MetricValues   `json:"p95"`
+	PeakRSSBytes uint64         `json:"peak_rss_bytes"`
 }
 
 type TargetResult struct {
@@ -77,6 +81,10 @@ type Tolerances struct {
 	NormalizedNSPerOp     float64 `json:"normalized_ns_per_op"`
 	NormalizedBytesPerOp  float64 `json:"normalized_bytes_per_op"`
 	NormalizedAllocsPerOp float64 `json:"normalized_allocs_per_op"`
+	AbsoluteNSPerOp       float64 `json:"absolute_ns_per_op"`
+	AbsoluteBytesPerOp    float64 `json:"absolute_bytes_per_op"`
+	AbsoluteAllocsPerOp   float64 `json:"absolute_allocs_per_op"`
+	AbsolutePeakRSSBytes  float64 `json:"absolute_peak_rss_bytes"`
 }
 
 type BenchmarkBaseline struct {
@@ -98,9 +106,19 @@ type GroupComparison struct {
 	Benchmark             string           `json:"benchmark"`
 	BaselineAbsolute      MetricValues     `json:"baseline_absolute"`
 	CurrentAbsolute       MetricValues     `json:"current_absolute"`
+	BaselineP50           MetricValues     `json:"baseline_p50"`
+	CurrentP50            MetricValues     `json:"current_p50"`
+	BaselineP95           MetricValues     `json:"baseline_p95"`
+	CurrentP95            MetricValues     `json:"current_p95"`
+	BaselinePeakRSSBytes  uint64           `json:"baseline_peak_rss_bytes"`
+	CurrentPeakRSSBytes   uint64           `json:"current_peak_rss_bytes"`
 	NormalizedNSPerOp     MetricComparison `json:"normalized_ns_per_op"`
 	NormalizedBytesPerOp  MetricComparison `json:"normalized_bytes_per_op"`
 	NormalizedAllocsPerOp MetricComparison `json:"normalized_allocs_per_op"`
+	AbsoluteNSPerOp       MetricComparison `json:"absolute_ns_per_op"`
+	AbsoluteBytesPerOp    MetricComparison `json:"absolute_bytes_per_op"`
+	AbsoluteAllocsPerOp   MetricComparison `json:"absolute_allocs_per_op"`
+	AbsolutePeakRSSBytes  MetricComparison `json:"absolute_peak_rss_bytes"`
 }
 
 type Regression struct {
@@ -119,6 +137,7 @@ type BenchmarkComparison struct {
 	CurrentEnvironment  Environment       `json:"current_environment"`
 	Compatible          bool              `json:"compatible"`
 	Passed              bool              `json:"passed"`
+	CompatibilityIssues []string          `json:"compatibility_issues,omitempty"`
 	Groups              []GroupComparison `json:"groups"`
 	Regressions         []Regression      `json:"regressions"`
 }
@@ -189,10 +208,17 @@ func validateBaseline(baseline BenchmarkBaseline) error {
 		"normalized_ns_per_op":     baseline.Tolerances.NormalizedNSPerOp,
 		"normalized_bytes_per_op":  baseline.Tolerances.NormalizedBytesPerOp,
 		"normalized_allocs_per_op": baseline.Tolerances.NormalizedAllocsPerOp,
+		"absolute_ns_per_op":       baseline.Tolerances.AbsoluteNSPerOp,
+		"absolute_bytes_per_op":    baseline.Tolerances.AbsoluteBytesPerOp,
+		"absolute_allocs_per_op":   baseline.Tolerances.AbsoluteAllocsPerOp,
+		"absolute_peak_rss_bytes":  baseline.Tolerances.AbsolutePeakRSSBytes,
 	} {
 		if !finite(value) || value < 0 || value > 1 {
 			return fmt.Errorf("benchmark tolerance %s is outside 0..1", name)
 		}
+	}
+	if baseline.Result.Environment.Dirty {
+		return errors.New("benchmark baseline must reference a clean source tree")
 	}
 	return validateResult(baseline.Result)
 }
@@ -245,7 +271,27 @@ func validateStats(stats BenchmarkStats, count int) error {
 			return errors.New("benchmark sample is invalid")
 		}
 	}
-	return validateMedian(stats)
+	if err := validateMedian(stats); err != nil {
+		return err
+	}
+	wantP50 := percentileMetrics(stats.Samples, 0.50)
+	if !metricValuesEqual(wantP50, stats.P50) {
+		return errors.New("benchmark p50 does not match samples")
+	}
+	wantP95 := percentileMetrics(stats.Samples, 0.95)
+	if !metricValuesEqual(wantP95, stats.P95) {
+		return errors.New("benchmark p95 does not match samples")
+	}
+	var peak uint64
+	for _, sample := range stats.Samples {
+		if sample.PeakRSSBytes > peak {
+			peak = sample.PeakRSSBytes
+		}
+	}
+	if stats.PeakRSSBytes != peak {
+		return errors.New("benchmark peak RSS does not match samples")
+	}
+	return nil
 }
 
 func validateMedian(stats BenchmarkStats) error {

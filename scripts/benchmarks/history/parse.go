@@ -129,6 +129,38 @@ func medianMetrics(samples []MetricSample) MetricValues {
 	return MetricValues{NSPerOp: median(ns), BytesPerOp: median(bytesPerOp), AllocsPerOp: median(allocs)}
 }
 
+func percentileMetrics(samples []MetricSample, percentile float64) MetricValues {
+	ns := make([]float64, len(samples))
+	bytesPerOp := make([]float64, len(samples))
+	allocs := make([]float64, len(samples))
+	for index, sample := range samples {
+		ns[index] = sample.NSPerOp
+		bytesPerOp[index] = sample.BytesPerOp
+		allocs[index] = sample.AllocsPerOp
+	}
+	return MetricValues{
+		NSPerOp:     percentileValue(ns, percentile),
+		BytesPerOp:  percentileValue(bytesPerOp, percentile),
+		AllocsPerOp: percentileValue(allocs, percentile),
+	}
+}
+
+func percentileValue(values []float64, percentile float64) float64 {
+	if len(values) == 0 {
+		return math.NaN()
+	}
+	values = append([]float64(nil), values...)
+	sort.Float64s(values)
+	position := percentile * float64(len(values)-1)
+	lower := int(position)
+	upper := lower
+	if upper+1 < len(values) {
+		upper++
+	}
+	weight := position - float64(lower)
+	return values[lower] + (values[upper]-values[lower])*weight
+}
+
 func median(values []float64) float64 {
 	if len(values) == 0 {
 		return math.NaN()

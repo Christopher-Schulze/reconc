@@ -287,15 +287,26 @@ worker count. Direct `go test ./...` validates only the root module.
 `make benchmark-record` runs the calibrated performance-history suite five
 times at a fixed iteration count and writes the machine-local result under
 `.build/benchmarks/`. `make benchmark-compare` normalizes every target against
-its same-package calibration benchmark before comparing it with the checked
-baseline. The suite covers twelve groups: bounded action traces and context
-operands, prepared action-decision caching, incremental action-ledger checkpoints, structured action inspection,
+its same-package calibration benchmark and independently compares absolute
+nanoseconds, allocated bytes, and allocations against the checked baseline.
+Equal target/calibrator slowdowns therefore remain regressions. The suite
+covers bounded action traces and context operands, prepared action-decision
+caching, incremental action-ledger checkpoints, structured action inspection,
 canonical JSON, contextual source ingestion, prospective path resolution,
 prepared command matching and evidence, source freshness, write-epoch batching,
-and bounded hook-worker frame growth. Its parser
-reconstructs benchmark lines split across Go JSON output events. `make
-benchmark-baseline` is the only baseline-writing operation and requires
-`CONFIRM_BENCHMARK_BASELINE=1`.
+and end-to-end hook-worker and long-session evidence workloads. Its parser
+reconstructs benchmark lines split across Go JSON output events. Baseline and
+comparison contracts require the same Go toolchain, OS, architecture, CPU
+identity, sample count, and benchmark parameters; incompatible runs emit a
+failed comparison report instead of passing. The baseline must reference a
+clean source tree. `make benchmark-baseline` is the only baseline-writing
+operation and requires `CONFIRM_BENCHMARK_BASELINE=1`.
+
+The benchmark workflow runs on scoped pull requests, a weekly scheduled
+macOS runner, or explicit dispatch. It uploads raw samples and the comparison
+report for 30 days even when comparison fails, so a regression or incompatible
+environment remains attributable evidence rather than disappearing with the
+job log.
 
 Apple M1 TASK-269 before/after checks reduced deep-doctor allocation volume by
 about 10.8% and allocations by about 16.3%. Multi-platform hook status reduced

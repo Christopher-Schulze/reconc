@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -53,6 +54,37 @@ func TestParseBenchmarkJSONReassemblesFragmentedOutputEvents(t *testing.T) {
 	}
 }
 
+func TestBenchmarkStatsRetainPercentilesAndPeakRSS(t *testing.T) {
+	samples := make([]MetricSample, 5)
+	for index := range samples {
+		value := float64(index + 1)
+		samples[index] = MetricSample{
+			Iterations: 100, PeakRSSBytes: uint64((index + 1) * 100),
+			MetricValues: MetricValues{NSPerOp: value, BytesPerOp: value * 2, AllocsPerOp: value * 3},
+		}
+	}
+	stats, err := statsFor("BenchmarkStats", samples, len(samples))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.P50.NSPerOp != 3 || stats.P95.NSPerOp != 4.8 || stats.PeakRSSBytes != 500 {
+		t.Fatalf("stats = %+v", stats)
+	}
+}
+
+func TestBenchmarkPatternsRespectGoSubBenchmarkHierarchy(t *testing.T) {
+	patterns := benchmarkPatterns([]string{
+		"BenchmarkPlain", "BenchmarkTransport/one-shot", "BenchmarkTransport/stdio-worker",
+	})
+	want := []string{
+		"^(BenchmarkPlain)$",
+		"^BenchmarkTransport$/^(one-shot|stdio-worker)$",
+	}
+	if !reflect.DeepEqual(patterns, want) {
+		t.Fatalf("patterns = %#v, want %#v", patterns, want)
+	}
+}
+
 func TestBuildGroupsRefusesMissingBenchmark(t *testing.T) {
 	_, err := buildGroups(map[string][]MetricSample{}, 5)
 	if err == nil || !strings.Contains(err.Error(), benchmarkSuite[0].Calibration) {
@@ -92,6 +124,7 @@ func TestComparisonCompatibilityAndToleranceBoundaries(t *testing.T) {
 		{name: "go", mutate: func(result *BenchmarkResult) { result.Environment.GoVersion = "go9.9" }},
 		{name: "os", mutate: func(result *BenchmarkResult) { result.Environment.GOOS = "other" }},
 		{name: "arch", mutate: func(result *BenchmarkResult) { result.Environment.GOARCH = "other" }},
+		{name: "cpu", mutate: func(result *BenchmarkResult) { result.Environment.CPU = "other cpu" }},
 		{name: "parameters", mutate: func(result *BenchmarkResult) { result.Parameters.Benchtime = "200x" }},
 	}
 	for _, test := range tests {
@@ -102,6 +135,155 @@ func TestComparisonCompatibilityAndToleranceBoundaries(t *testing.T) {
 				t.Fatalf("compatibility error = %v", err)
 			}
 		})
+	}
+}
+
+func TestComparisonRejectsEqualRatioSlowdownWithAbsoluteBudgets(t *testing.T) {
+	baselineResult := syntheticResult()
+	baseline, err := refreshBaseline(baselineResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := syntheticResult()
+	for groupIndex := range current.Groups {
+		calibration := &current.Groups[groupIndex].Calibration
+		for index := range calibration.Samples {
+			calibration.Samples[index].NSPerOp *= 2
+			calibration.Samples[index].BytesPerOp *= 2
+			calibration.Samples[index].AllocsPerOp *= 2
+		}
+		calibration.Median.NSPerOp *= 2
+		calibration.Median.BytesPerOp *= 2
+		calibration.Median.AllocsPerOp *= 2
+		calibration.P50.NSPerOp *= 2
+		calibration.P50.BytesPerOp *= 2
+		calibration.P50.AllocsPerOp *= 2
+		calibration.P95.NSPerOp *= 2
+		calibration.P95.BytesPerOp *= 2
+		calibration.P95.AllocsPerOp *= 2
+		for targetIndex := range current.Groups[groupIndex].Targets {
+			target := &current.Groups[groupIndex].Targets[targetIndex]
+			for index := range target.Benchmark.Samples {
+				target.Benchmark.Samples[index].NSPerOp *= 2
+				target.Benchmark.Samples[index].BytesPerOp *= 2
+				target.Benchmark.Samples[index].AllocsPerOp *= 2
+			}
+			target.Benchmark.Median.NSPerOp *= 2
+			target.Benchmark.Median.BytesPerOp *= 2
+			target.Benchmark.Median.AllocsPerOp *= 2
+			target.Benchmark.P50.NSPerOp *= 2
+			target.Benchmark.P50.BytesPerOp *= 2
+			target.Benchmark.P50.AllocsPerOp *= 2
+			target.Benchmark.P95.NSPerOp *= 2
+			target.Benchmark.P95.BytesPerOp *= 2
+			target.Benchmark.P95.AllocsPerOp *= 2
+			normalized, normalizeErr := normalize(target.Benchmark.Median, calibration.Median)
+			if normalizeErr != nil {
+				t.Fatal(normalizeErr)
+			}
+			target.Normalized = normalized
+		}
+	}
+	report, err := compareResults(baseline, current)
+	if !errors.Is(err, errRegression) || report.Passed {
+		t.Fatalf("equal-ratio slowdown was accepted: report=%+v err=%v", report, err)
+	}
+	foundAbsolute := false
+	for _, regression := range report.Regressions {
+		if regression.Metric == "absolute_ns_per_op" || regression.Metric == "absolute_bytes_per_op" || regression.Metric == "absolute_allocs_per_op" {
+			foundAbsolute = true
+			break
+		}
+	}
+	if !foundAbsolute {
+		t.Fatalf("absolute regression was not reported: %+v", report.Regressions)
+	}
+}
+
+func TestComparisonReportsIncompatibleEvidence(t *testing.T) {
+	baselineResult := syntheticResult()
+	baseline, err := refreshBaseline(baselineResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := syntheticResult()
+	current.Environment.CPU = "different cpu"
+	report, err := compareResults(baseline, current)
+	if err == nil || report.Compatible || report.Passed || len(report.CompatibilityIssues) != 1 {
+		t.Fatalf("incompatible comparison = report=%+v err=%v", report, err)
+	}
+}
+
+func TestComparisonRejectsAbsoluteMetricWhenBaselineIsZero(t *testing.T) {
+	baselineResult := syntheticResult()
+	baselineResult.Groups[0].Targets[0].Benchmark.Median.BytesPerOp = 0
+	baselineResult.Groups[0].Targets[0].Benchmark.P50.BytesPerOp = 0
+	baselineResult.Groups[0].Targets[0].Benchmark.P95.BytesPerOp = 0
+	for index := range baselineResult.Groups[0].Targets[0].Benchmark.Samples {
+		baselineResult.Groups[0].Targets[0].Benchmark.Samples[index].BytesPerOp = 0
+	}
+	baselineResult.Groups[0].Targets[0].Normalized.BytesPerOp = 0
+	baseline, err := refreshBaseline(baselineResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := syntheticResult()
+	report, err := compareResults(baseline, current)
+	if !errors.Is(err, errRegression) || report.Passed {
+		t.Fatalf("zero absolute baseline was accepted: report=%+v err=%v", report, err)
+	}
+	found := false
+	for _, regression := range report.Regressions {
+		if regression.Metric == "absolute_bytes_per_op" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("zero baseline regression missing: %+v", report.Regressions)
+	}
+}
+
+func TestComparisonRejectsAllocationOnlyAbsoluteRegression(t *testing.T) {
+	baselineResult := syntheticResult()
+	baseline, err := refreshBaseline(baselineResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := syntheticResult()
+	target := &current.Groups[0].Targets[0]
+	for index := range target.Benchmark.Samples {
+		target.Benchmark.Samples[index].AllocsPerOp *= 2
+	}
+	target.Benchmark.Median.AllocsPerOp *= 2
+	target.Benchmark.P50.AllocsPerOp *= 2
+	target.Benchmark.P95.AllocsPerOp *= 2
+	normalized, err := normalize(target.Benchmark.Median, current.Groups[0].Calibration.Median)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target.Normalized = normalized
+	report, err := compareResults(baseline, current)
+	if !errors.Is(err, errRegression) || report.Passed {
+		t.Fatalf("allocation-only regression was accepted: report=%+v err=%v", report, err)
+	}
+	for _, regression := range report.Regressions {
+		if regression.Metric == "absolute_allocs_per_op" {
+			return
+		}
+	}
+	t.Fatalf("allocation regression missing: %+v", report.Regressions)
+}
+
+func TestBaselineRejectsDirtySource(t *testing.T) {
+	result := syntheticResult()
+	baseline, err := refreshBaseline(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline.Result.Environment.Dirty = true
+	if err := validateBaseline(baseline); err == nil || !strings.Contains(err.Error(), "clean source") {
+		t.Fatalf("dirty baseline validation error = %v", err)
 	}
 }
 
@@ -214,6 +396,25 @@ func TestCLIComparisonDoesNotModifyInputs(t *testing.T) {
 	assertFileBytes(t, baselinePath, baselineBefore)
 }
 
+func TestCLIComparisonRetainsIncompatibleReport(t *testing.T) {
+	directory := t.TempDir()
+	resultPath := filepath.Join(directory, "result.json")
+	baselinePath := filepath.Join(directory, "baseline.json")
+	result := syntheticResult()
+	baseline, err := refreshBaseline(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.Environment.CPU = "different cpu"
+	writeTestContract(t, resultPath, result)
+	writeTestContract(t, baselinePath, baseline)
+	var report bytes.Buffer
+	err = runCompare([]string{"--baseline", baselinePath, "--result", resultPath}, &report)
+	if err == nil || !strings.Contains(report.String(), `"compatible": false`) || !strings.Contains(report.String(), "compatibility_issues") {
+		t.Fatalf("incompatible CLI report = %s err=%v", report.String(), err)
+	}
+}
+
 func writeTestContract(t *testing.T, path string, value any) {
 	t.Helper()
 	body, err := encodeContract(value)
@@ -260,7 +461,7 @@ func syntheticStats(name string, values MetricValues) BenchmarkStats {
 	for index := range samples {
 		samples[index] = MetricSample{Iterations: 100, MetricValues: values}
 	}
-	return BenchmarkStats{Name: name, Samples: samples, Median: values}
+	return BenchmarkStats{Name: name, Samples: samples, Median: values, P50: values, P95: values}
 }
 
 func setTargetNS(result *BenchmarkResult, value float64) {
@@ -269,6 +470,8 @@ func setTargetNS(result *BenchmarkResult, value float64) {
 		target.Benchmark.Samples[index].NSPerOp = value
 	}
 	target.Benchmark.Median.NSPerOp = value
+	target.Benchmark.P50.NSPerOp = value
+	target.Benchmark.P95.NSPerOp = value
 	normalized, _ := normalize(target.Benchmark.Median, result.Groups[0].Calibration.Median)
 	target.Normalized = normalized
 }

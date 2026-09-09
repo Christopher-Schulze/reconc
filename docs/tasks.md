@@ -2,9 +2,9 @@
 
 ## Active
 
-## Queue
+- [~] 490 Enforce absolute performance budgets and retain benchmark evidence -> tasks/490-enforce-absolute-performance-budgets-and-retain-benchmark-evidence.md
 
-- [ ] 490 Enforce absolute performance budgets and retain benchmark evidence -> tasks/490-enforce-absolute-performance-budgets-and-retain-benchmark-evidence.md
+## Queue
 - [ ] 491 Profile real workloads and evaluate hardware-aware Go optimization -> tasks/491-profile-real-workloads-and-evaluate-hardware-aware-go-optimization.md
 - [ ] 492 Distinguish secret state from config templates and SQLite sidecars -> tasks/492-distinguish-secret-state-from-config-templates-and-sqlite-sidecars.md
 - [ ] 493 Align generated file protection across templates and presets -> tasks/493-align-generated-file-protection-across-templates-and-presets.md

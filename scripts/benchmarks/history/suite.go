@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"reflect"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,6 +35,7 @@ var benchmarkSuite = []groupSpec{
 	{Name: "compiler-canonical-json", Package: "./internal/compiler", Calibration: "BenchmarkNormalizeJSONValueTwice", Targets: []string{"BenchmarkNormalizeJSONValueOnce"}},
 	{Name: "compiler-conflict-scaling", Package: "./internal/compiler", Calibration: "BenchmarkDetectConflictsUniqueRules", Targets: []string{"BenchmarkDetectConflictsGroupedDuplicates"}},
 	{Name: "hook-worker-frame-growth", Package: "./internal/cli", Calibration: "BenchmarkHookWorkerFrameRepresentativeCalibrated", Targets: []string{"BenchmarkHookWorkerFrameLarge"}},
+	{Name: "hook-worker-end-to-end", Package: "./internal/cli", Calibration: "BenchmarkHookRuntimeTransport/stdio-worker", Targets: []string{"BenchmarkHookRuntimeTransport/one-shot"}},
 	{Name: "ingest-source-context", Package: "./internal/ingest", Calibration: "BenchmarkLoadPolicySourcesWithDiscovery", Targets: []string{"BenchmarkLoadPolicySourcesWithContext"}},
 	{Name: "mcp-frame-routing", Package: "./internal/mcpgateway", Calibration: "BenchmarkParseFrameSmall", Targets: []string{"BenchmarkParseFrameProgress", "BenchmarkParseFrameRepresentative"}},
 	{Name: "prospective-path-resolution", Package: "./internal/pathidentity", Calibration: "BenchmarkResolveProspectiveIndependent", Targets: []string{"BenchmarkResolveProspectiveBatch"}},
@@ -42,6 +46,7 @@ var benchmarkSuite = []groupSpec{
 	{Name: "runtime-lockfile-decode", Package: "./internal/runtime", Calibration: "BenchmarkDecodeCurrentLockfileRepresentative", Targets: []string{"BenchmarkDecodeCurrentLockfileMaximumRules"}},
 	{Name: "runtime-source-freshness", Package: "./internal/runtime", Calibration: "BenchmarkRuntimePlanFreshnessHit", Targets: []string{"BenchmarkRuntimePlanFreshnessLargeSourceSet", "BenchmarkRuntimePlanConcurrentRoots"}},
 	{Name: "runtime-write-epochs", Package: "./internal/runtime", Calibration: "BenchmarkNormalizeWriteEpochsPerPath", Targets: []string{"BenchmarkNormalizeWriteEpochsBatch"}},
+	{Name: "session-evidence-workloads", Package: "./internal/runtime/agentsession", Calibration: "BenchmarkVerifiedEvidencePrefix", Targets: []string{"BenchmarkWorkerPreHookVerifiedEvidencePrefix/warm-prefix", "BenchmarkWorkerPreHookVerifiedEvidencePrefix/cold-prefix"}},
 }
 
 type goEnvironment struct {
@@ -99,30 +104,61 @@ func runSuite(root, goBinary string, parameters Parameters) (map[string][]Metric
 }
 
 func runPackageBenchmarks(root, goBinary, packageName string, names []string, parameters Parameters) (map[string][]MetricSample, error) {
-	quoted := make([]string, len(names))
-	for index, name := range names {
-		quoted[index] = regexp.QuoteMeta(name)
-	}
-	pattern := "^(" + strings.Join(quoted, "|") + ")$"
+	patterns := benchmarkPatterns(names)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	all := make(map[string][]MetricSample, len(names))
 	for sampleIndex := 0; sampleIndex < parameters.Count; sampleIndex++ {
-		parsed, err := runBenchmarkSample(ctx, root, goBinary, packageName, pattern, parameters, sampleIndex)
-		if err != nil {
-			return nil, err
+		sample := make(map[string][]MetricSample, len(names))
+		for _, pattern := range patterns {
+			parsed, err := runBenchmarkSample(ctx, root, goBinary, packageName, pattern, parameters, sampleIndex)
+			if err != nil {
+				return nil, err
+			}
+			for name, values := range parsed {
+				if _, exists := sample[name]; exists {
+					return nil, fmt.Errorf("benchmark package %s sample %d emitted duplicate %s", packageName, sampleIndex+1, name)
+				}
+				sample[name] = values
+			}
 		}
-		if len(parsed) != len(names) {
-			return nil, fmt.Errorf("benchmark package %s sample %d emitted %v, want %v", packageName, sampleIndex+1, sortedBenchmarkNames(parsed), names)
+		if len(sample) != len(names) {
+			return nil, fmt.Errorf("benchmark package %s sample %d emitted %v, want %v", packageName, sampleIndex+1, sortedBenchmarkNames(sample), names)
 		}
 		for _, name := range names {
-			if len(parsed[name]) != 1 {
-				return nil, fmt.Errorf("benchmark %s sample %d emitted %d measurements, want 1", name, sampleIndex+1, len(parsed[name]))
+			if len(sample[name]) != 1 {
+				return nil, fmt.Errorf("benchmark %s sample %d emitted %d measurements, want 1", name, sampleIndex+1, len(sample[name]))
 			}
-			all[name] = append(all[name], parsed[name][0])
+			all[name] = append(all[name], sample[name][0])
 		}
 	}
 	return all, nil
+}
+
+func benchmarkPatterns(names []string) []string {
+	plain := make([]string, 0, len(names))
+	grouped := make(map[string][]string)
+	for _, name := range names {
+		root, sub, hasSub := strings.Cut(name, "/")
+		if !hasSub {
+			plain = append(plain, regexp.QuoteMeta(name))
+			continue
+		}
+		grouped[root] = append(grouped[root], regexp.QuoteMeta(sub))
+	}
+	patterns := make([]string, 0, len(grouped)+1)
+	if len(plain) > 0 {
+		patterns = append(patterns, "^("+strings.Join(plain, "|")+")$")
+	}
+	roots := make([]string, 0, len(grouped))
+	for root := range grouped {
+		roots = append(roots, root)
+	}
+	sort.Strings(roots)
+	for _, root := range roots {
+		patterns = append(patterns, "^"+regexp.QuoteMeta(root)+"$/^("+strings.Join(grouped[root], "|")+")$")
+	}
+	return patterns
 }
 
 func runBenchmarkSample(ctx context.Context, root, goBinary, packageName, pattern string, parameters Parameters, sampleIndex int) (map[string][]MetricSample, error) {
@@ -140,7 +176,42 @@ func runBenchmarkSample(ctx context.Context, root, goBinary, packageName, patter
 	if err != nil {
 		return nil, fmt.Errorf("parse benchmark package %s sample %d: %w", packageName, sampleIndex+1, err)
 	}
+	peakRSSBytes := processPeakRSSBytes(command.ProcessState)
+	for name := range parsed {
+		for index := range parsed[name] {
+			parsed[name][index].PeakRSSBytes = peakRSSBytes
+		}
+	}
 	return parsed, nil
+}
+
+func processPeakRSSBytes(state *os.ProcessState) uint64 {
+	if state == nil {
+		return 0
+	}
+	usage := state.SysUsage()
+	value := reflect.ValueOf(usage)
+	if !value.IsValid() {
+		return 0
+	}
+	if value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return 0
+		}
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct {
+		return 0
+	}
+	field := value.FieldByName("Maxrss")
+	if !field.IsValid() || !field.CanInt() || field.Int() <= 0 {
+		return 0
+	}
+	bytes := uint64(field.Int())
+	if runtime.GOOS == "linux" {
+		bytes *= 1024
+	}
+	return bytes
 }
 
 func sortedBenchmarkNames(samples map[string][]MetricSample) []string {
@@ -180,7 +251,15 @@ func statsFor(name string, samples []MetricSample, count int) (BenchmarkStats, e
 	if len(samples) != count {
 		return BenchmarkStats{}, fmt.Errorf("benchmark %s has %d samples, want %d", name, len(samples), count)
 	}
-	stats := BenchmarkStats{Name: name, Samples: append([]MetricSample(nil), samples...), Median: medianMetrics(samples)}
+	stats := BenchmarkStats{
+		Name: name, Samples: append([]MetricSample(nil), samples...),
+		Median: medianMetrics(samples), P50: percentileMetrics(samples, 0.50), P95: percentileMetrics(samples, 0.95),
+	}
+	for _, sample := range samples {
+		if sample.PeakRSSBytes > stats.PeakRSSBytes {
+			stats.PeakRSSBytes = sample.PeakRSSBytes
+		}
+	}
 	return stats, validateStats(stats, count)
 }
 
