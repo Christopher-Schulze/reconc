@@ -46,7 +46,10 @@ func runPreDecisionResolvedWithEvaluator(root string, payloadBytes []byte, permi
 	if err != nil {
 		return adaptPreDecision(Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}, permission)
 	}
-	inputs, cacheable := preDecisionInputsForPayload(root, payload)
+	if !preDecisionRequiresPolicy(payload) {
+		return adaptPreDecision(Result{}, permission)
+	}
+	inputs, cacheable := preDecisionInputsForPayloadWithEvaluator(root, payload, evaluator)
 	// Approval-gated writes must reach the live pre-write path on every call.
 	// Reusing a claim-only decision here could skip receipt verification, and a
 	// receipt is deliberately consumed only after the final policy generation
@@ -78,7 +81,7 @@ func runPreDecisionResolvedWithEvaluator(root string, payloadBytes []byte, permi
 	cached, cachedOK := readPreDecisionCacheCandidate(root, payload)
 	evaluationInputs := inputs
 	if cacheable && cachedOK && cached.Key == inputs.key {
-		if current, ok := resamplePreDecisionInputs(root, payload, inputs); ok &&
+		if current, ok := resamplePreDecisionInputsWithEvaluator(root, payload, inputs, evaluator); ok &&
 			inputs.identity.equal(current.identity) && cached.Key == current.key {
 			return adaptPreDecision(Result{ExitCode: cached.ExitCode, Stderr: cached.Stderr}, permission)
 		} else if ok {
@@ -87,11 +90,15 @@ func runPreDecisionResolvedWithEvaluator(root string, payloadBytes []byte, permi
 	}
 
 	decision := runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root, payload, evaluator, evaluationInputs.aliasSnapshot)
-	if postInputs, ok := resamplePreDecisionInputs(root, payload, evaluationInputs); cacheable && ok &&
+	if postInputs, ok := resamplePreDecisionInputsWithEvaluator(root, payload, evaluationInputs, evaluator); cacheable && ok &&
 		evaluationInputs.identity.equal(postInputs.identity) {
 		_ = writePreDecisionCacheForPayload(root, payload, postInputs.key, decision)
 	}
 	return adaptPreDecision(decision, permission)
+}
+
+func preDecisionRequiresPolicy(payload *HookPayload) bool {
+	return payload != nil && (payload.IsWriteTool() || payload.IsCommandTool())
 }
 
 func adaptPreDecision(decision Result, permission bool) Result {
@@ -230,6 +237,10 @@ func (identity preDecisionIdentity) equal(other preDecisionIdentity) bool {
 }
 
 func preDecisionInputsForPayload(root string, payload *HookPayload) (preDecisionInputs, bool) {
+	return preDecisionInputsForPayloadWithEvaluator(root, payload, nil)
+}
+
+func preDecisionInputsForPayloadWithEvaluator(root string, payload *HookPayload, evaluator *runtime.Evaluator) (preDecisionInputs, bool) {
 	if payload == nil || strings.TrimSpace(payload.SessionID) == "" || strings.TrimSpace(payload.ToolUseID) == "" {
 		return preDecisionInputs{}, false
 	}
@@ -250,17 +261,18 @@ func preDecisionInputsForPayload(root string, payload *HookPayload) (preDecision
 	inputs := preDecisionInputs{
 		identity: preDecisionIdentity{payload: string(payloadIdentity)},
 	}
-	if !capturePreDecisionObservedIdentity(root, payload, &inputs) {
+	if !capturePreDecisionObservedIdentityWithEvaluator(root, payload, &inputs, evaluator) {
 		return preDecisionInputs{}, false
 	}
 	inputs.key = inputs.identity.key()
 	return inputs, true
 }
 
-func capturePreDecisionObservedIdentity(
+func capturePreDecisionObservedIdentityWithEvaluator(
 	root string,
 	payload *HookPayload,
 	inputs *preDecisionInputs,
+	evaluator *runtime.Evaluator,
 ) bool {
 	if payload == nil || inputs == nil {
 		return false
@@ -269,9 +281,18 @@ func capturePreDecisionObservedIdentity(
 	if !ok {
 		return false
 	}
-	policySourceIdentity, ok := preDecisionPolicySourceIdentity(root)
-	if !ok {
-		return false
+	policySourceIdentity := ""
+	if evaluator == nil {
+		policySourceIdentity, ok = preDecisionPolicySourceIdentity(root)
+		if !ok {
+			return false
+		}
+	} else {
+		var err error
+		_, policySourceIdentity, err = evaluator.CurrentCompiledPolicyEvaluator(root)
+		if err != nil || len(policySourceIdentity) != sha256.Size*2 {
+			return false
+		}
 	}
 	stateIdentity, state, evidenceIdentity, ok := preDecisionSessionDependencies(root, payload.SessionID)
 	if !ok {
@@ -587,13 +608,22 @@ func resamplePreDecisionInputs(
 	payload *HookPayload,
 	baseline preDecisionInputs,
 ) (preDecisionInputs, bool) {
+	return resamplePreDecisionInputsWithEvaluator(root, payload, baseline, nil)
+}
+
+func resamplePreDecisionInputsWithEvaluator(
+	root string,
+	payload *HookPayload,
+	baseline preDecisionInputs,
+	evaluator *runtime.Evaluator,
+) (preDecisionInputs, bool) {
 	if payload == nil || baseline.identity.payload == "" {
 		return preDecisionInputs{}, false
 	}
 	inputs := preDecisionInputs{
 		identity: preDecisionIdentity{payload: baseline.identity.payload},
 	}
-	if !capturePreDecisionObservedIdentity(root, payload, &inputs) {
+	if !capturePreDecisionObservedIdentityWithEvaluator(root, payload, &inputs, evaluator) {
 		return preDecisionInputs{}, false
 	}
 	inputs.key = inputs.identity.key()

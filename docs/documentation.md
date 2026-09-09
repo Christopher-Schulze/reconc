@@ -2807,6 +2807,16 @@ again after evaluation, so a concurrent dependency mutation cannot warm or serve
 a stale decision within the available hook boundary. The snapshot is bounded
 to 2,048 paths and 32 MiB of observed regular-file content; no cache hit is
 claimed when those bounds or platform identity guarantees are unavailable.
+PreToolUse and PermissionRequest classify the parsed payload before preparing
+cache identities, so read and other non-command, non-write tools preserve their
+normal bookkeeping without loading policy sources or creating a decision cache.
+Command and write decisions obtain the validated source digest from the
+operation's evaluator-owned immutable runtime plan; the independent post-read
+and post-evaluation resamples remain in place to detect concurrent changes.
+On an Apple M1 with Go `1.26.5`, the focused irrelevant-route benchmark
+measured 564,962 ns/op, 118,983 B/op, and 986 allocations for the former
+identity-preparation path versus 14.70 ns/op, 0 B/op, and 0 allocations after
+classification. This is local benchmark evidence, not a latency guarantee.
 
 Literal `eval` uses the shell's two parsing passes, not source-level quote
 reconstruction. The outer parse first produces argument bytes; `eval` then

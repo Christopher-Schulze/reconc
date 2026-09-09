@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"reconc.dev/reconc/internal/runtime"
 )
 
 func TestResolvedHookRequestOwnsRootAndRuntime(t *testing.T) {
@@ -153,6 +155,45 @@ func TestPreDecisionWithoutStableToolIdentityIsNotCached(t *testing.T) {
 	path := filepath.Join(projectDir(root.Path()), "pre-decisions", sessionFileKey("no-tool-id")+".json")
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("unstable decision was cached: %v", err)
+	}
+}
+
+func TestPreDecisionBypassesPolicyPreparationForIrrelevantTools(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	root, err := ResolveRepoRootRef(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := RunHookRequest(root, HookHandlerSessionStart, "claude-session-start", []byte(`{"session_id":"irrelevant"}`)); result.ExitCode != 0 {
+		t.Fatalf("session start: %+v", result)
+	}
+	payload := []byte(`{"session_id":"irrelevant","tool_use_id":"read-1","tool_name":"Read","tool_input":{"file_path":"src/main.go"}}`)
+	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	if result.ExitCode != 0 || result.Stdout != "" || result.Stderr != "" {
+		t.Fatalf("irrelevant pre-tool result = %+v", result)
+	}
+	if _, err := os.Stat(preDecisionCachePath(root.Path(), payload)); !os.IsNotExist(err) {
+		t.Fatalf("irrelevant tool created a pre-decision cache: %v", err)
+	}
+}
+
+func TestPreDecisionEvaluatorIdentityReusesValidatedPlanDigest(t *testing.T) {
+	repo := setupStopBenchmarkRepo(t)
+	payload := &HookPayload{
+		SessionID: "validated-plan", ToolUseID: "call-1", ToolName: "Write",
+		ToolInput: map[string]interface{}{"file_path": "src/a.go"},
+	}
+	if _, err := InitializeSessionState(repo, payload.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	evaluator := runtime.NewEvaluator()
+	_, wantDigest, err := evaluator.CurrentCompiledPolicyEvaluator(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputs, ok := preDecisionInputsForPayloadWithEvaluator(repo, payload, evaluator)
+	if !ok || inputs.identity.policySource != wantDigest {
+		t.Fatalf("evaluator-backed source identity = %q, want validated plan digest %q", inputs.identity.policySource, wantDigest)
 	}
 }
 
@@ -388,6 +429,65 @@ func BenchmarkPreDecisionCacheHitIdentitySampling(b *testing.B) {
 			}
 			if _, ok := readPreDecisionCacheForInputs(root, payload, baseline); !ok {
 				b.Fatal("cache hit identity changed")
+			}
+		}
+	})
+}
+
+func BenchmarkPreDecisionEvaluatorSnapshotReuse(b *testing.B) {
+	repo := setupStopBenchmarkRepo(b)
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	payload := &HookPayload{
+		SessionID: "bench-evaluator", ToolUseID: "call-1", ToolName: "Write",
+		ToolInput: map[string]interface{}{"file_path": "src/a.go"},
+	}
+	if _, err := InitializeSessionState(root, payload.SessionID); err != nil {
+		b.Fatal(err)
+	}
+	evaluator := runtime.NewEvaluator()
+	initial, ok := preDecisionInputsForPayloadWithEvaluator(root, payload, evaluator)
+	if !ok {
+		b.Fatal("evaluator-backed pre-decision identity unavailable")
+	}
+	b.ReportAllocs()
+	b.ReportMetric(1, "validated-plan-samples/op")
+	for range b.N {
+		resampled, ok := resamplePreDecisionInputsWithEvaluator(root, payload, initial, evaluator)
+		if !ok || !initial.identity.equal(resampled.identity) {
+			b.Fatal("evaluator-backed identity changed without an input mutation")
+		}
+	}
+}
+
+func BenchmarkPreDecisionIrrelevantRoute(b *testing.B) {
+	repo := setupStopBenchmarkRepo(b)
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	payload := &HookPayload{
+		SessionID: "bench-irrelevant", ToolUseID: "call-1", ToolName: "Read",
+		ToolInput: map[string]interface{}{"file_path": "src/a.go"},
+	}
+	if _, err := InitializeSessionState(root, payload.SessionID); err != nil {
+		b.Fatal(err)
+	}
+	b.Run("legacy-cache-preparation", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			if _, ok := preDecisionInputsForPayload(root, payload); !ok {
+				b.Fatal("legacy identity preparation failed")
+			}
+		}
+	})
+	b.Run("classified-bypass", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			if preDecisionRequiresPolicy(payload) {
+				b.Fatal("Read tool was classified as policy-relevant")
 			}
 		}
 	})
