@@ -30,14 +30,17 @@ const (
 	// independently of the number of calls admitted by the gateway.
 	MaxReservationConflictRetries = 8
 	MaxPendingApprovals           = actionstate.MaxPendingApprovals
-	MaxUpstreamRequests           = 64
-	MaxStderrBytes                = 256 << 10
-	MaxProgressTokenBytes         = 4096
-	MaxProgressEvents             = 128
-	MaxProgressQueueEvents        = 16
-	MaxProgressEventBytes         = 64 << 10
-	MaxProgressBytes              = 1 << 20
-	MaxDiagnosticBytes            = 4096
+	// ApprovalExpirySweepInterval bounds how long an abandoned approval can
+	// retain gateway-owned buffers without a new admission attempt.
+	ApprovalExpirySweepInterval = 30 * time.Second
+	MaxUpstreamRequests         = 64
+	MaxStderrBytes              = 256 << 10
+	MaxProgressTokenBytes       = 4096
+	MaxProgressEvents           = 128
+	MaxProgressQueueEvents      = 16
+	MaxProgressEventBytes       = 64 << 10
+	MaxProgressBytes            = 1 << 20
+	MaxDiagnosticBytes          = 4096
 
 	StartupTimeout       = 15 * time.Second
 	ToolPageTimeout      = 5 * time.Second
@@ -77,6 +80,10 @@ type Config struct {
 	Diagnostics         io.Writer
 	PolicyLoader        PolicyLoader
 	EvidenceProvider    EvidenceProvider
+	// clock is an optional trusted clock override used by deterministic
+	// lifecycle tests. Production callers leave it nil, which selects the
+	// action-state system clock.
+	clock actionstate.TrustedClock
 }
 
 type PolicySnapshot struct {

@@ -179,6 +179,12 @@ func (g *Gateway) requestPostApproval(
 	call *gatewayCall,
 	rawResult json.RawMessage,
 ) (*mcp.CallToolResult, error) {
+	if g.pendingSweepNeeded() {
+		if err := g.reconcileExpiredApprovals(ctx); err != nil {
+			decision := postApprovalBlockedDecision(call.decision, action.ReasonStateUnavailable)
+			return g.withholdResult(ctx, call, decision, nil)
+		}
+	}
 	if g.config.ApprovalPolicyID == "" {
 		decision := postApprovalBlockedDecision(call.decision, action.ReasonAuthorityUnavailable)
 		return g.withholdResult(ctx, call, decision, nil)

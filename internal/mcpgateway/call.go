@@ -146,6 +146,11 @@ func (g *Gateway) prepareCall(
 	if err != nil {
 		return nil, blockedGatewayResultValue(callID, gatewayReason(err, action.ReasonPolicyStale))
 	}
+	if g.pendingSweepNeeded() {
+		if err := g.reconcileExpiredApprovals(ctx); err != nil {
+			return nil, blockedGatewayResultValue(callID, gatewayReason(err, action.ReasonStateUnavailable))
+		}
+	}
 	inspector, err := g.inspectionEngine(snapshot.Plan)
 	if err != nil {
 		return nil, blockedGatewayResultValue(callID, action.ReasonInspectionIncomplete)
@@ -271,6 +276,12 @@ func (g *Gateway) requestApproval(
 	ctx context.Context,
 	call *gatewayCall,
 ) (*gatewayCall, *mcp.CallToolResult) {
+	if g.pendingSweepNeeded() {
+		if err := g.reconcileExpiredApprovals(ctx); err != nil {
+			g.denyCall(ctx, call, false)
+			return nil, blockedGatewayResultValue(call.callID, action.ReasonStateUnavailable)
+		}
+	}
 	if g.config.ApprovalPolicyID == "" {
 		g.denyCall(ctx, call, false)
 		return nil, blockedGatewayResultValue(call.callID, action.ReasonAuthorityUnavailable)
@@ -436,9 +447,14 @@ func blockedGatewayResultValue(callID string, reason action.ReasonCode) *mcp.Cal
 }
 
 func (g *Gateway) storePending(state string, pending pendingApproval) error {
+	g.transitionMu.Lock()
+	defer g.transitionMu.Unlock()
 	g.pendingMu.Lock()
 	defer g.pendingMu.Unlock()
-	if state == "" || len(g.pending) >= MaxPendingApprovals {
+	if g.pendingCleanup == nil {
+		g.pendingCleanup = make(map[string]*pendingApprovalCleanup)
+	}
+	if state == "" || len(g.pending)+len(g.pendingCleanup) >= MaxPendingApprovals {
 		pending.release()
 		return fmt.Errorf("pending approval capacity is exhausted")
 	}
@@ -451,6 +467,8 @@ func (g *Gateway) storePending(state string, pending pendingApproval) error {
 }
 
 func (g *Gateway) removePending(state string) {
+	g.transitionMu.Lock()
+	defer g.transitionMu.Unlock()
 	pending, exists := g.takePending(state)
 	if exists {
 		pending.release()
@@ -568,23 +586,25 @@ func (g *Gateway) recordTerminalizedApproval(
 	result actionstate.ApprovalConsumeResult,
 	reason action.ReasonCode,
 	approvalCommitted bool,
-) {
+) error {
 	terminalCtx, cancel := terminalContext(ctx)
 	defer cancel()
+	if call == nil || call.ledger == nil {
+		return fmt.Errorf("terminalized approval ledger is unavailable")
+	}
 	if result.StateVersion == "" || result.Evidence.RequestID == "" {
-		_ = call.ledger.terminalFailure(
+		return call.ledger.terminalFailure(
 			terminalCtx, action.PhasePreCall, action.ReasonStateUnavailable,
 			action.LifecycleActive, true, true,
 		)
-		return
 	}
 	if err := call.ledger.approval(terminalCtx, call.decision, result.Evidence); err != nil {
-		return
+		return err
 	}
 	if call.reservation == nil {
-		return
+		return nil
 	}
-	_ = call.ledger.budget(
+	return call.ledger.budget(
 		terminalCtx, blockDecision(call.decision, reason), actionledger.BudgetDenied,
 		call.budget, result.StateVersion, 0, call.approvalReserved, approvalCommitted,
 	)

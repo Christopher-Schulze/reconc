@@ -559,6 +559,9 @@ func (l *callLedger) selectedFields(phase action.Phase) ([]actionledger.Selected
 }
 
 func (l *callLedger) record(ctx context.Context, record actionledger.Record) error {
+	if l == nil || l.store == nil {
+		return fmt.Errorf("action ledger store is unavailable")
+	}
 	result, err := l.store.Record(ctx, l.mode, record)
 	if err != nil {
 		return err

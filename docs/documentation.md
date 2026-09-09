@@ -3112,10 +3112,14 @@ authority. MCP `2025-11-25` clients with standard form elicitation can transport
 the same signed receipt in one bounded `elicitation/create` exchange. Clients
 without the required capability or valid response receive a bounded
 approval-required failure.
-Startup and pre-work reconciliation atomically expire crashed pending waits so
-their pre-dispatch reservations do not remain stranded. Transition evidence
-contains only safe labels, timestamps, counters, and bound identities, never
-raw selected values, receipts, credentials, or private keys.
+Startup, pre-work, and a cancellable 30-second gateway sweep atomically expire
+abandoned pending waits so their pre-dispatch reservations, retained gateway
+buffers, and bounded pending capacity do not remain stranded. Expired gateway
+records stay reserved for retry until their ledger approval, budget, settlement,
+and withheld-delivery transitions complete; cleanup errors remain surfaced and
+retriable. Transition evidence contains only safe labels, timestamps, counters,
+and bound identities, never raw selected values, receipts, credentials, or
+private keys.
 When a reservation owner is explicitly reconciled as abandoned, every pending
 approval bound to that owner's transitioned reservations becomes terminal
 `unavailable`, the persisted approval-budget reservation is released, and the

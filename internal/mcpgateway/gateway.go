@@ -76,10 +76,15 @@ type Gateway struct {
 
 	pendingMu sync.Mutex
 	pending   map[string]pendingApproval
+	// pendingCleanup owns approvals that durable expiry has terminalized but
+	// whose ledger transition still needs a retry. They continue to count
+	// against the gateway's bounded pending capacity until cleanup succeeds.
+	pendingCleanup map[string]*pendingApprovalCleanup
 
 	semaphore         chan struct{}
 	refreshRequests   chan struct{}
 	refreshWorkerDone chan struct{}
+	expiryWorkerDone  chan struct{}
 	fatalErrors       chan error
 	closeOnce         sync.Once
 	closeErr          error
@@ -120,6 +125,24 @@ type pendingApproval struct {
 	downstreamProtocol    string
 	rawResult             json.RawMessage
 	repositoryPaths       []RepositoryPathBinding
+}
+
+type pendingApprovalCleanup struct {
+	pending                  pendingApproval
+	result                   actionstate.ApprovalConsumeResult
+	approvalRecorded         bool
+	reservationSettled       bool
+	reservationIndeterminate bool
+	budgetRecorded           bool
+	deliveryRecorded         bool
+}
+
+func (p *pendingApprovalCleanup) release() {
+	if p == nil {
+		return
+	}
+	p.pending.release()
+	*p = pendingApprovalCleanup{}
 }
 
 func (p *pendingApproval) release() {
@@ -181,7 +204,8 @@ func startGateway(parent context.Context, config Config) (*Gateway, error) {
 	gateway := &Gateway{
 		config: config, ctx: gatewayCtx, cancel: cancel, lease: lease,
 		snapshot: snapshot, inspections: inspections,
-		pending: make(map[string]pendingApproval), semaphore: make(chan struct{}, MaxConcurrentCalls),
+		pending: make(map[string]pendingApproval), pendingCleanup: make(map[string]*pendingApprovalCleanup),
+		semaphore:       make(chan struct{}, MaxConcurrentCalls),
 		refreshRequests: make(chan struct{}, 1), fatalErrors: make(chan error, 1),
 	}
 	fail := func(cause error) (*Gateway, error) {
@@ -228,7 +252,7 @@ func startGateway(parent context.Context, config Config) (*Gateway, error) {
 	}
 	gateway.bindings = append([]actionstate.EnvironmentBinding(nil), bindings...)
 	gateway.state, err = actionstate.OpenStore(actionstate.StoreOptions{
-		Home: home, Repository: snapshot.Repository, KeyLease: lease,
+		Home: home, Repository: snapshot.Repository, KeyLease: lease, Clock: config.clock,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("open action state: %w", err))
@@ -293,7 +317,9 @@ func startGateway(parent context.Context, config Config) (*Gateway, error) {
 		gateway.diagnostic(repositoryManagedAuthorityDiagnostic)
 	}
 	gateway.refreshWorkerDone = make(chan struct{})
+	gateway.expiryWorkerDone = make(chan struct{})
 	go gateway.runToolRefreshes()
+	go gateway.runApprovalExpiry()
 	return gateway, nil
 }
 
@@ -533,6 +559,245 @@ func (g *Gateway) runToolRefreshes() {
 	}
 }
 
+func (g *Gateway) runApprovalExpiry() {
+	defer close(g.expiryWorkerDone)
+	ticker := time.NewTicker(ApprovalExpirySweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-g.ctx.Done():
+			return
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(g.ctx, ApprovalExpirySweepInterval)
+			err := g.reconcileExpiredApprovals(ctx)
+			cancel()
+			if err != nil {
+				g.diagnostic("approval expiry cleanup failed: " + err.Error())
+			}
+		}
+	}
+}
+
+func (g *Gateway) pendingSweepNeeded() bool {
+	if g == nil {
+		return false
+	}
+	g.pendingMu.Lock()
+	defer g.pendingMu.Unlock()
+	return len(g.pending) > 0 || len(g.pendingCleanup) > 0
+}
+
+// reconcileExpiredApprovals first reconciles the durable approval contract and
+// then claims matching in-memory approvals for ledger cleanup. Durable state
+// is never considered released merely because the gateway map was changed.
+func (g *Gateway) reconcileExpiredApprovals(ctx context.Context) error {
+	if g == nil || g.state == nil {
+		return fmt.Errorf("approval expiry reconciliation is unavailable")
+	}
+	terminalCtx, cancel := terminalContext(ctx)
+	defer cancel()
+	g.transitionMu.Lock()
+	defer g.transitionMu.Unlock()
+
+	cleanupErr := g.retryPendingCleanupLocked(terminalCtx)
+	reconciled, reconcileErr := g.state.ReconcileExpiredApprovals(terminalCtx)
+	g.claimExpiredPending(reconciled.Expired)
+	cleanupErr = errors.Join(cleanupErr, g.retryPendingCleanupLocked(terminalCtx))
+	return errors.Join(reconcileErr, cleanupErr)
+}
+
+func (g *Gateway) claimExpiredPending(expired []actionstate.ApprovalConsumeResult) {
+	if len(expired) == 0 {
+		return
+	}
+	byRequestID := make(map[string]actionstate.ApprovalConsumeResult, len(expired))
+	for _, result := range expired {
+		if result.Evidence.RequestID != "" {
+			byRequestID[result.Evidence.RequestID] = result
+		}
+	}
+	if len(byRequestID) == 0 {
+		return
+	}
+	g.pendingMu.Lock()
+	defer g.pendingMu.Unlock()
+	if g.pendingCleanup == nil {
+		g.pendingCleanup = make(map[string]*pendingApprovalCleanup)
+	}
+	for requestState, pending := range g.pending {
+		result, expired := byRequestID[pending.approvalRequest.RequestID]
+		if !expired {
+			continue
+		}
+		delete(g.pending, requestState)
+		g.pendingCleanup[requestState] = &pendingApprovalCleanup{
+			pending: pending, result: result,
+		}
+	}
+}
+
+func (g *Gateway) retryPendingCleanupLocked(ctx context.Context) error {
+	g.pendingMu.Lock()
+	items := make([]struct {
+		state string
+		item  *pendingApprovalCleanup
+	}, 0, len(g.pendingCleanup))
+	for state, item := range g.pendingCleanup {
+		items = append(items, struct {
+			state string
+			item  *pendingApprovalCleanup
+		}{state: state, item: item})
+	}
+	g.pendingMu.Unlock()
+	sort.Slice(items, func(i, j int) bool {
+		left, right := items[i].item.pending, items[j].item.pending
+		if left.callID != right.callID {
+			return left.callID < right.callID
+		}
+		if left.phase != right.phase {
+			return left.phase < right.phase
+		}
+		return items[i].state < items[j].state
+	})
+	var resultErr error
+	for _, entry := range items {
+		if err := g.finishExpiredApproval(ctx, entry.item); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf(
+				"retry expired approval call %q phase %q: %w",
+				entry.item.pending.callID, entry.item.pending.phase, err,
+			))
+			continue
+		}
+		g.pendingMu.Lock()
+		if current, exists := g.pendingCleanup[entry.state]; exists && current == entry.item {
+			delete(g.pendingCleanup, entry.state)
+		}
+		g.pendingMu.Unlock()
+		entry.item.release()
+	}
+	return resultErr
+}
+
+func (g *Gateway) finishExpiredApproval(
+	ctx context.Context,
+	cleanup *pendingApprovalCleanup,
+) error {
+	if cleanup == nil {
+		return fmt.Errorf("expired approval cleanup is unavailable")
+	}
+	call := callFromPending(cleanup.pending)
+	call.stateVersion = cleanup.result.StateVersion
+	if call.ledger == nil {
+		return fmt.Errorf("expired approval ledger is unavailable")
+	}
+	if !cleanup.approvalRecorded {
+		if err := call.ledger.approval(ctx, call.decision, cleanup.result.Evidence); err != nil {
+			return err
+		}
+		cleanup.approvalRecorded = true
+	}
+	if cleanup.pending.phase == action.PhasePostResult {
+		return g.finishExpiredPostApproval(ctx, call, cleanup)
+	}
+	if cleanup.pending.reservation == nil || cleanup.budgetRecorded {
+		return nil
+	}
+	if err := call.ledger.budget(
+		ctx, blockDecision(call.decision, action.ReasonApprovalExpired),
+		actionledger.BudgetDenied, call.budget, cleanup.result.StateVersion, 0,
+		cleanup.pending.approvalReserved, false,
+	); err != nil {
+		return err
+	}
+	cleanup.budgetRecorded = true
+	return nil
+}
+
+func (g *Gateway) finishExpiredPostApproval(
+	ctx context.Context,
+	call *gatewayCall,
+	cleanup *pendingApprovalCleanup,
+) error {
+	decision := postApprovalBlockedDecision(call.decision, action.ReasonApprovalExpired)
+	if call.reservation != nil && !cleanup.reservationSettled {
+		outcome := actionstate.OutcomeSucceeded
+		if call.resultIsError {
+			outcome = actionstate.OutcomeFailed
+		}
+		version, err := g.state.Settle(
+			ctx, call.reservation.Identity, call.stateVersion, outcome, call.actualResultBytes,
+		)
+		if err != nil && version == "" {
+			current, currentErr := g.state.CurrentStateVersion(ctx)
+			if currentErr != nil {
+				return errors.Join(err, currentErr)
+			}
+			version, err = g.state.Settle(
+				ctx, call.reservation.Identity, current, outcome, call.actualResultBytes,
+			)
+		}
+		if err != nil && version != "" {
+			// Settle can durably mark an oversized result indeterminate while
+			// still returning the committed state version. Preserve that outcome
+			// and finish its ledger transition instead of retrying forever.
+			call.stateVersion = version
+			cleanup.result.StateVersion = version
+			cleanup.reservationSettled = true
+			cleanup.reservationIndeterminate = true
+			err = nil
+		}
+		if err != nil {
+			return err
+		}
+		if version == "" {
+			return fmt.Errorf("expired post-result settlement returned no state version")
+		}
+		call.stateVersion = version
+		cleanup.result.StateVersion = version
+		cleanup.reservationSettled = true
+	}
+	if call.reservation != nil && !cleanup.budgetRecorded {
+		budgetKind := actionledger.BudgetSettled
+		budgetDecision := call.downstreamDecision
+		actualResultBytes := call.actualResultBytes
+		approvalReserved := cleanup.pending.postApprovalReserved
+		approvalCommitted := cleanup.pending.postApprovalCommitted
+		if cleanup.reservationIndeterminate {
+			budgetKind = actionledger.BudgetIndeterminate
+			budgetDecision = postFailureDecision(call, action.ReasonReservationIndeterminate)
+			actualResultBytes = 0
+			approvalReserved = false
+			approvalCommitted = false
+		}
+		if err := call.ledger.budget(
+			ctx, budgetDecision, budgetKind, call.budget, call.stateVersion,
+			actualResultBytes, approvalReserved, approvalCommitted,
+		); err != nil {
+			return err
+		}
+		cleanup.budgetRecorded = true
+	}
+	if cleanup.deliveryRecorded {
+		return nil
+	}
+	response := safeGatewayResult(
+		"withheld", action.ReasonApprovalExpired,
+		"Reconc withheld the downstream tool result.", call.callID,
+		"succeeded", "withheld",
+	)
+	body, err := json.Marshal(response)
+	if err != nil {
+		return err
+	}
+	if err := call.ledger.delivery(
+		ctx, decision, actionledger.DeliveryWithheld, uint64(len(body)), 0,
+	); err != nil {
+		return err
+	}
+	cleanup.deliveryRecorded = true
+	return nil
+}
+
 func (g *Gateway) tool(name string) (ToolContract, uint64, bool) {
 	g.toolsMu.RLock()
 	defer g.toolsMu.RUnlock()
@@ -633,6 +898,15 @@ func (g *Gateway) Close() error {
 		if g.cancel != nil {
 			g.cancel()
 		}
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
+		defer cancel()
+		if g.expiryWorkerDone != nil {
+			select {
+			case <-g.expiryWorkerDone:
+			case <-shutdownCtx.Done():
+				g.closeErr = errors.Join(g.closeErr, fmt.Errorf("approval expiry worker did not terminate"))
+			}
+		}
 		if session := g.upstreamSession(); session != nil {
 			g.closeErr = errors.Join(g.closeErr, closeLifecycleError(session.Close()))
 		}
@@ -642,8 +916,6 @@ func (g *Gateway) Close() error {
 		if g.process != nil {
 			g.closeErr = errors.Join(g.closeErr, g.process.Close())
 		}
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
-		defer cancel()
 		g.closeErr = errors.Join(g.closeErr, g.finalizePendingAndDrainCalls(shutdownCtx))
 		if g.refreshWorkerDone != nil {
 			select {
@@ -699,18 +971,25 @@ func (g *Gateway) finalizePendingAndDrainCalls(ctx context.Context) error {
 }
 
 func (g *Gateway) shutdownPending(ctx context.Context) error {
+	g.transitionMu.Lock()
+	defer g.transitionMu.Unlock()
 	g.pendingMu.Lock()
 	pending := make([]pendingApproval, 0, len(g.pending))
 	for _, approval := range g.pending {
 		pending = append(pending, approval)
 	}
 	g.pending = make(map[string]pendingApproval)
+	cleanup := make([]struct {
+		state string
+		item  *pendingApprovalCleanup
+	}, 0, len(g.pendingCleanup))
+	for state, item := range g.pendingCleanup {
+		cleanup = append(cleanup, struct {
+			state string
+			item  *pendingApprovalCleanup
+		}{state: state, item: item})
+	}
 	g.pendingMu.Unlock()
-	defer func() {
-		for index := range pending {
-			pending[index].release()
-		}
-	}()
 	sort.Slice(pending, func(i, j int) bool {
 		if pending[i].callID != pending[j].callID {
 			return pending[i].callID < pending[j].callID
@@ -728,6 +1007,7 @@ func (g *Gateway) shutdownPending(ctx context.Context) error {
 		})
 		if err != nil {
 			resultErr = errors.Join(resultErr, pendingShutdownError(approval, err))
+			approval.release()
 			continue
 		}
 		call := callFromPending(approval)
@@ -735,9 +1015,37 @@ func (g *Gateway) shutdownPending(ctx context.Context) error {
 			if _, err := g.finalizePostApproval(ctx, call, result, action.ReasonShutdown); err != nil {
 				resultErr = errors.Join(resultErr, pendingShutdownError(approval, err))
 			}
+			approval.release()
 			continue
 		}
-		g.recordTerminalizedApproval(ctx, call, result, action.ReasonShutdown, false)
+		if err := g.recordTerminalizedApproval(ctx, call, result, action.ReasonShutdown, false); err != nil {
+			resultErr = errors.Join(resultErr, pendingShutdownError(approval, err))
+		}
+		approval.release()
+	}
+	sort.Slice(cleanup, func(i, j int) bool {
+		left, right := cleanup[i].item.pending, cleanup[j].item.pending
+		if left.callID != right.callID {
+			return left.callID < right.callID
+		}
+		if left.phase != right.phase {
+			return left.phase < right.phase
+		}
+		return cleanup[i].state < cleanup[j].state
+	})
+	for _, entry := range cleanup {
+		if err := g.finishExpiredApproval(ctx, entry.item); err != nil {
+			resultErr = errors.Join(resultErr, pendingShutdownError(
+				entry.item.pending, err,
+			))
+			continue
+		}
+		g.pendingMu.Lock()
+		if current, exists := g.pendingCleanup[entry.state]; exists && current == entry.item {
+			delete(g.pendingCleanup, entry.state)
+		}
+		g.pendingMu.Unlock()
+		entry.item.release()
 	}
 	return resultErr
 }

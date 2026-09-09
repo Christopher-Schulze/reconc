@@ -36,6 +36,7 @@ type rawGatewayOptions struct {
 	home                string
 	approvalAuthorities string
 	approvalPolicyID    string
+	clock               actionstate.TrustedClock
 }
 
 func newRawGatewayHarness(
@@ -94,6 +95,7 @@ func newRawGatewayHarnessWithOptions(
 		ReconcHome: home, Version: "test", CallTimeout: 5 * time.Second,
 		ApprovalAuthorities: options.approvalAuthorities,
 		ApprovalPolicyID:    options.approvalPolicyID,
+		clock:               options.clock,
 		Input:               gatewayInput, Output: gatewayOutput, Diagnostics: io.Discard,
 		PolicyLoader: loader,
 	})

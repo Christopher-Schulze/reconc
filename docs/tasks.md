@@ -5,7 +5,6 @@
 ## Queue
 
 - [ ] 472 Require bound approval before authority file changes -> tasks/472-require-bound-approval-before-authority-file-changes.md
-- [ ] 480 Expire abandoned MCP approval state -> tasks/480-expire-abandoned-mcp-approval-state.md
 - [ ] 481 Bound Antigravity replay state without wedging long invocations -> tasks/481-bound-antigravity-replay-state-without-wedging-long-invocations.md
 - [ ] 482 Propagate cancellation through runtime plan loading -> tasks/482-propagate-cancellation-through-runtime-plan-loading.md
 - [ ] 483 Scope assurance gates to detected module roots -> tasks/483-scope-assurance-gates-to-detected-module-roots.md
@@ -30,6 +29,7 @@
 
 ## Done
 
+- [x] 480 Expire abandoned MCP approval state -> tasks/done/480-expire-abandoned-mcp-approval-state.md
 - [x] 479 Preserve machine identifiers and structure agent actions -> tasks/done/479-preserve-machine-identifiers-and-structure-agent-actions.md
 - [x] 478 Unify task briefing and run next action -> tasks/done/478-unify-task-briefing-and-run-next-action.md
 - [x] 477 Bind briefing reports to current policy and evidence -> tasks/done/477-bind-briefing-reports-to-current-policy-and-evidence.md
