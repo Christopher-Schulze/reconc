@@ -71,13 +71,14 @@ only leader steering. Managed activation
 requires exact hook/wrapper artifacts and route tokens. Deep doctor reports
 native Stop capability and separately probes protocol 1 plus `_x.ai/interject`.
 Typed `continue` and `claim` states continue; an empty active slot claims queued
-executable work. Complete or absent state disables the switch after terminal
-gates, blocked state reaches terminal Stop without silently disabling it, and
-invalid state fails closed. An interrupt or six repeated no-progress
+executable work. Complete, absent, blocked, and invalid/non-executable state
+reaches terminal Stop after persisting its distinct automatic disable reason;
+only an explicit user stop authorizes `run off`. Resolve a blocked TASK and run
+`reconc run on .` to resume. An interrupt or six repeated no-progress
 continuations releases only the current invocation. Prompt text, session
 boundaries, runtime changes, and application restarts never mutate the durable
-switch; `run off` is the only manual disable action. Pre-write, TASK mutation,
-pre-commit, and terminal Stop gates remain authoritative.
+switch. Pre-write, TASK mutation, pre-commit, and terminal Stop gates remain
+authoritative.
 
 If `reconc task status .` finds a configured TASK control plane, also run
 `reconc task check-done .` and use `reconc task promote .` only after every

@@ -11,8 +11,7 @@ Read this file completely before touching files. The goal is not to invent a new
 - Do not overwrite existing target-repo files. Merge excerpts surgically.
 - Default for new/empty repositories is flat-root: no `codebase/`.
 - Existing repositories win. If the repo is mature, analyze it and adapt Reconc to the repo instead of reshaping the repo.
-- `tools/reconc/harness/template/` is the immutable source template installed by the advanced CLI profile.
-- In the target repo, rename `tools/reconc/harness/template/` to `tools/reconc/harness/<project-name>/`, where `<project-name>` is the target repo directory name normalized to lowercase/kebab-case unless the user explicitly chooses another project name.
+- `tools/reconc/harness/template/` is the immutable, receipt-owned source template installed by the advanced CLI profile. Never rename, move, or remove it during a rollout.
 - Placeholder is exactly `project` / `Project` / `PROJECT`. No other project placeholder is valid.
 - In `stack-config.yaml` path values, interpolation is deliberately narrower: only the exact `{project}` token expands. Literal `project` text inside a filename or directory name is preserved.
 - `AGENTS.md` is an excerpt merge: insert the workflow excerpt into an existing `AGENTS.md`; create a new one only when none exists.
@@ -171,11 +170,15 @@ After verification, the agent itself inspects the target once with
 the current TASK, policy delta, and repository-run state without a Git process
 or repository write.
 It enables repository continuation with `reconc run on <target-repo>` only
-when autonomous execution is requested, and disables it with
-`reconc run off <target-repo>` on explicit stop or a real blocker. Prompt text,
-runtime interrupts, session boundaries, and application restarts never mutate
-the durable switch; an interrupt releases only the current host invocation.
-Complete or absent TASK state disables it automatically after terminal gates.
+when autonomous execution is requested. An explicit user stop is the only
+manual `reconc run off <target-repo>` action. A blocked TASK releases the
+current Stop to the terminal gate and automatically records the distinct
+`blocked_task` disable reason; it does not authorize `run off` or erase TASK
+intent. Resolve the blocker, then run `reconc run on <target-repo>` to resume.
+Complete, absent, or invalid/non-executable TASK state records its own terminal
+disable reason after the terminal gates. Prompt text, runtime interrupts,
+session boundaries, and application restarts never mutate the durable switch;
+an interrupt releases only the current host invocation.
 Do not ask the user to operate these commands.
 
 The following manual steps remain authoritative for the project harness,
@@ -206,7 +209,7 @@ The advanced init transaction must already have installed
 mutable download.
 
 1. Derive `<project-name>` from the target repo directory name normalized to lowercase/kebab-case. If the directory name is generic (`repo`, `project`, `new`) or conflicts with an existing package/module name, ask the user for the canonical project name before renaming.
-2. Copy the installed template to `tools/reconc/harness/<project-name>/`; keep the immutable template intact for receipt verification and future sync.
+2. Copy the installed template to `tools/reconc/harness/<project-name>/`; keep the immutable template intact for receipt verification and future sync. If that destination already exists, stop and inspect/merge it surgically; never overwrite, remove, or replace it merely to repeat the copy.
 3. Rebrand only inside `tools/reconc/harness/<project-name>/`:
    - `project` -> `<project-name>` lowercase.
    - `Project` -> `<ProjectName>` title/camel display form.

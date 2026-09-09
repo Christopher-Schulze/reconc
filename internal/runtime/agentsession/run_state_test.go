@@ -69,4 +69,7 @@ func TestRepositoryRunPromptUsesCanonicalRepositoryRootRunCommand(t *testing.T) 
 	if !strings.Contains(prompt, "`reconc run off`") || strings.Contains(prompt, "`reconc run off .`") {
 		t.Fatalf("prompt does not use the canonical repository-root run command: %q", prompt)
 	}
+	if strings.Contains(prompt, "real blocker") || !strings.Contains(prompt, "recorded automatically") {
+		t.Fatalf("prompt gives the wrong blocker run-state instruction: %q", prompt)
+	}
 }

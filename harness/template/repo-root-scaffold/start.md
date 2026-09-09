@@ -45,9 +45,11 @@ Follow `AGENTS.md`: read the task-relevant source/spec/research paths, edit surg
 
 When autonomous execution is requested, the agent enables the durable switch
 itself with `reconc run on .`, verifies it with `reconc run status .`, and
-disables it with `reconc run off .` on explicit user stop or a real blocker.
-Never ask the user to operate these commands. The switch is scoped to this
-repository. Claude Code, Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity
+disables it with `reconc run off .` only on explicit user stop. A blocked TASK
+releases the current Stop and automatically records `blocked_task`; do not
+issue `run off` for a blocker. Resolve the blocker, then run `reconc run on .`
+to resume. Never ask the user to operate these commands. The switch is scoped
+to this repository. Claude Code, Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity
 CLI, and ZCode expose synchronous Stop continuation. Oh My Pi exposes awaited
 main-session `session_stop` with an eight-continuation cap; Pi uses inferred
 fail-open `agent_settled` continuation with no delivery acknowledgement; OpenCode and Kilo

@@ -105,7 +105,9 @@ Sub-Task, write same-TASK tests, run checks, update docs and TASK truth,
 complete Final Reality Check, archive and commit once, promote or claim the
 next executable TASK, then continue. An executable current TASK yields
 `continue`; queued executable work with no current TASK yields `claim`;
-blocked-only, complete, or absent TASK state reaches terminal Stop; malformed
+blocked-only, complete, or absent TASK state reaches terminal Stop and records
+its distinct automatic disable reason; only an explicit user stop authorizes
+`run off`. Resolve a blocked TASK and run `reconc run on .` to resume. Malformed
 or ambiguous TASK state fails closed. Routine executable continuation skips
 the full Stop report and Git scan, but PreToolUse, TASK mutation,
 pre-commit, invalid TASK state, and terminal Stop remain hard gates.

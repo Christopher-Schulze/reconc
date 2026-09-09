@@ -1538,9 +1538,10 @@ sources, the compiled lockfile, and an executable typed TASK disposition. It
 fails without mutating state and gives one exact remediation; `--force` is the
 explicit exceptional override. Typed `continue` and `claim` states
 continue: `Current: none` or an empty Active section still claims queued
-executable work. Complete or absent state disables the switch after terminal
-gates; blocked state reaches terminal Stop without silently disabling it, and
-invalid state fails closed. An explicit interrupt or six repeated no-progress
+executable work. Complete, absent, blocked, and invalid/non-executable state
+reaches terminal Stop after persisting its distinct automatic disable reason;
+only an explicit user stop authorizes `reconc run off`. Resolve a blocked TASK and run
+`reconc run on .` to resume. An explicit interrupt or six repeated no-progress
 continuations in the same session releases only that invocation; concurrent
 sessions have independent counters and progress fingerprints. Strict Grok
 Stops do not consume this six-event guard: their applicable safety bound is 32

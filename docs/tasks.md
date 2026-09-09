@@ -3,7 +3,6 @@
 ## Active
 
 ## Queue
-- [ ] 496 Reconcile bootstrap copy ownership and run-state contracts -> tasks/496-reconcile-bootstrap-copy-ownership-and-run-state-contracts.md
 - [ ] 497 Bound advanced harness completion and improvement loops -> tasks/497-bound-advanced-harness-completion-and-improvement-loops.md
 - [ ] 498 Add evidence-backed compatibility migration generation and performance recipes -> tasks/498-add-evidence-backed-compatibility-migration-generation-and-performance-recipes.md
 - [ ] 499 Prove template enforcement through real adapter scenarios -> tasks/499-prove-template-enforcement-through-real-adapter-scenarios.md
@@ -11,6 +10,8 @@
 ## Blocked
 
 ## Done
+
+- [x] 496 Reconcile bootstrap copy ownership and run-state contracts -> tasks/done/496-reconcile-bootstrap-copy-ownership-and-run-state-contracts.md
 
 - [x] 495 Make agent guidance compact current and progressively disclosed -> tasks/done/495-make-agent-guidance-compact-current-and-progressively-disclosed.md
 

@@ -412,9 +412,11 @@ can be steered via
 `_x.ai/interject` over Unix sockets or Windows named pipes.
 While typed TASK state is `continue` or `claim`, Reconc returns the host-specific
 continuation response without a full terminal policy or Git scan. An empty
-active slot with queued executable work yields `claim`; complete or absent
-state disables after terminal gates, blocked state reaches terminal Stop, and
-invalid state fails closed. PreToolUse, permission, TASK mutation, pre-commit,
+active slot with queued executable work yields `claim`; complete, absent,
+blocked, or invalid/non-executable state reaches terminal Stop after persisting
+its distinct automatic disable reason, and invalid state still fails closed.
+Only an explicit user stop authorizes `run off`; resolve a blocked TASK and run
+`reconc run on .` to resume. PreToolUse, permission, TASK mutation, pre-commit,
 and terminal Stop gates remain active.
 
 `run on` first validates live policy sources, the compiled lockfile, and an

@@ -57,6 +57,9 @@ For the full repo-local governance rollout with copied Reconc toolkit, harness,
 root scaffold, `start.md`, TASK files, and repo-local release binaries, have an
 agent follow `harness/template/BOOTSTRAP.md` from the copied toolkit instead of
 assuming canonical init copies a complete toolkit.
+The advanced pack's `tools/reconc/harness/template/` remains the immutable,
+receipt-owned source; the runbook copies it to the project-specific harness
+path and never renames or overwrites that source.
 
 For a lighter/manual start:
 

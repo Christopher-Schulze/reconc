@@ -896,7 +896,10 @@ imported as bounded migration evidence but cannot grant ownership beyond the
 portable receipt. Core synchronization performs no network request.
 
 The detailed AI tutorial and project-specific advanced harness path remain in
-`tools/reconc/harness/template/BOOTSTRAP.md` after advanced init.
+the immutable, receipt-owned `tools/reconc/harness/template/BOOTSTRAP.md`
+after advanced init. A full rollout copies that source to the project-specific
+harness path and leaves the source intact for receipt verification and future
+sync.
 
 ## v0.9 CLI Product Contract
 
@@ -4582,9 +4585,11 @@ user.
 
 Routine executable repository continuations return before the full Stop policy
 report and never spawn Git. PreToolUse, TASK mutations, pre-commit, invalid
-TASK state, and terminal Stop remain hard gates. Blocked and invalid TASK state
-never silently disables the durable switch; status and Stop expose the blocker
-for recovery.
+TASK state, and terminal Stop remain hard gates. Blocked, complete, absent, and
+invalid/non-executable TASK dispositions persist distinct automatic disable
+reasons; a blocker never authorizes `reconc run off`. Status and Stop expose the
+blocker for recovery, after which `reconc run on .` resumes the same TASK
+lifecycle intent.
 
 The durable switch uses `.reconc/run/state.bin` only. Its two alternating
 512-byte slots carry a fixed 88-byte payload, monotonic sequence, and CRC32C
