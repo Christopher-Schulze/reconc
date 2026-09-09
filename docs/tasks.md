@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 484 Detect package manager conflicts before truncating evidence -> tasks/484-detect-package-manager-conflicts-before-truncating-evidence.md
 - [ ] 485 Reuse validated policy snapshots in pre-decision hot paths -> tasks/485-reuse-validated-policy-snapshots-in-pre-decision-hot-paths.md
 - [ ] 486 Reuse verified evidence prefixes in pre-hooks -> tasks/486-reuse-verified-evidence-prefixes-in-pre-hooks.md
 - [ ] 487 Reduce session normalization and publication overhead -> tasks/487-reduce-session-normalization-and-publication-overhead.md
@@ -24,6 +23,8 @@
 ## Blocked
 
 ## Done
+
+- [x] 484 Detect package manager conflicts before truncating evidence -> tasks/done/484-detect-package-manager-conflicts-before-truncating-evidence.md
 
 - [x] 483 Scope assurance gates to detected module roots -> tasks/done/483-scope-assurance-gates-to-detected-module-roots.md
 

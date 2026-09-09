@@ -74,6 +74,7 @@ func Detect(root string) (Result, error) {
 
 	evidence := map[string][]string{}
 	packageManagers := map[string][]string{}
+	packageManagerMembership := map[string]map[string]bool{}
 	repositoryMarkers := []string{}
 	inspectionWarnings := []string{}
 	moduleCandidates := map[string]moduleCandidate{}
@@ -123,11 +124,13 @@ func Detect(root string) (Result, error) {
 		}
 		if manager := packageManagerForFile(path, entry); manager != "" {
 			appendBoundedEvidence(packageManagers, manager, relative)
+			recordPackageManagerMembership(packageManagerMembership, manager, relative)
 		}
 		if strings.EqualFold(entry.Name(), "package.json") {
 			for _, manager := range []string{"bun", "npm", "pnpm", "yarn"} {
 				if containsStack(stacks, manager) {
 					appendBoundedEvidence(packageManagers, manager, relative)
+					recordPackageManagerMembership(packageManagerMembership, manager, relative)
 				}
 			}
 		}
@@ -149,7 +152,7 @@ func Detect(root string) (Result, error) {
 	sort.Strings(repositoryMarkers)
 	sort.Strings(inspectionWarnings)
 	modules, moduleWarnings := buildModules(root, moduleCandidates, goWorkRoots)
-	ambiguities := append(packageManagerAmbiguities(packageManagers), inspectionWarnings...)
+	ambiguities := append(packageManagerAmbiguities(packageManagerMembership), inspectionWarnings...)
 	ambiguities = append(ambiguities, moduleWarnings...)
 	sort.Strings(ambiguities)
 	return Result{
@@ -442,37 +445,35 @@ func isRepositoryMarker(relative string) bool {
 	}
 }
 
-func packageManagerAmbiguities(managers map[string][]string) []string {
-	nodeManagers := map[string]bool{"bun": true, "npm": true, "pnpm": true, "yarn": true}
-	byDirectory := map[string]map[string]bool{}
-	for manager, paths := range managers {
-		if !nodeManagers[manager] {
-			continue
-		}
-		for _, relative := range paths {
-			directory := "."
-			if index := strings.LastIndex(relative, "/"); index >= 0 {
-				directory = relative[:index]
-			}
-			if byDirectory[directory] == nil {
-				byDirectory[directory] = map[string]bool{}
-			}
-			byDirectory[directory][manager] = true
-		}
+func recordPackageManagerMembership(membership map[string]map[string]bool, manager, relative string) {
+	directory := filepath.ToSlash(filepath.Dir(relative))
+	if directory == "" {
+		directory = "."
 	}
-	directories := make([]string, 0, len(byDirectory))
-	for directory := range byDirectory {
+	if membership[directory] == nil {
+		membership[directory] = map[string]bool{}
+	}
+	membership[directory][manager] = true
+}
+
+func packageManagerAmbiguities(membership map[string]map[string]bool) []string {
+	nodeManagers := map[string]bool{"bun": true, "npm": true, "pnpm": true, "yarn": true}
+	directories := make([]string, 0, len(membership))
+	for directory := range membership {
 		directories = append(directories, directory)
 	}
 	sort.Strings(directories)
 	ambiguities := []string{}
 	for _, directory := range directories {
-		if len(byDirectory[directory]) < 2 {
-			continue
+		managers := membership[directory]
+		names := make([]string, 0, len(managers))
+		for manager := range managers {
+			if nodeManagers[manager] {
+				names = append(names, manager)
+			}
 		}
-		names := make([]string, 0, len(byDirectory[directory]))
-		for name := range byDirectory[directory] {
-			names = append(names, name)
+		if len(names) < 2 {
+			continue
 		}
 		sort.Strings(names)
 		ambiguities = append(ambiguities, "multiple JavaScript package managers at "+directory+": "+strings.Join(names, ", "))

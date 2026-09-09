@@ -1,6 +1,7 @@
 package stackdetect
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -114,6 +115,43 @@ func TestDetectReportsMetadataAndLockfileManagerConflict(t *testing.T) {
 	}
 	if len(result.Ambiguities) != 1 || !strings.Contains(result.Ambiguities[0], "npm, pnpm") {
 		t.Fatalf("metadata/lockfile ambiguity = %v", result.Ambiguities)
+	}
+}
+
+func TestDetectReportsLateManagerConflictBeyondEvidenceCap(t *testing.T) {
+	root := t.TempDir()
+	for index := 0; index < maxEvidencePerStack; index++ {
+		directory := filepath.Join("packages", "pkg-"+fmt.Sprintf("%02d", index))
+		writeDetectionFile(t, root, filepath.Join(directory, "package.json"), `{"packageManager":"npm@11.0.0"}`+"\n")
+	}
+	writeDetectionFile(t, root, "packages/z-conflict/package.json", `{"packageManager":"npm@11.0.0"}`+"\n")
+	writeDetectionFile(t, root, "packages/z-conflict/pnpm-lock.yaml", "lockfileVersion: 9\n")
+
+	result, err := Detect(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.PackageManagers["npm"]; len(got) != maxEvidencePerStack {
+		t.Fatalf("bounded npm evidence = %v, want %d entries", got, maxEvidencePerStack)
+	}
+	if strings.Contains(strings.Join(result.PackageManagers["npm"], "\n"), "z-conflict") {
+		t.Fatalf("late npm evidence unexpectedly exceeded display cap: %v", result.PackageManagers["npm"])
+	}
+	if len(result.Ambiguities) != 1 || result.Ambiguities[0] != "multiple JavaScript package managers at packages/z-conflict: npm, pnpm" {
+		t.Fatalf("late manager ambiguity = %v", result.Ambiguities)
+	}
+}
+
+func TestPackageManagerMembershipDeduplicatesManagersPerDirectory(t *testing.T) {
+	membership := map[string]map[string]bool{}
+	recordPackageManagerMembership(membership, "npm", "service/package.json")
+	recordPackageManagerMembership(membership, "npm", "service/package-lock.json")
+	recordPackageManagerMembership(membership, "pnpm", "service/pnpm-lock.yaml")
+	recordPackageManagerMembership(membership, "pnpm", "service/pnpm-lock.yaml")
+
+	want := []string{"multiple JavaScript package managers at service: npm, pnpm"}
+	if got := packageManagerAmbiguities(membership); !reflect.DeepEqual(got, want) {
+		t.Fatalf("deduplicated manager ambiguity = %v, want %v", got, want)
 	}
 }
 

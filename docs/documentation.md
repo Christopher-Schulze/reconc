@@ -2864,8 +2864,11 @@ proposal is review-only.
 the agent or user must explicitly select a pack in `.reconc.yml` after
 confirming that its contract fits the repository.
 Node package-manager selection uses same-boundary lockfiles and
-`packageManager` metadata. Multiple managers at one boundary are reported as
-an explicit ambiguity; Reconc does not choose one. Individual Node command
+`packageManager` metadata. The displayed manager paths stay bounded and
+deduplicated, while same-boundary membership is retained for every eligible
+manifest or lockfile visited, so a late conflict cannot disappear when the
+display cap is full. Multiple managers at one boundary are reported as an
+explicit ambiguity; Reconc does not choose one. Individual Node command
 suggestions require both one unambiguous manager and a non-empty matching
 `package.json` script. A bare `tsconfig*.json` is stack evidence, not permission
 to invent `tsc --noEmit` or any other command.
