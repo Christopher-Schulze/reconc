@@ -8,3 +8,4 @@ paths:
   - "build/**"
   - "**/generated/**"
   - "**/dist/**"
+  - "**/*.generated.*"

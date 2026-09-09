@@ -2991,6 +2991,13 @@ successful-command evidence. Templates remain inert until a policy references
 them and supplies the repository-owned paths, commands, or script where the
 shape requires those inputs.
 
+`no-generated-writes` and the stack-neutral `default` preset share the same
+generated-output boundary: root or nested `generated/` and `dist/` paths, root
+`build/`, and any root or nested `*.generated.*` file. Nested `build/` remains
+available for source tooling such as `scripts/build/`; users can override a
+template rule's `paths` explicitly when a repository owns a different output
+layout.
+
 Generic dependency-locality audits exclude supported agent-runtime state trees,
 including `.devin/`, `.grok/`, `.kilo/`, legacy `.kilocode/`, `.omp/`, `.pi/`, `.zcode/`, and the
 other registered platform directories, so plugin dependencies are not mistaken

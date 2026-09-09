@@ -155,4 +155,51 @@ func TestBuiltinGuardrailTemplatesEnforceBehavior(t *testing.T) {
 			t.Fatalf("successful gate must pass: decision=%v err=%v", report.Decision, err)
 		}
 	})
+
+	t.Run("generated output template and default preset stay equivalent", func(t *testing.T) {
+		withRECONCHome(t)
+		templateRepo := makeRepo(t, "# project\n", "", "rules:\n  - id: generated\n    template: no-generated-writes\n")
+		presetRepo := makeRepo(t, "# project\n", "extends:\n  - default\n", "")
+		cases := []struct {
+			path  string
+			block bool
+		}{
+			{path: "generated/file.go", block: true},
+			{path: "packages/api/generated/file.go", block: true},
+			{path: "dist/output.js", block: true},
+			{path: "packages/api/dist/output.js", block: true},
+			{path: "build/output.bin", block: true},
+			{path: "packages/api/build/output.bin", block: false},
+			{path: "api.generated.go", block: true},
+			{path: "packages/api/api.generated.go", block: true},
+			{path: "scripts/build/release.go", block: false},
+			{path: "src/main.go", block: false},
+		}
+		for _, test := range cases {
+			t.Run(test.path, func(t *testing.T) {
+				inputs := ExecutionInputs{WritePaths: []string{test.path}}
+				for name, repo := range map[string]string{"template": templateRepo, "preset": presetRepo} {
+					report, err := CheckRepoPolicy(repo, inputs)
+					if err != nil {
+						t.Fatalf("%s policy check: %v", name, err)
+					}
+					blocked := report.Decision == DecisionBlock
+					if blocked != test.block {
+						t.Errorf("%s decision=%s blocked=%v, want blocked=%v", name, report.Decision, blocked, test.block)
+					}
+				}
+			})
+		}
+
+		overrideRepo := makeRepo(t, "# project\n", "", "rules:\n  - id: generated\n    template: no-generated-writes\n    paths: ['custom-output/**']\n")
+		for path, wantBlocked := range map[string]bool{"custom-output/file.go": true, "generated/file.go": false} {
+			report, err := CheckRepoPolicy(overrideRepo, ExecutionInputs{WritePaths: []string{path}})
+			if err != nil {
+				t.Fatalf("override policy check for %q: %v", path, err)
+			}
+			if (report.Decision == DecisionBlock) != wantBlocked {
+				t.Errorf("override path %q decision=%s, want blocked=%v", path, report.Decision, wantBlocked)
+			}
+		}
+	})
 }

@@ -3,7 +3,6 @@
 ## Active
 
 ## Queue
-- [ ] 493 Align generated file protection across templates and presets -> tasks/493-align-generated-file-protection-across-templates-and-presets.md
 - [ ] 494 Scope test and documentation evidence to changed owners -> tasks/494-scope-test-and-documentation-evidence-to-changed-owners.md
 - [ ] 495 Make agent guidance compact current and progressively disclosed -> tasks/495-make-agent-guidance-compact-current-and-progressively-disclosed.md
 - [ ] 496 Reconcile bootstrap copy ownership and run-state contracts -> tasks/496-reconcile-bootstrap-copy-ownership-and-run-state-contracts.md
@@ -14,6 +13,8 @@
 ## Blocked
 
 ## Done
+
+- [x] 493 Align generated file protection across templates and presets -> tasks/done/493-align-generated-file-protection-across-templates-and-presets.md
 
 - [x] 492 Distinguish secret state from config templates and SQLite sidecars -> tasks/done/492-distinguish-secret-state-from-config-templates-and-sqlite-sidecars.md
 
