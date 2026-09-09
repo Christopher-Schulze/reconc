@@ -24,7 +24,7 @@ jobs:
   compare:
     name: Record and compare
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
@@ -45,21 +45,11 @@ jobs:
       - name: Download modules
         run: go mod download
 
-      - name: Record calibrated benchmarks
-        run: make benchmark-record
+      - name: Record calibrated benchmarks and bounded profiles
+        run: make benchmark-profile BENCHMARK_PROFILE_DIR=.build/benchmarks/profiles
 
       - name: Compare with checked baseline
         run: make benchmark-compare
-
-      - name: Capture selected profiles
-        if: always()
-        continue-on-error: true
-        run: |
-          mkdir -p .build/benchmarks/profiles
-          go test -run '^$' -bench '^BenchmarkPreparedDecisionCacheHit$' -benchtime=1s \
-            -cpuprofile=.build/benchmarks/profiles/action-cache.cpu.pprof \
-            -memprofile=.build/benchmarks/profiles/action-cache.mem.pprof \
-            ./internal/action
 
       - name: Retain benchmark evidence
         if: always()

@@ -329,6 +329,13 @@ uses local `go test` processes only; it never starts a production profiling
 server. Override `BENCHMARK_PROFILE_GROUPS` or `BENCHMARK_PROFILE_DIR` when a
 different bounded workload set is needed.
 
+The `reconc-benchmarks` workflow runs this complete profile target on pull
+requests, the weekly schedule, and manual dispatch on the pinned `macos-15`
+runner. It keeps the profile directory under `.build/benchmarks/`, so the
+result, comparison, manifest, CPU, heap, blocking, mutex, and trace artifacts
+are uploaded together even when a benchmark step fails. The job has a 30-minute
+bound and treats profile failures as job failures.
+
 Go PGO ([official contract](https://go.dev/doc/pgo)) consumes CPU pprof profiles. The checked profile artifacts are therefore
 inputs for an experiment, not an implicit optimization switch: build controls
 with `-pgo=off`, compare a candidate with an explicitly selected profile, and

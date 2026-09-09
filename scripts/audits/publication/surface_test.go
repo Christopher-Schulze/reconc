@@ -506,6 +506,64 @@ func TestCodeQLWorkflowHasBoundedAdvancedSetup(t *testing.T) {
 	}
 }
 
+func TestBenchmarkWorkflowRunsCompleteBoundedProfilePipeline(t *testing.T) {
+	root := publicSurfaceRoot(t)
+	path := ".github/workflows/reconc-benchmarks.yml"
+	body := readPublicSurfaceFile(t, root, path)
+	var workflow githubWorkflow
+	if err := yaml.Unmarshal([]byte(body), &workflow); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	var raw map[string]any
+	if err := yaml.Unmarshal([]byte(body), &raw); err != nil {
+		t.Fatalf("parse raw %s: %v", path, err)
+	}
+	triggerMap, ok := raw["on"].(map[string]any)
+	if !ok {
+		t.Fatalf("%s has no structured trigger map", path)
+	}
+	for _, trigger := range []string{"pull_request", "schedule", "workflow_dispatch"} {
+		if _, ok := triggerMap[trigger]; !ok {
+			t.Errorf("%s omits %s trigger", path, trigger)
+		}
+	}
+	if len(triggerMap) != 3 {
+		t.Errorf("%s contains unexpected triggers: %v", path, triggerMap)
+	}
+	job, ok := workflow.Jobs["compare"]
+	if !ok || len(workflow.Jobs) != 1 {
+		t.Fatalf("%s must contain one compare job", path)
+	}
+	if job.RunsOn != "macos-15" || job.TimeoutMinutes != 30 {
+		t.Fatalf("%s runner contract = %s/%d, want macos-15/30", path, job.RunsOn, job.TimeoutMinutes)
+	}
+	profileStep := false
+	uploadStep := false
+	for _, step := range job.Steps {
+		if strings.Contains(step.Run, "make benchmark-profile") {
+			profileStep = true
+			if step.ContinueOnError {
+				t.Errorf("%s profile pipeline is allowed to fail", path)
+			}
+			if !strings.Contains(step.Run, "BENCHMARK_PROFILE_DIR=.build/benchmarks/profiles") {
+				t.Errorf("%s profile pipeline does not keep profiles under the retained benchmark directory", path)
+			}
+		}
+		if strings.HasPrefix(step.Uses, "actions/upload-artifact@") {
+			uploadStep = true
+			if step.If != "always()" || step.With["path"] != ".build/benchmarks/" || step.With["retention-days"] != "30" {
+				t.Errorf("%s artifact retention contract is incomplete: if=%q with=%v", path, step.If, step.With)
+			}
+		}
+	}
+	if !profileStep || !uploadStep {
+		t.Fatalf("%s must run the complete profile pipeline and retain its artifacts", path)
+	}
+	if strings.Contains(body, "-cpuprofile=") || strings.Contains(body, "continue-on-error: true") {
+		t.Fatalf("%s contains the retired incomplete or ignored profile workaround", path)
+	}
+}
+
 func TestCIWorkflowRunsOnCandidateRefs(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	path := ".github/workflows/reconc-ci.yml"
@@ -657,9 +715,12 @@ type githubWorkflow struct {
 		RunsOn         string `yaml:"runs-on"`
 		TimeoutMinutes int    `yaml:"timeout-minutes"`
 		Steps          []struct {
-			Uses string            `yaml:"uses"`
-			Run  string            `yaml:"run"`
-			With map[string]string `yaml:"with"`
+			Name            string            `yaml:"name"`
+			If              string            `yaml:"if"`
+			Uses            string            `yaml:"uses"`
+			Run             string            `yaml:"run"`
+			ContinueOnError bool              `yaml:"continue-on-error"`
+			With            map[string]string `yaml:"with"`
 		} `yaml:"steps"`
 	} `yaml:"jobs"`
 }

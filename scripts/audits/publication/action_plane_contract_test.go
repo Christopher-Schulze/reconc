@@ -46,7 +46,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 	)
 	assertContainsAll(t, "documentation", documentation,
 		"## Go-Only Action Plane",
-		"The `v0.9.8` implementation provides strict",
+		"The `v0.9.9` implementation provides strict",
 		"`reconc impact` invokes that production evaluator",
 		"`reconc action log tail|stats|verify|export`",
 		"`reconc mcp gateway` owns one operator-selected downstream stdio MCP process",
