@@ -145,6 +145,9 @@ func compatibilityIssues(baseline, current BenchmarkResult) []string {
 	if baseline.Parameters.CPU != current.Parameters.CPU {
 		issues = append(issues, fmt.Sprintf("benchmark CPU parallelism differs (baseline %d, current %d)", baseline.Parameters.CPU, current.Parameters.CPU))
 	}
+	if baseline.Parameters.Repetitions != current.Parameters.Repetitions {
+		issues = append(issues, fmt.Sprintf("benchmark repetitions differ (baseline %d, current %d)", baseline.Parameters.Repetitions, current.Parameters.Repetitions))
+	}
 	return issues
 }
 

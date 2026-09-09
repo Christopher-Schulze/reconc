@@ -43,6 +43,7 @@ STATICCHECK_VERSION := v0.8.1
 TEST_PARALLELISM ?= 2
 BENCHMARK_COUNT ?= 5
 BENCHMARK_BENCHTIME ?= 250ms
+BENCHMARK_REPETITIONS ?= 3
 BENCHMARK_RESULT ?= .build/benchmarks/current.json
 BENCHMARK_COMPARISON ?= .build/benchmarks/comparison.json
 BENCHMARK_BASELINE ?= scripts/benchmarks/baseline.json
@@ -147,10 +148,10 @@ bench:
 	$(GO) test -run '^$$' -bench . -benchmem -benchtime=1000x $(PKG)
 
 benchmark-record:
-	$(GO) run ./scripts/benchmarks/history record --root . --count $(BENCHMARK_COUNT) --benchtime $(BENCHMARK_BENCHTIME) --output $(BENCHMARK_RESULT)
+	$(GO) run ./scripts/benchmarks/history record --root . --count $(BENCHMARK_COUNT) --repetitions $(BENCHMARK_REPETITIONS) --benchtime $(BENCHMARK_BENCHTIME) --output $(BENCHMARK_RESULT)
 
 benchmark-profile:
-	$(GO) run ./scripts/benchmarks/history record --root . --count $(BENCHMARK_COUNT) --benchtime $(BENCHMARK_BENCHTIME) --output $(BENCHMARK_RESULT) --profile-dir $(BENCHMARK_PROFILE_DIR) --profile-groups "$(BENCHMARK_PROFILE_GROUPS)"
+	$(GO) run ./scripts/benchmarks/history record --root . --count $(BENCHMARK_COUNT) --repetitions $(BENCHMARK_REPETITIONS) --benchtime $(BENCHMARK_BENCHTIME) --output $(BENCHMARK_RESULT) --profile-dir $(BENCHMARK_PROFILE_DIR) --profile-groups "$(BENCHMARK_PROFILE_GROUPS)"
 
 benchmark-pgo:
 	GO="$(GO)" VERSION="$(VERSION)" ./scripts/benchmarks/pgo.sh --root . --profile "$(BENCHMARK_PGO_PROFILE)" --output-dir "$(BENCHMARK_PGO_DIR)"

@@ -159,7 +159,7 @@ func runProfileSample(root, goBinary string, spec groupSpec, pattern string, pat
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	stem := fmt.Sprintf("%02d-%s", patternIndex+1, spec.Name)
-	args := []string{"test", "-json", "-run", "^$", "-bench", pattern, "-benchmem", "-count", "1", "-benchtime", parameters.Benchtime, "-cpu", fmt.Sprint(parameters.CPU), "-timeout", "5m", spec.Package}
+	args := []string{"test", "-json", "-run", "^$", "-bench", pattern, "-benchmem", "-count", fmt.Sprint(parameters.Repetitions), "-benchtime", parameters.Benchtime, "-cpu", fmt.Sprint(parameters.CPU), "-timeout", "5m", spec.Package}
 	paths := make([]string, 0, len(profileKinds))
 	for _, kind := range profileKinds {
 		profilePath := filepath.Join(directory, stem+kind.extension)

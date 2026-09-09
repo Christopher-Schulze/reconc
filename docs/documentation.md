@@ -287,17 +287,20 @@ history from consuming or changing that fixed budget. `FUZZ_TIME`,
 worker count. Direct `go test ./...` validates only the root module.
 
 `make benchmark-record` runs the calibrated performance-history suite five
-times with 250-millisecond benchmark samples and writes the machine-local
-result under `.build/benchmarks/`. The bounded duration avoids both the
-scheduler noise of very short fixed-iteration samples and the thermal drift of
-longer samples across the full suite. `make benchmark-compare` normalizes every
-target against its same-package calibration benchmark and independently
-compares absolute bytes and allocations against the checked baseline. Every
-package sample also runs an independent CPU sentinel before and after the
-product benchmarks; the averaged sentinel median is retained per group. Raw
-absolute nanoseconds, same-package calibration drift, and sentinel drift remain
-in the report. The gated absolute time comparison adjusts the current target by
-the baseline-sentinel/current-sentinel ratio, while equal target/calibrator
+times with 250-millisecond benchmark samples and three bounded internal
+`go test -count` repetitions per sample. It writes the machine-local result
+under `.build/benchmarks/`. The bounded duration avoids both the scheduler
+noise of very short fixed-iteration samples and the thermal drift of longer
+samples across the full suite; each internal repetition set is collapsed to a
+deterministic median before outer statistics are calculated. `make
+benchmark-compare` normalizes every target against its same-package calibration
+benchmark and independently compares absolute bytes and allocations against the
+checked baseline. Every package sample also runs an independent CPU sentinel
+before and after the product benchmarks with the same internal repetition
+count; the bracketed sentinel median is retained per group. Raw absolute
+nanoseconds, same-package calibration drift, and sentinel drift remain in the
+report. The gated absolute time comparison adjusts the current target by the
+baseline-sentinel/current-sentinel ratio, while equal target/calibrator
 slowdowns with an unchanged sentinel still fail. Target-specific normalized
 time regressions and independent absolute resource regressions remain blocking.
 The suite

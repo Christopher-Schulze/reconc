@@ -17,14 +17,18 @@ import (
 )
 
 const (
-	resultFormat     = "reconc.benchmark-result/v3"
-	baselineFormat   = "reconc.benchmark-baseline/v3"
-	comparisonFormat = "reconc.benchmark-comparison/v4"
+	resultFormat     = "reconc.benchmark-result/v4"
+	baselineFormat   = "reconc.benchmark-baseline/v4"
+	comparisonFormat = "reconc.benchmark-comparison/v5"
 	profileFormat    = "reconc.benchmark-profile/v1"
 	suiteVersion     = "reconc.performance-history/v10"
 	cpuSentinelName  = "BenchmarkReconcCPUSentinel"
 	maxContractBytes = 4 << 20
 	maxProfileBytes  = 64 << 20
+
+	defaultBenchmarkRepetitions = 3
+	minBenchmarkRepetitions     = 1
+	maxBenchmarkRepetitions     = 5
 )
 
 type Environment struct {
@@ -37,9 +41,10 @@ type Environment struct {
 }
 
 type Parameters struct {
-	Count     int    `json:"count"`
-	Benchtime string `json:"benchtime"`
-	CPU       int    `json:"cpu"`
+	Count       int    `json:"count"`
+	Benchtime   string `json:"benchtime"`
+	CPU         int    `json:"cpu"`
+	Repetitions int    `json:"repetitions"`
 }
 
 type MetricValues struct {
@@ -263,7 +268,8 @@ func validateProfileManifest(manifest ProfileManifest) error {
 		return errors.New("benchmark profile environment is incomplete")
 	}
 	if manifest.Parameters.Count < 1 || manifest.Parameters.Count > 20 ||
-		!validBenchtime(manifest.Parameters.Benchtime) || manifest.Parameters.CPU != 1 {
+		!validBenchtime(manifest.Parameters.Benchtime) || manifest.Parameters.CPU != 1 ||
+		!validRepetitions(manifest.Parameters.Repetitions) {
 		return errors.New("benchmark profile parameters are invalid")
 	}
 	if len(manifest.Workloads) == 0 || len(manifest.Workloads) > len(benchmarkSuite)*2 {
@@ -334,7 +340,8 @@ func validateResult(result BenchmarkResult) error {
 		result.Environment.CPU == "" || result.Environment.Commit == "" {
 		return errors.New("benchmark environment is incomplete")
 	}
-	if result.Parameters.Count < 1 || result.Parameters.Count > 20 || !validBenchtime(result.Parameters.Benchtime) || result.Parameters.CPU != 1 {
+	if result.Parameters.Count < 1 || result.Parameters.Count > 20 || !validBenchtime(result.Parameters.Benchtime) ||
+		result.Parameters.CPU != 1 || !validRepetitions(result.Parameters.Repetitions) {
 		return errors.New("benchmark parameters are invalid")
 	}
 	if len(result.Groups) != len(benchmarkSuite) {
@@ -428,4 +435,8 @@ func nearlyEqual(left, right float64) bool {
 
 func finite(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+func validRepetitions(value int) bool {
+	return value >= minBenchmarkRepetitions && value <= maxBenchmarkRepetitions
 }

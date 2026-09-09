@@ -72,6 +72,25 @@ func TestBenchmarkStatsRetainPercentilesAndPeakRSS(t *testing.T) {
 	}
 }
 
+func TestCollapseMetricSamplesUsesMedianMetricsAndPeakRSS(t *testing.T) {
+	samples := []MetricSample{
+		{Iterations: 100, PeakRSSBytes: 30, MetricValues: MetricValues{NSPerOp: 30, BytesPerOp: 3, AllocsPerOp: 6}},
+		{Iterations: 200, PeakRSSBytes: 90, MetricValues: MetricValues{NSPerOp: 10, BytesPerOp: 1, AllocsPerOp: 2}},
+		{Iterations: 150, PeakRSSBytes: 60, MetricValues: MetricValues{NSPerOp: 20, BytesPerOp: 2, AllocsPerOp: 4}},
+	}
+	collapsed, err := collapseMetricSamples(samples)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := MetricSample{Iterations: 150, PeakRSSBytes: 90, MetricValues: MetricValues{NSPerOp: 20, BytesPerOp: 2, AllocsPerOp: 4}}
+	if collapsed != want {
+		t.Fatalf("collapsed sample = %+v, want %+v", collapsed, want)
+	}
+	if _, err := collapseMetricSamples(nil); err == nil {
+		t.Fatal("empty sample set was accepted")
+	}
+}
+
 func TestBenchmarkPatternsRespectGoSubBenchmarkHierarchy(t *testing.T) {
 	patterns := benchmarkPatterns([]string{
 		"BenchmarkPlain", "BenchmarkTransport/one-shot", "BenchmarkTransport/stdio-worker",
@@ -107,7 +126,7 @@ func TestProfileManifestValidationRejectsUnsafeArtifacts(t *testing.T) {
 	manifest := ProfileManifest{
 		FormatVersion: profileFormat,
 		Environment:   Environment{GoVersion: "go1.27.0", GOOS: "darwin", GOARCH: "arm64", CPU: "Test CPU", Commit: strings.Repeat("a", 40)},
-		Parameters:    Parameters{Count: 1, Benchtime: "1x", CPU: 1},
+		Parameters:    Parameters{Count: 1, Benchtime: "1x", CPU: 1, Repetitions: 3},
 		Workloads: []ProfileWorkload{{
 			Group: benchmarkSuite[0].Name, Package: benchmarkSuite[0].Package, Pattern: benchmarkPatterns(append([]string{benchmarkSuite[0].Calibration}, benchmarkSuite[0].Targets...))[0],
 			Profiles: []ProfileArtifact{{Kind: "cpu", Path: "profile.pprof", Bytes: 1, SHA256: strings.Repeat("a", 64)}},
@@ -163,6 +182,7 @@ func TestComparisonCompatibilityAndToleranceBoundaries(t *testing.T) {
 		{name: "arch", mutate: func(result *BenchmarkResult) { result.Environment.GOARCH = "other" }},
 		{name: "cpu", mutate: func(result *BenchmarkResult) { result.Environment.CPU = "other cpu" }},
 		{name: "parameters", mutate: func(result *BenchmarkResult) { result.Parameters.Benchtime = "200x" }},
+		{name: "repetitions", mutate: func(result *BenchmarkResult) { result.Parameters.Repetitions = 1 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -598,7 +618,7 @@ func syntheticResult() BenchmarkResult {
 	result := BenchmarkResult{
 		FormatVersion: resultFormat, SuiteVersion: suiteVersion,
 		Environment: Environment{GoVersion: "go1.27.0", GOOS: "darwin", GOARCH: "arm64", CPU: "Test CPU", Commit: strings.Repeat("a", 40)},
-		Parameters:  Parameters{Count: 5, Benchtime: "100x", CPU: 1},
+		Parameters:  Parameters{Count: 5, Benchtime: "100x", CPU: 1, Repetitions: 3},
 	}
 	for _, spec := range benchmarkSuite {
 		calibration := syntheticStats(spec.Calibration, MetricValues{NSPerOp: 100, BytesPerOp: 100, AllocsPerOp: 10})

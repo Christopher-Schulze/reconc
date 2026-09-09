@@ -139,7 +139,11 @@ func runPackageBenchmarks(root, goBinary, packageName string, names []string, pa
 		if err != nil {
 			return nil, nil, fmt.Errorf("CPU sentinel after package %s sample %d: %w", packageName, sampleIndex+1, err)
 		}
-		cpuSamples = append(cpuSamples, averageMetricSamples(before, after))
+		bracketed, err := collapseMetricSamples([]MetricSample{before, after})
+		if err != nil {
+			return nil, nil, fmt.Errorf("collapse CPU sentinel for package %s sample %d: %w", packageName, sampleIndex+1, err)
+		}
+		cpuSamples = append(cpuSamples, bracketed)
 		if len(sample) != len(names) {
 			return nil, nil, fmt.Errorf("benchmark package %s sample %d emitted %v, want %v", packageName, sampleIndex+1, sortedBenchmarkNames(sample), names)
 		}
@@ -185,7 +189,7 @@ func runCPUSentinelSample(ctx context.Context, goBinary string, parameters Param
 	if err := os.WriteFile(path, []byte(cpuSentinelSource), 0o600); err != nil {
 		return MetricSample{}, fmt.Errorf("write CPU sentinel source: %w", err)
 	}
-	args := []string{"test", "-json", "-run", "^$", "-bench", "^" + regexp.QuoteMeta(cpuSentinelName) + "$", "-benchmem", "-count", "1", "-benchtime", parameters.Benchtime, "-cpu", strconv.Itoa(parameters.CPU), "-timeout", "5m"}
+	args := []string{"test", "-json", "-run", "^$", "-bench", "^" + regexp.QuoteMeta(cpuSentinelName) + "$", "-benchmem", "-count", strconv.Itoa(parameters.Repetitions), "-benchtime", parameters.Benchtime, "-cpu", strconv.Itoa(parameters.CPU), "-timeout", "5m"}
 	command := exec.CommandContext(ctx, goBinary, args...)
 	command.Dir = directory
 	command.Env = append(os.Environ(), "GO111MODULE=off")
@@ -201,23 +205,35 @@ func runCPUSentinelSample(ctx context.Context, goBinary string, parameters Param
 		return MetricSample{}, fmt.Errorf("parse CPU sentinel: %w", err)
 	}
 	values := parsed[cpuSentinelName]
-	if len(values) != 1 || len(parsed) != 1 {
-		return MetricSample{}, fmt.Errorf("CPU sentinel emitted %v, want one %s measurement", sortedBenchmarkNames(parsed), cpuSentinelName)
+	if len(values) != parameters.Repetitions || len(parsed) != 1 {
+		return MetricSample{}, fmt.Errorf("CPU sentinel emitted %d %s measurements, want %d", len(values), cpuSentinelName, parameters.Repetitions)
 	}
-	values[0].PeakRSSBytes = processPeakRSSBytes(command.ProcessState)
-	return values[0], nil
+	peakRSSBytes := processPeakRSSBytes(command.ProcessState)
+	for index := range values {
+		values[index].PeakRSSBytes = peakRSSBytes
+	}
+	return collapseMetricSamples(values)
 }
 
-func averageMetricSamples(first, second MetricSample) MetricSample {
-	return MetricSample{
-		Iterations:   (first.Iterations + second.Iterations) / 2,
-		PeakRSSBytes: maxUint64(first.PeakRSSBytes, second.PeakRSSBytes),
-		MetricValues: MetricValues{
-			NSPerOp:     (first.NSPerOp + second.NSPerOp) / 2,
-			BytesPerOp:  (first.BytesPerOp + second.BytesPerOp) / 2,
-			AllocsPerOp: (first.AllocsPerOp + second.AllocsPerOp) / 2,
-		},
+func collapseMetricSamples(samples []MetricSample) (MetricSample, error) {
+	if len(samples) == 0 {
+		return MetricSample{}, errors.New("cannot collapse an empty benchmark sample set")
 	}
+	iterations := make([]uint64, len(samples))
+	var peakRSSBytes uint64
+	for index, sample := range samples {
+		if sample.Iterations == 0 || !validMetricValues(sample.MetricValues) {
+			return MetricSample{}, errors.New("benchmark sample is invalid")
+		}
+		iterations[index] = sample.Iterations
+		peakRSSBytes = maxUint64(peakRSSBytes, sample.PeakRSSBytes)
+	}
+	sort.Slice(iterations, func(left, right int) bool { return iterations[left] < iterations[right] })
+	return MetricSample{
+		Iterations:   iterations[len(iterations)/2],
+		PeakRSSBytes: peakRSSBytes,
+		MetricValues: medianMetrics(samples),
+	}, nil
 }
 
 func maxUint64(first, second uint64) uint64 {
@@ -254,7 +270,7 @@ func benchmarkPatterns(names []string) []string {
 }
 
 func runBenchmarkSample(ctx context.Context, root, goBinary, packageName, pattern string, parameters Parameters, sampleIndex int) (map[string][]MetricSample, error) {
-	args := []string{"test", "-json", "-run", "^$", "-bench", pattern, "-benchmem", "-count", "1", "-benchtime", parameters.Benchtime, "-cpu", strconv.Itoa(parameters.CPU), "-timeout", "5m", packageName}
+	args := []string{"test", "-json", "-run", "^$", "-bench", pattern, "-benchmem", "-count", strconv.Itoa(parameters.Repetitions), "-benchtime", parameters.Benchtime, "-cpu", strconv.Itoa(parameters.CPU), "-timeout", "5m", packageName}
 	command := exec.CommandContext(ctx, goBinary, args...)
 	command.Dir = root
 	output, err := boundedexec.Output(command, maxBenchmarkOutput)
@@ -273,6 +289,14 @@ func runBenchmarkSample(ctx context.Context, root, goBinary, packageName, patter
 		for index := range parsed[name] {
 			parsed[name][index].PeakRSSBytes = peakRSSBytes
 		}
+		if len(parsed[name]) != parameters.Repetitions {
+			return nil, fmt.Errorf("benchmark package %s sample %d benchmark %s emitted %d measurements, want %d", packageName, sampleIndex+1, name, len(parsed[name]), parameters.Repetitions)
+		}
+		collapsed, collapseErr := collapseMetricSamples(parsed[name])
+		if collapseErr != nil {
+			return nil, fmt.Errorf("collapse benchmark package %s sample %d benchmark %s: %w", packageName, sampleIndex+1, name, collapseErr)
+		}
+		parsed[name] = []MetricSample{collapsed}
 	}
 	return parsed, nil
 }

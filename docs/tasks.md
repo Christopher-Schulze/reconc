@@ -1,6 +1,7 @@
 # TASK Control Plane
 
 ## Active
+- [~] 502 Stabilize benchmark samples with internal repetitions -> tasks/502-stabilize-benchmark-samples-with-internal-repetitions.md
 
 ## Queue
 
