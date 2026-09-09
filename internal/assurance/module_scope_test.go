@@ -1,6 +1,7 @@
 package assurance
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -127,6 +128,39 @@ func TestAssuranceReportsMissingModuleEvidenceForChangedSource(t *testing.T) {
 	_, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{ChangedPaths: []string{"services/api/main.go"}})
 	if err == nil || !strings.Contains(err.Error(), "no detected module root covers changed paths") {
 		t.Fatalf("missing module evidence error = %v", err)
+	}
+}
+
+func TestAssuranceReportsDeletedApplicableModuleManifest(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		replace   func(string) error
+		wantError string
+	}{
+		{name: "deleted", replace: os.Remove, wantError: "unavailable"},
+		{name: "non-regular", replace: func(path string) error {
+			if err := os.Remove(path); err != nil {
+				return err
+			}
+			return os.Mkdir(path, 0o755)
+		}, wantError: "not a regular file"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			manifest := filepath.Join(root, "services", "api", "go.mod")
+			writeAssuranceFile(t, root, "services/api/go.mod", "module example/api\n")
+			if err := test.replace(manifest); err != nil {
+				t.Fatal(err)
+			}
+			gate := policy.AssuranceGate{
+				ID: "go-live", Type: policy.AssuranceLiveVerification,
+				ApplicableIf: []string{"go.mod"}, Commands: []string{"go test ./..."}, CommandPolicy: "all",
+			}
+			_, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{ChangedPaths: []string{"services/api/go.mod"}})
+			if err == nil || !strings.Contains(err.Error(), "services/api/go.mod") || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("missing applicable module manifest error = %v", err)
+			}
+		})
 	}
 }
 

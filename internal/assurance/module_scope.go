@@ -42,6 +42,9 @@ func selectModuleScopes(root string, detection stackdetect.Result, gate policy.A
 			return nil, true, fmt.Errorf("applicability pattern escapes repository: %q", pattern)
 		}
 	}
+	if err := verifyChangedModuleManifests(root, changed, gate.ApplicableIf); err != nil {
+		return nil, true, err
+	}
 	matching := make([]stackdetect.Module, 0, len(detection.Modules))
 	for _, module := range detection.Modules {
 		if !moduleSupportsAssuranceScope(module.Stack) {
@@ -134,6 +137,35 @@ func selectModuleScopes(root string, detection stackdetect.Result, gate policy.A
 		return scopes[i].manifest < scopes[j].manifest
 	})
 	return scopes, true, nil
+}
+
+func verifyChangedModuleManifests(root string, changed, patterns []string) error {
+	for _, raw := range changed {
+		manifest := filepath.ToSlash(filepath.Clean(raw))
+		if !isAssuranceModuleManifest(manifest) {
+			continue
+		}
+		matched, err := moduleManifestMatches(manifest, patterns)
+		if err != nil {
+			return err
+		}
+		if !matched {
+			continue
+		}
+		if err := verifyModuleManifest(root, manifest); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func isAssuranceModuleManifest(path string) bool {
+	switch strings.ToLower(filepath.Base(filepath.FromSlash(path))) {
+	case "go.mod", "cargo.toml", "pyproject.toml", "requirements.txt", "setup.cfg", "setup.py":
+		return true
+	default:
+		return false
+	}
 }
 
 func moduleSupportsAssuranceScope(stack string) bool {
