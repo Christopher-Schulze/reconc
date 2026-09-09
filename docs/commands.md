@@ -1171,6 +1171,17 @@ User overrides in `$RECONC_HOME/templates/*.yml`.
 `presets` or `templates` roots must be real directories, never symlinks; Reconc
 does not fall back to a CWD-relative state path.
 
+`authority-change-approval` keeps `authority-change-approved` as completion
+evidence. A protected write must also carry a signed `reconc_approval` request
+and receipt whose binding matches the current repository, policy lock, exact
+paths, tool input, session state, expiry, and stable pre-action tool identity.
+The operator registry and policy stay outside the repository and are selected
+with `RECONC_APPROVAL_AUTHORITIES`, `RECONC_APPROVAL_POLICY`, and
+`RECONC_APPROVAL_PRINCIPAL`. Command hooks must provide exact repository paths
+in top-level `reconc_write_paths`; an unclassified mutating command is blocked
+because its effect cannot be bound safely. Hosts without a stable pre-action
+identity or this approval channel report a blocked unsupported capability.
+
 ### `reconc hook generate <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|pi|zcode|kimi-code> [--json] [--output PATH]`
 Emit the hook artefact content without writing to disk.
 

@@ -238,6 +238,9 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root string, payload *Hook
 		return Result{ExitCode: 2, Stderr: "reconc hook (pre): parsed payload is unavailable"}
 	}
 	if payload.IsCommandTool() {
+		if strings.TrimSpace(payload.Command()) == "" {
+			return Result{ExitCode: 2, Stderr: "reconc hook (pre): command tool payload has no parseable command; refusing to pass an unsupported write surface through the gate"}
+		}
 		if reason := forbiddenShellCommandReasonInRepoWithAliasSnapshot(root, payload.Command(), aliasSnapshot); reason != "" {
 			return Result{ExitCode: 2, Stderr: reason}
 		}
@@ -268,6 +271,53 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root string, payload *Hook
 		violations := blockingViolationsForKinds(report, preCommandBlockKinds)
 		if len(violations) > 0 {
 			return Result{ExitCode: 2, Stderr: firstLinesForViolations(violations, "reconc blocked this command before execution.")}
+		}
+		if commandMayWriteRepository(payload.Command()) {
+			compiled, _, compiledErr := evaluator.CurrentCompiledPolicyEvaluator(root)
+			if compiledErr != nil {
+				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): resolve authority policy for command write: %s", compiledErr)}
+			}
+			hasBoundRules := compiled.HasBoundApprovalRules()
+			declaredWrites, declared, declaredErr := commandWritePaths(payload)
+			if declaredErr != nil {
+				return Result{ExitCode: 2, Stderr: "reconc hook (pre): command write declaration: " + declaredErr.Error()}
+			}
+			if !hasBoundRules {
+				if staleErr := rejectStaleNativeApprovalEnvelope(payload, nil); staleErr != nil {
+					return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + staleErr.Error()}
+				}
+			}
+			if hasBoundRules {
+				if !declared {
+					return Result{ExitCode: 2, Stderr: "reconc hook (pre): bound authority change is blocked: command-mediated repository writes require exact reconc_write_paths and a signed pre-action receipt"}
+				}
+				normalizedWrites, normalizeErr := runtime.NormalizeReplayInputs(root, runtime.ExecutionInputs{WritePaths: declaredWrites})
+				if normalizeErr != nil {
+					return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): normalize command write paths: %s", normalizeErr)}
+				}
+				boundRuleIDs, boundErr := boundApprovalRuleIDs(evaluator, root, normalizedWrites.WritePaths)
+				if boundErr != nil {
+					return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): resolve bound authority approval: %s", boundErr)}
+				}
+				if staleErr := rejectStaleNativeApprovalEnvelope(payload, boundRuleIDs); staleErr != nil {
+					return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + staleErr.Error()}
+				}
+				if len(boundRuleIDs) == 0 {
+					return Result{ExitCode: 2, Stderr: "reconc hook (pre): bound authority change is blocked: command write paths do not identify the protected authority boundary"}
+				}
+				trialWrites := append(append([]string(nil), state.WritePaths...), normalizedWrites.WritePaths...)
+				writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, root, state.ReadPaths, trialWrites, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
+				if writeErr != nil {
+					return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): command write check failed: %s", writeErr)}
+				}
+				writeViolations := preWriteBlockingViolations(writeReport)
+				if len(writeViolations) > 0 {
+					return Result{ExitCode: 2, Stderr: firstLinesForViolations(writeViolations, "reconc blocked this command's repository write before execution.")}
+				}
+				if err := verifyAndConsumeNativeApproval(root, payload, state, declaredWrites, boundRuleIDs, evaluator); err != nil {
+					return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + err.Error()}
+				}
+			}
 		}
 	}
 	if !payload.IsWriteTool() {
@@ -316,6 +366,34 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root string, payload *Hook
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): check failed: %s", err)}
 	}
 	violations := preWriteBlockingViolations(report)
+	normalizedPending, normalizeErr := runtime.NormalizeReplayInputs(root, runtime.ExecutionInputs{WritePaths: pendingWrites})
+	if normalizeErr != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): normalize proposed writes: %s", normalizeErr)}
+	}
+	boundRuleIDs, boundErr := boundApprovalRuleIDs(evaluator, root, normalizedPending.WritePaths)
+	if boundErr != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): resolve bound authority approval: %s", boundErr)}
+	}
+	if staleErr := rejectStaleNativeApprovalEnvelope(payload, boundRuleIDs); staleErr != nil {
+		return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + staleErr.Error()}
+	}
+	if len(boundRuleIDs) > 0 {
+		// A receipt satisfies only the reserved approval claim. Composite
+		// violations can also contain deny_write or other blocking checks;
+		// filtering the parent rule by ID would let a receipt bypass those
+		// independent checks.
+		if len(violations) == 0 {
+			if err := verifyAndConsumeNativeApproval(root, payload, state, pendingWrites, boundRuleIDs, evaluator); err != nil {
+				return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + err.Error()}
+			}
+		} else {
+			return Result{
+				ExitCode: 2,
+				Stderr: firstLinesForViolations(violations,
+					"reconc blocked this file modification before execution."),
+			}
+		}
+	}
 	if len(violations) == 0 {
 		return Result{ExitCode: 0}
 	}

@@ -1,8 +1,15 @@
-description: "Require an explicit approval claim before protected authority files change."
+description: "Require an operator-signed pre-action approval receipt before protected authority files change."
 kind: require_claim
 mode: block
-message: "Authority-file changes require an explicit, auditable approval claim."
+message: "Authority-file changes require a verified operator approval receipt before execution."
 claims:
   - "authority-change-approved"
-# User must supply:
+# The claim remains completion evidence; it never authorizes a native pre-write.
+# User must supply protected paths:
 #   when_paths: protected authority files (for example ['AGENTS.md', 'docs/spec.md'])
+# Native and classified MCP writes additionally require a signed reconc_approval
+# envelope bound to the current policy lock, exact paths, tool input, session,
+# and one stable pre-action tool_use_id. Command hooks require exact paths in
+# the top-level reconc_write_paths array. Configure the operator registry and
+# policy outside the repository with RECONC_APPROVAL_AUTHORITIES and
+# RECONC_APPROVAL_POLICY, plus RECONC_APPROVAL_PRINCIPAL for the local operator.

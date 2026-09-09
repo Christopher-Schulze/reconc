@@ -47,6 +47,34 @@ func runPreDecisionResolvedWithEvaluator(root string, payloadBytes []byte, permi
 		return adaptPreDecision(Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}, permission)
 	}
 	inputs, cacheable := preDecisionInputsForPayload(root, payload)
+	// Approval-gated writes must reach the live pre-write path on every call.
+	// Reusing a claim-only decision here could skip receipt verification, and a
+	// receipt is deliberately consumed only after the final policy generation
+	// and effect binding have been checked.
+	if cacheable && (payload.IsWriteTool() || payload.IsCommandTool()) {
+		pending := withoutAgentMemoryPaths(root, payload.FilePaths())
+		if envelope, present, envelopeErr := nativeApprovalEnvelopeFromPayload(payload); present || envelopeErr != nil || len(envelope.request) > 0 {
+			cacheable = false
+		}
+		if payload.IsWriteTool() {
+			if len(pending) == 0 {
+				cacheable = false
+			} else {
+				normalized, normalizeErr := runtime.NormalizeReplayInputs(root, runtime.ExecutionInputs{WritePaths: pending})
+				if normalizeErr != nil {
+					cacheable = false
+				} else if boundIDs, boundErr := boundApprovalRuleIDs(evaluator, root, normalized.WritePaths); boundErr != nil || len(boundIDs) > 0 {
+					cacheable = false
+				}
+			}
+		}
+		if payload.IsCommandTool() {
+			compiled, _, compiledErr := evaluator.CurrentCompiledPolicyEvaluator(root)
+			if compiledErr != nil || compiled.HasBoundApprovalRules() {
+				cacheable = false
+			}
+		}
+	}
 	cached, cachedOK := readPreDecisionCacheCandidate(root, payload)
 	evaluationInputs := inputs
 	if cacheable && cachedOK && cached.Key == inputs.key {

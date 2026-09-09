@@ -103,6 +103,32 @@ func TestApprovalReceiptCanonicalSignatureAndBinding(t *testing.T) {
 	}
 }
 
+func TestApprovalRequestDecodesExponentEncodedIntegerArgumentLengths(t *testing.T) {
+	request, _, privateKey, now := testApprovalFixture(t)
+	request.SelectedArguments[0].ByteLength = 50
+	body, err := EncodeRequest(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte(`"byte_length":5e1`)) {
+		t.Fatalf("canonical request did not use exponent form: %s", body)
+	}
+	decoded, err := DecodeRequest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.SelectedArguments[0].ByteLength != 50 {
+		t.Fatalf("decoded byte length=%d, want 50", decoded.SelectedArguments[0].ByteLength)
+	}
+	_, _, err = SignReceipt(
+		decoded, "security-primary", privateKey, DecisionApprove,
+		now, bytes.NewReader(bytes.Repeat([]byte{0x43}, 16)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestApprovalReceiptRejectsCanonicalSignatureTimeAndAuthorityFailures(t *testing.T) {
 	request, registry, privateKey, now := testApprovalFixture(t)
 	_, approvedBody, err := SignReceipt(

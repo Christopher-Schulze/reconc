@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"reconc.dev/reconc/internal/actionapproval"
 	"reconc.dev/reconc/internal/pathidentity"
@@ -26,6 +27,13 @@ func (r LoadedApprovalRegistry) Identity() string {
 func (r LoadedApprovalRegistry) HasPolicy(policyID string) bool {
 	compiled := r.compiled()
 	return compiled != nil && compiled.HasPolicy(policyID)
+}
+
+// Verify keeps the compiled authority registry behind the trusted
+// loader boundary while allowing non-MCP hook consumers to reuse the exact
+// canonical receipt verification contract.
+func (r LoadedApprovalRegistry) Verify(expected actionapproval.Request, body []byte, now time.Time) (actionapproval.Verification, error) {
+	return actionapproval.VerifyReceipt(r.compiled(), expected, body, now)
 }
 
 func (r LoadedApprovalRegistry) compiled() *actionapproval.CompiledRegistry {

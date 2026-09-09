@@ -23,6 +23,84 @@ type EvaluationMetrics struct {
 	EstimatedUnits         int64 `json:"estimated_units"`
 }
 
+// BoundApprovalRuleIDs returns the blocking legacy rules that use the reserved
+// authority-change approval claim and match at least one proposed write. The
+// matching is performed against the same fresh runtime plan as policy
+// evaluation, so callers cannot authorize an action from a stale lockfile or
+// from a claim-only cache result.
+func (e *CompiledPolicyEvaluator) BoundApprovalRuleIDs(repoRoot string, writePaths []string) ([]string, error) {
+	if e == nil || e.plan == nil {
+		return nil, fmt.Errorf("compiled policy evaluator is nil")
+	}
+	plan := e.planForRoot(repoRoot)
+	ids := make([]string, 0)
+	for _, rule := range plan.rules {
+		if !rule.Mode.IsBlocking() || !hasBoundApprovalClaimRule(rule) {
+			continue
+		}
+		matched, err := matchingPathsWithMatchers(plan.pathMatchers, writePaths, rule.WhenPaths)
+		if err != nil {
+			return nil, fmt.Errorf("match bound approval rule %q: %w", rule.ID, err)
+		}
+		if len(matched) > 0 {
+			ids = append(ids, rule.ID)
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// HasBoundApprovalRules reports whether the current plan contains any blocking
+// authority-change approval rule. Command hooks use this when the host cannot
+// infer exact repository write paths from an arbitrary shell string.
+func (e *CompiledPolicyEvaluator) HasBoundApprovalRules() bool {
+	if e == nil || e.plan == nil {
+		return false
+	}
+	for _, rule := range e.plan.rules {
+		if rule.Mode.IsBlocking() && hasBoundApprovalClaimRule(rule) {
+			return true
+		}
+	}
+	return false
+}
+
+// PolicyDigests returns the source and lock identities from one validated
+// compiled plan. It is used by receipt consumers that must bind an approval
+// to the exact policy generation used for the pre-write decision.
+func (e *CompiledPolicyEvaluator) PolicyDigests() (sourceDigest, lockDigest string, err error) {
+	if e == nil || e.plan == nil {
+		return "", "", fmt.Errorf("compiled policy evaluator is nil")
+	}
+	return e.plan.sourceDigest, e.plan.lockDigest, nil
+}
+
+// BoundApprovalClaim is reserved for the built-in authority-change approval
+// template. A matching claim remains useful as completion evidence, but never
+// authorizes a native pre-write without a verified operator receipt.
+const BoundApprovalClaim = "authority-change-approved"
+
+func hasBoundApprovalClaim(claims []string) bool {
+	for _, claim := range claims {
+		if claim == BoundApprovalClaim {
+			return true
+		}
+	}
+	return false
+}
+
+func hasBoundApprovalClaimRule(rule policy.Rule) bool {
+	if rule.Kind == policy.KindRequireClaim && hasBoundApprovalClaim(rule.Claims) {
+		return true
+	}
+	for _, check := range rule.Checks {
+		if check.Kind == policy.KindRequireClaim && hasBoundApprovalClaim(check.Claims) {
+			return true
+		}
+	}
+	return false
+}
+
 // CompiledPolicyEvaluator owns one validated in-memory runtime plan.
 type CompiledPolicyEvaluator struct {
 	plan       *runtimePlan

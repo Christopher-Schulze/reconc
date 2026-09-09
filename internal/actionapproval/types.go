@@ -3,9 +3,13 @@
 package actionapproval
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -71,6 +75,73 @@ type SelectedArgument struct {
 	Kind       action.ValueKind    `json:"kind,omitempty"`
 	ByteLength uint64              `json:"byte_length"`
 	Identity   string              `json:"identity"`
+}
+
+// UnmarshalJSON accepts the canonical decimal representation emitted by the
+// action JSON codec. Integer values with trailing zeroes are normalized to
+// exponent form (for example, 50 becomes 5e1), which encoding/json does not
+// decode directly into uint64.
+func (s *SelectedArgument) UnmarshalJSON(body []byte) error {
+	var wire struct {
+		Pointer    string              `json:"pointer"`
+		State      action.PointerState `json:"state"`
+		Kind       action.ValueKind    `json:"kind"`
+		ByteLength json.RawMessage     `json:"byte_length"`
+		Identity   string              `json:"identity"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&wire); err != nil {
+		return err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return fmt.Errorf("selected approval argument contains a trailing value")
+		}
+		return err
+	}
+	byteLength, err := decodeCanonicalUint64(wire.ByteLength)
+	if err != nil {
+		return fmt.Errorf("selected approval argument byte_length is invalid: %w", err)
+	}
+	*s = SelectedArgument{
+		Pointer: wire.Pointer, State: wire.State, Kind: wire.Kind,
+		ByteLength: byteLength, Identity: wire.Identity,
+	}
+	return nil
+}
+
+func decodeCanonicalUint64(raw []byte) (uint64, error) {
+	value := strings.TrimSpace(string(raw))
+	if value == "" || strings.HasPrefix(value, "-") {
+		return 0, fmt.Errorf("expected a non-negative integer")
+	}
+	mantissa := value
+	exponent := 0
+	if index := strings.IndexAny(value, "eE"); index >= 0 {
+		mantissa = value[:index]
+		parsed, err := strconv.Atoi(value[index+1:])
+		if err != nil || parsed < 0 {
+			return 0, fmt.Errorf("expected a non-negative integer")
+		}
+		exponent = parsed
+	}
+	if mantissa == "" {
+		return 0, fmt.Errorf("expected a non-negative integer")
+	}
+	for _, character := range mantissa {
+		if character < '0' || character > '9' {
+			return 0, fmt.Errorf("expected a non-negative integer")
+		}
+	}
+	if exponent > 20 {
+		return 0, fmt.Errorf("integer exceeds uint64")
+	}
+	if exponent > 0 {
+		mantissa += strings.Repeat("0", exponent)
+	}
+	return strconv.ParseUint(mantissa, 10, 64)
 }
 
 type Request struct {

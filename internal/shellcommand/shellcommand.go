@@ -253,6 +253,29 @@ func StripTrailingRedirects(command string) (string, bool) {
 	return result, true
 }
 
+// HasRedirect reports whether a bounded Bash command contains a syntactic
+// redirection anywhere in its command tree. Quoted and escaped operators stay
+// ordinary words. The second result is false when parsing or the analysis
+// bound cannot prove the answer.
+func HasRedirect(command string) (hasRedirect, complete bool) {
+	command = strings.TrimSpace(command)
+	if command == "" || len(command) > maxCommandBytes {
+		return false, false
+	}
+	state := newParserState()
+	file, err := state.parse(command, "redirect-presence")
+	if err != nil {
+		return false, false
+	}
+	syntax.Walk(file, func(node syntax.Node) bool {
+		if _, ok := node.(*syntax.Redirect); ok {
+			hasRedirect = true
+		}
+		return true
+	})
+	return hasRedirect, true
+}
+
 func invocationsAt(state *parserState, command string, maxDepth, depth int) ([]Invocation, IncompleteReason) {
 	if depth > maxDepth {
 		return nil, IncompleteNestingDepth

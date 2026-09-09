@@ -16,18 +16,21 @@ const (
 	MaxSessionStateBytes       = 1024 * 1024
 	maxLegacySessionStateBytes = 8 * MaxSessionStateBytes
 
-	maxPathEvidenceItems    = 2048
-	maxPathEvidenceBytes    = 160 * 1024
-	maxCommandEvidenceItems = 512
-	maxCommandEvidenceBytes = 160 * 1024
-	maxClaimEvidenceItems   = 256
-	maxClaimEvidenceBytes   = 32 * 1024
-	maxCommandResultItems   = 512
-	maxCommandResultBytes   = 256 * 1024
-	maxPendingToolCalls     = 64
-	maxRetiredToolCallKeys  = 4 * maxPendingToolCalls
-	maxPendingToolCallBytes = 64 * 1024
-	pendingToolCallLifetime = 24 * time.Hour
+	maxPathEvidenceItems          = 2048
+	maxPathEvidenceBytes          = 160 * 1024
+	maxCommandEvidenceItems       = 512
+	maxCommandEvidenceBytes       = 160 * 1024
+	maxClaimEvidenceItems         = 256
+	maxClaimEvidenceBytes         = 32 * 1024
+	maxCommandResultItems         = 512
+	maxCommandResultBytes         = 256 * 1024
+	maxPendingToolCalls           = 64
+	maxRetiredToolCallKeys        = 4 * maxPendingToolCalls
+	maxPendingToolCallBytes       = 64 * 1024
+	pendingToolCallLifetime       = 24 * time.Hour
+	maxConsumedApprovalIdentities = 256
+	maxConsumedApprovalBytes      = 64 * 1024
+	maxConsumedApprovalBytesEach  = 256
 
 	maxPathBytes        = 8 * 1024
 	maxCommandBytes     = 32 * 1024
@@ -53,6 +56,7 @@ func normalizeSessionState(state SessionState) SessionState {
 	results := append([]CommandResult(nil), state.CommandResults...)
 	pending := state.PendingToolCalls
 	retired := state.RetiredToolCallKeys
+	consumedApprovals := sortedUnique(state.ConsumedApprovalIdentities)
 
 	state.ReadPaths = []string{}
 	state.WritePaths = []string{}
@@ -63,6 +67,7 @@ func normalizeSessionState(state SessionState) SessionState {
 	state.CommandResultBytes = 0
 	state.PendingToolCalls = nil
 	state.RetiredToolCallKeys = nil
+	state.ConsumedApprovalIdentities = []string{}
 	appendNormalizedExactStrings(&state, &state.ReadPaths, reads, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "read_paths")
 	appendNormalizedExactStrings(&state, &state.WritePaths, writes, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "write_paths")
 	for _, value := range writes {
@@ -85,6 +90,9 @@ func normalizeSessionState(state SessionState) SessionState {
 	for key := range retired {
 		keys = append(keys, key)
 	}
+	appendNormalizedExactStrings(&state, &state.ConsumedApprovalIdentities, consumedApprovals,
+		maxConsumedApprovalIdentities, maxConsumedApprovalBytes, maxConsumedApprovalBytesEach,
+		"consumed_approval_identities")
 	sort.Strings(keys)
 	for _, key := range keys {
 		state = putRetiredToolCallKey(state, key, retired[key], false)

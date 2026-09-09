@@ -23,6 +23,23 @@ func TestStripTrailingRedirectsUsesShellSyntax(t *testing.T) {
 	}
 }
 
+func TestHasRedirectUsesShellSyntax(t *testing.T) {
+	tests := []struct {
+		command string
+		want    bool
+	}{
+		{command: `printf x > AGENTS.md`, want: true},
+		{command: `printf '> AGENTS.md'`, want: false},
+		{command: `printf x \> AGENTS.md`, want: false},
+	}
+	for _, test := range tests {
+		got, complete := HasRedirect(test.command)
+		if !complete || got != test.want {
+			t.Fatalf("HasRedirect(%q) = %t, %t; want %t, true", test.command, got, complete, test.want)
+		}
+	}
+}
+
 func FuzzStripTrailingRedirectsIsIdempotent(f *testing.F) {
 	for _, seed := range []string{
 		"go test ./... 2>&1",

@@ -189,6 +189,7 @@ func observeUnclassifiedMCP(repoRoot string, contract *policy.MCPPolicy, payload
 
 type mcpExtractedValues struct {
 	Paths    []string
+	RawPaths []string
 	Commands []string
 }
 
@@ -203,7 +204,7 @@ func extractMCPValuesResolved(root string, classification policy.MCPToolPolicy, 
 			return mcpExtractedValues{}, false
 		}
 		paths, valid := normalizeMCPRepoPathsResolved(root, rawPaths)
-		return mcpExtractedValues{Paths: paths}, valid
+		return mcpExtractedValues{Paths: paths, RawPaths: rawPaths}, valid
 	case policy.MCPEffectCommand:
 		commands, valid := selectMCPStrings(input, []string{classification.CommandField})
 		return mcpExtractedValues{Commands: commands}, valid
@@ -285,7 +286,7 @@ func enforceMCPBefore(repoRoot string, payload *HookPayload, classification poli
 	case policy.MCPEffectRepositoryRead, policy.MCPEffectExternal:
 		return Result{ExitCode: 0}
 	case policy.MCPEffectRepositoryWrite:
-		return runMCPWritePreResolved(repoRoot, payload, values.Paths, evaluator)
+		return runMCPWritePreResolved(repoRoot, payload, values.Paths, values.RawPaths, evaluator)
 	case policy.MCPEffectCommand:
 		for _, command := range values.Commands {
 			result := runMCPCommandPreResolved(repoRoot, payload, command, evaluator)
@@ -299,7 +300,7 @@ func enforceMCPBefore(repoRoot string, payload *HookPayload, classification poli
 	}
 }
 
-func runMCPWritePreResolved(root string, payload *HookPayload, paths []string, evaluator *runtime.Evaluator) Result {
+func runMCPWritePreResolved(root string, payload *HookPayload, paths, rawPaths []string, evaluator *runtime.Evaluator) Result {
 	state, err := ensureSessionStateResolved(root, payload.SessionID)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
@@ -317,6 +318,29 @@ func runMCPWritePreResolved(root string, payload *HookPayload, paths []string, e
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): write check failed: " + err.Error()}
 	}
 	violations := preWriteBlockingViolations(report)
+	normalizedPaths, normalizeErr := runtime.NormalizeReplayInputs(root, runtime.ExecutionInputs{WritePaths: rawPaths})
+	if normalizeErr != nil {
+		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): normalize proposed writes: " + normalizeErr.Error()}
+	}
+	boundRuleIDs, boundErr := boundApprovalRuleIDs(evaluator, root, normalizedPaths.WritePaths)
+	if boundErr != nil {
+		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): resolve bound authority approval: " + boundErr.Error()}
+	}
+	if staleErr := rejectStaleNativeApprovalEnvelope(payload, boundRuleIDs); staleErr != nil {
+		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + staleErr.Error()}
+	}
+	if len(boundRuleIDs) > 0 {
+		// A receipt satisfies only the reserved approval claim. Keep any
+		// composite parent violation so deny_write and other checks cannot be
+		// bypassed by filtering the parent rule ID.
+		if len(violations) == 0 {
+			if err := verifyAndConsumeNativeApproval(root, payload, state, rawPaths, boundRuleIDs, evaluator); err != nil {
+				return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
+			}
+		} else {
+			return Result{ExitCode: 2, Stderr: firstLinesForViolations(violations, "reconc blocked this MCP repository write before execution.")}
+		}
+	}
 	if len(violations) == 0 {
 		return Result{ExitCode: 0}
 	}

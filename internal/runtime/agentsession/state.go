@@ -101,6 +101,7 @@ type SessionState struct {
 	LastStopBlockViolationHash string                     `json:"last_stop_block_violation_hash,omitempty"`
 	PendingToolCalls           map[string]PendingToolCall `json:"pending_tool_calls,omitempty"`
 	RetiredToolCallKeys        map[string]int64           `json:"retired_tool_call_keys,omitempty"`
+	ConsumedApprovalIdentities []string                   `json:"consumed_approval_identities,omitempty"`
 	MaterialEvents             uint64                     `json:"material_events,omitempty"`
 	LastMaterialSignature      string                     `json:"last_material_signature,omitempty"`
 	GrokSteerAttempts          uint64                     `json:"grok_steer_attempts,omitempty"`

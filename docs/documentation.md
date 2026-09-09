@@ -2184,6 +2184,30 @@ For exact flags, run `reconc help <command>` or
 In governed target repositories, repo-local policy lives in `.reconc.yml` and
 should be committed. The generated `.reconc/policy.lock.json` is a portable,
 committable policy contract and should be reviewed with policy-source changes.
+
+### Authority-change approval
+
+The `authority-change-approval` template reserves the
+`authority-change-approved` claim as completion evidence. It does not authorize
+a protected write. Before a native file or patch tool, classified MCP
+repository write, or declared mutating command can proceed, the pre-action hook
+must verify an Ed25519-signed `reconc_approval` request and receipt. The binding
+covers the canonical repository identity, current policy source and lock
+digests, matching protected rule IDs and exact normalized paths, complete tool
+input or command effect, session state version, principal, expiry, and the
+stable host `tool_use_id`; the receipt identity is consumed once under the
+session lock. A changed policy generation, path identity, effect, or session
+state invalidates the receipt.
+
+The authority registry and policy are private operator state selected with
+`RECONC_APPROVAL_AUTHORITIES`, `RECONC_APPROVAL_POLICY`, and
+`RECONC_APPROVAL_PRINCIPAL`; they must stay outside the repository. Command
+hooks additionally require exact top-level `reconc_write_paths`. A host that
+cannot provide a stable pre-action identity, exact command paths, or the
+operator channel is blocked with an unsupported-capability message. Existing
+claim-only configurations therefore remain readable for completion checks but
+cannot authorize a pre-write.
+
 Format 6 is checkout-independent and byte-identical across equivalent clones
 and worktrees. Source records contain only portable logical paths, SHA-256
 content identities, kinds, and bounded inline locations; raw source bodies and
