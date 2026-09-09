@@ -119,12 +119,15 @@ func TestV6PublicationAdvancesWithoutRewritingUnchangedContracts(t *testing.T) {
 	if !schema.AcceptsFormat(schema.PolicyLock, schema.PreviousPolicyLockV6URL, "6") {
 		t.Fatal("v6 compatibility alias is not accepted for format 6")
 	}
-	unchanged, ok := schema.ContractVersion(schema.PolicyConfig, "4")
+	config, ok := schema.ContractVersion(schema.PolicyConfig, "4")
 	if !ok {
 		t.Fatal("current policy-config v4 contract is absent")
 	}
-	if unchanged.IntroductionTag != schema.PreviousSchemaTag || unchanged.DefaultURL != schema.PolicyConfigURL {
-		t.Fatalf("unchanged contract was republished unexpectedly: %#v", unchanged)
+	if config.IntroductionTag != schema.CurrentSchemaTag || config.DefaultURL != schema.PolicyConfigURL {
+		t.Fatalf("policy-config v4 publication identity = %#v, want current tag and URL", config)
+	}
+	if !schema.Accepts(schema.PolicyConfig, schema.PreviousPolicyConfigV4URL) {
+		t.Fatalf("policy-config v4 does not retain previous publication alias: %#v", config.Aliases)
 	}
 }
 

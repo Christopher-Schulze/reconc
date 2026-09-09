@@ -411,7 +411,7 @@ func ruleTriggerMatches(ctx *evalContext, rule *policy.Rule, inputs ExecutionInp
 	var paths []string
 	switch rule.Kind {
 	case policy.KindDenyWrite:
-		paths, err = matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, rule.Paths)
+		paths, err = matchingPathsWithExclusions(ctx.matchers, inputs.WritePaths, rule.Paths, rule.ExcludePaths)
 	case policy.KindRequireRead, policy.KindCoupleChange:
 		paths, err = matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, rule.Paths)
 	case policy.KindForbidCommand:
@@ -446,7 +446,7 @@ func ruleComparisonUnits(rule *policy.Rule, inputs ExecutionInputs) int64 {
 	units := int64(len(rule.ScopePaths)) * (reads + writes)
 	switch rule.Kind {
 	case policy.KindDenyWrite:
-		units += int64(len(rule.Paths)) * writes
+		units += int64(len(rule.Paths)+len(rule.ExcludePaths)) * writes
 	case policy.KindRequireRead:
 		units += int64(len(rule.Paths))*writes + int64(len(rule.BeforePaths))*reads
 	case policy.KindRequireCommand, policy.KindRequireCommandSuccess, policy.KindForbidCommand:

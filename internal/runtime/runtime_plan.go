@@ -962,6 +962,7 @@ func validateRuntimeRule(rule *policy.Rule) error {
 		values []string
 	}{
 		{"paths", rule.Paths},
+		{"exclude_paths", rule.ExcludePaths},
 		{"before_paths", rule.BeforePaths},
 		{"when_paths", rule.WhenPaths},
 		{"commands", rule.Commands},
@@ -977,7 +978,8 @@ func validateRuntimeRule(rule *policy.Rule) error {
 	if rule.ScopeID != "" && len(rule.ScopePaths) == 0 {
 		return fmt.Errorf("scope_id requires non-empty scope_paths")
 	}
-	for _, pattern := range append(append(append(append([]string{}, rule.Paths...), rule.BeforePaths...), rule.WhenPaths...), rule.ScopePaths...) {
+	patterns := append(append(append(append([]string{}, rule.Paths...), rule.ExcludePaths...), rule.BeforePaths...), rule.WhenPaths...)
+	for _, pattern := range append(patterns, rule.ScopePaths...) {
 		if _, err := templates.Variables(pattern); err != nil {
 			return fmt.Errorf("invalid template syntax in path pattern %q: %w", pattern, err)
 		}
@@ -1032,6 +1034,7 @@ func runtimeRuleFieldValues(rule *policy.Rule) []struct {
 		present bool
 	}{
 		{"paths", len(rule.Paths) > 0},
+		{"exclude_paths", len(rule.ExcludePaths) > 0},
 		{"before_paths", len(rule.BeforePaths) > 0},
 		{"when_paths", len(rule.WhenPaths) > 0},
 		{"commands", len(rule.Commands) > 0},

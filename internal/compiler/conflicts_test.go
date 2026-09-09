@@ -90,6 +90,30 @@ func TestDetectConflictsDuplicateDenyOrderIndependent(t *testing.T) {
 	}
 }
 
+func TestDetectConflictsDenyExceptionsArePartOfSemanticKey(t *testing.T) {
+	for _, rules := range [][]policy.Rule{
+		{
+			{ID: "r1", Kind: policy.KindDenyWrite, Paths: []string{".env.*"}, ExcludePaths: []string{".env.example"}},
+			{ID: "r2", Kind: policy.KindDenyWrite, Paths: []string{".env.*"}, ExcludePaths: []string{".env.template"}},
+		},
+		{
+			{ID: "r1", Kind: policy.KindDenyWrite, Paths: []string{".env.*"}},
+			{ID: "r2", Kind: policy.KindDenyWrite, Paths: []string{".env.*"}, ExcludePaths: []string{".env.example"}},
+		},
+	} {
+		if conflicts := DetectConflicts(rules); len(conflicts) != 0 {
+			t.Fatalf("different deny exceptions were treated as redundant: %+v", conflicts)
+		}
+	}
+	identical := []policy.Rule{
+		{ID: "r1", Kind: policy.KindDenyWrite, Paths: []string{".env.*"}, ExcludePaths: []string{".env.example", ".env.template"}},
+		{ID: "r2", Kind: policy.KindDenyWrite, Paths: []string{".env.*"}, ExcludePaths: []string{".env.template", ".env.example"}},
+	}
+	if conflicts := DetectConflicts(identical); len(conflicts) != 1 || conflicts[0].Kind != ConflictDuplicateDeny {
+		t.Fatalf("identical deny exceptions were not treated as redundant: %+v", conflicts)
+	}
+}
+
 func TestDetectConflictsNotFlaggedForDifferentPaths(t *testing.T) {
 	rules := []policy.Rule{
 		{ID: "r1", Kind: policy.KindDenyWrite, Paths: []string{"src/**"}},
@@ -113,6 +137,23 @@ func TestDetectConflictsDenyVsRequireRead(t *testing.T) {
 	}
 	if c[0].Kind != ConflictDenyVsRequireRead {
 		t.Errorf("expected ConflictDenyVsRequireRead, got %s", c[0].Kind)
+	}
+}
+
+func TestDetectConflictsDenyExceptionAvoidsReadContradiction(t *testing.T) {
+	rules := []policy.Rule{
+		{ID: "deny-template", Kind: policy.KindDenyWrite, Paths: []string{".env.*"}, ExcludePaths: []string{".env.example"}},
+		{ID: "read-template", Kind: policy.KindRequireRead, WhenPaths: []string{".env.example"}, Paths: []string{"README.md"}},
+	}
+	if conflicts := DetectConflicts(rules); len(conflicts) != 0 {
+		t.Fatalf("deny exception was treated as unreachable read trigger: %+v", conflicts)
+	}
+	exact := []policy.Rule{
+		{ID: "deny-template", Kind: policy.KindDenyWrite, Paths: []string{".env.example"}, ExcludePaths: []string{".env.example"}},
+		{ID: "read-template", Kind: policy.KindRequireRead, WhenPaths: []string{".env.example"}, Paths: []string{"README.md"}},
+	}
+	if conflicts := DetectConflicts(exact); len(conflicts) != 0 {
+		t.Fatalf("exact deny exception was treated as unreachable read trigger: %+v", conflicts)
 	}
 }
 

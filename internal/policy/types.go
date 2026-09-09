@@ -145,15 +145,19 @@ func (k Kind) Valid() bool {
 // JSON field names are stable for lockfile compatibility. Omitempty is used
 // so a rule that doesn't need a field doesn't emit the empty key.
 type Rule struct {
-	ID          string   `json:"id" yaml:"id"`
-	Kind        Kind     `json:"kind" yaml:"kind"`
-	Mode        Mode     `json:"mode" yaml:"mode"`
-	Message     string   `json:"message" yaml:"message"`
-	Paths       []string `json:"paths,omitempty" yaml:"paths,omitempty"`
-	BeforePaths []string `json:"before_paths,omitempty" yaml:"before_paths,omitempty"`
-	WhenPaths   []string `json:"when_paths,omitempty" yaml:"when_paths,omitempty"`
-	Commands    []string `json:"commands,omitempty" yaml:"commands,omitempty"`
-	Claims      []string `json:"claims,omitempty" yaml:"claims,omitempty"`
+	ID      string   `json:"id" yaml:"id"`
+	Kind    Kind     `json:"kind" yaml:"kind"`
+	Mode    Mode     `json:"mode" yaml:"mode"`
+	Message string   `json:"message" yaml:"message"`
+	Paths   []string `json:"paths,omitempty" yaml:"paths,omitempty"`
+	// ExcludePaths narrows a deny_write rule to an explicitly configured
+	// exception set. It is valid only for deny_write; independent rules still
+	// evaluate the same write path normally.
+	ExcludePaths []string `json:"exclude_paths,omitempty" yaml:"exclude_paths,omitempty"`
+	BeforePaths  []string `json:"before_paths,omitempty" yaml:"before_paths,omitempty"`
+	WhenPaths    []string `json:"when_paths,omitempty" yaml:"when_paths,omitempty"`
+	Commands     []string `json:"commands,omitempty" yaml:"commands,omitempty"`
+	Claims       []string `json:"claims,omitempty" yaml:"claims,omitempty"`
 	// CommandMatch selects exact (default) or prefix comparison for the
 	// command rule kinds (require_command, require_command_success,
 	// forbid_command). Ignored by other kinds.

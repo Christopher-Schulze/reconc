@@ -69,7 +69,7 @@ func DetectConflicts(rules []policy.Rule) []Conflict {
 	}
 
 	// --- Exact-match duplicates within the same kind -----------------
-	found, more := findExactDuplicates(byKind[policy.KindDenyWrite], "paths", ConflictDuplicateDeny, MaxStaticConflicts)
+	found, more := findDuplicateDenies(byKind[policy.KindDenyWrite], MaxStaticConflicts)
 	appendConflicts(found, more)
 	found, more = findDuplicateRequireReads(byKind[policy.KindRequireRead], MaxStaticConflicts-len(out))
 	appendConflicts(found, more)
@@ -115,6 +115,43 @@ func DetectConflicts(rules []policy.Rule) []Conflict {
 		return out[i].Kind < out[j].Kind
 	})
 	return out
+}
+
+// findDuplicateDenies compares both the denied paths and their bounded
+// exceptions. Two deny_write rules with the same paths but different
+// exclusions have different behavior and are therefore not redundant.
+func findDuplicateDenies(rules []policy.Rule, limit int) ([]Conflict, bool) {
+	var out []Conflict
+	groups := groupRulesByKey(rules, func(rule policy.Rule) (string, bool) {
+		pathsKey, ok := normalizedListsKey([][]string{rule.Paths})
+		if !ok {
+			return "", false
+		}
+		excludesKey := normalizedOptionalListKey(rule.ExcludePaths)
+		return pathsKey + "exclude:" + excludesKey, true
+	})
+	for _, group := range groups {
+		for i := 0; i < len(group); i++ {
+			for j := i + 1; j < len(group); j++ {
+				if len(out) >= limit {
+					return out, true
+				}
+				a, b := group[i], group[j]
+				idA, idB := a.ID, b.ID
+				if idB < idA {
+					idA, idB = idB, idA
+				}
+				out = append(out, Conflict{
+					Kind:        ConflictDuplicateDeny,
+					RuleIDA:     idA,
+					RuleIDB:     idB,
+					Description: "rules '" + idA + "' and '" + idB + "' have identical paths and exclude_paths and are redundant",
+					Paths:       append([]string(nil), a.Paths...),
+				})
+			}
+		}
+	}
+	return out, false
 }
 
 // findExactDuplicates emits a Conflict for every pair of rules of the
@@ -191,6 +228,9 @@ func findDenyVsRequireRead(denies, reads []policy.Rule, limit int) ([]Conflict, 
 		}
 		for _, r := range reads {
 			for _, w := range r.WhenPaths {
+				if exactPathListed(d.ExcludePaths, w) {
+					continue
+				}
 				if _, ok := denySet[w]; ok {
 					if len(out) >= limit {
 						return out, true
@@ -212,6 +252,16 @@ func findDenyVsRequireRead(denies, reads []policy.Rule, limit int) ([]Conflict, 
 		}
 	}
 	return out, false
+}
+
+func exactPathListed(paths []string, target string) bool {
+	target = strings.TrimSpace(target)
+	for _, path := range paths {
+		if strings.TrimSpace(path) == target {
+			return true
+		}
+	}
+	return false
 }
 
 func findForbidVsRequireCommand(forbids, requires []policy.Rule, limit int) ([]Conflict, bool) {
@@ -318,10 +368,19 @@ func groupRulesByLists(
 	rules []policy.Rule,
 	selectLists func(policy.Rule) [][]string,
 ) [][]policy.Rule {
+	return groupRulesByKey(rules, func(rule policy.Rule) (string, bool) {
+		return normalizedListsKey(selectLists(rule))
+	})
+}
+
+func groupRulesByKey(
+	rules []policy.Rule,
+	keyFor func(policy.Rule) (string, bool),
+) [][]policy.Rule {
 	groups := make(map[string][]policy.Rule)
 	order := make([]string, 0, len(rules))
 	for _, rule := range rules {
-		key, ok := normalizedListsKey(selectLists(rule))
+		key, ok := keyFor(rule)
 		if !ok {
 			continue
 		}
@@ -337,6 +396,23 @@ func groupRulesByLists(
 		}
 	}
 	return result
+}
+
+func normalizedOptionalListKey(values []string) string {
+	normalized := append([]string(nil), values...)
+	for index := range normalized {
+		normalized[index] = strings.TrimSpace(normalized[index])
+	}
+	sort.Strings(normalized)
+	var key strings.Builder
+	key.WriteString(strconv.Itoa(len(normalized)))
+	key.WriteByte(':')
+	for _, value := range normalized {
+		key.WriteString(strconv.Itoa(len(value)))
+		key.WriteByte(':')
+		key.WriteString(value)
+	}
+	return key.String()
 }
 
 func normalizedListsKey(lists [][]string) (string, bool) {

@@ -112,7 +112,7 @@ func validateRuleMapBounds(src policy.PolicySource, rule map[string]interface{},
 	if err := validateScalarLimit(src, location, ruleID, "script", rule["script"], maxParserPatternBytes); err != nil {
 		return err
 	}
-	for _, field := range []string{"paths", "before_paths", "when_paths", "scope_paths"} {
+	for _, field := range []string{"paths", "exclude_paths", "before_paths", "when_paths", "scope_paths"} {
 		if err := validateStringListLimit(src, location, ruleID, field, rule[field], maxParserPatternBytes); err != nil {
 			return err
 		}

@@ -517,7 +517,7 @@ func quote(s string) string {
 
 func evalDenyWrite(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	patterns := stringListField(rule, "paths")
-	matched, err := matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, patterns)
+	matched, err := matchingPathsWithExclusions(ctx.matchers, inputs.WritePaths, patterns, rule.ExcludePaths)
 	if err != nil {
 		return nil, err
 	}

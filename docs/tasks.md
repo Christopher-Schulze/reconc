@@ -3,7 +3,6 @@
 ## Active
 
 ## Queue
-- [ ] 492 Distinguish secret state from config templates and SQLite sidecars -> tasks/492-distinguish-secret-state-from-config-templates-and-sqlite-sidecars.md
 - [ ] 493 Align generated file protection across templates and presets -> tasks/493-align-generated-file-protection-across-templates-and-presets.md
 - [ ] 494 Scope test and documentation evidence to changed owners -> tasks/494-scope-test-and-documentation-evidence-to-changed-owners.md
 - [ ] 495 Make agent guidance compact current and progressively disclosed -> tasks/495-make-agent-guidance-compact-current-and-progressively-disclosed.md
@@ -15,6 +14,8 @@
 ## Blocked
 
 ## Done
+
+- [x] 492 Distinguish secret state from config templates and SQLite sidecars -> tasks/done/492-distinguish-secret-state-from-config-templates-and-sqlite-sidecars.md
 
 - [x] 491 Profile real workloads and evaluate hardware-aware Go optimization -> tasks/done/491-profile-real-workloads-and-evaluate-hardware-aware-go-optimization.md
 

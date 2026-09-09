@@ -2398,7 +2398,7 @@ with a 100 ms match timeout and treats engine failure as a validation failure.
 Rule fields are also kind-specific. After template expansion, the compiler
 rejects any known field that the selected kind cannot evaluate, including empty
 values, and names the rule ID, kind, field, and source path. The canonical
-top-level matrix is: `deny_write` = `paths`, `when_paths`; `require_read` =
+top-level matrix is: `deny_write` = `paths`, `exclude_paths`, `when_paths`; `require_read` =
 `paths`, `before_paths`; `require_command` and `require_command_success` =
 `when_paths`, `commands`, `command_match`; `forbid_command` = `when_paths`,
 `commands`, `command_match`; `couple_change` = `paths`, `when_paths`;
@@ -2412,6 +2412,17 @@ checks use the corresponding inline matrix, while generated provenance and
 scope fields are lockfile-only. The current v6 lock schema overlays these
 constraints on its legacy rule envelope so an edited lockfile cannot restore
 ignored fields at runtime.
+
+`exclude_paths` is a bounded exception list for `deny_write` only. Reconc first
+matches a write against `paths`, then removes paths matching an entry in
+`exclude_paths`; it does not create an allow rule and does not affect any other
+deny rule. The built-in `local-secret-state-read-only` template explicitly
+exempts only root or nested `.env.example` and `.env.template` files. It still
+blocks `.env`, other `.env.*` names, key and certificate files, and root or
+nested `.db`, `.sqlite`, and `.sqlite3` files plus each `-wal` and `-shm`
+sidecar. A project with a different approved template name must add that exact
+root and nested pattern to its own `deny_write.exclude_paths`; broad `.env.*`
+exceptions would also permit unapproved secret names.
 
 Template-bearing paths use the grammar owned by `internal/templates`: a token
 is exactly `{name}` with ASCII identifier characters, while balanced glob
@@ -5074,7 +5085,7 @@ Ignore:
 - `.idea/`
 - `*.swp`
 - `.env`
-- `.env.*` except `.env.example`
+- `.env.*` except `.env.example` and `.env.template`
 - `*.pem`
 - `*.key`
 - `*.p12`

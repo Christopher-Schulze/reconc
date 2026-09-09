@@ -101,6 +101,7 @@ func compileRuntimePathMatchers(rules []policy.Rule) (*runtimePathMatchers, erro
 	for index := range rules {
 		rule := &rules[index]
 		add(rule.Paths)
+		add(rule.ExcludePaths)
 		add(rule.BeforePaths)
 		add(rule.WhenPaths)
 		add(rule.ScopePaths)

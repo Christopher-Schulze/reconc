@@ -505,6 +505,10 @@ func validateRuleItem(
 	if err != nil {
 		return policy.Rule{}, err
 	}
+	excludePaths, err := optionalStringList(item, "exclude_paths", id)
+	if err != nil {
+		return policy.Rule{}, err
+	}
 	beforePaths, err := optionalStringList(item, "before_paths", id)
 	if err != nil {
 		return policy.Rule{}, err
@@ -518,6 +522,7 @@ func validateRuleItem(
 		patterns []string
 	}{
 		{"paths", paths},
+		{"exclude_paths", excludePaths},
 		{"before_paths", beforePaths},
 		{"when_paths", whenPaths},
 	} {
@@ -715,6 +720,7 @@ func validateRuleItem(
 		Mode:                 mode,
 		Message:              message,
 		Paths:                paths,
+		ExcludePaths:         excludePaths,
 		BeforePaths:          beforePaths,
 		WhenPaths:            whenPaths,
 		Commands:             commands,

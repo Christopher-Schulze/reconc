@@ -1008,6 +1008,9 @@ func TestRuleToMapCoversOptionalFields(t *testing.T) {
 		Message: "run the repo-local verifier",
 		Mode:    policy.ModeBlock,
 		Paths:   []string{"src/**"},
+		ExcludePaths: []string{
+			"src/generated/**",
+		},
 		BeforePaths: []string{
 			"docs/**",
 		},
@@ -1056,6 +1059,7 @@ func TestRuleToMapCoversOptionalFields(t *testing.T) {
 		"message",
 		"mode",
 		"paths",
+		"exclude_paths",
 		"before_paths",
 		"when_paths",
 		"commands",
@@ -1126,6 +1130,7 @@ func TestCompileWarnsOnBraceVariableInNonCaptureKind(t *testing.T) {
 	writeFile(t, repo, "policies/rules.yml",
 		"rules:\n"+
 			"  - id: literal-brace\n    kind: deny_write\n    paths: ['docs/{task_id}.md']\n    mode: block\n    message: m\n"+
+			"  - id: literal-exclude-brace\n    kind: deny_write\n    paths: ['.env.*']\n    exclude_paths: ['.env/{task_id}']\n    mode: block\n    message: m\n"+
 			"  - id: alternation-ok\n    kind: deny_write\n    paths: ['src/**/*.{js,ts}']\n    mode: block\n    message: m\n"+
 			"  - id: capture-ok\n    kind: require_fresh_file\n    when_paths: ['docs/todo/{task_id}.md']\n    required_files:\n      - path: 'docs/fidelity/{task_id}.json'\n        max_age_hours: 24\n    mode: block\n    message: m\n")
 
@@ -1137,12 +1142,12 @@ func TestCompileWarnsOnBraceVariableInNonCaptureKind(t *testing.T) {
 	for _, w := range compiled.Warnings {
 		if strings.Contains(w, "does not capture template variables") {
 			hits++
-			if !strings.Contains(w, "literal-brace") {
+			if !strings.Contains(w, "literal-brace") && !strings.Contains(w, "literal-exclude-brace") {
 				t.Errorf("warning should name the offending rule: %s", w)
 			}
 		}
 	}
-	if hits != 1 {
-		t.Fatalf("expected exactly one brace-variable warning (not for alternation or capture kinds), got %d: %v", hits, compiled.Warnings)
+	if hits != 2 {
+		t.Fatalf("expected two brace-variable warnings (one path and one exclusion; not for alternation or capture kinds), got %d: %v", hits, compiled.Warnings)
 	}
 }

@@ -52,7 +52,7 @@
     "rules": {
 	  "type": "array",
 	  "items": {
-	    "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/properties/rules/items",
+	    "$ref": "#/$defs/legacyPolicyRule",
 	    "allOf": [ { "$ref": "#/$defs/ruleKindFields" } ],
 	    "properties": {
 	      "checks": { "type": "array", "items": { "$ref": "#/$defs/policyCheck" } }
@@ -62,6 +62,46 @@
     "actions": { "$ref": "#/$defs/actions" }
   },
   "$defs": {
+    "legacyPolicyRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "message"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/kind" },
+        "mode": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/mode" },
+        "message": { "type": "string" },
+        "paths": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/stringArray" },
+        "exclude_paths": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/stringArray" },
+        "before_paths": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/stringArray" },
+        "when_paths": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/stringArray" },
+        "commands": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/stringArray" },
+        "claims": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/stringArray" },
+        "command_match": { "enum": ["exact", "prefix"] },
+        "required_files": { "type": "array", "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/requiredFile" } },
+        "evidence": { "type": "array", "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/evidence" } },
+        "checks": { "type": "array", "items": { "$ref": "#/$defs/policyCheck" } },
+        "script": { "type": "string" },
+        "args": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/stringArray" },
+        "timeout_sec": { "type": "integer", "minimum": 1 },
+        "kill_timeout_sec": { "type": "integer", "minimum": 1 },
+        "assurance": { "type": "array", "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/assurance" } },
+        "source_path": { "type": "string" },
+        "source_block_id": { "type": "string" },
+        "deprecated": { "type": "boolean" },
+        "deprecated_reason": { "type": "string" },
+        "deprecated_since": { "type": "string" },
+        "deprecated_replaced_by": { "type": "string" },
+        "scope_paths": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/stringArray" },
+        "scope_id": { "type": "string" },
+        "cache_inputs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "safeLabel": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/safeLabel" },
     "identity": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/identity" },
     "platform": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/platform" },
@@ -260,6 +300,10 @@
             { "required": ["required_files"] }, { "required": ["evidence"] }, { "required": ["checks"] }, { "required": ["script"] },
             { "required": ["args"] }, { "required": ["timeout_sec"] }, { "required": ["kill_timeout_sec"] }, { "required": ["cache_inputs"] }
           ] } }
+        },
+        {
+          "if": { "required": ["exclude_paths"] },
+          "then": { "properties": { "kind": { "const": "deny_write" } } }
         }
       ]
     },

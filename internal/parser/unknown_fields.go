@@ -10,7 +10,7 @@ import (
 )
 
 var ruleFields = fieldSet(
-	"id", "kind", "mode", "message", "paths", "before_paths", "when_paths",
+	"id", "kind", "mode", "message", "paths", "exclude_paths", "before_paths", "when_paths",
 	"commands", "claims", "command_match", "required_files", "evidence", "checks",
 	"script", "args", "timeout_sec", "kill_timeout_sec", "cache_inputs", "assurance", "template",
 	"deprecated", "deprecated_reason", "deprecated_since", "deprecated_replaced_by",
@@ -29,7 +29,7 @@ var checkFields = fieldSet(
 func buildRuleKindFields() map[policy.Kind]map[string]struct{} {
 	common := []string{"id", "kind", "mode", "message", "template", "deprecated", "deprecated_reason", "deprecated_since", "deprecated_replaced_by"}
 	definitions := map[policy.Kind][]string{
-		policy.KindDenyWrite:             {"paths", "when_paths"},
+		policy.KindDenyWrite:             {"paths", "exclude_paths", "when_paths"},
 		policy.KindRequireRead:           {"paths", "before_paths"},
 		policy.KindRequireCommand:        {"when_paths", "commands", "command_match"},
 		policy.KindRequireCommandSuccess: {"when_paths", "commands", "command_match"},

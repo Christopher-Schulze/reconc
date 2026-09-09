@@ -24,6 +24,24 @@ func matchingPathsWithMatchers(matchers *runtimePathMatchers, paths, patterns []
 	return out, nil
 }
 
+func matchingPathsWithExclusions(matchers *runtimePathMatchers, paths, patterns, exclusions []string) ([]string, error) {
+	matched, err := matchingPathsWithMatchers(matchers, paths, patterns)
+	if err != nil || len(matched) == 0 || len(exclusions) == 0 {
+		return matched, err
+	}
+	out := make([]string, 0, len(matched))
+	for _, path := range matched {
+		_, excluded, err := matchAnyPaths(matchers, exclusions, path)
+		if err != nil {
+			return nil, err
+		}
+		if !excluded {
+			out = append(out, path)
+		}
+	}
+	return out, nil
+}
+
 func matchingCommands(commands, expected []string, repoRoot string, match policy.CommandMatch) []string {
 	return matchingCommandsWithEvidence(nil, nil, commands, expected, repoRoot, match)
 }

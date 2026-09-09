@@ -760,6 +760,9 @@ func ruleToMap(r policy.Rule) map[string]interface{} {
 	if len(r.Paths) > 0 {
 		m["paths"] = r.Paths
 	}
+	if len(r.ExcludePaths) > 0 {
+		m["exclude_paths"] = r.ExcludePaths
+	}
 	if len(r.BeforePaths) > 0 {
 		m["before_paths"] = r.BeforePaths
 	}
@@ -1349,6 +1352,7 @@ func braceVariableWarnings(rules []policy.Rule) []string {
 			fields = append(fields,
 				globField{"when_paths", r.WhenPaths},
 				globField{"paths", r.Paths},
+				globField{"exclude_paths", r.ExcludePaths},
 				globField{"before_paths", r.BeforePaths},
 			)
 		}

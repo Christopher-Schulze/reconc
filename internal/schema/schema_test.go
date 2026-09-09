@@ -115,7 +115,8 @@ func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
 	assertPropertiesMatch(t, schemaDefinition(t, publishedLock, "policyCheck"), policy.Check{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "assuranceExemption"), policy.AssuranceExemption{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "assurance"), policy.AssuranceGate{})
-	assertPropertiesMatch(t, schemaDefinition(t, currentLock, "rule"), policy.Rule{})
+	currentPolicyLock := readCurrentPolicyLockSchemaDocument(t)
+	assertPropertiesMatch(t, schemaDefinition(t, currentPolicyLock, "legacyPolicyRule"), policy.Rule{})
 
 	assertPropertiesMatch(t, schemaRootProperties(t, report), runtime.CheckReport{})
 	assertPropertiesMatch(t, schemaDefinition(t, report, "commandResult"), runtime.CommandResult{})
@@ -238,6 +239,19 @@ func readCurrentLockSchemaDocument(t *testing.T) map[string]interface{} {
 	var document map[string]interface{}
 	if err := json.Unmarshal(data, &document); err != nil {
 		t.Fatalf("parse current lock schema: %v", err)
+	}
+	return document
+}
+
+func readCurrentPolicyLockSchemaDocument(t *testing.T) map[string]interface{} {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "schemas", "v6", "policy-lock.schema.json"))
+	if err != nil {
+		t.Fatalf("read current policy-lock schema: %v", err)
+	}
+	var document map[string]interface{}
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatalf("parse current policy-lock schema: %v", err)
 	}
 	return document
 }

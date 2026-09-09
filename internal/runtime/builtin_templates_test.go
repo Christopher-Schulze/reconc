@@ -46,16 +46,75 @@ func TestBuiltinGuardrailTemplatesEnforceBehavior(t *testing.T) {
 	t.Run("local secret state", func(t *testing.T) {
 		withRECONCHome(t)
 		repo := makeRepo(t, "# project\n", "", "rules:\n  - id: local-state\n    template: local-secret-state-read-only\n")
-		inputs := Empty()
-		inputs.WritePaths = []string{"services/api/.env.local", "state/runtime.db-wal", "state/runtime.sqlite3"}
-		report, err := CheckRepoPolicy(repo, inputs)
-		if err != nil || report.Decision != DecisionBlock {
-			t.Fatalf("secret or database-state write must block: decision=%v err=%v", report.Decision, err)
+		for _, test := range []struct {
+			path     string
+			decision Decision
+		}{
+			{path: ".env", decision: DecisionBlock},
+			{path: "services/api/.env", decision: DecisionBlock},
+			{path: ".env.local", decision: DecisionBlock},
+			{path: "services/api/.env.development", decision: DecisionBlock},
+			{path: ".env.example", decision: DecisionPass},
+			{path: "services/api/.env.example", decision: DecisionPass},
+			{path: ".env.template", decision: DecisionPass},
+			{path: "services/api/.env.template", decision: DecisionPass},
+			{path: "services/api/.env.example.bak", decision: DecisionBlock},
+			{path: "services/api/.env.examples", decision: DecisionBlock},
+			{path: "runtime.db", decision: DecisionBlock},
+			{path: "state/runtime.db", decision: DecisionBlock},
+			{path: "runtime.db-wal", decision: DecisionBlock},
+			{path: "state/runtime.db-wal", decision: DecisionBlock},
+			{path: "runtime.db-shm", decision: DecisionBlock},
+			{path: "state/runtime.db-shm", decision: DecisionBlock},
+			{path: "runtime.sqlite", decision: DecisionBlock},
+			{path: "state/runtime.sqlite", decision: DecisionBlock},
+			{path: "runtime.sqlite-wal", decision: DecisionBlock},
+			{path: "state/runtime.sqlite-wal", decision: DecisionBlock},
+			{path: "runtime.sqlite-shm", decision: DecisionBlock},
+			{path: "state/runtime.sqlite-shm", decision: DecisionBlock},
+			{path: "runtime.sqlite3", decision: DecisionBlock},
+			{path: "state/runtime.sqlite3", decision: DecisionBlock},
+			{path: "runtime.sqlite3-wal", decision: DecisionBlock},
+			{path: "state/runtime.sqlite3-wal", decision: DecisionBlock},
+			{path: "runtime.sqlite3-shm", decision: DecisionBlock},
+			{path: "state/runtime.sqlite3-shm", decision: DecisionBlock},
+			{path: "runtime.sqlite3-shm.bak", decision: DecisionPass},
+			{path: "src/main.go", decision: DecisionPass},
+		} {
+			t.Run(test.path, func(t *testing.T) {
+				inputs := Empty()
+				inputs.WritePaths = []string{test.path}
+				report, err := CheckRepoPolicy(repo, inputs)
+				if err != nil || report.Decision != test.decision {
+					t.Fatalf("write %q decision=%v want=%v err=%v", test.path, report.Decision, test.decision, err)
+				}
+			})
 		}
-		inputs.WritePaths = []string{"src/main.go"}
-		report, err = CheckRepoPolicy(repo, inputs)
-		if err != nil || report.Decision != DecisionPass {
-			t.Fatalf("ordinary source write must pass: decision=%v err=%v", report.Decision, err)
+
+		configuredRepo := makeRepo(t, "# project\n", "", "rules:\n  - id: project-state\n    kind: deny_write\n    paths: ['.env.*', '**/.env.*']\n    exclude_paths: ['.env.ci.example', '**/.env.ci.example']\n    mode: block\n    message: protect project secret state\n")
+		for _, test := range []struct {
+			path     string
+			decision Decision
+		}{
+			{path: ".env.ci.example", decision: DecisionPass},
+			{path: "services/api/.env.ci.example", decision: DecisionPass},
+			{path: ".env.ci", decision: DecisionBlock},
+			{path: "services/api/.env.example", decision: DecisionBlock},
+		} {
+			t.Run("configured "+test.path, func(t *testing.T) {
+				report, err := CheckRepoPolicy(configuredRepo, ExecutionInputs{WritePaths: []string{test.path}})
+				if err != nil || report.Decision != test.decision {
+					t.Fatalf("configured exception write %q decision=%v want=%v err=%v", test.path, report.Decision, test.decision, err)
+				}
+			})
+		}
+
+		overrideRepo := makeRepo(t, "# project\n", "", "rules:\n  - id: local-state\n    template: local-secret-state-read-only\n  - id: template-rule\n    kind: deny_write\n    paths: ['.env.example', '**/.env.example']\n    mode: block\n    message: project rule still blocks this path\n")
+		inputs := Empty()
+		inputs.WritePaths = []string{".env.example"}
+		report, err := CheckRepoPolicy(overrideRepo, inputs)
+		if err != nil || report.Decision != DecisionBlock {
+			t.Fatalf("independent deny rule must remain effective: decision=%v err=%v", report.Decision, err)
 		}
 	})
 

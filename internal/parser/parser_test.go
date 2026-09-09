@@ -70,6 +70,29 @@ func TestParseSimpleDenyWriteRule(t *testing.T) {
 	}
 }
 
+func TestParseDenyWriteExcludePaths(t *testing.T) {
+	parsed, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
+		Kind:    policy.SourcePolicyFile,
+		Path:    "policies/x.yml",
+		Content: "rules:\n  - id: local-state\n    kind: deny_write\n    paths: ['.env.*']\n    exclude_paths: ['.env.example', '**/.env.template']\n    mode: block\n    message: protect local state\n",
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got, want := parsed.Rules[0].ExcludePaths, []string{".env.example", "**/.env.template"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("exclude_paths = %#v, want %#v", got, want)
+	}
+
+	_, err = ParseRuleDocuments(makeBundle(policy.PolicySource{
+		Kind:    policy.SourcePolicyFile,
+		Path:    "policies/x.yml",
+		Content: "rules:\n  - id: read\n    kind: require_read\n    paths: ['src/**']\n    before_paths: ['README.md']\n    exclude_paths: ['src/generated/**']\n    mode: block\n    message: read first\n",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "exclude_paths") {
+		t.Fatalf("exclude_paths on require_read must be rejected, got %v", err)
+	}
+}
+
 func TestParseRequiresFieldsByKind(t *testing.T) {
 	cases := []struct {
 		name    string

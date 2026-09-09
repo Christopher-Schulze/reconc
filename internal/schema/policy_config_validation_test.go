@@ -10,6 +10,14 @@ func TestValidatePolicyConfigYAMLUsesShippedSchemaOffline(t *testing.T) {
 	if err := ValidatePolicyConfigYAML(valid); err != nil {
 		t.Fatal(err)
 	}
+	withBoundedException := []byte("rules:\n  - id: local-state\n    kind: deny_write\n    paths: ['.env.*']\n    exclude_paths: ['.env.example', '**/.env.template']\n    mode: block\n    message: protect local state\n")
+	if err := ValidatePolicyConfigYAML(withBoundedException); err != nil {
+		t.Fatalf("deny_write exclude_paths rejected by current schema: %v", err)
+	}
+	wrongKind := []byte("rules:\n  - id: read\n    kind: require_read\n    paths: ['src/**']\n    before_paths: ['README.md']\n    exclude_paths: ['src/generated/**']\n    mode: block\n    message: read first\n")
+	if err := ValidatePolicyConfigYAML(wrongKind); err == nil {
+		t.Fatal("current schema accepted exclude_paths for require_read")
+	}
 	for _, test := range []struct {
 		name string
 		body string

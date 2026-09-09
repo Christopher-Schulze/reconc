@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v4/policy-config.schema.json",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v4/policy-config.schema.json",
   "title": "Reconc policy authoring config v4",
   "type": "object",
   "additionalProperties": false,
@@ -13,14 +13,66 @@
     "actions": { "$ref": "#/$defs/actions" },
     "rules": {
       "type": "array",
-      "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/rule" }
+      "items": { "$ref": "#/$defs/legacyPolicyRule" }
     },
     "scopes": {
       "type": "array",
-      "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/scope" }
+      "items": { "$ref": "#/$defs/legacyPolicyScope" }
     }
   },
   "$defs": {
+    "legacyPolicyRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "anyOf": [
+        { "required": ["template"] },
+        { "required": ["id", "kind", "message"] }
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/kind" },
+        "mode": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/mode" },
+        "message": { "type": "string", "minLength": 1 },
+        "paths": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/nonEmptyStrings" },
+        "exclude_paths": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/nonEmptyStrings" },
+        "before_paths": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/nonEmptyStrings" },
+        "when_paths": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/nonEmptyStrings" },
+        "commands": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/nonEmptyStrings" },
+        "claims": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/nonEmptyStrings" },
+        "command_match": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/commandMatch" },
+        "required_files": { "type": "array", "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/requiredFile" } },
+        "evidence": { "type": "array", "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/evidence" } },
+        "checks": { "type": "array", "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/check" } },
+        "script": { "type": "string" },
+        "args": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/nonEmptyStrings" },
+        "timeout_sec": { "type": "integer", "minimum": 0 },
+        "kill_timeout_sec": { "type": "integer", "minimum": 0 },
+        "cache_inputs": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/nonEmptyStrings" },
+        "assurance": { "type": "array", "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/assurance" } },
+        "template": { "type": "string" },
+        "deprecated": { "type": "boolean" },
+        "deprecated_reason": { "type": "string" },
+        "deprecated_since": { "type": "string" },
+        "deprecated_replaced_by": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["exclude_paths"] },
+          "then": { "required": ["kind"], "properties": { "kind": { "const": "deny_write" } } }
+        }
+      ]
+    },
+    "legacyPolicyScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paths", "rules"],
+      "properties": {
+        "id": { "type": "string" },
+        "paths": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/nonEmptyStrings" },
+        "rules": { "type": "array", "items": { "$ref": "#/$defs/legacyPolicyRule" } }
+      }
+    },
     "decision": { "enum": ["allow", "warn", "require_approval", "block"] },
     "cache": { "enum": ["exact", "never"] },
     "safeLabel": {

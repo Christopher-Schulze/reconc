@@ -233,6 +233,34 @@ func TestCurrentPolicyLockSchemaRejectsDeadCheckPathFields(t *testing.T) {
 	}
 }
 
+func TestCurrentPolicyLockSchemaBoundsDenyExceptions(t *testing.T) {
+	t.Setenv("RECONC_SCHEMA_BASE_URL", "")
+	compiled := compileRegisteredSchemas(t)
+	current, ok := contractschema.CurrentContract(contractschema.PolicyLock)
+	if !ok {
+		t.Fatal("registry has no current policy-lock contract")
+	}
+	definition := compiled[current.DefaultURL]
+	valid := representativeArtifact(t, definition)
+	valid["rule_count"] = json.Number("1")
+	valid["rules"] = []any{map[string]any{
+		"id": "local-state", "kind": "deny_write", "message": "protect local state",
+		"paths": []any{".env.*"}, "exclude_paths": []any{".env.example"},
+	}}
+	if err := definition.Validate(valid); err != nil {
+		t.Fatalf("current policy-lock schema rejected deny_write exclude_paths: %v", err)
+	}
+	invalid := cloneJSONValue(t, valid).(map[string]any)
+	invalid["rules"] = []any{map[string]any{
+		"id": "read", "kind": "require_read", "message": "read first",
+		"paths": []any{"src/**"}, "before_paths": []any{"README.md"},
+		"exclude_paths": []any{"src/generated/**"},
+	}}
+	if err := definition.Validate(invalid); err == nil {
+		t.Fatal("current policy-lock schema accepted exclude_paths for require_read")
+	}
+}
+
 func TestCurrentSchemasAcceptExplicitZeroSubstantiveProofAge(t *testing.T) {
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "")
 	compiled := compileRegisteredSchemas(t)
