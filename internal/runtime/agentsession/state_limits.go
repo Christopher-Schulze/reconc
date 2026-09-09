@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -253,11 +254,14 @@ func PutPendingToolCall(state SessionState, key string, call PendingToolCall) Se
 
 func putPendingToolCallTransient(state SessionState, key string, call PendingToolCall) (SessionState, error) {
 	key = strings.TrimSpace(key)
+	if _, exists := state.PendingToolCalls[key]; !exists && antigravityStepRetired(state, key) {
+		return state, fmt.Errorf("pending tool correlation rejected: retired_step")
+	}
 	if _, retired := state.RetiredToolCallKeys[key]; retired {
 		return state, fmt.Errorf("pending tool correlation rejected: retired_key")
 	}
-	if _, exists := state.PendingToolCalls[key]; !exists && len(state.RetiredToolCallKeys) >= maxRetiredToolCallKeys {
-		return state, fmt.Errorf("pending tool correlation rejected: retired_key_capacity")
+	if _, exists := state.PendingToolCalls[key]; !exists && !isAntigravityStepKey(key) && len(state.RetiredToolCallKeys) >= maxRetiredToolCallKeys {
+		return state, fmt.Errorf("pending tool correlation rejected: retired_key_capacity; PostInvocation is required to start a new replay generation")
 	}
 	updated := PutPendingToolCall(state, key, call)
 	if state.EvidenceOverflow || !updated.EvidenceOverflow || updated.EvidenceOverflowReason != "pending_tool_calls" {
@@ -277,7 +281,14 @@ func takePendingToolCall(state SessionState, key string, now time.Time) (Session
 	}
 	call, found := state.PendingToolCalls[key]
 	if !found {
-		state, _ = retireToolCallKey(state, key, now.UnixNano())
+		if antigravityStepRetired(state, key) {
+			return state, PendingToolCall{}, false
+		}
+		if isAntigravityStepKey(key) {
+			state = putRetiredToolCallKey(state, key, now.UnixNano(), true)
+		} else {
+			state, _ = retireToolCallKey(state, key, now.UnixNano())
+		}
 		return state, PendingToolCall{}, false
 	}
 	var retired bool
@@ -307,7 +318,7 @@ func reapPendingToolCalls(state SessionState, now time.Time) SessionState {
 		if !pendingToolCallExpired(call, now) {
 			continue
 		}
-		if _, exists := state.RetiredToolCallKeys[key]; exists || len(state.RetiredToolCallKeys) < maxRetiredToolCallKeys {
+		if isAntigravityStepKey(key) || len(state.RetiredToolCallKeys) < maxRetiredToolCallKeys {
 			reapable = true
 			break
 		}
@@ -325,6 +336,11 @@ func reapPendingToolCalls(state SessionState, now time.Time) SessionState {
 	}
 	for key, call := range pending {
 		if !pendingToolCallExpired(call, now) {
+			continue
+		}
+		if isAntigravityStepKey(key) {
+			state, _ = retireToolCallKey(state, key, now.UnixNano())
+			delete(pending, key)
 			continue
 		}
 		if _, exists := retired[key]; !exists && len(retired) >= maxRetiredToolCallKeys {
@@ -345,12 +361,17 @@ func reapPendingToolCalls(state SessionState, now time.Time) SessionState {
 }
 
 func clearPendingToolCalls(state SessionState) SessionState {
+	state = promoteLegacyAntigravitySteps(state)
 	state.PendingToolCalls = nil
 	state.RetiredToolCallKeys = nil
 	return state
 }
 
 func retireToolCallKey(state SessionState, key string, retiredAt int64) (SessionState, bool) {
+	if isAntigravityStepKey(key) {
+		state = advanceAntigravityStepHighWater(state, key)
+		return state, true
+	}
 	if _, exists := state.RetiredToolCallKeys[key]; exists {
 		return state, true
 	}
@@ -358,6 +379,41 @@ func retireToolCallKey(state SessionState, key string, retiredAt int64) (Session
 		return state, false
 	}
 	return putRetiredToolCallKey(state, key, retiredAt, true), true
+}
+
+func isAntigravityStepKey(key string) bool {
+	_, ok := antigravityStepSequence(key)
+	return ok
+}
+
+func antigravityStepSequence(key string) (uint64, bool) {
+	value, ok := strings.CutPrefix(strings.TrimSpace(key), "step:")
+	if !ok || value == "" {
+		return 0, false
+	}
+	sequence, err := strconv.ParseUint(value, 10, 64)
+	return sequence, err == nil
+}
+
+func antigravityStepRetired(state SessionState, key string) bool {
+	sequence, ok := antigravityStepSequence(key)
+	return ok && state.AntigravityStepHighWater != nil && sequence <= *state.AntigravityStepHighWater
+}
+
+func advanceAntigravityStepHighWater(state SessionState, key string) SessionState {
+	sequence, ok := antigravityStepSequence(key)
+	if !ok || state.AntigravityStepHighWater != nil && sequence <= *state.AntigravityStepHighWater {
+		return state
+	}
+	state.AntigravityStepHighWater = new(sequence)
+	return state
+}
+
+func promoteLegacyAntigravitySteps(state SessionState) SessionState {
+	for key := range state.RetiredToolCallKeys {
+		state = advanceAntigravityStepHighWater(state, key)
+	}
+	return state
 }
 
 func putRetiredToolCallKey(state SessionState, key string, retiredAt int64, clone bool) SessionState {

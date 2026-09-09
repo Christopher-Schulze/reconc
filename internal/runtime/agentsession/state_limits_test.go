@@ -185,6 +185,63 @@ func TestPendingToolCallRetiredCapacityFailsClosedWithoutTaint(t *testing.T) {
 	}
 }
 
+func TestAntigravityStepHighWaterExceedsRetiredKeyCapacity(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	state := emptyState("/repo", "antigravity-high-water")
+	for index := 0; index < maxRetiredToolCallKeys+64; index++ {
+		key := fmt.Sprintf("step:%d", index)
+		var err error
+		state, err = putPendingToolCallTransient(state, key, PendingToolCall{
+			ToolName: "Read", ToolUseID: key, CreatedAtUnixNano: now.UnixNano(),
+		})
+		if err != nil {
+			t.Fatalf("step %d pre rejected: %v", index, err)
+		}
+		var found bool
+		state, _, found = takePendingToolCall(state, key, now)
+		if !found {
+			t.Fatalf("step %d post was not associated", index)
+		}
+	}
+	if state.AntigravityStepHighWater == nil || *state.AntigravityStepHighWater != maxRetiredToolCallKeys+63 {
+		t.Fatalf("step high-water=%v", state.AntigravityStepHighWater)
+	}
+	if len(state.RetiredToolCallKeys) != 0 {
+		t.Fatalf("step sequence consumed fallback tombstones: %v", state.RetiredToolCallKeys)
+	}
+	if _, err := putPendingToolCallTransient(state, "step:1", PendingToolCall{ToolName: "Read", ToolUseID: "step:1", CreatedAtUnixNano: now.UnixNano()}); err == nil {
+		t.Fatal("replayed step was accepted below high-water")
+	}
+}
+
+func TestAntigravityLegacyRetiredStepsPromoteAtInvocationBoundary(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	state := emptyState("/repo", "antigravity-legacy")
+	state.RetiredToolCallKeys = map[string]int64{"step:7": now.UnixNano(), "step:9": now.UnixNano()}
+	if _, err := putPendingToolCallTransient(state, "step:8", PendingToolCall{ToolName: "Read", ToolUseID: "step:8", CreatedAtUnixNano: now.UnixNano()}); err != nil {
+		t.Fatalf("legacy exact tombstones blocked a valid gap before rollover: %v", err)
+	}
+	state = clearPendingToolCalls(state)
+	if state.AntigravityStepHighWater == nil || *state.AntigravityStepHighWater != 9 || len(state.RetiredToolCallKeys) != 0 {
+		t.Fatalf("legacy rollover did not promote sequence state: %+v", state)
+	}
+	if _, err := putPendingToolCallTransient(state, "step:8", PendingToolCall{ToolName: "Read", ToolUseID: "step:8", CreatedAtUnixNano: now.UnixNano()}); err == nil {
+		t.Fatal("step below promoted high-water was accepted")
+	}
+}
+
+func TestAntigravityUnknownStepDoesNotAdvanceHighWater(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	state := emptyState("/repo", "antigravity-unknown")
+	state, _, found := takePendingToolCall(state, "step:18446744073709551615", now)
+	if found || state.AntigravityStepHighWater != nil {
+		t.Fatalf("unknown step advanced replay high-water: found=%v state=%+v", found, state)
+	}
+	if _, retired := state.RetiredToolCallKeys["step:18446744073709551615"]; !retired {
+		t.Fatalf("unknown step was not retained as a replay tombstone: %+v", state.RetiredToolCallKeys)
+	}
+}
+
 func TestNormalizeSessionStateIsSafeForConcurrentCallers(t *testing.T) {
 	state := maximumNormalizationState()
 	const callers = 16

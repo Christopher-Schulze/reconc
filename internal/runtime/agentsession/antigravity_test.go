@@ -2,6 +2,7 @@ package agentsession
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -137,7 +138,7 @@ func TestAntigravityPendingLifecycleRejectsChangedAndLatePosts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, retired := changedState.RetiredToolCallKeys["step:99"]; !retired {
-		t.Fatalf("unmatched post identity was not retired: %+v", changedState.RetiredToolCallKeys)
+		t.Fatalf("unmatched step identity was not retained as a bounded tombstone: %+v", changedState.RetiredToolCallKeys)
 	}
 	if _, err := MutateSessionState(repo, "ag-pending-lifecycle", func(state SessionState) SessionState {
 		pending := make(map[string]PendingToolCall, len(state.PendingToolCalls))
@@ -172,6 +173,82 @@ func TestAntigravityPendingLifecycleRejectsChangedAndLatePosts(t *testing.T) {
 		t.Fatalf("post invocation = %+v", ended)
 	}
 	assertPendingToolCallKeys(t, repo, "ag-pending-lifecycle")
+}
+
+func TestAntigravityLongInvocationUsesMonotonicStepHighWater(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	const calls = 260
+	for step := 0; step < calls; step++ {
+		pre := RunAntigravityPreToolUse(repo, []byte(fmt.Sprintf(`{
+			"conversationId":"ag-long-invocation",
+			"stepIdx":%d,
+			"toolCall":{"name":"view_file","args":{"AbsolutePath":"docs/tasks.md"}}
+		}`, step)))
+		if pre.ExitCode != 0 || !strings.Contains(pre.Stdout, `"decision":"allow"`) {
+			t.Fatalf("pre step %d = %+v", step, pre)
+		}
+		post := RunAntigravityPostToolUse(repo, []byte(fmt.Sprintf(`{"conversationId":"ag-long-invocation","stepIdx":%d}`, step)))
+		if post.ExitCode != 0 {
+			t.Fatalf("post step %d = %+v", step, post)
+		}
+		if step == calls/2 {
+			if _, err := LoadSessionState(repo, "ag-long-invocation"); err != nil {
+				t.Fatalf("persisted state reload at step %d: %v", step, err)
+			}
+		}
+	}
+	state, err := LoadSessionState(repo, "ag-long-invocation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.AntigravityStepHighWater == nil || *state.AntigravityStepHighWater != calls-1 {
+		t.Fatalf("step high-water=%v, want %d", state.AntigravityStepHighWater, calls-1)
+	}
+	if len(state.RetiredToolCallKeys) != 0 {
+		t.Fatalf("monotonic steps consumed tombstone capacity: %v", state.RetiredToolCallKeys)
+	}
+	replay := RunAntigravityPostToolUse(repo, []byte(`{"conversationId":"ag-long-invocation","stepIdx":0}`))
+	if replay.ExitCode != 0 {
+		t.Fatalf("old replay post = %+v", replay)
+	}
+	next := RunAntigravityPreToolUse(repo, []byte(fmt.Sprintf(`{
+		"conversationId":"ag-long-invocation",
+		"stepIdx":%d,
+		"toolCall":{"name":"view_file","args":{"AbsolutePath":"docs/tasks.md"}}
+	}`, calls)))
+	if next.ExitCode != 0 || !strings.Contains(next.Stdout, `"decision":"allow"`) {
+		t.Fatalf("step after high-water = %+v", next)
+	}
+}
+
+func TestAntigravityOutOfOrderStepPostsKeepPendingOwnership(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	for _, step := range []int{400, 401} {
+		pre := RunAntigravityPreToolUse(repo, []byte(fmt.Sprintf(`{
+			"conversationId":"ag-out-of-order",
+			"stepIdx":%d,
+			"toolCall":{"name":"view_file","args":{"AbsolutePath":"docs/tasks.md"}}
+		}`, step)))
+		if pre.ExitCode != 0 {
+			t.Fatalf("pre step %d = %+v", step, pre)
+		}
+	}
+	for _, step := range []int{401, 400} {
+		post := RunAntigravityPostToolUse(repo, []byte(fmt.Sprintf(`{"conversationId":"ag-out-of-order","stepIdx":%d}`, step)))
+		if post.ExitCode != 0 {
+			t.Fatalf("out-of-order post step %d = %+v", step, post)
+		}
+	}
+	state, err := LoadSessionState(repo, "ag-out-of-order")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.PendingToolCalls) != 0 || state.AntigravityStepHighWater == nil || *state.AntigravityStepHighWater != 401 {
+		t.Fatalf("out-of-order posts lost ownership or high-water: %+v", state)
+	}
+	if replay := RunAntigravityPostToolUse(repo, []byte(`{"conversationId":"ag-out-of-order","stepIdx":400}`)); replay.ExitCode != 0 {
+		t.Fatalf("replayed out-of-order post = %+v", replay)
+	}
 }
 
 func TestAntigravityStopAdaptsBlockToContinue(t *testing.T) {

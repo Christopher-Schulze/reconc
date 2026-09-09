@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 481 Bound Antigravity replay state without wedging long invocations -> tasks/481-bound-antigravity-replay-state-without-wedging-long-invocations.md
 - [ ] 482 Propagate cancellation through runtime plan loading -> tasks/482-propagate-cancellation-through-runtime-plan-loading.md
 - [ ] 483 Scope assurance gates to detected module roots -> tasks/483-scope-assurance-gates-to-detected-module-roots.md
 - [ ] 484 Detect package manager conflicts before truncating evidence -> tasks/484-detect-package-manager-conflicts-before-truncating-evidence.md
@@ -28,6 +27,7 @@
 
 ## Done
 
+- [x] 481 Bound Antigravity replay state without wedging long invocations -> tasks/done/481-bound-antigravity-replay-state-without-wedging-long-invocations.md
 - [x] 472 Require bound approval before authority file changes -> tasks/done/472-require-bound-approval-before-authority-file-changes.md
 - [x] 480 Expire abandoned MCP approval state -> tasks/done/480-expire-abandoned-mcp-approval-state.md
 - [x] 479 Preserve machine identifiers and structure agent actions -> tasks/done/479-preserve-machine-identifiers-and-structure-agent-actions.md

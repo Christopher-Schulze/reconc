@@ -1,10 +1,14 @@
 package agentsession
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -225,8 +229,17 @@ func NormalizeAntigravityPayload(event string, payloadBytes []byte) ([]byte, err
 		return nil, err
 	}
 	var raw map[string]interface{}
-	if err := json.Unmarshal(payloadBytes, &raw); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(payloadBytes))
+	decoder.UseNumber()
+	if err := decoder.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("antigravity payload is not valid JSON: %w", err)
+	}
+	var trailing interface{}
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, fmt.Errorf("antigravity payload contains multiple JSON values")
+		}
+		return nil, fmt.Errorf("antigravity payload has trailing data: %w", err)
 	}
 	if raw == nil {
 		return nil, fmt.Errorf("antigravity payload must be a JSON object")
@@ -359,12 +372,25 @@ func antigravitySessionID(raw map[string]interface{}) string {
 
 func antigravityStepKey(raw map[string]interface{}) string {
 	if value, ok := raw["stepIdx"]; ok {
-		return "step:" + fmt.Sprint(value)
+		if sequence, valid := antigravityStepValue(value); valid {
+			return "step:" + strconv.FormatUint(sequence, 10)
+		}
 	}
 	if value, ok := raw["step_idx"]; ok {
-		return "step:" + fmt.Sprint(value)
+		if sequence, valid := antigravityStepValue(value); valid {
+			return "step:" + strconv.FormatUint(sequence, 10)
+		}
 	}
 	return ""
+}
+
+func antigravityStepValue(value interface{}) (uint64, bool) {
+	number, ok := value.(json.Number)
+	if !ok {
+		return 0, false
+	}
+	sequence, err := strconv.ParseUint(string(number), 10, 64)
+	return sequence, err == nil
 }
 
 func antigravityStopReason(stdout string) string {

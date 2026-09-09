@@ -4287,16 +4287,22 @@ suppresses compatible Claude-hook duplicates.
 Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
 `PostToolUse`, `PostInvocation`, and `Stop`; Reconc stores Antigravity PreTool
 metadata as pending evidence so PostToolUse can record exact evidence when the
-post payload only carries a step index/result. Pending correlations use
-copy-on-write persistence, reject conflicting reuse of one stable host key,
-expire after 24 hours, and are cleared at PostInvocation. Expired or unmatched
-late post events are ignored and cannot consume or overwrite a live
-correlation. Bounded per-invocation tombstones prevent a consumed or expired
-host key from being reassigned before PostInvocation. Live capacity pressure
-denies only the affected PreToolUse event; it does not create durable
-repository evidence taint. Hook-config reinstall classifies every direct or
-nested command independently, removes only parsed Reconc executions, and keeps
-foreign siblings and Antigravity namespace entries in their original order.
+post payload only carries a step index/result. The host's `conversationId` is
+the session identity and its documented 0-based `stepIdx` is a monotonic
+trajectory sequence, so consumed step calls use a persisted high-water mark
+instead of one tombstone per call. The mark survives PostInvocation rollover,
+restart, and long invocations; pending calls still expire after 24 hours and
+out-of-order posts resolve the exact pending key before replay checks. Legacy
+states keep exact step tombstones until the next verified invocation boundary,
+then promote them to the high-water mark. Payloads without a valid step index
+use the bounded legacy tombstone map and report a recoverable capacity block
+before exhaustion rather than claiming unbounded replay protection. Conflicting
+reuse, stale posts, and old replays are ignored and cannot consume or overwrite
+a live correlation. Live capacity pressure denies only the affected PreToolUse
+event; it does not create durable repository evidence taint. Hook-config reinstall
+classifies every direct or nested command independently, removes only parsed
+Reconc executions, and keeps foreign siblings and Antigravity namespace entries
+in their original order.
 Shell and exec-form ownership use the same executable-and-argv parser;
 NUL-bearing ambiguous signatures remain foreign. Non-array event values and
 non-object hook containers are never silently replaced: the target stays

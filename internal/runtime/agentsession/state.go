@@ -101,22 +101,26 @@ type SessionState struct {
 	LastStopBlockViolationHash string                     `json:"last_stop_block_violation_hash,omitempty"`
 	PendingToolCalls           map[string]PendingToolCall `json:"pending_tool_calls,omitempty"`
 	RetiredToolCallKeys        map[string]int64           `json:"retired_tool_call_keys,omitempty"`
-	ConsumedApprovalIdentities []string                   `json:"consumed_approval_identities,omitempty"`
-	MaterialEvents             uint64                     `json:"material_events,omitempty"`
-	LastMaterialSignature      string                     `json:"last_material_signature,omitempty"`
-	GrokSteerAttempts          uint64                     `json:"grok_steer_attempts,omitempty"`
-	GrokSteerContinuationKey   string                     `json:"grok_steer_continuation_key,omitempty"`
-	GrokSteerMaterialEvents    uint64                     `json:"grok_steer_material_events,omitempty"`
-	RepositoryRunEnabledAt     int64                      `json:"repository_run_enabled_at,omitempty"`
-	RepositoryRunProgressHash  string                     `json:"repository_run_progress_hash,omitempty"`
-	RepositoryRunNudges        int                        `json:"repository_run_nudges,omitempty"`
-	RepositoryRunAwaiting      bool                       `json:"repository_run_awaiting,omitempty"`
-	EvidenceSegmentCount       uint64                     `json:"evidence_segment_count,omitempty"`
-	EvidenceSegmentDigest      string                     `json:"evidence_segment_digest,omitempty"`
-	EvidenceOverflow           bool                       `json:"evidence_overflow,omitempty"`
-	EvidenceOverflowReason     string                     `json:"evidence_overflow_reason,omitempty"`
-	EvidenceOverflowLimit      string                     `json:"evidence_overflow_limit,omitempty"`
-	UncertifiedTermination     bool                       `json:"uncertified_termination,omitempty"`
+	// AntigravityStepHighWater is the highest verified monotonic stepIdx
+	// retired for this conversation. A pointer preserves step zero while
+	// keeping legacy states without a sequence marker distinguishable.
+	AntigravityStepHighWater   *uint64  `json:"antigravity_step_high_water,omitempty"`
+	ConsumedApprovalIdentities []string `json:"consumed_approval_identities,omitempty"`
+	MaterialEvents             uint64   `json:"material_events,omitempty"`
+	LastMaterialSignature      string   `json:"last_material_signature,omitempty"`
+	GrokSteerAttempts          uint64   `json:"grok_steer_attempts,omitempty"`
+	GrokSteerContinuationKey   string   `json:"grok_steer_continuation_key,omitempty"`
+	GrokSteerMaterialEvents    uint64   `json:"grok_steer_material_events,omitempty"`
+	RepositoryRunEnabledAt     int64    `json:"repository_run_enabled_at,omitempty"`
+	RepositoryRunProgressHash  string   `json:"repository_run_progress_hash,omitempty"`
+	RepositoryRunNudges        int      `json:"repository_run_nudges,omitempty"`
+	RepositoryRunAwaiting      bool     `json:"repository_run_awaiting,omitempty"`
+	EvidenceSegmentCount       uint64   `json:"evidence_segment_count,omitempty"`
+	EvidenceSegmentDigest      string   `json:"evidence_segment_digest,omitempty"`
+	EvidenceOverflow           bool     `json:"evidence_overflow,omitempty"`
+	EvidenceOverflowReason     string   `json:"evidence_overflow_reason,omitempty"`
+	EvidenceOverflowLimit      string   `json:"evidence_overflow_limit,omitempty"`
+	UncertifiedTermination     bool     `json:"uncertified_termination,omitempty"`
 }
 
 type sessionStateSizeError struct {
