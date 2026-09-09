@@ -80,14 +80,20 @@ type Gateway struct {
 	// whose ledger transition still needs a retry. They continue to count
 	// against the gateway's bounded pending capacity until cleanup succeeds.
 	pendingCleanup map[string]*pendingApprovalCleanup
+	// pendingShutdownCleanup owns approvals detached during shutdown whose
+	// durable finalization or ledger terminalization still needs a retry.
+	// They remain bound to the gateway's identity-key lease until complete.
+	pendingShutdownCleanup map[string]*pendingApprovalCleanup
 
-	semaphore         chan struct{}
-	refreshRequests   chan struct{}
-	refreshWorkerDone chan struct{}
-	expiryWorkerDone  chan struct{}
-	fatalErrors       chan error
-	closeOnce         sync.Once
-	closeErr          error
+	semaphore          chan struct{}
+	refreshRequests    chan struct{}
+	refreshWorkerDone  chan struct{}
+	expiryWorkerDone   chan struct{}
+	fatalErrors        chan error
+	closeOnce          sync.Once
+	closeRetryMu       sync.Mutex
+	closeErr           error
+	pendingShutdownErr error
 }
 
 type publishedToolGeneration struct {
@@ -130,6 +136,8 @@ type pendingApproval struct {
 type pendingApprovalCleanup struct {
 	pending                  pendingApproval
 	result                   actionstate.ApprovalConsumeResult
+	reason                   action.ReasonCode
+	finalized                bool
 	approvalRecorded         bool
 	reservationSettled       bool
 	reservationIndeterminate bool
@@ -143,6 +151,20 @@ func (p *pendingApprovalCleanup) release() {
 	}
 	p.pending.release()
 	*p = pendingApprovalCleanup{}
+}
+
+func (p *pendingApproval) releaseWireBuffers() {
+	if p == nil {
+		return
+	}
+	clear(p.originalRPCID)
+	clear(p.originalParams)
+	clear(p.canonicalArguments)
+	clear(p.rawResult)
+	p.originalRPCID = nil
+	p.originalParams = nil
+	p.canonicalArguments = nil
+	p.rawResult = nil
 }
 
 func (p *pendingApproval) release() {
@@ -205,8 +227,9 @@ func startGateway(parent context.Context, config Config) (*Gateway, error) {
 		config: config, ctx: gatewayCtx, cancel: cancel, lease: lease,
 		snapshot: snapshot, inspections: inspections,
 		pending: make(map[string]pendingApproval), pendingCleanup: make(map[string]*pendingApprovalCleanup),
-		semaphore:       make(chan struct{}, MaxConcurrentCalls),
-		refreshRequests: make(chan struct{}, 1), fatalErrors: make(chan error, 1),
+		pendingShutdownCleanup: make(map[string]*pendingApprovalCleanup),
+		semaphore:              make(chan struct{}, MaxConcurrentCalls),
+		refreshRequests:        make(chan struct{}, 1), fatalErrors: make(chan error, 1),
 	}
 	fail := func(cause error) (*Gateway, error) {
 		return nil, errors.Join(cause, gateway.Close())
@@ -584,7 +607,7 @@ func (g *Gateway) pendingSweepNeeded() bool {
 	}
 	g.pendingMu.Lock()
 	defer g.pendingMu.Unlock()
-	return len(g.pending) > 0 || len(g.pendingCleanup) > 0
+	return len(g.pending) > 0 || len(g.pendingCleanup) > 0 || len(g.pendingShutdownCleanup) > 0
 }
 
 // reconcileExpiredApprovals first reconciles the durable approval contract and
@@ -631,7 +654,7 @@ func (g *Gateway) claimExpiredPending(expired []actionstate.ApprovalConsumeResul
 		}
 		delete(g.pending, requestState)
 		g.pendingCleanup[requestState] = &pendingApprovalCleanup{
-			pending: pending, result: result,
+			pending: pending, result: result, reason: action.ReasonApprovalExpired, finalized: true,
 		}
 	}
 }
@@ -682,13 +705,23 @@ func (g *Gateway) finishExpiredApproval(
 	ctx context.Context,
 	cleanup *pendingApprovalCleanup,
 ) error {
+	if cleanup != nil && cleanup.reason == "" {
+		cleanup.reason = action.ReasonApprovalExpired
+	}
+	return g.finishTerminalizedApproval(ctx, cleanup)
+}
+
+func (g *Gateway) finishTerminalizedApproval(
+	ctx context.Context,
+	cleanup *pendingApprovalCleanup,
+) error {
 	if cleanup == nil {
-		return fmt.Errorf("expired approval cleanup is unavailable")
+		return fmt.Errorf("terminalized approval cleanup is unavailable")
 	}
 	call := callFromPending(cleanup.pending)
 	call.stateVersion = cleanup.result.StateVersion
 	if call.ledger == nil {
-		return fmt.Errorf("expired approval ledger is unavailable")
+		return fmt.Errorf("terminalized approval ledger is unavailable")
 	}
 	if !cleanup.approvalRecorded {
 		if err := call.ledger.approval(ctx, call.decision, cleanup.result.Evidence); err != nil {
@@ -697,13 +730,13 @@ func (g *Gateway) finishExpiredApproval(
 		cleanup.approvalRecorded = true
 	}
 	if cleanup.pending.phase == action.PhasePostResult {
-		return g.finishExpiredPostApproval(ctx, call, cleanup)
+		return g.finishTerminalizedPostApproval(ctx, call, cleanup)
 	}
 	if cleanup.pending.reservation == nil || cleanup.budgetRecorded {
 		return nil
 	}
 	if err := call.ledger.budget(
-		ctx, blockDecision(call.decision, action.ReasonApprovalExpired),
+		ctx, blockDecision(call.decision, cleanup.reason),
 		actionledger.BudgetDenied, call.budget, cleanup.result.StateVersion, 0,
 		cleanup.pending.approvalReserved, false,
 	); err != nil {
@@ -713,12 +746,12 @@ func (g *Gateway) finishExpiredApproval(
 	return nil
 }
 
-func (g *Gateway) finishExpiredPostApproval(
+func (g *Gateway) finishTerminalizedPostApproval(
 	ctx context.Context,
 	call *gatewayCall,
 	cleanup *pendingApprovalCleanup,
 ) error {
-	decision := postApprovalBlockedDecision(call.decision, action.ReasonApprovalExpired)
+	decision := postApprovalBlockedDecision(call.decision, cleanup.reason)
 	if call.reservation != nil && !cleanup.reservationSettled {
 		outcome := actionstate.OutcomeSucceeded
 		if call.resultIsError {
@@ -781,7 +814,7 @@ func (g *Gateway) finishExpiredPostApproval(
 		return nil
 	}
 	response := safeGatewayResult(
-		"withheld", action.ReasonApprovalExpired,
+		"withheld", cleanup.reason,
 		"Reconc withheld the downstream tool result.", call.callID,
 		"succeeded", "withheld",
 	)
@@ -796,6 +829,34 @@ func (g *Gateway) finishExpiredPostApproval(
 	}
 	cleanup.deliveryRecorded = true
 	return nil
+}
+
+func (g *Gateway) finishShutdownApproval(
+	ctx context.Context,
+	cleanup *pendingApprovalCleanup,
+) error {
+	if cleanup == nil {
+		return fmt.Errorf("shutdown approval cleanup is unavailable")
+	}
+	if cleanup.reason == "" {
+		cleanup.reason = action.ReasonShutdown
+	}
+	if !cleanup.finalized {
+		if g.state == nil {
+			return fmt.Errorf("shutdown approval state is unavailable")
+		}
+		result, err := g.state.FinalizeApproval(ctx, actionstate.ApprovalFinalizeRequest{
+			RequestState:         cleanup.pending.requestState,
+			ExpectedStateVersion: cleanup.pending.issuanceVersion,
+			Status:               actionapproval.StatusCancelled,
+		})
+		if err != nil {
+			return err
+		}
+		cleanup.result = result
+		cleanup.finalized = true
+	}
+	return g.finishTerminalizedApproval(ctx, cleanup)
 }
 
 func (g *Gateway) tool(name string) (ToolContract, uint64, bool) {
@@ -887,7 +948,9 @@ func (g *Gateway) Close() error {
 	if g == nil {
 		return nil
 	}
+	initialClose := false
 	g.closeOnce.Do(func() {
+		initialClose = true
 		// Mark the child before cancellation or transport closure can make it exit.
 		if g.process != nil {
 			g.process.expectShutdown()
@@ -916,7 +979,12 @@ func (g *Gateway) Close() error {
 		if g.process != nil {
 			g.closeErr = errors.Join(g.closeErr, g.process.Close())
 		}
-		g.closeErr = errors.Join(g.closeErr, g.finalizePendingAndDrainCalls(shutdownCtx))
+		pendingErr := g.shutdownPending(shutdownCtx)
+		drainErr := g.waitForCalls(shutdownCtx)
+		g.closeRetryMu.Lock()
+		g.pendingShutdownErr = pendingErr
+		g.closeErr = errors.Join(g.closeErr, drainErr)
+		g.closeRetryMu.Unlock()
 		if g.refreshWorkerDone != nil {
 			select {
 			case <-g.refreshWorkerDone:
@@ -925,11 +993,34 @@ func (g *Gateway) Close() error {
 			}
 		}
 		g.closeErr = errors.Join(g.closeErr, g.fatalError())
-		if g.lease != nil {
+		g.closeRetryMu.Lock()
+		if !g.pendingCleanupNeededLocked() && g.lease != nil {
 			g.closeErr = errors.Join(g.closeErr, g.lease.Close())
 		}
+		g.closeRetryMu.Unlock()
 	})
-	return g.closeErr
+	if !initialClose {
+		retryCtx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
+		retryErr := g.shutdownPending(retryCtx)
+		cancel()
+		g.closeRetryMu.Lock()
+		g.pendingShutdownErr = retryErr
+		if !g.pendingCleanupNeededLocked() && g.lease != nil {
+			g.closeErr = errors.Join(g.closeErr, g.lease.Close())
+		}
+		result := errors.Join(g.closeErr, g.pendingShutdownErr)
+		g.closeRetryMu.Unlock()
+		return result
+	}
+	g.closeRetryMu.Lock()
+	defer g.closeRetryMu.Unlock()
+	return errors.Join(g.closeErr, g.pendingShutdownErr)
+}
+
+func (g *Gateway) pendingCleanupNeededLocked() bool {
+	g.pendingMu.Lock()
+	defer g.pendingMu.Unlock()
+	return len(g.pending) > 0 || len(g.pendingCleanup) > 0 || len(g.pendingShutdownCleanup) > 0
 }
 
 func (g *Gateway) beginCall() bool {
@@ -974,11 +1065,32 @@ func (g *Gateway) shutdownPending(ctx context.Context) error {
 	g.transitionMu.Lock()
 	defer g.transitionMu.Unlock()
 	g.pendingMu.Lock()
-	pending := make([]pendingApproval, 0, len(g.pending))
-	for _, approval := range g.pending {
-		pending = append(pending, approval)
+	if g.pending == nil {
+		g.pending = make(map[string]pendingApproval)
+	}
+	if g.pendingCleanup == nil {
+		g.pendingCleanup = make(map[string]*pendingApprovalCleanup)
+	}
+	if g.pendingShutdownCleanup == nil {
+		g.pendingShutdownCleanup = make(map[string]*pendingApprovalCleanup)
+	}
+	for state, approval := range g.pending {
+		approval.releaseWireBuffers()
+		g.pendingShutdownCleanup[state] = &pendingApprovalCleanup{
+			pending: approval, reason: action.ReasonShutdown,
+		}
 	}
 	g.pending = make(map[string]pendingApproval)
+	shutdownCleanup := make([]struct {
+		state string
+		item  *pendingApprovalCleanup
+	}, 0, len(g.pendingShutdownCleanup))
+	for state, item := range g.pendingShutdownCleanup {
+		shutdownCleanup = append(shutdownCleanup, struct {
+			state string
+			item  *pendingApprovalCleanup
+		}{state: state, item: item})
+	}
 	cleanup := make([]struct {
 		state string
 		item  *pendingApprovalCleanup
@@ -990,38 +1102,28 @@ func (g *Gateway) shutdownPending(ctx context.Context) error {
 		}{state: state, item: item})
 	}
 	g.pendingMu.Unlock()
-	sort.Slice(pending, func(i, j int) bool {
-		if pending[i].callID != pending[j].callID {
-			return pending[i].callID < pending[j].callID
+	sort.Slice(shutdownCleanup, func(i, j int) bool {
+		left, right := shutdownCleanup[i].item.pending, shutdownCleanup[j].item.pending
+		if left.callID != right.callID {
+			return left.callID < right.callID
 		}
-		if pending[i].phase != pending[j].phase {
-			return pending[i].phase < pending[j].phase
+		if left.phase != right.phase {
+			return left.phase < right.phase
 		}
-		return pending[i].requestState < pending[j].requestState
+		return shutdownCleanup[i].state < shutdownCleanup[j].state
 	})
 	var resultErr error
-	for _, approval := range pending {
-		result, err := g.state.FinalizeApproval(ctx, actionstate.ApprovalFinalizeRequest{
-			RequestState: approval.requestState, ExpectedStateVersion: approval.issuanceVersion,
-			Status: actionapproval.StatusCancelled,
-		})
-		if err != nil {
-			resultErr = errors.Join(resultErr, pendingShutdownError(approval, err))
-			approval.release()
+	for _, entry := range shutdownCleanup {
+		if err := g.finishShutdownApproval(ctx, entry.item); err != nil {
+			resultErr = errors.Join(resultErr, pendingShutdownError(entry.item.pending, err))
 			continue
 		}
-		call := callFromPending(approval)
-		if approval.phase == action.PhasePostResult {
-			if _, err := g.finalizePostApproval(ctx, call, result, action.ReasonShutdown); err != nil {
-				resultErr = errors.Join(resultErr, pendingShutdownError(approval, err))
-			}
-			approval.release()
-			continue
+		g.pendingMu.Lock()
+		if current, exists := g.pendingShutdownCleanup[entry.state]; exists && current == entry.item {
+			delete(g.pendingShutdownCleanup, entry.state)
 		}
-		if err := g.recordTerminalizedApproval(ctx, call, result, action.ReasonShutdown, false); err != nil {
-			resultErr = errors.Join(resultErr, pendingShutdownError(approval, err))
-		}
-		approval.release()
+		g.pendingMu.Unlock()
+		entry.item.release()
 	}
 	sort.Slice(cleanup, func(i, j int) bool {
 		left, right := cleanup[i].item.pending, cleanup[j].item.pending

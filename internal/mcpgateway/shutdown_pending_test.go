@@ -100,6 +100,57 @@ func TestFinalizePendingAndDrainCallsReportsBothFailures(t *testing.T) {
 	}
 }
 
+func TestCloseRetriesRetainedShutdownFinalization(t *testing.T) {
+	markerDirectory := t.TempDir()
+	t.Setenv(fakeProcessEnvironment, "1")
+	t.Setenv(fakeMarkerEnvironment, filepath.Join(markerDirectory, "invoked"))
+	t.Setenv(fakeModeEnvironment, "normal")
+	t.Setenv(fakeCancellationMarkerEnvironment, filepath.Join(markerDirectory, "cancelled"))
+	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x64}, ed25519.SeedSize))
+	registry := writeGatewayApprovalRegistry(t, privateKey.Public().(ed25519.PublicKey))
+	plan, evaluator := testGatewayApprovalPlan(t, action.PhasePreCall)
+	harness := newRawGatewayHarnessWithOptions(t, plan, evaluator, rawGatewayOptions{
+		approvalAuthorities: registry,
+		approvalPolicyID:    "post-result-policy",
+	})
+	prepareDetachedPendingApprovals(t, harness.gateway, action.PhasePreCall, 1)
+
+	harness.gateway.pendingMu.Lock()
+	var requestState, originalVersion string
+	for state, pending := range harness.gateway.pending {
+		requestState = state
+		originalVersion = pending.issuanceVersion
+		pending.issuanceVersion = "invalid-close-state-version"
+		harness.gateway.pending[state] = pending
+	}
+	harness.gateway.pendingMu.Unlock()
+
+	if err := harness.gateway.Close(); err == nil {
+		t.Fatal("first close unexpectedly hid pending finalization failure")
+	}
+	harness.gateway.pendingMu.Lock()
+	cleanup := harness.gateway.pendingShutdownCleanup[requestState]
+	if cleanup == nil {
+		harness.gateway.pendingMu.Unlock()
+		t.Fatal("failed shutdown finalization was not retained")
+	}
+	cleanup.pending.issuanceVersion = originalVersion
+	harness.gateway.pendingMu.Unlock()
+
+	if err := harness.gateway.Close(); err != nil {
+		t.Fatalf("second close did not retry retained finalization: %v", err)
+	}
+	harness.gateway.pendingMu.Lock()
+	remaining := len(harness.gateway.pendingShutdownCleanup)
+	harness.gateway.pendingMu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("retained shutdown cleanup after successful retry = %d", remaining)
+	}
+	if err := harness.gateway.lease.Close(); err != nil {
+		t.Fatalf("identity-key lease was not closed after cleanup: %v", err)
+	}
+}
+
 func TestPendingApprovalsFinalizeBeforeIndependentCallDrainTimeout(t *testing.T) {
 	for _, phase := range []action.Phase{action.PhasePreCall, action.PhasePostResult} {
 		t.Run(string(phase), func(t *testing.T) {
@@ -254,7 +305,11 @@ func testShutdownPendingContinuesAfterOrderedFailures(
 		t.Fatalf("pending approval count = %d, want %d", len(ordered), pendingCount)
 	}
 	failures := make(map[int]struct{}, len(failureIndexes))
+	issuanceVersions := make(map[string]string, pendingCount)
 	ownedBuffers := make([][]byte, 0, pendingCount*4)
+	for _, pending := range ordered {
+		issuanceVersions[pending.requestState] = pending.issuanceVersion
+	}
 	for _, index := range failureIndexes {
 		failures[index] = struct{}{}
 		pending := harness.gateway.pending[ordered[index].requestState]
@@ -304,6 +359,18 @@ func testShutdownPendingContinuesAfterOrderedFailures(
 	if len(harness.gateway.pending) != 0 {
 		t.Fatalf("shutdown retained detached pending approvals: %#v", harness.gateway.pending)
 	}
+	harness.gateway.pendingMu.Lock()
+	if len(harness.gateway.pendingShutdownCleanup) != len(failures) {
+		harness.gateway.pendingMu.Unlock()
+		t.Fatalf("retained shutdown cleanup count = %d, want %d", len(harness.gateway.pendingShutdownCleanup), len(failures))
+	}
+	for index, pending := range ordered {
+		if _, failed := failures[index]; failed {
+			cleanup := harness.gateway.pendingShutdownCleanup[pending.requestState]
+			cleanup.pending.issuanceVersion = issuanceVersions[pending.requestState]
+		}
+	}
+	harness.gateway.pendingMu.Unlock()
 	status, statusErr := harness.gateway.state.Status(context.Background())
 	if statusErr != nil {
 		t.Fatal(statusErr)
@@ -323,6 +390,19 @@ func testShutdownPendingContinuesAfterOrderedFailures(
 	}
 	if status.PendingApprovals != len(failures) || status.LiveReservations != len(failures) {
 		t.Fatalf("partial shutdown state = %#v", status)
+	}
+	if err := harness.gateway.shutdownPending(context.Background()); err != nil {
+		t.Fatalf("retry retained shutdown approvals: %v", err)
+	}
+	harness.gateway.pendingMu.Lock()
+	remaining := len(harness.gateway.pendingShutdownCleanup)
+	harness.gateway.pendingMu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("shutdown cleanup remained after retry: %d", remaining)
+	}
+	status, statusErr = harness.gateway.state.Status(context.Background())
+	if statusErr != nil || status.PendingApprovals != 0 || status.LiveReservations != 0 {
+		t.Fatalf("state after retained shutdown retry = %#v, %v", status, statusErr)
 	}
 }
 

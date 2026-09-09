@@ -7,6 +7,7 @@
 ## Blocked
 
 ## Done
+- [x] 504 Retry MCP shutdown finalization without losing pending state -> tasks/done/504-retry-mcp-shutdown-finalization.md
 - [x] 503 Reject overflowed session reports as current briefing evidence -> tasks/done/503-reject-overflowed-session-reports.md
 - [x] 502 Stabilize benchmark samples with internal repetitions -> tasks/done/502-stabilize-benchmark-samples-with-internal-repetitions.md
 - [x] 501 Harden CPU-normalized benchmark evidence -> tasks/done/501-harden-cpu-normalized-benchmark-evidence.md

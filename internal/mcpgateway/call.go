@@ -454,7 +454,7 @@ func (g *Gateway) storePending(state string, pending pendingApproval) error {
 	if g.pendingCleanup == nil {
 		g.pendingCleanup = make(map[string]*pendingApprovalCleanup)
 	}
-	if state == "" || len(g.pending)+len(g.pendingCleanup) >= MaxPendingApprovals {
+	if state == "" || len(g.pending)+len(g.pendingCleanup)+len(g.pendingShutdownCleanup) >= MaxPendingApprovals {
 		pending.release()
 		return fmt.Errorf("pending approval capacity is exhausted")
 	}
