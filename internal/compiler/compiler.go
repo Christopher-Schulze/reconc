@@ -12,6 +12,7 @@ package compiler
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -273,13 +274,23 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 // source_digest against the current source state during freshness
 // validation.
 func ComputeSourceDigest(bundle *ingest.SourceBundle) (string, error) {
-	return computeSourceDigest(bundle)
+	return ComputeSourceDigestWithContext(context.Background(), bundle)
 }
 
-// computeSourceDigest is the internal implementation; ComputeSourceDigest
-// is the exported wrapper.
-func computeSourceDigest(bundle *ingest.SourceBundle) (string, error) {
-	provenance, err := compileSourceProvenance(bundle)
+// ComputeSourceDigestWithContext hashes a bounded source snapshot while
+// honoring cancellation between dependency resolution and source records.
+func ComputeSourceDigestWithContext(ctx context.Context, bundle *ingest.SourceBundle) (string, error) {
+	if ctx == nil {
+		return "", context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return computeSourceDigestWithContext(ctx, bundle)
+}
+
+func computeSourceDigestWithContext(ctx context.Context, bundle *ingest.SourceBundle) (string, error) {
+	provenance, err := compileSourceProvenanceWithContext(ctx, bundle)
 	if err != nil {
 		return "", err
 	}
@@ -292,19 +303,33 @@ type sourceProvenance struct {
 }
 
 func compileSourceProvenance(bundle *ingest.SourceBundle) (sourceProvenance, error) {
-	dependencies, err := parser.ResolveTemplateDependencies(bundle)
+	return compileSourceProvenanceWithContext(context.Background(), bundle)
+}
+
+func compileSourceProvenanceWithContext(ctx context.Context, bundle *ingest.SourceBundle) (sourceProvenance, error) {
+	dependencies, err := parser.ResolveTemplateDependenciesWithContext(ctx, bundle)
 	if err != nil {
 		return sourceProvenance{}, err
 	}
-	return compileSourceProvenanceWithTemplates(bundle, dependencies)
+	return compileSourceProvenanceWithTemplatesContext(ctx, bundle, dependencies)
 }
 
 func compileSourceProvenanceWithTemplates(bundle *ingest.SourceBundle, dependencies []templates.Dependency) (sourceProvenance, error) {
+	return compileSourceProvenanceWithTemplatesContext(context.Background(), bundle, dependencies)
+}
+
+func compileSourceProvenanceWithTemplatesContext(ctx context.Context, bundle *ingest.SourceBundle, dependencies []templates.Dependency) (sourceProvenance, error) {
+	if ctx == nil {
+		return sourceProvenance{}, context.Canceled
+	}
 	sources := make([]interface{}, 0, len(bundle.Sources))
 	for _, source := range bundle.Sources {
+		if err := ctx.Err(); err != nil {
+			return sourceProvenance{}, err
+		}
 		sources = append(sources, sourceToMap(source))
 	}
-	digest, err := computeSourceDigestWithTemplates(sources, dependencies)
+	digest, err := computeSourceDigestWithTemplatesContext(ctx, sources, dependencies)
 	if err != nil {
 		return sourceProvenance{}, err
 	}
@@ -312,8 +337,21 @@ func compileSourceProvenanceWithTemplates(bundle *ingest.SourceBundle, dependenc
 }
 
 func computeSourceDigestWithTemplates(sources []interface{}, dependencies []templates.Dependency) (string, error) {
+	return computeSourceDigestWithTemplatesContext(context.Background(), sources, dependencies)
+}
+
+func computeSourceDigestWithTemplatesContext(ctx context.Context, sources []interface{}, dependencies []templates.Dependency) (string, error) {
+	if ctx == nil {
+		return "", context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	digest, err := computeSerializedSourceDigest(sources)
 	if err != nil {
+		return "", err
+	}
+	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	if len(dependencies) > 0 {
@@ -324,6 +362,9 @@ func computeSourceDigestWithTemplates(sources []interface{}, dependencies []temp
 			"source_digest": digest, "template_dependencies": dependencies,
 		})
 		if err != nil {
+			return "", err
+		}
+		if err := ctx.Err(); err != nil {
 			return "", err
 		}
 		digest = digestCanonicalJSON(body)

@@ -1,12 +1,22 @@
 package ingest
 
 import (
+	"context"
+	stderrors "errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestBoundedPolicyGlobHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := boundedPolicyGlobWithContext(ctx, t.TempDir(), "policies/*.yml"); !stderrors.Is(err, context.Canceled) {
+		t.Fatalf("canceled glob error = %v", err)
+	}
+}
 
 func TestBoundedPolicyGlobReturnsDeterministicRegularMatches(t *testing.T) {
 	root := t.TempDir()

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -97,25 +98,42 @@ func observeRuntimeSourceFreshness(root string, plan *runtimePlan) ([sha256.Size
 }
 
 func observeRuntimeSourceFreshnessWithStats(root string, plan *runtimePlan, stats *sourceFreshnessStats) ([sha256.Size]byte, error) {
+	return observeRuntimeSourceFreshnessWithStatsContext(context.Background(), root, plan, stats)
+}
+
+func observeRuntimeSourceFreshnessWithStatsContext(ctx context.Context, root string, plan *runtimePlan, stats *sourceFreshnessStats) ([sha256.Size]byte, error) {
+	if ctx == nil {
+		return [sha256.Size]byte{}, context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return [sha256.Size]byte{}, err
+	}
 	if plan == nil {
 		return [sha256.Size]byte{}, errors.New("runtime source freshness requires a plan")
 	}
 	if err := templates.ValidateCurrentDependencies(plan.templateDependencies); err != nil {
 		return [sha256.Size]byte{}, err
 	}
-	discovery, err := ingest.DiscoverPolicyRepo(root)
+	discovery, err := ingest.DiscoverPolicyRepoWithContext(ctx, root)
 	if err != nil {
 		return [sha256.Size]byte{}, err
 	}
-	return observeSourceFreshness(root, plan.sources, discovery, plan.sourceFreshness, nil, stats)
+	return observeSourceFreshnessWithContext(ctx, root, plan.sources, discovery, plan.sourceFreshness, nil, stats)
 }
 
-func observeRuntimeSourceFreshnessFromBundleWithStats(
+func observeRuntimeSourceFreshnessFromBundleWithStatsContext(
+	ctx context.Context,
 	root string,
 	plan *runtimePlan,
 	bundle *ingest.SourceBundle,
 	stats *sourceFreshnessStats,
 ) ([sha256.Size]byte, error) {
+	if ctx == nil {
+		return [sha256.Size]byte{}, context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return [sha256.Size]byte{}, err
+	}
 	if plan == nil || bundle == nil {
 		return [sha256.Size]byte{}, errors.New("runtime source freshness requires a plan and bundle")
 	}
@@ -126,7 +144,7 @@ func observeRuntimeSourceFreshnessFromBundleWithStats(
 	if err != nil {
 		return [sha256.Size]byte{}, err
 	}
-	return observeSourceFreshness(root, plan.sources, bundle.Discovery, plan.sourceFreshness, &seed, stats)
+	return observeSourceFreshnessWithContext(ctx, root, plan.sources, bundle.Discovery, plan.sourceFreshness, &seed, stats)
 }
 
 func newSourceFreshnessRecipe(root string, patterns []string) (sourceFreshnessRecipe, error) {
@@ -154,7 +172,8 @@ func newSourceFreshnessRecipe(root string, patterns []string) (sourceFreshnessRe
 	return recipe, nil
 }
 
-func observeSourceFreshness(
+func observeSourceFreshnessWithContext(
+	ctx context.Context,
 	root string,
 	sources []runtimeSource,
 	discovery ingest.DiscoveryResult,
@@ -162,6 +181,12 @@ func observeSourceFreshness(
 	seed *sourceFreshnessSeed,
 	stats *sourceFreshnessStats,
 ) ([sha256.Size]byte, error) {
+	if ctx == nil {
+		return [sha256.Size]byte{}, context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return [sha256.Size]byte{}, err
+	}
 	if filepath.Clean(root) != recipe.root || len(recipe.includes) == 0 {
 		return [sha256.Size]byte{}, errors.New("runtime source freshness recipe does not match repository root")
 	}
@@ -197,6 +222,9 @@ func observeSourceFreshness(
 		addFile(files, filepath.Join(root, marker))
 	}
 	for _, source := range sources {
+		if err := ctx.Err(); err != nil {
+			return [sha256.Size]byte{}, err
+		}
 		physical, virtual, err := freshnessSourcePath(root, source)
 		if err != nil {
 			return [sha256.Size]byte{}, err
@@ -211,21 +239,33 @@ func observeSourceFreshness(
 		}
 	}
 	for _, rel := range discovery.PolicyPaths {
+		if err := ctx.Err(); err != nil {
+			return [sha256.Size]byte{}, err
+		}
 		addFile(files, filepath.Join(root, filepath.FromSlash(rel)))
 	}
 	for _, rel := range discovery.ConfigCandidates {
+		if err := ctx.Err(); err != nil {
+			return [sha256.Size]byte{}, err
+		}
 		addFile(files, filepath.Join(root, filepath.FromSlash(rel)))
 	}
 	for _, include := range recipe.includes {
+		if err := ctx.Err(); err != nil {
+			return [sha256.Size]byte{}, err
+		}
 		includePatterns = append(includePatterns, include.pattern)
 		if filepath.Clean(include.base) != filepath.Clean(root) {
 			addDirectory(directories, include.base)
 		}
-		matches, err := ingest.ExpandPolicyIncludePattern(root, include.pattern)
+		matches, err := ingest.ExpandPolicyIncludePatternWithContext(ctx, root, include.pattern)
 		if err != nil {
 			return [sha256.Size]byte{}, fmt.Errorf("expand freshness pattern %s: %w", include.pattern, err)
 		}
 		for _, match := range matches {
+			if err := ctx.Err(); err != nil {
+				return [sha256.Size]byte{}, err
+			}
 			if seed != nil {
 				if expected := seed.files[filepath.Clean(match)]; !expected.policy {
 					return [sha256.Size]byte{}, fmt.Errorf("runtime freshness policy source set changed while preparing the runtime plan")
@@ -243,6 +283,9 @@ func observeSourceFreshness(
 				return [sha256.Size]byte{}, fmt.Errorf("runtime freshness policy source set changed while preparing the runtime plan")
 			}
 		}
+		if err := ctx.Err(); err != nil {
+			return [sha256.Size]byte{}, err
+		}
 		if err := validateFreshnessRuntimeSet(root, seed); err != nil {
 			return [sha256.Size]byte{}, err
 		}
@@ -258,10 +301,10 @@ func observeSourceFreshness(
 	writeFreshnessSources(identity, sources)
 	writeFreshnessStrings(identity, "includes", includePatterns)
 	writeFreshnessStrings(identity, "virtual-presets", sortedKeys(virtualPresets))
-	if err := observeFreshnessFiles(identity, files, seed, stats); err != nil {
+	if err := observeFreshnessFilesWithContext(ctx, identity, files, seed, stats); err != nil {
 		return [sha256.Size]byte{}, err
 	}
-	if err := observeFreshnessDirectories(identity, directories); err != nil {
+	if err := observeFreshnessDirectoriesWithContext(ctx, identity, directories); err != nil {
 		return [sha256.Size]byte{}, err
 	}
 	return identity.sum()
@@ -399,18 +442,25 @@ func validateFreshnessRuntimeSet(root string, seed *sourceFreshnessSeed) error {
 	return nil
 }
 
-func observeFreshnessFiles(
+func observeFreshnessFilesWithContext(
+	ctx context.Context,
 	identity *sourceFreshnessHasher,
 	paths map[string]struct{},
 	seed *sourceFreshnessSeed,
 	stats *sourceFreshnessStats,
 ) error {
+	if ctx == nil {
+		return context.Canceled
+	}
 	ordered := sortedKeys(paths)
 	identity.writeString("files")
 	identity.writeUint64(uint64(len(ordered)))
 	var totalBytes int64
 	copyBuffer := make([]byte, freshnessCopyBufferBytes)
 	for _, filePath := range ordered {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		var digest [sha256.Size]byte
 		hasDigest := false
 		expected := false
@@ -430,6 +480,9 @@ func observeFreshnessFiles(
 			return err
 		}
 		writeFreshnessFile(identity, observation)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -511,11 +564,17 @@ func observeFreshnessFileSeeded(
 	return observation, nil
 }
 
-func observeFreshnessDirectories(identity *sourceFreshnessHasher, paths map[string]struct{}) error {
+func observeFreshnessDirectoriesWithContext(ctx context.Context, identity *sourceFreshnessHasher, paths map[string]struct{}) error {
+	if ctx == nil {
+		return context.Canceled
+	}
 	ordered := sortedKeys(paths)
 	identity.writeString("directories")
 	identity.writeUint64(uint64(len(ordered)))
 	for _, directoryPath := range ordered {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		identity.writeString(directoryPath)
 		info, err := os.Lstat(directoryPath)
 		if errors.Is(err, os.ErrNotExist) {
@@ -538,6 +597,9 @@ func observeFreshnessDirectories(identity *sourceFreshnessHasher, paths map[stri
 		identity.writeString(freshnessIdentity(info))
 		identity.writeUint64(uint64(len(entries)))
 		for _, entry := range entries {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			entryInfo, infoErr := entry.Info()
 			if infoErr != nil {
 				return infoErr
@@ -549,6 +611,9 @@ func observeFreshnessDirectories(identity *sourceFreshnessHasher, paths map[stri
 			identity.writeInt64(entryInfo.ModTime().UnixNano())
 			identity.writeString(freshnessIdentity(entryInfo))
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	return nil
 }

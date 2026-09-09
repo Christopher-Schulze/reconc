@@ -3356,6 +3356,15 @@ allocs/op to 103,640 B/op and 1,027 allocs/op. The source-load median moved from
 8.410 ms to 3.338 ms in the recorded run; filesystem latency remains
 environment-sensitive, so the allocation reductions are the portable claim.
 
+Context-aware runtime-plan loads coalesce per repository without binding every
+waiter to the owner's cancellation: a canceled waiter returns immediately while
+the owner continues, and an owner cancellation closes the shared load without
+publishing a partial plan. Discovery, source reads, include expansion, template
+dependency resolution, source digesting, and freshness hashing check the caller
+lifecycle at bounded stage and per-entry boundaries. Compatibility entry points
+use a background context, while context-bearing evaluation returns the original
+cancellation or deadline through the existing error chain.
+
 Action inspection now consumes read-only compiled detector-policy views rather
 than deep-cloning every matching policy, field list, pointer-token list, and
 allowlist for each phase. Present and null selected values compute only their

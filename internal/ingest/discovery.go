@@ -17,6 +17,7 @@
 package ingest
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,6 +79,18 @@ type DiscoveryResult struct {
 // false). Returns (zero, error) only for IO-level failures where
 // discovery could not even be attempted (e.g. startPath does not exist).
 func DiscoverPolicyRepo(startPath string) (DiscoveryResult, error) {
+	return DiscoverPolicyRepoWithContext(context.Background(), startPath)
+}
+
+// DiscoverPolicyRepoWithContext walks up from startPath while honoring the
+// caller lifecycle between each bounded directory inspection.
+func DiscoverPolicyRepoWithContext(ctx context.Context, startPath string) (DiscoveryResult, error) {
+	if ctx == nil {
+		return DiscoveryResult{}, context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return DiscoveryResult{}, err
+	}
 	abs, err := filepath.Abs(startPath)
 	if err != nil {
 		return DiscoveryResult{}, fmt.Errorf("resolve start path: %w", err)
@@ -93,7 +106,10 @@ func DiscoverPolicyRepo(startPath string) (DiscoveryResult, error) {
 	fallbackRoot := cursor
 
 	for {
-		result, found, inspectErr := inspectDirectory(cursor, abs)
+		if err := ctx.Err(); err != nil {
+			return DiscoveryResult{}, err
+		}
+		result, found, inspectErr := inspectDirectoryWithContext(ctx, cursor, abs)
 		if inspectErr != nil {
 			return DiscoveryResult{}, inspectErr
 		}
@@ -118,10 +134,10 @@ func DiscoverPolicyRepo(startPath string) (DiscoveryResult, error) {
 	}
 }
 
-// inspectDirectory checks one directory for policy markers. Returns
-// (result, true) when at least one marker was found; (zero, false) when
-// none were present.
-func inspectDirectory(dir, originalStart string) (DiscoveryResult, bool, error) {
+func inspectDirectoryWithContext(ctx context.Context, dir, originalStart string) (DiscoveryResult, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return DiscoveryResult{}, false, err
+	}
 	claude := filepathIfRegular(dir, "CLAUDE.md")
 	agents := filepathIfRegular(dir, "AGENTS.md")
 	startMD := filepathIfRegular(dir, "start.md")
@@ -136,6 +152,9 @@ func inspectDirectory(dir, originalStart string) (DiscoveryResult, bool, error) 
 	policies, err := listPolicyFragments(dir)
 	if err != nil {
 		return DiscoveryResult{}, false, fmt.Errorf("enumerate policy fragments in %s: %w", dir, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return DiscoveryResult{}, false, err
 	}
 
 	hasMarker := claude != nil || agents != nil || startMD != nil ||

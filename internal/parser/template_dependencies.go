@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -44,11 +45,26 @@ func (s *templateSnapshot) resolve(name string) (*templates.Template, error) {
 // documents, including scopes. Candidate bundles are scanned from their own
 // source bytes rather than inheriting a discovered repository's dependencies.
 func ResolveTemplateDependencies(bundle *ingest.SourceBundle) ([]templates.Dependency, error) {
+	return ResolveTemplateDependenciesWithContext(context.Background(), bundle)
+}
+
+// ResolveTemplateDependenciesWithContext scans bounded source documents while
+// honoring the caller lifecycle between sources and scoped rule collections.
+func ResolveTemplateDependenciesWithContext(ctx context.Context, bundle *ingest.SourceBundle) ([]templates.Dependency, error) {
+	if ctx == nil {
+		return nil, context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if bundle == nil {
 		return nil, fmt.Errorf("template dependency source bundle is nil")
 	}
 	cache := &templateSnapshot{}
 	for _, source := range bundle.Sources {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		switch source.Kind {
 		case policy.SourceClaudeMD, policy.SourceAgentsMD, policy.SourceStartMD, policy.SourceCustomRuntime:
 			continue
@@ -62,6 +78,9 @@ func ResolveTemplateDependencies(bundle *ingest.SourceBundle) ([]templates.Depen
 		}
 		scopes, _ := document.mapping["scopes"].([]interface{})
 		for _, raw := range scopes {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			scope, _ := raw.(map[string]interface{})
 			if err := collectTemplateReferences(scope["rules"], cache); err != nil {
 				return nil, fmt.Errorf("scoped template dependency in %s: %w", source.Path, err)
@@ -69,6 +88,9 @@ func ResolveTemplateDependencies(bundle *ingest.SourceBundle) ([]templates.Depen
 		}
 	}
 	if err := validateTemplateCache(cache); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return templateDependencies(cache), nil

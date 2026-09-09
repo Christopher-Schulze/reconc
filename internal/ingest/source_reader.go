@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -36,6 +37,18 @@ func (r *repositorySourceReader) Close() error {
 }
 
 func (r *repositorySourceReader) Read(relative string) ([]byte, error) {
+	return r.ReadContext(context.Background(), relative)
+}
+
+// ReadContext reads one bounded repository source while checking the caller
+// lifecycle before and after the potentially expensive byte transfer.
+func (r *repositorySourceReader) ReadContext(ctx context.Context, relative string) ([]byte, error) {
+	if ctx == nil {
+		return nil, context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if r == nil || r.root == nil {
 		return nil, errors.New("repository source root is unavailable")
 	}
@@ -57,7 +70,11 @@ func (r *repositorySourceReader) Read(relative string) ([]byte, error) {
 	if err != nil {
 		return nil, repositorySourceOpenError(relative, err)
 	}
-	return readRootedSourceSnapshot(r.root, relative, name, file, before)
+	body, err := readRootedSourceSnapshot(r.root, relative, name, file, before)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	return body, err
 }
 
 func repositorySourceName(relative string) (string, error) {

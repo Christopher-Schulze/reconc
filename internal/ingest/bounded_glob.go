@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -24,10 +25,26 @@ func ExpandPolicyIncludePattern(root, pattern string) ([]string, error) {
 	return boundedPolicyGlob(root, pattern)
 }
 
+// ExpandPolicyIncludePatternWithContext expands one bounded include while
+// honoring cancellation between directory and entry operations.
+func ExpandPolicyIncludePatternWithContext(ctx context.Context, root, pattern string) ([]string, error) {
+	return boundedPolicyGlobWithContext(ctx, root, pattern)
+}
+
 // boundedPolicyGlob expands one repository-relative glob without ever
 // materializing an unbounded filepath.Glob result. The grammar is segment
 // based (`*`, `?`, and character classes); `**` is not recursive magic.
 func boundedPolicyGlob(root, pattern string) ([]string, error) {
+	return boundedPolicyGlobWithContext(context.Background(), root, pattern)
+}
+
+func boundedPolicyGlobWithContext(ctx context.Context, root, pattern string) ([]string, error) {
+	if ctx == nil {
+		return nil, context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(pattern) == 0 || len(pattern) > maxPolicyGlobPatternBytes {
 		return nil, fmt.Errorf("policy include pattern must be 1-%d bytes", maxPolicyGlobPatternBytes)
 	}
@@ -40,7 +57,7 @@ func boundedPolicyGlob(root, pattern string) ([]string, error) {
 			return nil, fmt.Errorf("policy include pattern %q contains an unsupported path segment", pattern)
 		}
 	}
-	state := boundedGlobState{pattern: pattern}
+	state := boundedGlobState{ctx: ctx, pattern: pattern}
 	if err := state.walk(root, segments, 0); err != nil {
 		return nil, err
 	}
@@ -48,12 +65,16 @@ func boundedPolicyGlob(root, pattern string) ([]string, error) {
 }
 
 type boundedGlobState struct {
+	ctx         context.Context
 	pattern     string
 	matches     []string
 	directories int
 }
 
 func (s *boundedGlobState) walk(directory string, segments []string, index int) error {
+	if err := s.ctx.Err(); err != nil {
+		return err
+	}
 	s.directories++
 	if s.directories > maxPolicyGlobDirectories {
 		return fmt.Errorf("policy include pattern %q exceeds %d directories", s.pattern, maxPolicyGlobDirectories)
@@ -65,6 +86,9 @@ func (s *boundedGlobState) walk(directory string, segments []string, index int) 
 			return fmt.Errorf("enumerate policy include pattern %q: %w", s.pattern, err)
 		}
 		for _, entry := range entries {
+			if err := s.ctx.Err(); err != nil {
+				return err
+			}
 			matched, err := path.Match(segment, entry.Name())
 			if err != nil {
 				return fmt.Errorf("compile policy include pattern %q: %w", s.pattern, err)
@@ -82,6 +106,9 @@ func (s *boundedGlobState) walk(directory string, segments []string, index int) 
 }
 
 func (s *boundedGlobState) visit(candidate string, segments []string, index int) error {
+	if err := s.ctx.Err(); err != nil {
+		return err
+	}
 	info, err := os.Stat(candidate)
 	if err != nil {
 		if os.IsNotExist(err) {

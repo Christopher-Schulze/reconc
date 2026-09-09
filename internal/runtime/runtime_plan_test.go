@@ -2,13 +2,16 @@ package runtime
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	stderrors "errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/policy"
@@ -408,6 +411,113 @@ func TestRuntimePlanConcurrentSameRootPublishesOnePlan(t *testing.T) {
 	}
 	if len(evaluator.loads) != 0 || len(evaluator.plans) != 1 {
 		t.Fatalf("load state leaked: active=%d cached=%d", len(evaluator.loads), len(evaluator.plans))
+	}
+}
+
+func TestRuntimePlanCanceledWaiterReturnsWithoutStoppingOwner(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	evaluator := NewEvaluator()
+	hookEntered := make(chan struct{})
+	release := make(chan struct{})
+	var hookOnce sync.Once
+	evaluator.loadHook = func(stage runtimePlanLoadStage) {
+		if stage != runtimePlanLoadAfterSourceSnapshot {
+			return
+		}
+		hookOnce.Do(func() {
+			close(hookEntered)
+			<-release
+		})
+	}
+	type loadResult struct {
+		plan *runtimePlan
+		err  error
+	}
+	ownerDone := make(chan loadResult, 1)
+	go func() {
+		plan, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo)
+		ownerDone <- loadResult{plan: plan, err: err}
+	}()
+	select {
+	case <-hookEntered:
+	case <-time.After(time.Second):
+		t.Fatal("runtime plan owner did not reach deterministic load hook")
+	}
+	waiterContext, cancelWaiter := context.WithCancel(context.Background())
+	waiterDone := make(chan error, 1)
+	go func() {
+		_, err := evaluator.loadRuntimePlanWithContext(waiterContext, repo)
+		waiterDone <- err
+	}()
+	cancelWaiter()
+	select {
+	case err := <-waiterDone:
+		if !stderrors.Is(err, context.Canceled) {
+			t.Fatalf("canceled waiter error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled waiter remained blocked behind owner")
+	}
+	close(release)
+	select {
+	case result := <-ownerDone:
+		if result.err != nil || result.plan == nil {
+			t.Fatalf("owner load = %+v", result)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("owner load did not complete after release")
+	}
+	evaluator.mu.Lock()
+	defer evaluator.mu.Unlock()
+	if len(evaluator.loads) != 0 || len(evaluator.plans) != 1 {
+		t.Fatalf("load state after canceled waiter = active %d cached %d", len(evaluator.loads), len(evaluator.plans))
+	}
+}
+
+func TestRuntimePlanCanceledOwnerLeavesNoPartialLoad(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	evaluator := NewEvaluator()
+	hookEntered := make(chan struct{})
+	release := make(chan struct{})
+	evaluator.loadHook = func(stage runtimePlanLoadStage) {
+		if stage != runtimePlanLoadAfterSourceSnapshot {
+			return
+		}
+		close(hookEntered)
+		<-release
+	}
+	ownerContext, cancelOwner := context.WithCancel(context.Background())
+	ownerDone := make(chan error, 1)
+	go func() {
+		_, err := evaluator.loadRuntimePlanWithContext(ownerContext, repo)
+		ownerDone <- err
+	}()
+	select {
+	case <-hookEntered:
+	case <-time.After(time.Second):
+		t.Fatal("runtime plan owner did not reach deterministic load hook")
+	}
+	cancelOwner()
+	close(release)
+	select {
+	case err := <-ownerDone:
+		if !stderrors.Is(err, context.Canceled) {
+			t.Fatalf("canceled owner error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled owner did not terminate")
+	}
+	evaluator.mu.Lock()
+	active, cached := len(evaluator.loads), len(evaluator.plans)
+	evaluator.mu.Unlock()
+	if active != 0 || cached != 0 {
+		t.Fatalf("canceled owner leaked load state: active %d cached %d", active, cached)
+	}
+	evaluator.loadHook = nil
+	if _, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo); err != nil {
+		t.Fatalf("uncanceled retry after owner cancellation: %v", err)
 	}
 }
 

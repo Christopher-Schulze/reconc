@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -93,20 +94,32 @@ func (b *SourceBundle) RootInfo() os.FileInfo {
 // patterns; *PresetNotFoundError when an extends entry doesn't resolve;
 // underlying error wrapped for IO failures.
 func LoadPolicySources(repoStartPath string) (*SourceBundle, error) {
-	context, err := NewSourceLoadContext(repoStartPath)
+	loadContext, err := NewSourceLoadContext(repoStartPath)
 	if err != nil {
 		return nil, err
 	}
-	return LoadPolicySourcesWithContext(context)
+	return LoadPolicySourcesWithContext(loadContext)
 }
 
 // LoadPolicySourcesWithContext loads one previously discovered, identity-bound
 // source snapshot. The context is validated before and after all reads.
-func LoadPolicySourcesWithContext(context *SourceLoadContext) (bundle *SourceBundle, resultErr error) {
-	if context == nil {
+func LoadPolicySourcesWithContext(sourceContext *SourceLoadContext) (bundle *SourceBundle, resultErr error) {
+	return LoadPolicySourcesWithContextAndCancellation(context.Background(), sourceContext)
+}
+
+// LoadPolicySourcesWithContextAndCancellation loads one identity-bound source
+// snapshot while honoring the caller lifecycle at every bounded stage.
+func LoadPolicySourcesWithContextAndCancellation(ctx context.Context, sourceContext *SourceLoadContext) (bundle *SourceBundle, resultErr error) {
+	if ctx == nil {
+		return nil, context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if sourceContext == nil {
 		return nil, &rerrors.PolicySourceError{Message: "policy source load context is nil"}
 	}
-	discovery := context.Discovery
+	discovery := sourceContext.Discovery
 	if !discovery.Discovered {
 		warning := "no policy markers discovered"
 		if len(discovery.Warnings) > 0 {
@@ -116,7 +129,7 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (bundle *SourceBun
 	}
 
 	root := discovery.RepoRoot
-	if err := context.Validate(); err != nil {
+	if err := sourceContext.ValidateWithContext(ctx); err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "validate policy source snapshot", Cause: err}
 	}
 	reader, err := newRepositorySourceReader(root)
@@ -132,7 +145,10 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (bundle *SourceBun
 	sources := []policy.PolicySource{}
 
 	// 1. Global policy (lowest precedence, applies to every repo).
-	if gs, err := loadGlobalPolicySource(); err != nil {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if gs, err := loadGlobalPolicySourceWithContext(ctx); err != nil {
 		return nil, err
 	} else if gs != nil {
 		sources = append(sources, *gs)
@@ -143,7 +159,7 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (bundle *SourceBun
 	// into the later inline_block tier rather than interleaved with prose.
 	inlineSources := []policy.PolicySource{}
 	if discovery.ClaudePath != nil {
-		ss, err := loadEntryFileWithBlocks(reader, *discovery.ClaudePath, policy.SourceClaudeMD)
+		ss, err := loadEntryFileWithBlocksWithContext(ctx, reader, *discovery.ClaudePath, policy.SourceClaudeMD)
 		if err != nil {
 			return nil, err
 		}
@@ -151,7 +167,7 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (bundle *SourceBun
 		inlineSources = append(inlineSources, ss[1:]...)
 	}
 	if discovery.AgentsPath != nil {
-		ss, err := loadEntryFileWithBlocks(reader, *discovery.AgentsPath, policy.SourceAgentsMD)
+		ss, err := loadEntryFileWithBlocksWithContext(ctx, reader, *discovery.AgentsPath, policy.SourceAgentsMD)
 		if err != nil {
 			return nil, err
 		}
@@ -159,7 +175,7 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (bundle *SourceBun
 		inlineSources = append(inlineSources, ss[1:]...)
 	}
 	if discovery.StartMDPath != nil {
-		ss, err := loadEntryFileWithBlocks(reader, *discovery.StartMDPath, policy.SourceStartMD)
+		ss, err := loadEntryFileWithBlocksWithContext(ctx, reader, *discovery.StartMDPath, policy.SourceStartMD)
 		if err != nil {
 			return nil, err
 		}
@@ -173,7 +189,7 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (bundle *SourceBun
 	presetNames := []string{}
 
 	if discovery.ConfigPath != nil {
-		configText, err := reader.Read(*discovery.ConfigPath)
+		configText, err := reader.ReadContext(ctx, *discovery.ConfigPath)
 		if err != nil {
 			return nil, &rerrors.PolicySourceError{
 				Message: "read compiler config " + *discovery.ConfigPath,
@@ -203,10 +219,13 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (bundle *SourceBun
 	}
 
 	// 6. Preset packs referenced via extends:.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := presets.ValidateSelection(presetNames); err != nil {
 		return nil, err
 	}
-	presetSources, err := loadPresetSources(presetNames)
+	presetSources, err := loadPresetSourcesWithContext(ctx, presetNames)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +233,7 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (bundle *SourceBun
 
 	// 7. Policy file fragments (sorted, deduplicated).
 	includePatterns = sortedUniquePolicyGlobPatterns(includePatterns)
-	fragmentSources, err := loadPolicyFragmentSourcesWithDefaults(reader, includePatterns, context.defaultMatches)
+	fragmentSources, err := loadPolicyFragmentSourcesWithDefaultsWithContext(ctx, reader, includePatterns, sourceContext.defaultMatches)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +241,7 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (bundle *SourceBun
 
 	// 8. Declarative custom runtime manifests. They are not policy YAML, but
 	// their exact bytes participate in the same source identity.
-	runtimeSources, err := loadCustomRuntimeSources(reader)
+	runtimeSources, err := loadCustomRuntimeSourcesWithContext(ctx, reader)
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +250,10 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (bundle *SourceBun
 	if err := validatePolicySourceBounds(sources); err != nil {
 		return nil, err
 	}
-	if err := context.Validate(); err != nil {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := sourceContext.ValidateWithContext(ctx); err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "policy source snapshot changed while loading", Cause: err}
 	}
 	return &SourceBundle{
@@ -239,8 +261,8 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (bundle *SourceBun
 		Discovery:             discovery,
 		Sources:               sources,
 		policyIncludePatterns: append([]string(nil), includePatterns...),
-		rootIdentity:          context.rootIdentity,
-		rootInfo:              context.rootInfo,
+		rootIdentity:          sourceContext.rootIdentity,
+		rootInfo:              sourceContext.rootInfo,
 	}, nil
 }
 
@@ -262,6 +284,16 @@ func LoadCustomRuntimeSources(root string) (sources []policy.PolicySource, resul
 }
 
 func loadCustomRuntimeSources(reader *repositorySourceReader) ([]policy.PolicySource, error) {
+	return loadCustomRuntimeSourcesWithContext(context.Background(), reader)
+}
+
+func loadCustomRuntimeSourcesWithContext(ctx context.Context, reader *repositorySourceReader) ([]policy.PolicySource, error) {
+	if ctx == nil {
+		return nil, context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	root := reader.path
 	directory := filepath.Join(root, ".reconc", "runtimes")
 	entries, err := boundedio.ReadDirNoSymlink(directory, maxRuntimeDirEntries)
@@ -273,6 +305,9 @@ func loadCustomRuntimeSources(reader *repositorySourceReader) ([]policy.PolicySo
 	}
 	paths := make([]string, 0, len(entries))
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
@@ -284,6 +319,9 @@ func loadCustomRuntimeSources(reader *repositorySourceReader) ([]policy.PolicySo
 	sort.Strings(paths)
 	sources := make([]policy.PolicySource, 0, len(paths))
 	for _, rel := range paths {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		full := filepath.Join(root, filepath.FromSlash(rel))
 		info, err := os.Lstat(full)
 		if err != nil {
@@ -292,7 +330,7 @@ func loadCustomRuntimeSources(reader *repositorySourceReader) ([]policy.PolicySo
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return nil, &rerrors.PolicySourceError{Message: "custom runtime " + rel + " must be a non-symlink regular file"}
 		}
-		body, err := reader.Read(rel)
+		body, err := reader.ReadContext(ctx, rel)
 		if err != nil {
 			return nil, &rerrors.PolicySourceError{Message: "read custom runtime " + rel, Cause: err}
 		}
@@ -304,10 +342,13 @@ func loadCustomRuntimeSources(reader *repositorySourceReader) ([]policy.PolicySo
 	return sources, nil
 }
 
-// loadGlobalPolicySource reads ~/.reconc/global-policy.yml (or whatever
-// $RECONC_HOME points to). Returns nil source when the file doesn't
-// exist or is empty - both are valid "no global policy" states.
-func loadGlobalPolicySource() (*policy.PolicySource, error) {
+func loadGlobalPolicySourceWithContext(ctx context.Context) (*policy.PolicySource, error) {
+	if ctx == nil {
+		return nil, context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	home, err := presets.ResolveHome()
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "resolve global policy home", Cause: err}
@@ -327,6 +368,9 @@ func loadGlobalPolicySource() (*policy.PolicySource, error) {
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "read global policy", Cause: err}
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return nil, nil
 	}
@@ -337,11 +381,14 @@ func loadGlobalPolicySource() (*policy.PolicySource, error) {
 	}, nil
 }
 
-// loadEntryFileWithBlocks reads the named context file (relative to
-// root) and returns the file-as-source plus every inline ```reconc
-// fenced block found inside.
-func loadEntryFileWithBlocks(reader *repositorySourceReader, relPath string, kind policy.SourceKind) ([]policy.PolicySource, error) {
-	data, err := reader.Read(relPath)
+func loadEntryFileWithBlocksWithContext(ctx context.Context, reader *repositorySourceReader, relPath string, kind policy.SourceKind) ([]policy.PolicySource, error) {
+	if ctx == nil {
+		return nil, context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	data, err := reader.ReadContext(ctx, relPath)
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{
 			Message: "read context file " + relPath,
@@ -355,6 +402,9 @@ func loadEntryFileWithBlocks(reader *repositorySourceReader, relPath string, kin
 	blocks, err := ScanInlinePolicyBlocks(relPath, text)
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "extract inline policy blocks from " + relPath, Cause: err}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	out = append(out, blocks...)
 	return out, nil
@@ -497,11 +547,15 @@ func loadPresetNamesDocument(doc map[string]interface{}, context string) ([]stri
 	return out, nil
 }
 
-// loadPresetSources resolves each preset name through the presets
-// package and wraps the YAML content in a PolicySource.
-func loadPresetSources(names []string) ([]policy.PolicySource, error) {
+func loadPresetSourcesWithContext(ctx context.Context, names []string) ([]policy.PolicySource, error) {
+	if ctx == nil {
+		return nil, context.Canceled
+	}
 	out := make([]policy.PolicySource, 0, len(names))
 	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		content, err := presets.Load(name)
 		if err != nil {
 			return nil, err
@@ -516,7 +570,13 @@ func loadPresetSources(names []string) ([]policy.PolicySource, error) {
 	return out, nil
 }
 
-func loadPolicyFragmentSourcesWithDefaults(reader *repositorySourceReader, patterns []string, defaultMatches map[string][]string) ([]policy.PolicySource, error) {
+func loadPolicyFragmentSourcesWithDefaultsWithContext(ctx context.Context, reader *repositorySourceReader, patterns []string, defaultMatches map[string][]string) ([]policy.PolicySource, error) {
+	if ctx == nil {
+		return nil, context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	root := reader.path
 	if err := validatePolicyGlobPatterns(patterns); err != nil {
 		return nil, &rerrors.PolicySourceError{Message: err.Error()}
@@ -528,6 +588,9 @@ func loadPolicyFragmentSourcesWithDefaults(reader *repositorySourceReader, patte
 	out := []policy.PolicySource{}
 	var totalBytes int64
 	for _, pattern := range uniquePatterns {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		matches := []string{}
 		if cached, ok := defaultMatches[pattern]; ok {
 			for _, rel := range cached {
@@ -535,7 +598,7 @@ func loadPolicyFragmentSourcesWithDefaults(reader *repositorySourceReader, patte
 			}
 		} else {
 			var err error
-			matches, err = boundedPolicyGlob(root, pattern)
+			matches, err = boundedPolicyGlobWithContext(ctx, root, pattern)
 			if err != nil {
 				return nil, &rerrors.PolicySourceError{
 					Message: "expand include pattern " + pattern,
@@ -545,6 +608,9 @@ func loadPolicyFragmentSourcesWithDefaults(reader *repositorySourceReader, patte
 			sort.Strings(matches)
 		}
 		for _, match := range matches {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			info, err := os.Stat(match)
 			if err != nil || !info.Mode().IsRegular() {
 				continue
@@ -558,7 +624,7 @@ func loadPolicyFragmentSourcesWithDefaults(reader *repositorySourceReader, patte
 				continue
 			}
 			seen[rel] = struct{}{}
-			data, err := reader.Read(rel)
+			data, err := reader.ReadContext(ctx, rel)
 			if err != nil {
 				return nil, &rerrors.PolicySourceError{
 					Message: "read policy fragment " + rel,

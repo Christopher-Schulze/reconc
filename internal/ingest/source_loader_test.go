@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	stderrors "errors"
 	"os"
 	"path/filepath"
@@ -12,6 +13,14 @@ import (
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/yamlbound"
 )
+
+func TestSourceLoadContextHonorsCancellationBeforeDiscovery(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := NewSourceLoadContextWithContext(ctx, t.TempDir()); !stderrors.Is(err, context.Canceled) {
+		t.Fatalf("canceled source context error = %v", err)
+	}
+}
 
 // withRECONCHome isolates RECONC_HOME for tests so user-level state
 // doesn't leak in.

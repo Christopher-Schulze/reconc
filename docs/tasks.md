@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 482 Propagate cancellation through runtime plan loading -> tasks/482-propagate-cancellation-through-runtime-plan-loading.md
 - [ ] 483 Scope assurance gates to detected module roots -> tasks/483-scope-assurance-gates-to-detected-module-roots.md
 - [ ] 484 Detect package manager conflicts before truncating evidence -> tasks/484-detect-package-manager-conflicts-before-truncating-evidence.md
 - [ ] 485 Reuse validated policy snapshots in pre-decision hot paths -> tasks/485-reuse-validated-policy-snapshots-in-pre-decision-hot-paths.md
@@ -26,6 +25,8 @@
 ## Blocked
 
 ## Done
+
+- [x] 482 Propagate cancellation through runtime plan loading -> tasks/done/482-propagate-cancellation-through-runtime-plan-loading.md
 
 - [x] 481 Bound Antigravity replay state without wedging long invocations -> tasks/done/481-bound-antigravity-replay-state-without-wedging-long-invocations.md
 - [x] 472 Require bound approval before authority file changes -> tasks/done/472-require-bound-approval-before-authority-file-changes.md
