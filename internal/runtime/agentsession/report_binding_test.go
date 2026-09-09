@@ -51,6 +51,21 @@ func TestInspectSessionReportBindingCurrentRequiresAllIdentities(t *testing.T) {
 	}
 }
 
+func TestInspectSessionReportBindingRejectsOverflowedEvidence(t *testing.T) {
+	repo, state, report := boundReportFixture(t)
+	state.EvidenceOverflow = true
+	state.EvidenceOverflowReason = "commands"
+	state.EvidenceOverflowLimit = "byte_budget"
+
+	binding, err := InspectSessionReportBinding(repo, state, report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding.Status != SessionReportHistorical || binding.Reason != "active session evidence is overflowed and uncertified" {
+		t.Fatalf("binding=%+v, want historical overflow binding", binding)
+	}
+}
+
 func TestInspectSessionReportBindingKeepsUnboundReportHistorical(t *testing.T) {
 	repo, state, report := boundReportFixture(t)
 	state.StopPolicyFingerprint = ""

@@ -975,8 +975,10 @@ replaced, or overflowed state is reported as uncertainty; enforcement loads keep
 their existing lock and durable-taint guarantees.
 When a saved policy report exists, the briefing exposes `policy_report_status`
 as `current`, `historical`, or `unavailable`. Only a report bound to the exact
-saved report hash, active-session evidence hash, and current Stop-policy
-candidate can populate `policy_blockers` or replace the executable remediation.
+saved report hash, non-overflowed active-session evidence hash, and current
+Stop-policy candidate can populate `policy_blockers` or replace the executable
+remediation. An evidence-overflow marker keeps the report historical until a
+new bounded evidence set is established.
 Older or unbound reports remain under `historical_policy_blockers` with their
 exact report path and binding identities; malformed, missing, inaccessible, or
 wrong-root reports stay structured diagnostics and never become current gates.

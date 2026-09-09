@@ -61,6 +61,11 @@ func InspectSessionReportBinding(repoRoot string, state SessionState, report *ru
 		binding.Reason = "saved report belongs to a different repository"
 		return binding, nil
 	}
+	if state.EvidenceOverflow {
+		binding.Status = SessionReportHistorical
+		binding.Reason = "active session evidence is overflowed and uncertified"
+		return binding, nil
+	}
 
 	evidenceHash, err := stopPolicyEvidenceHash(state)
 	if err != nil {

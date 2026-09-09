@@ -7,6 +7,7 @@
 ## Blocked
 
 ## Done
+- [x] 503 Reject overflowed session reports as current briefing evidence -> tasks/done/503-reject-overflowed-session-reports.md
 - [x] 502 Stabilize benchmark samples with internal repetitions -> tasks/done/502-stabilize-benchmark-samples-with-internal-repetitions.md
 - [x] 501 Harden CPU-normalized benchmark evidence -> tasks/done/501-harden-cpu-normalized-benchmark-evidence.md
 - [x] 500 Reality-check all 30 review fixes and stabilize performance evidence -> tasks/done/500-reality-check-and-stabilize-performance-evidence.md
