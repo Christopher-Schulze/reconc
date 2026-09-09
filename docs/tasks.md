@@ -1,13 +1,13 @@
 # TASK Control Plane
 
 ## Active
-- [~] 501 Harden CPU-normalized benchmark evidence -> tasks/501-harden-cpu-normalized-benchmark-evidence.md
 
 ## Queue
 
 ## Blocked
 
 ## Done
+- [x] 501 Harden CPU-normalized benchmark evidence -> tasks/done/501-harden-cpu-normalized-benchmark-evidence.md
 - [x] 500 Reality-check all 30 review fixes and stabilize performance evidence -> tasks/done/500-reality-check-and-stabilize-performance-evidence.md
 
 - [x] 499 Prove template enforcement through real adapter scenarios -> tasks/done/499-prove-template-enforcement-through-real-adapter-scenarios.md

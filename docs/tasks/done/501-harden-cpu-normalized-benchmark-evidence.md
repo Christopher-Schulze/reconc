@@ -22,10 +22,10 @@ drift is adjusted without treating application regressions as calibration noise.
 
 ## Sub-Tasks
 
-- [~] Add independent sentinel collection, contract fields, validation, and
+- [x] Add independent sentinel collection, contract fields, validation, and
   CPU-adjusted comparison semantics.
-- [ ] Regenerate and verify the clean v3 baseline and current comparison.
-- [ ] Update benchmark documentation and record final gate evidence.
+- [x] Regenerate and verify the clean v3 baseline and current comparison.
+- [x] Update benchmark documentation and record final gate evidence.
 
 ## Notes
 
@@ -33,6 +33,14 @@ drift is adjusted without treating application regressions as calibration noise.
   reality check.
 - The sentinel is generated in a temporary module-free package and is never
   added to the product source tree.
+- The v3 baseline records clean source commit
+  `c814f5b40579d2feed47231ec9dc2d80afda1dea`; the matching clean current run
+  covers 19 groups and 24 targets with `passed=true` and no blocking
+  regressions. Raw absolute timing, CPU-adjusted timing, normalized timing,
+  bytes, allocations, and peak RSS remain separately reported.
+- `make test-fast`, `make test`, `make vet`, `make lint`, `make self-host`,
+  `make reference-docs-check`, `make publication-audit`, and `git diff --check`
+  pass. No version, tag, branch, push, or publication changed.
 
 ## Deviations
 
