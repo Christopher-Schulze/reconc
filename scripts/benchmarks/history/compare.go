@@ -81,14 +81,6 @@ func compareResults(baseline BenchmarkBaseline, current BenchmarkResult) (Benchm
 	return report, nil
 }
 
-func compatibleResults(baseline, current BenchmarkResult) error {
-	issues := compatibilityIssues(baseline, current)
-	if len(issues) == 0 {
-		return nil
-	}
-	return fmt.Errorf("incompatible benchmark environment: %s", strings.Join(issues, "; "))
-}
-
 func compatibilityIssues(baseline, current BenchmarkResult) []string {
 	checks := []struct {
 		name     string

@@ -2,8 +2,6 @@
 
 ## Active
 
-- [~] 490 Enforce absolute performance budgets and retain benchmark evidence -> tasks/490-enforce-absolute-performance-budgets-and-retain-benchmark-evidence.md
-
 ## Queue
 - [ ] 491 Profile real workloads and evaluate hardware-aware Go optimization -> tasks/491-profile-real-workloads-and-evaluate-hardware-aware-go-optimization.md
 - [ ] 492 Distinguish secret state from config templates and SQLite sidecars -> tasks/492-distinguish-secret-state-from-config-templates-and-sqlite-sidecars.md
@@ -18,6 +16,8 @@
 ## Blocked
 
 ## Done
+
+- [x] 490 Enforce absolute performance budgets and retain benchmark evidence -> tasks/done/490-enforce-absolute-performance-budgets-and-retain-benchmark-evidence.md
 
 - [x] 489 Bound cache memory and shorten decision cache locks -> tasks/done/489-bound-cache-memory-and-shorten-decision-cache-locks.md
 
