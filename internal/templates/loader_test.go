@@ -36,6 +36,78 @@ func TestResolveBuiltin(t *testing.T) {
 	}
 }
 
+func TestEvidenceRecipeMetadataIsComplete(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	for _, name := range []string{
+		"public-api-compatibility",
+		"schema-migration-safety",
+		"generated-artifact-consistency",
+		"performance-budget",
+	} {
+		t.Run(name, func(t *testing.T) {
+			template, err := Resolve(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if template.Recipe == nil {
+				t.Fatal("recipe metadata is missing")
+			}
+			recipe := template.Recipe
+			if len(recipe.InputPaths) == 0 || recipe.CWD == "" || recipe.CommandIdentity == "" ||
+				recipe.EvidenceIdentity == "" || recipe.Applicability == "" || len(recipe.Limitations) == 0 ||
+				recipe.Remediation == "" || len(recipe.RequiredRuleFields) == 0 || len(recipe.Examples) < 2 {
+				t.Fatalf("incomplete recipe metadata: %+v", recipe)
+			}
+			for _, example := range recipe.Examples {
+				if example.Command == "" || example.CWD == "" || (example.Expect != "pass" && example.Expect != "block") {
+					t.Fatalf("invalid executable example: %+v", example)
+				}
+			}
+		})
+	}
+}
+
+func TestRecipeMetadataRejectsUnsafePathsAndUnknownFields(t *testing.T) {
+	base := map[string]interface{}{
+		"input_paths":          []interface{}{"**/*.go"},
+		"cwd":                  ".",
+		"command_identity":     "command",
+		"evidence_identity":    "evidence",
+		"applicability":        "when",
+		"limitations":          []interface{}{"limit"},
+		"remediation":          "fix",
+		"required_rule_fields": []interface{}{"script", "when_paths", "args", "cache_inputs"},
+		"examples": []interface{}{map[string]interface{}{
+			"name": "pass", "command": "./check", "expect": "pass",
+		}},
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]interface{})
+		want   string
+	}{
+		{name: "parent input", mutate: func(value map[string]interface{}) { value["input_paths"] = []interface{}{"../outside"} }, want: "repository-relative"},
+		{name: "unknown field", mutate: func(value map[string]interface{}) { value["unknown"] = "x" }, want: "not supported"},
+		{name: "invalid expectation", mutate: func(value map[string]interface{}) {
+			value["examples"].([]interface{})[0].(map[string]interface{})["expect"] = "warn"
+		}, want: "must be pass or block"},
+		{name: "unsupported required rule field", mutate: func(value map[string]interface{}) {
+			value["required_rule_fields"] = []interface{}{"unknown"}
+		}, want: "names unsupported field"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			value := make(map[string]interface{}, len(base)+1)
+			for key, item := range base {
+				value[key] = item
+			}
+			test.mutate(value)
+			if _, err := recipeFromBody(map[string]interface{}{"recipe": value}, "fixture.yml"); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("recipe error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestResolveNotFound(t *testing.T) {
 	_, err := Resolve("bogus-template-name")
 	if err == nil {
@@ -114,8 +186,8 @@ func TestListReturnsAllBuiltins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(list) < 8 {
-		t.Errorf("expected at least 8 builtin templates, got %d: %v", len(list), list)
+	if len(list) < 12 {
+		t.Errorf("expected at least 12 builtin templates, got %d: %v", len(list), list)
 	}
 	names := map[string]bool{}
 	for _, t := range list {
@@ -130,6 +202,10 @@ func TestListReturnsAllBuiltins(t *testing.T) {
 		"no-generated-writes",
 		"tests-follow-source",
 		"verified-change",
+		"public-api-compatibility",
+		"schema-migration-safety",
+		"generated-artifact-consistency",
+		"performance-budget",
 	} {
 		if !names[want] {
 			t.Errorf("expected template %q in list", want)
@@ -283,6 +359,7 @@ func TestApplyStripsTemplateMetadata(t *testing.T) {
 	tmpl := &Template{
 		Body: map[string]interface{}{
 			"description": "should not leak",
+			"recipe":      map[string]interface{}{"cwd": "."},
 			"kind":        "deny_write",
 		},
 	}
@@ -290,6 +367,9 @@ func TestApplyStripsTemplateMetadata(t *testing.T) {
 	merged := Apply(tmpl, user)
 	if _, ok := merged["description"]; ok {
 		t.Errorf("description should be stripped from merged rule output")
+	}
+	if _, ok := merged["recipe"]; ok {
+		t.Errorf("recipe metadata should be stripped from merged rule output")
 	}
 }
 

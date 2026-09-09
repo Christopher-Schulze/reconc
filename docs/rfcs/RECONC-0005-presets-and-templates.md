@@ -85,14 +85,27 @@ Current builtin templates:
 - `ci-green-before-merge`
 - `custom-gate-on-change`
 - `docs-follow-code`
+- `generated-artifact-consistency`
 - `local-secret-state-read-only`
 - `no-generated-writes`
+- `performance-budget`
+- `public-api-compatibility`
+- `schema-migration-safety`
 - `tests-follow-source`
 - `verified-change`
 
 A rule using `template: <name>` receives the template's fields as
 defaults. User-provided fields win. Template expansion happens before
 rule validation, so invalid expanded rules fail at compile time.
+
+Evidence recipes may include a template-only `recipe` mapping. Its strict
+metadata contract contains `input_paths`, repository-relative `cwd`,
+`command_identity`, `evidence_identity`, `applicability`, non-empty
+`limitations`, `remediation`, `required_rule_fields`, and executable pass/block
+`examples`. `required_rule_fields` is limited to supported expanded rule fields
+and is enforced after defaults and user overrides are merged. The metadata is
+exposed by catalog commands and removed before policy-rule validation;
+enforcement remains the existing expanded rule kind.
 
 `tests-follow-source` and `docs-follow-code` accept an owner-aware opt-in by
 repeating a `{name}` capture in `paths` and `when_paths`; literal patterns

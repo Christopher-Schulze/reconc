@@ -203,3 +203,28 @@ func TestBuiltinGuardrailTemplatesEnforceBehavior(t *testing.T) {
 		}
 	})
 }
+
+func TestEvidenceRecipeTemplatesBlockAndPassConfiguredScript(t *testing.T) {
+	for _, recipe := range []string{
+		"public-api-compatibility",
+		"schema-migration-safety",
+		"generated-artifact-consistency",
+		"performance-budget",
+	} {
+		t.Run(recipe, func(t *testing.T) {
+			withRECONCHome(t)
+			repo := makeRepo(t, "# project\n", "", "rules:\n  - id: evidence-recipe\n    template: "+recipe+"\n    script: .reconc/check.sh\n    when_paths: ['owned/**']\n    args: ['--candidate', 'HEAD']\n    cache_inputs: ['policy-input.json']\n")
+			writeScript(t, repo, ".reconc/check.sh", "#!/bin/sh\nexit 2\n")
+			inputs := ExecutionInputs{WritePaths: []string{"owned/source.go"}}
+			report, err := CheckRepoPolicy(repo, inputs)
+			if err != nil || report.Decision != DecisionBlock {
+				t.Fatalf("blocking recipe result = %s, err=%v; want block", report.Decision, err)
+			}
+			writeScript(t, repo, ".reconc/check.sh", "#!/bin/sh\nexit 0\n")
+			report, err = CheckRepoPolicy(repo, inputs)
+			if err != nil || report.Decision != DecisionPass {
+				t.Fatalf("passing recipe result = %s, err=%v; want pass", report.Decision, err)
+			}
+		})
+	}
+}

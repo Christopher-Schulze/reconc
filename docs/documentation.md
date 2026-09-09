@@ -2995,10 +2995,26 @@ rules without requiring a built-in assurance pack.
 
 The portable builtin template set covers source/test and docs coupling,
 generated-output protection, CI claims, authority-change approval, bounded
-repo-local gates, local secret/database-state write protection, and current
-successful-command evidence. Templates remain inert until a policy references
-them and supplies the repository-owned paths, commands, or script where the
-shape requires those inputs.
+repo-local gates, local secret/database-state write protection, current
+successful-command evidence, and four evidence recipes: public API
+compatibility, schema migration safety, generated artifact consistency, and
+performance budgets. Templates remain inert until a policy references them and
+supplies the repository-owned paths, commands, or script where the shape
+requires those inputs.
+
+The four evidence recipes use the existing `require_script` boundary and add a
+validated template-only `recipe` metadata contract. `input_paths` and
+`applicability` describe the activation surface; `cwd`, `command_identity`,
+and `evidence_identity` state how a result is bound; `limitations` and
+`remediation` keep the guarantee honest; `required_rule_fields` declares the
+non-empty expanded-rule fields the recipe will enforce; and `examples` contain
+executable pass/block command forms. Metadata is shown by `reconc template show`
+and is removed before the expanded policy reaches the rule parser. The project still
+owns the executable and its arguments: API checks must resolve explicit base
+and current revisions, migration checks must use an isolated real engine and
+their declared rollback policy, generator checks must compare the complete
+output set and reject unrelated candidate changes, and performance checks must
+consume attributable TASK 490 absolute and normalized comparison results.
 
 `no-generated-writes` and the stack-neutral `default` preset share the same
 generated-output boundary: root or nested `generated/` and `dist/` paths, root

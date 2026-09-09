@@ -99,10 +99,25 @@ func runTemplateShow(args []string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "About:    %s\n", tmpl.Description)
 	fmt.Fprintln(stdout, "Body:")
 	for _, k := range sortedMapKeys(tmpl.Body) {
-		if k == "description" {
+		if k == "description" || k == "recipe" {
 			continue
 		}
 		fmt.Fprintf(stdout, "  %s: %v\n", k, tmpl.Body[k])
+	}
+	if tmpl.Recipe != nil {
+		fmt.Fprintln(stdout, "Recipe:")
+		fmt.Fprintf(stdout, "  input_paths: %v\n", tmpl.Recipe.InputPaths)
+		fmt.Fprintf(stdout, "  cwd: %s\n", tmpl.Recipe.CWD)
+		fmt.Fprintf(stdout, "  command_identity: %s\n", tmpl.Recipe.CommandIdentity)
+		fmt.Fprintf(stdout, "  evidence_identity: %s\n", tmpl.Recipe.EvidenceIdentity)
+		fmt.Fprintf(stdout, "  applicability: %s\n", tmpl.Recipe.Applicability)
+		fmt.Fprintf(stdout, "  limitations: %v\n", tmpl.Recipe.Limitations)
+		fmt.Fprintf(stdout, "  remediation: %s\n", tmpl.Recipe.Remediation)
+		fmt.Fprintf(stdout, "  required_rule_fields: %v\n", tmpl.Recipe.RequiredRuleFields)
+		fmt.Fprintln(stdout, "  examples:")
+		for _, example := range tmpl.Recipe.Examples {
+			fmt.Fprintf(stdout, "    - %s: (%s) %s [%s]\n", example.Name, example.CWD, example.Command, example.Expect)
+		}
 	}
 	return nil
 }

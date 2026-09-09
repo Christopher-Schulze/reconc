@@ -1,0 +1,48 @@
+description: "Run a real forward and declared rollback migration check against an isolated disposable database or engine."
+kind: require_script
+mode: block
+message: "The configured schema migration safety workflow must pass on an isolated real database or engine."
+timeout_sec: 300
+kill_timeout_sec: 15
+when_paths:
+  - "migrations/**"
+  - "db/**"
+  - "schema/**"
+  - "src/**"
+  - "**/*schema*.sql"
+recipe:
+  input_paths:
+    - "migrations/**"
+    - "db/**"
+    - "schema/**"
+    - "src/**"
+    - "**/*schema*.sql"
+  cwd: "."
+  command_identity: "The configured workflow must identify the migration set, isolated database or engine, forward direction, and declared rollback policy; production connection targets are invalid."
+  evidence_identity: "A passing require_script result is bound to the current candidate and literal cache_inputs containing migration files, schema code, workflow configuration, and the isolated-engine fixture inputs."
+  applicability: "Activate when migrations, schema definitions, persistence code, or migration tooling changes; narrow when_paths to the owned database surface."
+  limitations:
+    - "Reconc cannot select a database engine, provision isolation, or infer whether rollback is promised."
+    - "The repository-owned workflow must create and destroy a disposable real engine, assert data invariants, and test rollback whenever its policy declares rollback support."
+  remediation: "Configure a migration script that refuses production targets, runs forward on an isolated real engine, verifies data invariants, and executes the declared rollback path before returning success."
+  required_rule_fields:
+    - "script"
+    - "when_paths"
+    - "args"
+    - "cache_inputs"
+  examples:
+    - name: "forward and rollback pass"
+      command: "./scripts/check-migrations.sh --engine sqlite --database '$TMPDIR/reconc-migration.db' --forward --rollback"
+      cwd: "."
+      expect: pass
+    - name: "migration invariant failure"
+      command: "./scripts/check-migrations.sh --engine sqlite --database '$TMPDIR/reconc-migration.db' --forward --rollback"
+      cwd: "."
+      expect: block
+# User must supply:
+#   script:       repo-relative executable for the project's real migration
+#                 runner and isolated database/engine fixture.
+#   when_paths:   migration, schema and persistence paths that activate it.
+#   args:         engine, disposable database target, forward policy and the
+#                 explicit rollback policy (for example --rollback-required).
+#   cache_inputs: all migration files, schema code, fixtures and runner config.

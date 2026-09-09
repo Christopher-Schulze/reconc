@@ -1,0 +1,49 @@
+description: "Run a real public API compatibility check against an explicit base revision and current candidate."
+kind: require_script
+mode: block
+message: "The configured public API compatibility check must pass against the declared base and current candidate."
+timeout_sec: 300
+kill_timeout_sec: 15
+when_paths:
+  - "api/**"
+  - "public/**"
+  - "src/**"
+  - "openapi/**"
+  - "*.proto"
+recipe:
+  input_paths:
+    - "api/**"
+    - "public/**"
+    - "src/**"
+    - "openapi/**"
+    - "*.proto"
+  cwd: "."
+  command_identity: "The configured script and its arguments must name the intended immutable base revision and current candidate; a default branch label without a resolved identity is insufficient."
+  evidence_identity: "A passing require_script result is bound to the current repository candidate and the literal cache_inputs declared by the policy author."
+  applicability: "Activate when exported API, schema, protocol, or public type paths change; narrow when_paths to the repository's actual public surface."
+  limitations:
+    - "Reconc does not infer API visibility or choose a comparison tool; the repository-owned script must do that work."
+    - "The script runs with the repository root as cwd and receives bounded JSON context; nested modules must select their own working directory explicitly."
+  remediation: "Configure a repository-owned compatibility script, pass explicit base and current identities, declare every input it reads in cache_inputs, then rerun the policy check."
+  required_rule_fields:
+    - "script"
+    - "when_paths"
+    - "args"
+    - "cache_inputs"
+  examples:
+    - name: "compatible candidate"
+      command: "./scripts/check-api-compat.sh --base origin/main@BASE_SHA --current HEAD"
+      cwd: "."
+      expect: pass
+    - name: "breaking candidate"
+      command: "./scripts/check-api-compat.sh --base origin/main@BASE_SHA --current HEAD"
+      cwd: "."
+      expect: block
+# User must supply:
+#   script:       repo-relative executable that compares the configured base
+#                 revision with the current candidate and exits 0 only when
+#                 compatibility is proven (exit 2 is a policy block).
+#   when_paths:   exported API/schema/protocol paths that activate the check.
+#   args:         explicit immutable base and current candidate identities.
+#   cache_inputs: every literal manifest, schema, tool config and report read
+#                 by the script; omit no input that can change the result.

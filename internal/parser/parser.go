@@ -1404,7 +1404,14 @@ func expandTemplate(
 			Cause:   err,
 		}
 	}
-	return templates.Apply(tmpl, userItem), nil
+	merged := templates.Apply(tmpl, userItem)
+	if err := templates.ValidateRequiredRuleFields(tmpl, merged, src.Path+" rule["+strconv.Itoa(index)+"]"); err != nil {
+		return nil, &rerrors.RuleValidationError{
+			Message: "rule #" + strconv.Itoa(index) + " in " + src.Path + ": " + err.Error(),
+			Cause:   err,
+		}
+	}
+	return merged, nil
 }
 
 func validateTemplateCache(cache *templateSnapshot) error {

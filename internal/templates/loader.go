@@ -52,20 +52,22 @@ const (
 	SourceUser    Source = "user"
 )
 
-// Template is one resolved template definition. Fields mirror the
-// subset of rule fields that make sense as defaults. We keep the
-// parsed body as a generic map so merging into the rule item is a
-// simple field-level merge -- no special cases per rule kind.
+// Template is one resolved template definition. Body mirrors the subset of
+// rule fields that make sense as defaults; Recipe carries optional strict,
+// template-only evidence metadata. We keep the parsed body as a generic map
+// so merging into the rule item is a simple field-level merge -- no special
+// cases per rule kind.
 type Template struct {
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	Source        Source `json:"source"`
-	Path          string `json:"path"`
+	Name          string          `json:"name"`
+	Description   string          `json:"description"`
+	Source        Source          `json:"source"`
+	Path          string          `json:"path"`
+	Recipe        *RecipeMetadata `json:"recipe,omitempty"`
 	contentDigest [sha256.Size]byte
 	contentBytes  int
-	// Body is the raw YAML body as a map. Fields that aren't recognised
-	// by the rule parser will be rejected at parse time, which is the
-	// correct behaviour -- templates can't invent new rule kinds.
+	// Body is the raw YAML body as a map. Template-only metadata such as
+	// `description` and `recipe` is stripped by Apply; every remaining field
+	// is validated by the normal rule parser.
 	Body map[string]interface{} `json:"body"`
 }
 
@@ -91,9 +93,13 @@ func Resolve(name string) (*Template, error) {
 		if perr != nil {
 			return nil, perr
 		}
+		recipe, perr := recipeFromBody(body, path)
+		if perr != nil {
+			return nil, perr
+		}
 		return &Template{
 			Name: cleaned, Description: description, Source: SourceUser,
-			Path: path, Body: body, contentDigest: sha256.Sum256(data), contentBytes: len(data),
+			Path: path, Recipe: recipe, Body: body, contentDigest: sha256.Sum256(data), contentBytes: len(data),
 		}, nil
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("read user template %s: %w", cleaned, err)
@@ -109,9 +115,13 @@ func Resolve(name string) (*Template, error) {
 	if perr != nil {
 		return nil, perr
 	}
+	recipe, perr := recipeFromBody(body, path)
+	if perr != nil {
+		return nil, perr
+	}
 	return &Template{
 		Name: cleaned, Description: description, Source: SourceBuiltin,
-		Path: path, Body: body, contentDigest: sha256.Sum256(data), contentBytes: len(data),
+		Path: path, Recipe: recipe, Body: body, contentDigest: sha256.Sum256(data), contentBytes: len(data),
 	}, nil
 }
 
@@ -142,9 +152,13 @@ func List() ([]Template, error) {
 		if err != nil {
 			return nil, err
 		}
+		recipe, err := recipeFromBody(body, path)
+		if err != nil {
+			return nil, err
+		}
 		out[name] = Template{
 			Name: name, Description: description, Source: SourceBuiltin,
-			Path: path, Body: body, contentDigest: sha256.Sum256(data), contentBytes: len(data),
+			Path: path, Recipe: recipe, Body: body, contentDigest: sha256.Sum256(data), contentBytes: len(data),
 		}
 	}
 
@@ -174,9 +188,13 @@ func List() ([]Template, error) {
 		if err != nil {
 			return nil, err
 		}
+		recipe, err := recipeFromBody(body, path)
+		if err != nil {
+			return nil, err
+		}
 		out[name] = Template{
 			Name: name, Description: description, Source: SourceUser,
-			Path: path, Body: body, contentDigest: sha256.Sum256(data), contentBytes: len(data),
+			Path: path, Recipe: recipe, Body: body, contentDigest: sha256.Sum256(data), contentBytes: len(data),
 		}
 	}
 
@@ -195,13 +213,13 @@ func List() ([]Template, error) {
 // Apply merges the template's Body into the user rule item.
 // User-supplied fields always win over template defaults.
 //
-// The template's literal fields are stripped before return (so
-// description etc. don't leak into the rule).
+// The template's literal fields are stripped before return (so description
+// and recipe metadata do not leak into the policy rule).
 func Apply(tmpl *Template, userItem map[string]interface{}) map[string]interface{} {
 	merged := map[string]interface{}{}
 	for k, v := range tmpl.Body {
 		// Strip template-only metadata that isn't a rule field.
-		if k == "description" || k == "template" {
+		if k == "description" || k == "recipe" || k == "template" {
 			continue
 		}
 		merged[k] = v

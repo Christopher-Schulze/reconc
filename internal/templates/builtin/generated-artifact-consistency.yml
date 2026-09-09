@@ -1,0 +1,51 @@
+description: "Run a configured generator and verify the complete declared output set against the current source candidate."
+kind: require_script
+mode: block
+message: "The configured generator must reproduce the complete declared artifacts without unrelated candidate changes."
+timeout_sec: 300
+kill_timeout_sec: 15
+when_paths:
+  - "generated/**"
+  - "dist/**"
+  - "**/*.generated.*"
+  - "schema/**"
+  - "templates/**"
+  - "scripts/generators/**"
+recipe:
+  input_paths:
+    - "generated/**"
+    - "dist/**"
+    - "**/*.generated.*"
+    - "schema/**"
+    - "templates/**"
+    - "scripts/generators/**"
+  cwd: "."
+  command_identity: "The configured command must identify the generator, current source candidate, and complete declared output set; it must compare the candidate before and after generation."
+  evidence_identity: "A passing result is the generator's exit-0 outcome plus a clean, path-complete candidate diff; an unrelated clean diff cannot substitute for generated-output equality."
+  applicability: "Activate when a generator, its source inputs, or any declared generated output changes."
+  limitations:
+    - "Reconc does not discover generated outputs or know whether a generator is deterministic; the script must declare and compare the complete set."
+    - "The script must preserve unrelated user changes and fail when generation dirties an undeclared path."
+  remediation: "Run the configured generator from the declared source candidate, update all declared generated outputs, and remove or explain every unrelated diff before rerunning the check."
+  required_rule_fields:
+    - "script"
+    - "when_paths"
+    - "args"
+    - "cache_inputs"
+  examples:
+    - name: "generated outputs match"
+      command: "./scripts/check-generated.sh --source HEAD --outputs generated/api.go,dist/api.json"
+      cwd: "."
+      expect: pass
+    - name: "stale or incomplete output"
+      command: "./scripts/check-generated.sh --source HEAD --outputs generated/api.go,dist/api.json"
+      cwd: "."
+      expect: block
+# User must supply:
+#   script:       repo-relative executable that snapshots the candidate,
+#                 runs the canonical generator, and compares every declared
+#                 output while rejecting unrelated path changes.
+#   when_paths:   generator inputs and complete generated output paths.
+#   args:         source/candidate identity and the complete output manifest.
+#   cache_inputs: generator source, config, templates, manifests and output
+#                 manifest read by the script.

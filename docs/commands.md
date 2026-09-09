@@ -1165,7 +1165,9 @@ declared capabilities when present.
 ### `reconc template list [--json]` / `reconc template show <name> [--json]`
 Rule shape templates (`tests-follow-source`, `docs-follow-code`,
 `no-generated-writes`, `ci-green-before-merge`, `authority-change-approval`,
-`custom-gate-on-change`, `local-secret-state-read-only`, `verified-change`).
+`custom-gate-on-change`, `local-secret-state-read-only`, `verified-change`,
+`public-api-compatibility`, `schema-migration-safety`,
+`generated-artifact-consistency`, `performance-budget`).
 User overrides in `$RECONC_HOME/templates/*.yml`.
 `RECONC_HOME` and user-home resolution failures are explicit. Existing
 `presets` or `templates` roots must be real directories, never symlinks; Reconc
@@ -1174,6 +1176,15 @@ does not fall back to a CWD-relative state path.
 The coupling templates retain broad literal-pattern semantics. Repeating a
 `{name}` capture in `paths` and `when_paths` enables owner-aware companion
 matching for package or module layouts.
+
+The four evidence recipes expose a validated `recipe` contract in
+`reconc template show --json`: input paths, repository-relative cwd, command
+identity, evidence identity, applicability, limitations, remediation, the
+required expanded-rule fields, and pass/block examples. The metadata is
+template-only and is stripped before rule validation. Each recipe declares and
+enforces the repository-owned `script`, `when_paths`, arguments, and literal
+`cache_inputs`; Reconc never invents an API comparator, migration engine,
+generator, or benchmark command.
 
 `authority-change-approval` keeps `authority-change-approved` as completion
 evidence. A protected write must also carry a signed `reconc_approval` request

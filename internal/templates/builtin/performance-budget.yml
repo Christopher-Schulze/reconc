@@ -1,0 +1,48 @@
+description: "Consume attributable benchmark evidence and enforce absolute and normalized performance budgets."
+kind: require_script
+mode: block
+message: "The configured benchmark comparison must provide attributable absolute and normalized budget evidence."
+timeout_sec: 300
+kill_timeout_sec: 15
+when_paths:
+  - "internal/**"
+  - "cmd/**"
+  - "pkg/**"
+  - "scripts/benchmarks/**"
+  - ".build/benchmarks/**"
+recipe:
+  input_paths:
+    - "internal/**"
+    - "cmd/**"
+    - "pkg/**"
+    - "scripts/benchmarks/**"
+    - ".build/benchmarks/**"
+  cwd: "."
+  command_identity: "The benchmark command must identify the current clean or candidate source commit, workload suite, toolchain, CPU metadata, and baseline/result inputs."
+  evidence_identity: "A passing result must be the attributable comparison output with both absolute and normalized TASK 490 metrics and compatible environment metadata; stale or foreign reports fail closed."
+  applicability: "Activate when benchmarked implementation, benchmark suite, build configuration, or performance-sensitive dependency paths change."
+  limitations:
+    - "Reconc does not run or interpret arbitrary benchmark output; the configured script must invoke the repository benchmark contract and compare both budget dimensions."
+    - "Absolute results remain hardware-specific, so the comparison must retain compatible CPU and toolchain metadata alongside normalized limits."
+  remediation: "Record a fresh candidate result, compare it with the reviewed baseline using the repository benchmark-history contract, and fix or explicitly review every absolute or normalized regression."
+  required_rule_fields:
+    - "script"
+    - "when_paths"
+    - "args"
+    - "cache_inputs"
+  examples:
+    - name: "budget passes"
+      command: "go run ./scripts/benchmarks/history compare --baseline scripts/benchmarks/baseline.json --result .build/benchmarks/current.json --output .build/benchmarks/comparison.json"
+      cwd: "."
+      expect: pass
+    - name: "budget regression blocks"
+      command: "go run ./scripts/benchmarks/history compare --baseline scripts/benchmarks/baseline.json --result .build/benchmarks/current.json --output .build/benchmarks/comparison.json"
+      cwd: "."
+      expect: block
+# User must supply:
+#   script:       repo-relative executable that records or consumes the
+#                 repository's attributable benchmark result and returns 0
+#                 only when absolute and normalized budgets both pass.
+#   when_paths:   implementation, benchmark and build paths that activate it.
+#   args:         baseline/result/comparison paths and any workload selector.
+#   cache_inputs: baseline, result, comparison, suite and toolchain metadata.

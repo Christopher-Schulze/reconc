@@ -679,6 +679,52 @@ func TestParseBuiltinGovernanceTemplates(t *testing.T) {
 	}
 }
 
+func TestParseEvidenceRecipeTemplatesRequireConfiguredFields(t *testing.T) {
+	for _, name := range []string{
+		"public-api-compatibility",
+		"schema-migration-safety",
+		"generated-artifact-consistency",
+		"performance-budget",
+	} {
+		t.Run(name, func(t *testing.T) {
+			withoutScript := "rules:\n  - id: recipe\n    template: " + name + "\n"
+			_, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
+				Kind: policy.SourcePolicyFile, Path: "p.yml", Content: withoutScript,
+			}))
+			if err == nil || !strings.Contains(err.Error(), "requires field 'script'") {
+				t.Fatalf("missing configured script error = %v", err)
+			}
+
+			withoutArgs := "rules:\n  - id: recipe\n    template: " + name + "\n    script: .reconc/check.sh\n    cache_inputs: ['policy-input.json']\n"
+			_, err = ParseRuleDocuments(makeBundle(policy.PolicySource{
+				Kind: policy.SourcePolicyFile, Path: "p.yml", Content: withoutArgs,
+			}))
+			if err == nil || !strings.Contains(err.Error(), "requires field 'args'") {
+				t.Fatalf("missing configured args error = %v", err)
+			}
+
+			withoutCacheInputs := "rules:\n  - id: recipe\n    template: " + name + "\n    script: .reconc/check.sh\n    args: ['--candidate', 'HEAD']\n"
+			_, err = ParseRuleDocuments(makeBundle(policy.PolicySource{
+				Kind: policy.SourcePolicyFile, Path: "p.yml", Content: withoutCacheInputs,
+			}))
+			if err == nil || !strings.Contains(err.Error(), "requires field 'cache_inputs'") {
+				t.Fatalf("missing configured cache_inputs error = %v", err)
+			}
+
+			withScript := "rules:\n  - id: recipe\n    template: " + name + "\n    script: .reconc/check.sh\n    args: ['--candidate', 'HEAD']\n    cache_inputs: ['policy-input.json']\n"
+			parsed, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
+				Kind: policy.SourcePolicyFile, Path: "p.yml", Content: withScript,
+			}))
+			if err != nil {
+				t.Fatalf("configured recipe parse: %v", err)
+			}
+			if len(parsed.Rules) != 1 || parsed.Rules[0].Script != ".reconc/check.sh" || len(parsed.Rules[0].WhenPaths) == 0 {
+				t.Fatalf("expanded recipe lost configured script or applicability: %+v", parsed.Rules)
+			}
+		})
+	}
+}
+
 // --- W17: scoped rules (monorepo) ------------------------------------
 
 func TestParseScopedRules(t *testing.T) {

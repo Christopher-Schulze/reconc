@@ -2519,7 +2519,7 @@ func TestRunTemplateList(t *testing.T) {
 		t.Fatalf("template list: %v", err)
 	}
 	out := stdout.String()
-	for _, want := range []string{"tests-follow-source", "no-generated-writes", "builtin"} {
+	for _, want := range []string{"tests-follow-source", "no-generated-writes", "public-api-compatibility", "schema-migration-safety", "generated-artifact-consistency", "performance-budget", "builtin"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("template list missing %q; got:\n%s", want, out)
 		}
@@ -2539,6 +2539,13 @@ func TestRunTemplateListJSON(t *testing.T) {
 	if len(list) < 4 {
 		t.Errorf("expected at least 4 templates, got %d", len(list))
 	}
+	for _, item := range list {
+		if item["name"] == "performance-budget" {
+			if _, ok := item["recipe"].(map[string]interface{}); !ok {
+				t.Fatalf("performance-budget JSON omitted recipe metadata: %#v", item)
+			}
+		}
+	}
 }
 
 func TestRunTemplateShow(t *testing.T) {
@@ -2550,6 +2557,18 @@ func TestRunTemplateShow(t *testing.T) {
 	for _, want := range []string{"tests-follow-source", "couple_change", "builtin"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("template show missing %q; got:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunTemplateShowEvidenceRecipeMetadata(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"template", "show", "performance-budget"}, "0.1.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("template show: %v", err)
+	}
+	for _, want := range []string{"Recipe:", "command_identity:", "evidence_identity:", "required_rule_fields:", "examples:"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("template show missing %q; got:\n%s", want, stdout.String())
 		}
 	}
 }
