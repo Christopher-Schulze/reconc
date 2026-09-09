@@ -57,6 +57,16 @@ func runMCPBeforeResolved(root string, payloadBytes []byte, hostIdentified bool)
 }
 
 func runMCPBeforeResolvedWithEvaluator(root string, payloadBytes []byte, hostIdentified bool, evaluator *runtime.Evaluator) Result {
+	return runMCPBeforeResolvedWithEvaluatorAndStopCache(root, payloadBytes, hostIdentified, evaluator, nil)
+}
+
+func runMCPBeforeResolvedWithEvaluatorAndStopCache(
+	root string,
+	payloadBytes []byte,
+	hostIdentified bool,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
@@ -65,7 +75,7 @@ func runMCPBeforeResolvedWithEvaluator(root string, payloadBytes []byte, hostIde
 		if hostIdentified {
 			return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): host event has no MCP identity"}
 		}
-		return runPreDecisionResolvedWithEvaluator(root, payloadBytes, false, evaluator)
+		return runPreDecisionResolvedWithEvaluatorAndStopCache(root, payloadBytes, false, evaluator, stopCache)
 	}
 	contract, err := evaluator.LoadMCPPolicy(root)
 	if err != nil {
@@ -73,7 +83,7 @@ func runMCPBeforeResolvedWithEvaluator(root string, payloadBytes []byte, hostIde
 	}
 	classification, classified := classifyMCP(contract, payload)
 	if !classified && !hostIdentified {
-		return runPreDecisionResolvedWithEvaluator(root, payloadBytes, false, evaluator)
+		return runPreDecisionResolvedWithEvaluatorAndStopCache(root, payloadBytes, false, evaluator, stopCache)
 	}
 	if !classified {
 		return handleUnclassifiedMCPBefore(root, contract, payload)
@@ -82,7 +92,7 @@ func runMCPBeforeResolvedWithEvaluator(root string, payloadBytes []byte, hostIde
 	if !valid {
 		return handleUnclassifiedMCPBefore(root, contract, payload)
 	}
-	result := enforceMCPBefore(root, payload, classification, values, evaluator)
+	result := enforceMCPBeforeWithStopCache(root, payload, classification, values, evaluator, stopCache)
 	outcome := "allowed"
 	if result.ExitCode != 0 {
 		outcome = "denied"
@@ -281,15 +291,22 @@ func normalizeMCPRepoPathsResolved(root string, rawPaths []string) ([]string, bo
 	return out, len(out) > 0
 }
 
-func enforceMCPBefore(repoRoot string, payload *HookPayload, classification policy.MCPToolPolicy, values mcpExtractedValues, evaluator *runtime.Evaluator) Result {
+func enforceMCPBeforeWithStopCache(
+	repoRoot string,
+	payload *HookPayload,
+	classification policy.MCPToolPolicy,
+	values mcpExtractedValues,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+) Result {
 	switch classification.Effect {
 	case policy.MCPEffectRepositoryRead, policy.MCPEffectExternal:
 		return Result{ExitCode: 0}
 	case policy.MCPEffectRepositoryWrite:
-		return runMCPWritePreResolved(repoRoot, payload, values.Paths, values.RawPaths, evaluator)
+		return runMCPWritePreResolvedWithStopCache(repoRoot, payload, values.Paths, values.RawPaths, evaluator, stopCache)
 	case policy.MCPEffectCommand:
 		for _, command := range values.Commands {
-			result := runMCPCommandPreResolved(repoRoot, payload, command, evaluator)
+			result := runMCPCommandPreResolvedWithStopCache(repoRoot, payload, command, evaluator, stopCache)
 			if result.ExitCode != 0 {
 				return result
 			}
@@ -300,7 +317,13 @@ func enforceMCPBefore(repoRoot string, payload *HookPayload, classification poli
 	}
 }
 
-func runMCPWritePreResolved(root string, payload *HookPayload, paths, rawPaths []string, evaluator *runtime.Evaluator) Result {
+func runMCPWritePreResolvedWithStopCache(
+	root string,
+	payload *HookPayload,
+	paths, rawPaths []string,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+) Result {
 	state, err := ensureSessionStateResolved(root, payload.SessionID)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
@@ -308,7 +331,7 @@ func runMCPWritePreResolved(root string, payload *HookPayload, paths, rawPaths [
 	if state.EvidenceOverflow {
 		return Result{ExitCode: 2, Stderr: evidenceOverflowMessage(state)}
 	}
-	state, err = loadCompleteSessionEvidence(root, state)
+	state, err = loadCompleteSessionEvidenceWithCache(root, state, stopCache)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): load evidence chain: " + err.Error()}
 	}
@@ -347,7 +370,13 @@ func runMCPWritePreResolved(root string, payload *HookPayload, paths, rawPaths [
 	return Result{ExitCode: 2, Stderr: firstLinesForViolations(violations, "reconc blocked this MCP repository write before execution.")}
 }
 
-func runMCPCommandPreResolved(root string, payload *HookPayload, command string, evaluator *runtime.Evaluator) Result {
+func runMCPCommandPreResolvedWithStopCache(
+	root string,
+	payload *HookPayload,
+	command string,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+) Result {
 	if reason := forbiddenShellCommandReasonInRepo(root, command); reason != "" {
 		return Result{ExitCode: 2, Stderr: reason}
 	}
@@ -358,7 +387,7 @@ func runMCPCommandPreResolved(root string, payload *HookPayload, command string,
 	if state.EvidenceOverflow {
 		return Result{ExitCode: 2, Stderr: evidenceOverflowMessage(state)}
 	}
-	state, err = loadCompleteSessionEvidence(root, state)
+	state, err = loadCompleteSessionEvidenceWithCache(root, state, stopCache)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): load evidence chain: " + err.Error()}
 	}

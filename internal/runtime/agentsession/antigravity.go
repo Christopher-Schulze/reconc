@@ -59,11 +59,20 @@ func runAntigravityPreToolUseResolved(root string, payloadBytes []byte) Result {
 }
 
 func runAntigravityPreToolUseResolvedWithEvaluator(root string, payloadBytes []byte, evaluator *runtime.Evaluator) Result {
+	return runAntigravityPreToolUseResolvedWithEvaluatorAndStopCache(root, payloadBytes, evaluator, nil)
+}
+
+func runAntigravityPreToolUseResolvedWithEvaluatorAndStopCache(
+	root string,
+	payloadBytes []byte,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+) Result {
 	payload, err := NormalizeAntigravityPayload("antigravity-pre-tool-use", payloadBytes)
 	if err != nil {
 		return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: err.Error()})
 	}
-	result := runPreToolUseResolvedWithEvaluator(root, payload, evaluator)
+	result := runPreToolUseResolvedWithEvaluatorAndStopCache(root, payload, evaluator, stopCache)
 	if result.ExitCode != 0 || result.Err != nil {
 		return AdaptAntigravityResult("antigravity-pre-tool-use", result)
 	}

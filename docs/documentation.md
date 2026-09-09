@@ -2511,6 +2511,16 @@ verifying the chain. Each full replay builds its string and command-result
 identity indexes once, so deduplication remains linear in total evidence across
 all sealed and live segments.
 
+Persistent hook workers pass their session-owned `StopDecisionCache` through
+PreToolUse, PermissionRequest, classified and fallback MCP pre-hooks, and the
+Antigravity pre-tool route. A complete sealed evidence prefix is reused only
+after every cached segment identity and generation revalidates for the same
+repository and session; an append-only chain decodes only its new suffix. A
+replacement, deletion, corruption, chain mismatch, unreliable generation, or
+empty segment state drops that session's prefix and returns to the normal
+fail-closed load path. The cache is memory-only, bounded to 64 entries and
+16 MiB of retained evidence, and one-shot handlers pass no cache.
+
 An event that cannot fit an empty segment, a 64-segment exhaustion, or a
 missing/corrupt segment creates a project-scoped evidence taint. The taint
 records the exact field and limit cause (`item_bytes`, `item_count`,

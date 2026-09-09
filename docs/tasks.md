@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 486 Reuse verified evidence prefixes in pre-hooks -> tasks/486-reuse-verified-evidence-prefixes-in-pre-hooks.md
 - [ ] 487 Reduce session normalization and publication overhead -> tasks/487-reduce-session-normalization-and-publication-overhead.md
 - [ ] 488 Reuse one inspection snapshot for session briefings -> tasks/488-reuse-one-inspection-snapshot-for-session-briefings.md
 - [ ] 489 Bound cache memory and shorten decision cache locks -> tasks/489-bound-cache-memory-and-shorten-decision-cache-locks.md
@@ -22,6 +21,8 @@
 ## Blocked
 
 ## Done
+
+- [x] 486 Reuse verified evidence prefixes in pre-hooks -> tasks/done/486-reuse-verified-evidence-prefixes-in-pre-hooks.md
 
 - [x] 485 Reuse validated policy snapshots in pre-decision hot paths -> tasks/done/485-reuse-validated-policy-snapshots-in-pre-decision-hot-paths.md
 

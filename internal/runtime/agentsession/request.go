@@ -70,9 +70,9 @@ func RunHookRequestWithEvaluatorAndStopCache(
 	case HookHandlerWorkspaceOpen:
 		return Result{}
 	case HookHandlerPreToolUse:
-		return runPreDecisionResolvedWithEvaluator(root.path, payload, false, evaluator)
+		return runPreDecisionResolvedWithEvaluatorAndStopCache(root.path, payload, false, evaluator, stopCache)
 	case HookHandlerPermissionRequest:
-		return runPreDecisionResolvedWithEvaluator(root.path, payload, true, evaluator)
+		return runPreDecisionResolvedWithEvaluatorAndStopCache(root.path, payload, true, evaluator, stopCache)
 	case HookHandlerPostToolUse:
 		return runPostToolUseResolved(root.path, payload)
 	case HookHandlerPostToolUseFailure:
@@ -82,11 +82,11 @@ func RunHookRequestWithEvaluatorAndStopCache(
 	case HookHandlerPostToolUseStrict:
 		return runPostToolUseCompleteStrictResolved(root.path, payload)
 	case HookHandlerMCPBefore:
-		return runMCPBeforeResolvedWithEvaluator(root.path, payload, true, evaluator)
+		return runMCPBeforeResolvedWithEvaluatorAndStopCache(root.path, payload, true, evaluator, stopCache)
 	case HookHandlerMCPAfter:
 		return runMCPAfterResolvedWithEvaluator(root.path, payload, true, evaluator)
 	case HookHandlerMCPAwarePreToolUse:
-		return runMCPBeforeResolvedWithEvaluator(root.path, payload, false, evaluator)
+		return runMCPBeforeResolvedWithEvaluatorAndStopCache(root.path, payload, false, evaluator, stopCache)
 	case HookHandlerMCPAwarePostToolUse:
 		return runMCPAfterResolvedWithEvaluator(root.path, payload, false, evaluator)
 	case HookHandlerStop:
@@ -98,7 +98,7 @@ func RunHookRequestWithEvaluatorAndStopCache(
 	case HookHandlerAntigravityPreInvoke:
 		return runAntigravityPreInvocationResolved(root.path, payload)
 	case HookHandlerAntigravityPreTool:
-		return runAntigravityPreToolUseResolvedWithEvaluator(root.path, payload, evaluator)
+		return runAntigravityPreToolUseResolvedWithEvaluatorAndStopCache(root.path, payload, evaluator, stopCache)
 	case HookHandlerAntigravityPostTool:
 		return runAntigravityPostToolUseResolved(root.path, payload)
 	case HookHandlerAntigravityPostInvoke:

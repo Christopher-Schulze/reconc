@@ -221,19 +221,43 @@ func runPreToolUseResolved(root string, payloadBytes []byte) Result {
 }
 
 func runPreToolUseResolvedWithEvaluator(root string, payloadBytes []byte, evaluator *runtime.Evaluator) Result {
+	return runPreToolUseResolvedWithEvaluatorAndStopCache(root, payloadBytes, evaluator, nil)
+}
+
+func runPreToolUseResolvedWithEvaluatorAndStopCache(
+	root string,
+	payloadBytes []byte,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		// Fail-closed per threat model.
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
 	}
-	return runPreToolUseParsedWithEvaluator(root, payload, evaluator)
+	return runPreToolUseParsedWithEvaluatorAndStopCache(root, payload, evaluator, stopCache)
 }
 
 func runPreToolUseParsedWithEvaluator(root string, payload *HookPayload, evaluator *runtime.Evaluator) Result {
-	return runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root, payload, evaluator, gitAliasSnapshot{})
+	return runPreToolUseParsedWithEvaluatorAndStopCache(root, payload, evaluator, nil)
 }
 
-func runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root string, payload *HookPayload, evaluator *runtime.Evaluator, aliasSnapshot gitAliasSnapshot) Result {
+func runPreToolUseParsedWithEvaluatorAndStopCache(
+	root string,
+	payload *HookPayload,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+) Result {
+	return runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(root, payload, evaluator, gitAliasSnapshot{}, stopCache)
+}
+
+func runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(
+	root string,
+	payload *HookPayload,
+	evaluator *runtime.Evaluator,
+	aliasSnapshot gitAliasSnapshot,
+	stopCache *StopDecisionCache,
+) Result {
 	if payload == nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (pre): parsed payload is unavailable"}
 	}
@@ -251,7 +275,7 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root string, payload *Hook
 		if state.EvidenceOverflow {
 			return Result{ExitCode: 2, Stderr: evidenceOverflowMessage(state)}
 		}
-		state, err = loadCompleteSessionEvidence(root, state)
+		state, err = loadCompleteSessionEvidenceWithCache(root, state, stopCache)
 		if err != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): load evidence chain: %s", err)}
 		}
@@ -348,7 +372,7 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root string, payload *Hook
 	if state.EvidenceOverflow {
 		return Result{ExitCode: 2, Stderr: evidenceOverflowMessage(state)}
 	}
-	state, err = loadCompleteSessionEvidence(root, state)
+	state, err = loadCompleteSessionEvidenceWithCache(root, state, stopCache)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): load evidence chain: %s", err)}
 	}

@@ -35,13 +35,20 @@ type preDecisionCache struct {
 	Stderr        string `json:"stderr,omitempty"`
 }
 
-// runPreDecisionResolvedWithEvaluator reuses a decision only across identical
-// tool-call identity, policy bytes, session-state bytes, dependency snapshots,
-// repository taint bytes, and the bounded repository Git-alias snapshot. A
-// cache hit samples before lookup and again after reading the candidate. A
-// miss is sampled again after evaluation, so a concurrent evidence, policy,
-// path, or alias mutation cannot validate or warm a stale record.
-func runPreDecisionResolvedWithEvaluator(root string, payloadBytes []byte, permission bool, evaluator *runtime.Evaluator) Result {
+// runPreDecisionResolvedWithEvaluatorAndStopCache reuses a decision only
+// across identical tool-call identity, policy bytes, session-state bytes,
+// dependency snapshots, repository taint bytes, and the bounded repository
+// Git-alias snapshot. A cache hit samples before lookup and again after
+// reading the candidate. A miss is sampled again after evaluation, so a
+// concurrent evidence, policy, path, or alias mutation cannot validate or
+// warm a stale record.
+func runPreDecisionResolvedWithEvaluatorAndStopCache(
+	root string,
+	payloadBytes []byte,
+	permission bool,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return adaptPreDecision(Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}, permission)
@@ -49,7 +56,7 @@ func runPreDecisionResolvedWithEvaluator(root string, payloadBytes []byte, permi
 	if !preDecisionRequiresPolicy(payload) {
 		return adaptPreDecision(Result{}, permission)
 	}
-	inputs, cacheable := preDecisionInputsForPayloadWithEvaluator(root, payload, evaluator)
+	inputs, cacheable := preDecisionInputsForPayloadWithEvaluatorAndStopCache(root, payload, evaluator, stopCache)
 	// Approval-gated writes must reach the live pre-write path on every call.
 	// Reusing a claim-only decision here could skip receipt verification, and a
 	// receipt is deliberately consumed only after the final policy generation
@@ -81,7 +88,7 @@ func runPreDecisionResolvedWithEvaluator(root string, payloadBytes []byte, permi
 	cached, cachedOK := readPreDecisionCacheCandidate(root, payload)
 	evaluationInputs := inputs
 	if cacheable && cachedOK && cached.Key == inputs.key {
-		if current, ok := resamplePreDecisionInputsWithEvaluator(root, payload, inputs, evaluator); ok &&
+		if current, ok := resamplePreDecisionInputsWithEvaluatorAndStopCache(root, payload, inputs, evaluator, stopCache); ok &&
 			inputs.identity.equal(current.identity) && cached.Key == current.key {
 			return adaptPreDecision(Result{ExitCode: cached.ExitCode, Stderr: cached.Stderr}, permission)
 		} else if ok {
@@ -89,8 +96,8 @@ func runPreDecisionResolvedWithEvaluator(root string, payloadBytes []byte, permi
 		}
 	}
 
-	decision := runPreToolUseParsedWithEvaluatorAndAliasSnapshot(root, payload, evaluator, evaluationInputs.aliasSnapshot)
-	if postInputs, ok := resamplePreDecisionInputsWithEvaluator(root, payload, evaluationInputs, evaluator); cacheable && ok &&
+	decision := runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(root, payload, evaluator, evaluationInputs.aliasSnapshot, stopCache)
+	if postInputs, ok := resamplePreDecisionInputsWithEvaluatorAndStopCache(root, payload, evaluationInputs, evaluator, stopCache); cacheable && ok &&
 		evaluationInputs.identity.equal(postInputs.identity) {
 		_ = writePreDecisionCacheForPayload(root, payload, postInputs.key, decision)
 	}
@@ -241,6 +248,15 @@ func preDecisionInputsForPayload(root string, payload *HookPayload) (preDecision
 }
 
 func preDecisionInputsForPayloadWithEvaluator(root string, payload *HookPayload, evaluator *runtime.Evaluator) (preDecisionInputs, bool) {
+	return preDecisionInputsForPayloadWithEvaluatorAndStopCache(root, payload, evaluator, nil)
+}
+
+func preDecisionInputsForPayloadWithEvaluatorAndStopCache(
+	root string,
+	payload *HookPayload,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+) (preDecisionInputs, bool) {
 	if payload == nil || strings.TrimSpace(payload.SessionID) == "" || strings.TrimSpace(payload.ToolUseID) == "" {
 		return preDecisionInputs{}, false
 	}
@@ -261,18 +277,19 @@ func preDecisionInputsForPayloadWithEvaluator(root string, payload *HookPayload,
 	inputs := preDecisionInputs{
 		identity: preDecisionIdentity{payload: string(payloadIdentity)},
 	}
-	if !capturePreDecisionObservedIdentityWithEvaluator(root, payload, &inputs, evaluator) {
+	if !capturePreDecisionObservedIdentityWithEvaluatorAndStopCache(root, payload, &inputs, evaluator, stopCache) {
 		return preDecisionInputs{}, false
 	}
 	inputs.key = inputs.identity.key()
 	return inputs, true
 }
 
-func capturePreDecisionObservedIdentityWithEvaluator(
+func capturePreDecisionObservedIdentityWithEvaluatorAndStopCache(
 	root string,
 	payload *HookPayload,
 	inputs *preDecisionInputs,
 	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
 ) bool {
 	if payload == nil || inputs == nil {
 		return false
@@ -294,7 +311,7 @@ func capturePreDecisionObservedIdentityWithEvaluator(
 			return false
 		}
 	}
-	stateIdentity, state, evidenceIdentity, ok := preDecisionSessionDependencies(root, payload.SessionID)
+	stateIdentity, state, evidenceIdentity, ok := preDecisionSessionDependenciesWithStopCache(root, payload.SessionID, stopCache)
 	if !ok {
 		return false
 	}
@@ -323,7 +340,7 @@ func capturePreDecisionObservedIdentityWithEvaluator(
 	return true
 }
 
-func preDecisionSessionDependencies(root, sessionID string) (string, SessionState, string, bool) {
+func preDecisionSessionDependenciesWithStopCache(root, sessionID string, stopCache *StopDecisionCache) (string, SessionState, string, bool) {
 	stateIdentityBefore, ok := preDecisionSessionIdentity(root, sessionID)
 	if !ok {
 		return "", SessionState{}, "", false
@@ -337,7 +354,7 @@ func preDecisionSessionDependencies(root, sessionID string) (string, SessionStat
 		return "", SessionState{}, "", false
 	}
 	var prefix verifiedEvidencePrefix
-	complete, err := loadCompleteSessionEvidenceWithCacheCapture(root, state, nil, &prefix)
+	complete, err := loadCompleteSessionEvidenceWithCacheCapture(root, state, stopCache, &prefix)
 	if err != nil {
 		return "", SessionState{}, "", false
 	}
@@ -617,13 +634,23 @@ func resamplePreDecisionInputsWithEvaluator(
 	baseline preDecisionInputs,
 	evaluator *runtime.Evaluator,
 ) (preDecisionInputs, bool) {
+	return resamplePreDecisionInputsWithEvaluatorAndStopCache(root, payload, baseline, evaluator, nil)
+}
+
+func resamplePreDecisionInputsWithEvaluatorAndStopCache(
+	root string,
+	payload *HookPayload,
+	baseline preDecisionInputs,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+) (preDecisionInputs, bool) {
 	if payload == nil || baseline.identity.payload == "" {
 		return preDecisionInputs{}, false
 	}
 	inputs := preDecisionInputs{
 		identity: preDecisionIdentity{payload: baseline.identity.payload},
 	}
-	if !capturePreDecisionObservedIdentityWithEvaluator(root, payload, &inputs, evaluator) {
+	if !capturePreDecisionObservedIdentityWithEvaluatorAndStopCache(root, payload, &inputs, evaluator, stopCache) {
 		return preDecisionInputs{}, false
 	}
 	inputs.key = inputs.identity.key()

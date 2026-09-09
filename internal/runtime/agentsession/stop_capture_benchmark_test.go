@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/internal/runtime"
 )
 
 func BenchmarkVerifiedEvidencePrefix(b *testing.B) {
@@ -39,6 +41,41 @@ func BenchmarkVerifiedEvidencePrefix(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func BenchmarkWorkerPreHookVerifiedEvidencePrefix(b *testing.B) {
+	repo := setupStopBenchmarkRepo(b)
+	state := writeEvidenceChainFixture(b, repo, "worker-prefix-benchmark", 16, 128)
+	if err := SaveSessionState(state); err != nil {
+		b.Fatal(err)
+	}
+	root, err := ResolveRepoRootRef(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	payload := []byte(`{"session_id":"worker-prefix-benchmark","tool_use_id":"benchmark-call","tool_name":"Write","tool_input":{"file_path":"src/a.go"}}`)
+	evaluator := runtime.NewEvaluator()
+	warmCache := NewStopDecisionCache()
+	if result := RunHookRequestWithEvaluatorAndStopCache(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload, evaluator, warmCache); result.ExitCode != 0 {
+		b.Fatalf("warm-up pre-hook failed: %+v", result)
+	}
+	b.Run("cold-prefix", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			cache := NewStopDecisionCache()
+			if result := RunHookRequestWithEvaluatorAndStopCache(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload, evaluator, cache); result.ExitCode != 0 {
+				b.Fatalf("cold worker pre-hook failed: %+v", result)
+			}
+		}
+	})
+	b.Run("warm-prefix", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			if result := RunHookRequestWithEvaluatorAndStopCache(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload, evaluator, warmCache); result.ExitCode != 0 {
+				b.Fatalf("warm worker pre-hook failed: %+v", result)
+			}
+		}
+	})
 }
 
 func BenchmarkStopLoadedEvidenceAttempt(b *testing.B) {

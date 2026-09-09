@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"reconc.dev/reconc/internal/runtime"
 )
 
 func TestPreDecisionCacheRejectsRetargetedWriteAncestor(t *testing.T) {
@@ -180,5 +182,85 @@ func TestPreDecisionIdentityStableForExistingPath(t *testing.T) {
 	resampled, ok := resamplePreDecisionInputs(repo, payload, initial)
 	if !ok || !initial.identity.equal(resampled.identity) {
 		t.Fatalf("stable existing path identity changed: initial=%+v resampled=%+v cacheable=%v", initial.identity, resampled.identity, ok)
+	}
+}
+
+func TestWorkerPreDecisionHooksReuseVerifiedEvidencePrefix(t *testing.T) {
+	repo := setupStopBenchmarkRepo(t)
+	root, err := ResolveRepoRootRef(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sessionID = "worker-prefix"
+	state := writeEvidenceChainFixture(t, repo, sessionID, 2, 128)
+	if err := SaveSessionState(state); err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"session_id":"worker-prefix","tool_use_id":"worker-call","tool_name":"Write","tool_input":{"file_path":"src/a.go"}}`)
+	evaluator := runtime.NewEvaluator()
+	cache := NewStopDecisionCache()
+	if result := RunHookRequestWithEvaluatorAndStopCache(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload, evaluator, cache); result.ExitCode != 0 {
+		t.Fatalf("cold worker pre-hook failed: %+v", result)
+	}
+	prefix, ok := cache.verifiedEvidencePrefix(root.Path(), sessionID)
+	if !ok || prefix.count != 2 || len(prefix.segments) != 2 {
+		t.Fatalf("cold worker pre-hook did not cache the complete prefix: ok=%t prefix=%+v", ok, prefix)
+	}
+	if result := RunHookRequestWithEvaluatorAndStopCache(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload, evaluator, cache); result.ExitCode != 0 {
+		t.Fatalf("warm worker pre-hook failed: %+v", result)
+	}
+	warm, ok := cache.verifiedEvidencePrefix(root.Path(), sessionID)
+	if !ok || warm.count != prefix.count || len(warm.segments) != len(prefix.segments) {
+		t.Fatalf("warm worker pre-hook changed the verified prefix unexpectedly: ok=%t prefix=%+v", ok, warm)
+	}
+
+	appendCommandValues(t, repo, sessionID, []string{"live-command"})
+	appendCommandRange(t, repo, sessionID, 1, maxCommandEvidenceItems)
+	state, err = LoadSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.EvidenceOverflow || state.EvidenceSegmentCount != 3 {
+		t.Fatalf("append-only suffix did not produce a clean third segment: %+v", state)
+	}
+	if result := RunHookRequestWithEvaluatorAndStopCache(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload, evaluator, cache); result.ExitCode != 0 {
+		t.Fatalf("append-only worker pre-hook failed: %+v", result)
+	}
+	appended, ok := cache.verifiedEvidencePrefix(root.Path(), sessionID)
+	if !ok || appended.count != 3 || len(appended.segments) != 3 {
+		t.Fatalf("append-only worker pre-hook did not extend the verified prefix: ok=%t prefix=%+v", ok, appended)
+	}
+
+	const otherSessionID = "worker-prefix-other"
+	otherState := writeEvidenceChainFixture(t, repo, otherSessionID, 1, 128)
+	if err := SaveSessionState(otherState); err != nil {
+		t.Fatal(err)
+	}
+	otherPayload := []byte(`{"session_id":"worker-prefix-other","tool_use_id":"other-call","tool_name":"Write","tool_input":{"file_path":"src/a.go"}}`)
+	if result := RunHookRequestWithEvaluatorAndStopCache(root, HookHandlerPreToolUse, "claude-pre-tool-use", otherPayload, evaluator, cache); result.ExitCode != 0 {
+		t.Fatalf("isolated worker pre-hook failed: %+v", result)
+	}
+	if other, ok := cache.verifiedEvidencePrefix(root.Path(), otherSessionID); !ok || other.count != 1 {
+		t.Fatalf("other session prefix was not isolated: ok=%t prefix=%+v", ok, other)
+	}
+
+	path := evidenceSegmentPath(root.Path(), sessionID, 1)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body[len(body)/2] ^= 1
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	corrupt := RunHookRequestWithEvaluatorAndStopCache(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload, evaluator, cache)
+	if corrupt.ExitCode != 2 {
+		t.Fatalf("corrupt worker prefix was not rejected: %+v", corrupt)
+	}
+	if _, ok := cache.verifiedEvidencePrefix(root.Path(), sessionID); ok {
+		t.Fatal("corrupt worker prefix remained cached")
+	}
+	if _, ok := cache.verifiedEvidencePrefix(root.Path(), otherSessionID); !ok {
+		t.Fatal("corrupting one session evicted another session's verified prefix")
 	}
 }
