@@ -573,11 +573,11 @@ func mutateSessionStateResolved(root, sessionID string, mutate func(SessionState
 		if err != nil {
 			return err
 		}
-		updated = mutate(state)
+		updated = mutate(cloneSessionState(state))
 		if updated.EvidenceOverflow && !state.EvidenceOverflow && evidenceFieldRotatable(updated.EvidenceOverflowReason) && sessionHasEvidence(state) {
 			rotated, rotateErr := rotateSessionEvidenceLocked(root, state)
 			if rotateErr == nil {
-				updated = mutate(rotated)
+				updated = mutate(cloneSessionState(rotated))
 			} else {
 				if state.EvidenceSegmentCount >= maxEvidenceSegments {
 					updated.EvidenceOverflowLimit = "segment_count"

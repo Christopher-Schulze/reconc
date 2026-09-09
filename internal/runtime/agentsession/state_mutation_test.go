@@ -231,6 +231,70 @@ func TestStateMapMutatorsDoNotAliasLoadedState(t *testing.T) {
 	}
 }
 
+func TestMutateSessionStateDeepClonesCallbackInput(t *testing.T) {
+	_, repo := withStateRoot(t)
+	const sessionID = "callback-deep-copy"
+	if _, err := InitializeSessionState(repo, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	exitCode := 7
+	isInterrupt := true
+	highWater := uint64(3)
+	if _, err := MutateSessionState(repo, sessionID, func(state SessionState) SessionState {
+		state = PutPendingToolCall(state, "call-nested", PendingToolCall{
+			ToolName: "Read",
+			ToolInput: map[string]interface{}{
+				"nested": map[string]interface{}{"value": "before"},
+				"items":  []interface{}{map[string]interface{}{"value": "before-list"}},
+			},
+		})
+		state = AppendCommandResult(state, CommandResult{
+			Command: "git status", Outcome: "success", ExitCode: &exitCode, IsInterrupt: &isInterrupt,
+		})
+		state.AntigravityStepHighWater = &highWater
+		return state
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := MutateSessionState(repo, sessionID, func(state SessionState) SessionState {
+		updatedExitCode := 9
+		updatedInterrupt := false
+		call := state.PendingToolCalls["call-nested"]
+		call.ToolInput["nested"].(map[string]interface{})["value"] = "after"
+		call.ToolInput["items"].([]interface{})[0].(map[string]interface{})["value"] = "after-list"
+		state.CommandResults[0].ExitCode = &updatedExitCode
+		state.CommandResults[0].IsInterrupt = &updatedInterrupt
+		*state.AntigravityStepHighWater = 8
+		return state
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := updated.PendingToolCalls["call-nested"]
+	if call.ToolInput["nested"].(map[string]interface{})["value"] != "after" ||
+		call.ToolInput["items"].([]interface{})[0].(map[string]interface{})["value"] != "after-list" {
+		t.Fatalf("nested callback mutation was not returned: %#v", call.ToolInput)
+	}
+	if updated.CommandResults[0].ExitCode == nil || *updated.CommandResults[0].ExitCode != 9 ||
+		updated.CommandResults[0].IsInterrupt == nil || *updated.CommandResults[0].IsInterrupt {
+		t.Fatalf("pointer callback mutation was not returned: %+v", updated.CommandResults[0])
+	}
+	if updated.AntigravityStepHighWater == nil || *updated.AntigravityStepHighWater != 8 {
+		t.Fatalf("high-water callback mutation was not returned: %v", updated.AntigravityStepHighWater)
+	}
+	if exitCode != 7 || !isInterrupt || highWater != 3 {
+		t.Fatalf("callback mutated external pointer baseline: exit=%d interrupt=%t high-water=%d", exitCode, isInterrupt, highWater)
+	}
+	loaded, err := LoadSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(loaded, updated) {
+		t.Fatalf("persisted state differs from callback result:\nloaded=%+v\nupdated=%+v", loaded, updated)
+	}
+}
+
 func TestPendingToolCallCardinalityMutationsPersist(t *testing.T) {
 	_, repo := withStateRoot(t)
 	const sessionID = "pending-cardinality"

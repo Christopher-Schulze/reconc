@@ -7,6 +7,7 @@
 ## Blocked
 
 ## Done
+- [x] 507 Isolate mutable session callback state -> tasks/done/507-isolate-mutable-session-callback-state.md
 - [x] 506 Reject deleted applicable module manifests in assurance -> tasks/done/506-reject-deleted-applicable-module-manifests.md
 - [x] 505 Make shared runtime-plan loading cancellation-safe -> tasks/done/505-make-shared-plan-loading-cancellation-safe.md
 - [x] 504 Retry MCP shutdown finalization without losing pending state -> tasks/done/504-retry-mcp-shutdown-finalization.md

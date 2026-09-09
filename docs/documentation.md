@@ -2577,8 +2577,9 @@ payloads. Live session state is hard-capped at 1 MiB; every evidence
 collection has both item and byte limits, and repeated command results are
 deduplicated. Every changed mutation checks the exact normalized serialized
 state before publication. Product mutators keep bounded string collections in
-deterministic order so canonical updates bypass collection rebuilding; untrusted
-callback shapes still cross the defensive normalizer. Published session JSON is
+deterministic order so canonical updates bypass collection rebuilding; callback
+inputs are deep-cloned before comparison and untrusted callback shapes still
+cross the defensive normalizer. Published session JSON is
 compact and newline-terminated; legacy indented files remain readable. An
 aggregate overflow preserves the last valid state
 file, persists project-scoped taint, and returns fail-closed state instead of a
