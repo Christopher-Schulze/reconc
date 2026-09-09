@@ -42,6 +42,9 @@ const (
 )
 
 func normalizeSessionState(state SessionState) SessionState {
+	if sessionStateIsNormalized(state) {
+		return state
+	}
 	overflow := state.EvidenceOverflow
 	reason := state.EvidenceOverflowReason
 	limit := state.EvidenceOverflowLimit
@@ -108,6 +111,142 @@ func normalizeSessionState(state SessionState) SessionState {
 		}
 	}
 	return state
+}
+
+// sessionStateIsNormalized verifies the in-memory admission contract used by
+// MutateSessionState. It intentionally performs no repairs and returns false
+// for any shape whose deterministic normalizer could change it. Keeping this
+// check separate from normalizeSessionState lets trusted mutators publish a
+// canonical state without rebuilding every bounded collection, while
+// arbitrary callbacks still receive the defensive normalization path.
+func sessionStateIsNormalized(state SessionState) bool {
+	if !state.EvidenceOverflow && (state.EvidenceOverflowReason != "" || state.EvidenceOverflowLimit != "") {
+		return false
+	}
+	if !normalizedExactStrings(state.ReadPaths, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes) ||
+		!normalizedExactStrings(state.WritePaths, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes) ||
+		!normalizedStrings(state.Commands, maxCommandEvidenceItems, maxCommandEvidenceBytes, maxCommandBytes) ||
+		!normalizedStrings(state.Claims, maxClaimEvidenceItems, maxClaimEvidenceBytes, maxClaimBytes) ||
+		!normalizedStrings(state.ConsumedApprovalIdentities, maxConsumedApprovalIdentities, maxConsumedApprovalBytes, maxConsumedApprovalBytesEach) {
+		return false
+	}
+	if state.WriteEpochs == nil || len(state.WriteEpochs) > len(state.WritePaths) {
+		return false
+	}
+	for path, epoch := range state.WriteEpochs {
+		index := sort.SearchStrings(state.WritePaths, path)
+		if epoch == 0 || index == len(state.WritePaths) || state.WritePaths[index] != path {
+			return false
+		}
+	}
+	if !normalizedCommandResults(state.CommandResults, state.CommandResultBytes) ||
+		!normalizedPendingToolCalls(state.PendingToolCalls) ||
+		!normalizedRetiredToolCallKeys(state.RetiredToolCallKeys) {
+		return false
+	}
+	return true
+}
+
+func normalizedExactStrings(values []string, maxItems, maxBytes, maxItemBytes int) bool {
+	if values == nil || len(values) > maxItems {
+		return false
+	}
+	retainedBytes := 0
+	for index, value := range values {
+		if value == "" || len(value) > maxItemBytes || retainedBytes+len(value) > maxBytes {
+			return false
+		}
+		if index > 0 && values[index-1] >= value {
+			return false
+		}
+		retainedBytes += len(value)
+	}
+	return true
+}
+
+func normalizedStrings(values []string, maxItems, maxBytes, maxItemBytes int) bool {
+	if values == nil || len(values) > maxItems {
+		return false
+	}
+	retainedBytes := 0
+	for index, value := range values {
+		if value == "" || strings.TrimSpace(value) != value || len(value) > maxItemBytes || retainedBytes+len(value) > maxBytes {
+			return false
+		}
+		if index > 0 && values[index-1] >= value {
+			return false
+		}
+		retainedBytes += len(value)
+	}
+	return true
+}
+
+func normalizedCommandResults(results []CommandResult, encodedBytes int64) bool {
+	if results == nil || len(results) > maxCommandResultItems {
+		return false
+	}
+	var seen map[commandResultKey]struct{}
+	if len(results) > 0 {
+		seen = make(map[commandResultKey]struct{}, len(results))
+	}
+	retainedBytes := int64(0)
+	for _, result := range results {
+		if result.Command == "" || strings.TrimSpace(result.Command) != result.Command || len(result.Command) > maxCommandBytes ||
+			result.Error != truncateBytes(result.Error, maxResultErrorBytes) ||
+			result.ToolUseID != truncateBytes(result.ToolUseID, maxToolUseIDBytes) {
+			return false
+		}
+		key := commandResultIdentity(result)
+		if _, duplicate := seen[key]; duplicate {
+			return false
+		}
+		seen[key] = struct{}{}
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			return false
+		}
+		retainedBytes += int64(len(encoded))
+		if retainedBytes > maxCommandResultBytes {
+			return false
+		}
+	}
+	return encodedBytes == retainedBytes
+}
+
+func normalizedPendingToolCalls(calls map[string]PendingToolCall) bool {
+	if len(calls) == 0 {
+		return calls == nil
+	}
+	if len(calls) > maxPendingToolCalls {
+		return false
+	}
+	for key, call := range calls {
+		if key == "" || strings.TrimSpace(key) != key || len(key) > maxToolUseIDBytes ||
+			call.ToolName != truncateBytes(strings.TrimSpace(call.ToolName), 1024) ||
+			call.ToolUseID != truncateBytes(strings.TrimSpace(call.ToolUseID), maxToolUseIDBytes) {
+			return false
+		}
+		encoded, err := json.Marshal(call)
+		if err != nil || len(encoded) > maxPendingToolCallBytes {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizedRetiredToolCallKeys(keys map[string]int64) bool {
+	if len(keys) == 0 {
+		return keys == nil
+	}
+	if len(keys) > maxRetiredToolCallKeys {
+		return false
+	}
+	for key, retiredAt := range keys {
+		if key == "" || strings.TrimSpace(key) != key || len(key) > maxToolUseIDBytes || retiredAt <= 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // appendNormalizedExactStrings appends an already sorted and deduplicated
@@ -181,7 +320,10 @@ func appendBoundedExactStringPrepared(
 		markEvidenceOverflowWithLimit(state, field, "byte_budget")
 		return false
 	}
-	*values = append(*values, item)
+	insertAt := sort.SearchStrings(*values, item)
+	*values = append(*values, "")
+	copy((*values)[insertAt+1:], (*values)[insertAt:])
+	(*values)[insertAt] = item
 	*retainedBytes += len(item)
 	if seen != nil {
 		seen[item] = struct{}{}

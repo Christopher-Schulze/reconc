@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 487 Reduce session normalization and publication overhead -> tasks/487-reduce-session-normalization-and-publication-overhead.md
 - [ ] 488 Reuse one inspection snapshot for session briefings -> tasks/488-reuse-one-inspection-snapshot-for-session-briefings.md
 - [ ] 489 Bound cache memory and shorten decision cache locks -> tasks/489-bound-cache-memory-and-shorten-decision-cache-locks.md
 - [ ] 490 Enforce absolute performance budgets and retain benchmark evidence -> tasks/490-enforce-absolute-performance-budgets-and-retain-benchmark-evidence.md
@@ -21,6 +20,8 @@
 ## Blocked
 
 ## Done
+
+- [x] 487 Reduce session normalization and publication overhead -> tasks/done/487-reduce-session-normalization-and-publication-overhead.md
 
 - [x] 486 Reuse verified evidence prefixes in pre-hooks -> tasks/done/486-reuse-verified-evidence-prefixes-in-pre-hooks.md
 

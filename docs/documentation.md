@@ -2498,7 +2498,11 @@ bounded repository continuation plus material transitions without prompt
 payloads. Live session state is hard-capped at 1 MiB; every evidence
 collection has both item and byte limits, and repeated command results are
 deduplicated. Every changed mutation checks the exact normalized serialized
-state before publication. An aggregate overflow preserves the last valid state
+state before publication. Product mutators keep bounded string collections in
+deterministic order so canonical updates bypass collection rebuilding; untrusted
+callback shapes still cross the defensive normalizer. Published session JSON is
+compact and newline-terminated; legacy indented files remain readable. An
+aggregate overflow preserves the last valid state
 file, persists project-scoped taint, and returns fail-closed state instead of a
 partial write or an unrecoverable save error. Reaching a collection limit seals
 the complete raw evidence into

@@ -88,6 +88,16 @@ func TestNormalizedStatePublicationMatchesDefensiveMarshal(t *testing.T) {
 	}
 }
 
+func TestSessionStatePublicationUsesCompactDeterministicJSON(t *testing.T) {
+	body, err := marshalStateDeterministic(emptyState("/repo", "compact"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasSuffix(body, []byte{'\n'}) || bytes.Contains(body, []byte("\n  ")) {
+		t.Fatalf("session state was not compact deterministic JSON: %q", body)
+	}
+}
+
 func BenchmarkNormalizedMaximumStateMutationComparison(b *testing.B) {
 	state := normalizeSessionState(maximumNormalizationState())
 	mutated := state

@@ -444,8 +444,9 @@ func saveSessionStateLockedIfChanged(state SessionState) (bool, error) {
 	if err := validateSessionID(state.SessionID); err != nil {
 		return false, err
 	}
-	// Deterministic marshalling (sorted keys, 2-space indent, trailing
-	// newline) so diffing session state across runs is git-friendly.
+	// Deterministic compact marshalling (sorted keys, trailing newline) keeps
+	// the bounded publication small while remaining compatible with the JSON
+	// readers used for current and legacy session files.
 	data, err := marshalStateDeterministic(state)
 	if err != nil {
 		return false, fmt.Errorf("marshal session state: %w", err)
@@ -590,11 +591,15 @@ func mutateSessionStateResolved(root, sessionID string, mutate func(SessionState
 		if updated.ReportPath == "" {
 			updated.ReportPath = sessionReportPath(root, sessionID)
 		}
-		// Normalize before the single publication comparison. This both removes
-		// apparent changes that collapse through trimming/deduplication and keeps
-		// the no-op path from paying a second full-state equality pass.
-		updated = normalizeSessionState(updated)
+		// Admission is deliberately conservative: exact no-ops skip all
+		// collection work, and already-canonical mutations skip the rebuilding
+		// normalizer. Arbitrary callbacks still cross the full normalizer before
+		// publication, so the persisted boundary retains its existing limits.
 		stateChanged := !reflect.DeepEqual(state, updated)
+		if stateChanged && !sessionStateIsNormalized(updated) {
+			updated = normalizeSessionState(updated)
+			stateChanged = !reflect.DeepEqual(state, updated)
+		}
 		if !stateChanged {
 			info, err := os.Stat(sessionStatePath(root, sessionID))
 			if errors.Is(err, os.ErrNotExist) {
@@ -639,7 +644,7 @@ func mutateSessionStateResolved(root, sessionID string, mutate func(SessionState
 }
 
 // marshalStateDeterministic serialises SessionState with sorted keys
-// (which Go's default json.Marshal does for struct fields anyway) and
+// (which Go's default json.Marshal does for struct fields anyway) and a
 // trailing newline. We dedupe + sort the slice fields first so two
 // semantically-equal states produce identical bytes.
 func marshalStateDeterministic(state SessionState) ([]byte, error) {
@@ -647,7 +652,7 @@ func marshalStateDeterministic(state SessionState) ([]byte, error) {
 }
 
 func marshalNormalizedStateDeterministic(state SessionState) ([]byte, error) {
-	body, err := json.MarshalIndent(state, "", "  ")
+	body, err := json.Marshal(state)
 	if err != nil {
 		return nil, err
 	}

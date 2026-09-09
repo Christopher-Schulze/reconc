@@ -97,6 +97,56 @@ func TestNormalizeSessionStateRecomputesCommandResultBytes(t *testing.T) {
 	}
 }
 
+func TestSessionStateNormalizationAdmissionRequiresCanonicalCollections(t *testing.T) {
+	state := normalizeSessionState(emptyState("/repo", "admission"))
+	if !sessionStateIsNormalized(state) {
+		t.Fatal("normalized empty state was rejected by admission")
+	}
+	state = AppendReadPath(state, "z.go")
+	state = AppendReadPath(state, "a.go")
+	if !sessionStateIsNormalized(state) {
+		t.Fatal("bounded path mutators did not preserve canonical ordering")
+	}
+	state.Commands = append(state.Commands, "  git status  ")
+	if sessionStateIsNormalized(state) {
+		t.Fatal("untrusted non-canonical command was admitted")
+	}
+	canonical := normalizeSessionState(state)
+	if !sessionStateIsNormalized(canonical) || len(canonical.Commands) != 1 || canonical.Commands[0] != "git status" {
+		t.Fatalf("canonical repair = %+v", canonical)
+	}
+	canonical.EvidenceOverflowReason = "stale-marker"
+	if sessionStateIsNormalized(canonical) {
+		t.Fatal("orphaned overflow marker was admitted")
+	}
+}
+
+func TestNormalizeSessionStateIsIdempotentAtAdmissionBoundary(t *testing.T) {
+	exitCode := 0
+	inputs := []SessionState{
+		emptyState("/repo", "idempotent-empty"),
+		maximumNormalizationState(),
+		{
+			ReadPaths:        []string{"z.go", "a.go", "a.go"},
+			WritePaths:       []string{"src/out.go"},
+			WriteEpochs:      map[string]uint64{"src/out.go": 4, "stale.go": 2},
+			Commands:         []string{"  go test  ", "go test"},
+			CommandResults:   []CommandResult{{Command: " cmd ", Outcome: "success", ExitCode: &exitCode}},
+			PendingToolCalls: map[string]PendingToolCall{" call ": {ToolName: " Read "}},
+		},
+	}
+	for index, input := range inputs {
+		first := normalizeSessionState(input)
+		second := normalizeSessionState(first)
+		if !reflect.DeepEqual(second, first) {
+			t.Fatalf("input %d changed after second normalization: first=%+v second=%+v", index, first, second)
+		}
+		if !sessionStateIsNormalized(first) {
+			t.Fatalf("input %d normalized state was not admitted: %+v", index, first)
+		}
+	}
+}
+
 func TestPendingToolCallExpiryReclaimsCapacity(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	state := emptyState("/repo", "pending-expiry")
@@ -278,6 +328,15 @@ func BenchmarkNormalizeSessionStateCollections(b *testing.B) {
 				_ = normalizeSessionState(state)
 			}
 		})
+	}
+}
+
+func BenchmarkNormalizeSessionStateCanonicalAdmission(b *testing.B) {
+	state := normalizeSessionState(maximumNormalizationState())
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		state = normalizeSessionState(state)
 	}
 }
 
