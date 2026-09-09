@@ -475,6 +475,81 @@ func TestRuntimePlanCanceledWaiterReturnsWithoutStoppingOwner(t *testing.T) {
 	}
 }
 
+func TestRuntimePlanCanceledOwnerDoesNotStopSurvivingWaiter(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	evaluator := NewEvaluator()
+	hookEntered := make(chan struct{})
+	release := make(chan struct{})
+	var hookOnce sync.Once
+	evaluator.loadHook = func(stage runtimePlanLoadStage) {
+		if stage != runtimePlanLoadAfterSourceSnapshot {
+			return
+		}
+		hookOnce.Do(func() {
+			close(hookEntered)
+			<-release
+		})
+	}
+	ownerContext, cancelOwner := context.WithCancel(context.Background())
+	ownerDone := make(chan error, 1)
+	go func() {
+		_, err := evaluator.loadRuntimePlanWithContext(ownerContext, repo)
+		ownerDone <- err
+	}()
+	select {
+	case <-hookEntered:
+	case <-time.After(time.Second):
+		t.Fatal("runtime plan owner did not reach deterministic load hook")
+	}
+	waiterDone := make(chan error, 1)
+	go func() {
+		_, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo)
+		waiterDone <- err
+	}()
+	deadline := time.After(time.Second)
+	for {
+		evaluator.mu.Lock()
+		callers := 0
+		if active := evaluator.loads[repo]; active != nil {
+			callers = active.callers
+		}
+		evaluator.mu.Unlock()
+		if callers == 2 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("surviving waiter did not join shared load")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	cancelOwner()
+	select {
+	case err := <-ownerDone:
+		if !stderrors.Is(err, context.Canceled) {
+			t.Fatalf("canceled owner error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled owner did not return while waiter survived")
+	}
+	close(release)
+	select {
+	case err := <-waiterDone:
+		if err != nil {
+			t.Fatalf("surviving waiter error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("surviving waiter did not receive shared plan")
+	}
+	evaluator.mu.Lock()
+	defer evaluator.mu.Unlock()
+	if len(evaluator.loads) != 0 || len(evaluator.plans) != 1 {
+		t.Fatalf("shared load state after owner cancellation: active %d cached %d", len(evaluator.loads), len(evaluator.plans))
+	}
+}
+
 func TestRuntimePlanCanceledOwnerLeavesNoPartialLoad(t *testing.T) {
 	withRECONCHome(t)
 	repo := makeRepo(t, "# project\n", "", "rules: []\n")
@@ -518,6 +593,19 @@ func TestRuntimePlanCanceledOwnerLeavesNoPartialLoad(t *testing.T) {
 	evaluator.loadHook = nil
 	if _, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo); err != nil {
 		t.Fatalf("uncanceled retry after owner cancellation: %v", err)
+	}
+}
+
+func TestNilEvaluatorLoadRuntimePlanUsesIsolatedOwner(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	var evaluator *Evaluator
+	plan, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("nil evaluator load: %v", err)
+	}
+	if plan == nil {
+		t.Fatal("nil evaluator returned no runtime plan")
 	}
 }
 

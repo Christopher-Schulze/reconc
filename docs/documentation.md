@@ -3513,9 +3513,10 @@ allocs/op to 103,640 B/op and 1,027 allocs/op. The source-load median moved from
 environment-sensitive, so the allocation reductions are the portable claim.
 
 Context-aware runtime-plan loads coalesce per repository without binding every
-waiter to the owner's cancellation: a canceled waiter returns immediately while
-the owner continues, and an owner cancellation closes the shared load without
-publishing a partial plan. Discovery, source reads, include expansion, template
+waiter to another caller's cancellation: a canceled waiter returns immediately
+while surviving callers continue, and cancellation of the final caller closes
+the shared load without publishing a partial plan. Discovery, source reads,
+include expansion, template
 dependency resolution, source digesting, and freshness hashing check the caller
 lifecycle at bounded stage and per-entry boundaries. Compatibility entry points
 use a background context, while context-bearing evaluation returns the original

@@ -1,12 +1,24 @@
 package ingest
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestListPolicyFragmentsWithContextHonorsCancellation(t *testing.T) {
+	repo := newRepo(t)
+	writeFile(t, repo, "policies/rules.yml", "rules: []\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := listPolicyFragmentsWithContext(ctx, repo); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled policy fragment listing error = %v", err)
+	}
+}
 
 // newRepo creates a fresh temp directory and returns its path.
 func newRepo(t *testing.T) string {

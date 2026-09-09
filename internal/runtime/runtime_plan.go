@@ -60,9 +60,13 @@ type runtimePlanCacheEntry struct {
 }
 
 type runtimePlanLoad struct {
-	done chan struct{}
-	plan *runtimePlan
-	err  error
+	done     chan struct{}
+	ctx      context.Context
+	cancel   context.CancelFunc
+	plan     *runtimePlan
+	err      error
+	callers  int
+	finished bool
 }
 
 type runtimePlanLoadStage uint8
@@ -163,6 +167,9 @@ func (e *Evaluator) loadRuntimePlanWithContext(ctx context.Context, root string)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if e == nil {
+		e = NewEvaluator()
+	}
 	e.mu.Lock()
 	if e.plans == nil {
 		e.plans = make(map[string]runtimePlanCacheEntry)
@@ -174,8 +181,9 @@ func (e *Evaluator) loadRuntimePlanWithContext(ctx context.Context, root string)
 		e.loadSlots = make(chan struct{}, maxRuntimePlanConcurrentLoads)
 	}
 	if active := e.loads[root]; active != nil {
+		active.callers++
 		e.mu.Unlock()
-		return waitRuntimePlanLoad(ctx, active)
+		return e.waitRuntimePlanLoad(ctx, active)
 	}
 	slots := e.loadSlots
 	e.mu.Unlock()
@@ -190,28 +198,53 @@ func (e *Evaluator) loadRuntimePlanWithContext(ctx context.Context, root string)
 	// transient slot rather than creating duplicate work.
 	e.mu.Lock()
 	if active := e.loads[root]; active != nil {
+		active.callers++
 		e.mu.Unlock()
 		<-slots
-		return waitRuntimePlanLoad(ctx, active)
+		return e.waitRuntimePlanLoad(ctx, active)
 	}
-	active := &runtimePlanLoad{done: make(chan struct{})}
+	loadCtx, loadCancel := context.WithCancel(context.Background())
+	active := &runtimePlanLoad{
+		done: make(chan struct{}), ctx: loadCtx, cancel: loadCancel, callers: 1,
+	}
 	e.loads[root] = active
 	e.mu.Unlock()
-	defer func() { <-slots }()
-
-	active.plan, active.err = e.loadRuntimePlanOwned(ctx, root)
-	e.mu.Lock()
-	delete(e.loads, root)
-	close(active.done)
-	e.mu.Unlock()
-	return active.plan, active.err
+	go e.runRuntimePlanLoad(root, active, slots)
+	return e.waitRuntimePlanLoad(ctx, active)
 }
 
-func waitRuntimePlanLoad(ctx context.Context, active *runtimePlanLoad) (*runtimePlan, error) {
+func (e *Evaluator) runRuntimePlanLoad(root string, active *runtimePlanLoad, slots chan struct{}) {
+	defer func() { <-slots }()
+	active.plan, active.err = e.loadRuntimePlanOwned(active.ctx, root)
+	e.mu.Lock()
+	if current, ok := e.loads[root]; ok && current == active {
+		delete(e.loads, root)
+	}
+	active.finished = true
+	close(active.done)
+	e.mu.Unlock()
+	active.cancel()
+}
+
+func (e *Evaluator) waitRuntimePlanLoad(
+	ctx context.Context,
+	active *runtimePlanLoad,
+) (*runtimePlan, error) {
 	select {
 	case <-active.done:
 		return active.plan, active.err
 	case <-ctx.Done():
+		lastCaller := false
+		e.mu.Lock()
+		if !active.finished && active.callers > 0 {
+			active.callers--
+			lastCaller = active.callers == 0
+		}
+		e.mu.Unlock()
+		if lastCaller {
+			active.cancel()
+			<-active.done
+		}
 		return nil, ctx.Err()
 	}
 }

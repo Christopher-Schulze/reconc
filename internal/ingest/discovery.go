@@ -149,7 +149,7 @@ func inspectDirectoryWithContext(ctx context.Context, dir, originalStart string)
 		}
 	}
 
-	policies, err := listPolicyFragments(dir)
+	policies, err := listPolicyFragmentsWithContext(ctx, dir)
 	if err != nil {
 		return DiscoveryResult{}, false, fmt.Errorf("enumerate policy fragments in %s: %w", dir, err)
 	}
@@ -263,13 +263,19 @@ func isRegularFile(path string) bool {
 	return info.Mode().IsRegular()
 }
 
-// listPolicyFragments returns the repo-relative (POSIX-style) paths of
-// every file matching DefaultPolicyGlobs under dir. Sorted for
-// deterministic output.
-func listPolicyFragments(dir string) ([]string, error) {
+// listPolicyFragmentsWithContext returns the repo-relative (POSIX-style) paths
+// of every file matching DefaultPolicyGlobs under dir. Sorted for deterministic
+// output and bounded by the caller context between filesystem operations.
+func listPolicyFragmentsWithContext(ctx context.Context, dir string) ([]string, error) {
+	if ctx == nil {
+		return nil, context.Canceled
+	}
 	seen := map[string]struct{}{}
 	for _, pattern := range DefaultPolicyGlobs {
-		matches, err := boundedPolicyGlob(dir, pattern)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		matches, err := boundedPolicyGlobWithContext(ctx, dir, pattern)
 		if err != nil {
 			return nil, err
 		}
