@@ -9,6 +9,8 @@ import (
 
 	"reconc.dev/reconc/internal/compiler"
 	rerrors "reconc.dev/reconc/internal/errors"
+	"reconc.dev/reconc/internal/ingest"
+	"reconc.dev/reconc/internal/parser"
 	"reconc.dev/reconc/internal/policy"
 )
 
@@ -77,5 +79,33 @@ func TestLockfileDefaultModeIsCheckedBeforeEvaluation(t *testing.T) {
 		if _, err := lockfileDefaultMode(payload); err == nil {
 			t.Fatalf("lockfileDefaultMode(%#v) unexpectedly succeeded", payload)
 		}
+	}
+}
+
+func TestValidatePolicyLockfileSnapshotSummaryUsesTypedCounts(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules:\n  - id: protected\n    kind: deny_write\n    paths: ['protected/**']\n    mode: block\n    message: protected\n")
+	loadContext, err := ingest.NewSourceLoadContext(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := ingest.LoadPolicySourcesWithContext(loadContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parser.ParseRuleDocuments(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := compiler.ComputeSourceDigest(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, err := ValidatePolicyLockfileSnapshotSummaryWithSourceDigest(repo, bundle, parsed, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.RuleCount != 1 || summary.SourceCount != len(bundle.Sources) {
+		t.Fatalf("summary = %+v, want one rule and %d sources", summary, len(bundle.Sources))
 	}
 }

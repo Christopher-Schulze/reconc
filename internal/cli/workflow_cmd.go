@@ -17,6 +17,7 @@ import (
 	"reconc.dev/reconc/internal/completiongate"
 	"reconc.dev/reconc/internal/contextsize"
 	"reconc.dev/reconc/internal/ingest"
+	"reconc.dev/reconc/internal/parser"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 	"reconc.dev/reconc/internal/tasklifecycle"
@@ -177,6 +178,11 @@ type policyBriefingBlocker struct {
 	DisplayAction string `json:"display_action,omitempty"`
 }
 
+type sessionPolicySnapshot struct {
+	validation  *readOnlyPolicyValidation
+	lockSummary runtime.PolicyLockfileSummary
+}
+
 func compactSessionBriefing(full map[string]interface{}) map[string]interface{} {
 	out := map[string]interface{}{
 		"format_version": full["format_version"],
@@ -197,9 +203,9 @@ func compactSessionBriefing(full map[string]interface{}) map[string]interface{} 
 	return out
 }
 
-// buildSessionBriefing collects the facts a session-start agent needs
-// in one decode. Returns a map so text + JSON output render from the
-// same source.
+// buildSessionBriefing collects the facts a session-start agent needs from
+// one operation-local discovery/source/lock/TASK snapshot. Returns a map so
+// text + JSON output render from the same source.
 func buildSessionBriefing(repoRoot string) map[string]interface{} {
 	out := map[string]interface{}{
 		"format_version":  agentBriefingFormatVersion,
@@ -211,38 +217,38 @@ func buildSessionBriefing(repoRoot string) map[string]interface{} {
 	if err != nil {
 		out["lockfile_status"] = "discovery error: " + err.Error()
 		out["next_action"] = "Fix the discovery error (is this a real directory?)"
-		addTaskBriefing(out, repoRoot)
-		addRunBriefing(out, repoRoot)
+		taskState := addTaskBriefing(out, repoRoot)
+		addRunBriefing(out, repoRoot, taskState)
 		return out
 	}
 	if !discovery.Discovered {
 		out["lockfile_status"] = "no reconc config found"
 		out["next_action"] = "run `reconc init " + repoRoot + "` to scaffold a starting config"
-		addTaskBriefing(out, repoRoot)
-		addRunBriefing(out, repoRoot)
+		taskState := addTaskBriefing(out, repoRoot)
+		addRunBriefing(out, repoRoot, taskState)
 		return out
 	}
 	out["repo_root"] = discovery.RepoRoot
-	if validation, err := validatePolicyReadOnly(discovery.RepoRoot); err != nil {
-		out["lockfile_status"] = "source error: " + err.Error()
-		out["next_action"] = "fix policy sources, then run `reconc refresh " + discovery.RepoRoot + "`"
-	} else {
-		out["source_count"] = validation.sourceCount
-		out["conflicts"] = validation.conflicts
-		if err := runtime.ValidatePolicyLockfile(discovery.RepoRoot); err != nil {
-			out["lockfile_status"] = err.Error()
-			out["next_action"] = "run `reconc refresh " + discovery.RepoRoot + "`"
-		} else if payload, err := readLockfileSummary(discovery.RepoRoot); err != nil {
-			out["lockfile_status"] = "lockfile unreadable: " + err.Error()
-			out["next_action"] = "run `reconc refresh " + discovery.RepoRoot + "`"
+	policySnapshot, inspectErr := inspectSessionPolicy(discovery)
+	if policySnapshot != nil && policySnapshot.validation != nil {
+		out["source_count"] = policySnapshot.validation.sourceCount
+		out["conflicts"] = policySnapshot.validation.conflicts
+	}
+	if inspectErr != nil {
+		if policySnapshot == nil || policySnapshot.validation == nil {
+			out["lockfile_status"] = "source error: " + inspectErr.Error()
+			out["next_action"] = "fix policy sources, then run `reconc refresh " + discovery.RepoRoot + "`"
 		} else {
-			out["lockfile_status"] = "fresh"
-			out["rule_count"] = int(jsonNumberAsIntDefault(payload["rule_count"], 0))
-			out["source_count"] = int(jsonNumberAsIntDefault(payload["source_count"], 0))
-			lockPath := filepath.Join(discovery.RepoRoot, ingest.LockfilePath)
-			if lockInfo, err := os.Stat(lockPath); err == nil {
-				out["lockfile_modified"] = lockInfo.ModTime().UTC().Format(time.RFC3339)
-			}
+			out["lockfile_status"] = inspectErr.Error()
+			out["next_action"] = "run `reconc refresh " + discovery.RepoRoot + "`"
+		}
+	} else {
+		out["lockfile_status"] = "fresh"
+		out["rule_count"] = policySnapshot.lockSummary.RuleCount
+		out["source_count"] = policySnapshot.lockSummary.SourceCount
+		lockPath := filepath.Join(discovery.RepoRoot, ingest.LockfilePath)
+		if lockInfo, err := os.Stat(lockPath); err == nil {
+			out["lockfile_modified"] = lockInfo.ModTime().UTC().Format(time.RFC3339)
 		}
 	}
 
@@ -250,14 +256,46 @@ func buildSessionBriefing(repoRoot string) map[string]interface{} {
 	if cnt, ok := out["conflicts"].(int); ok && cnt > 0 {
 		out["next_action"] = "address " + strconv.Itoa(cnt) + " rule conflict(s), then run `reconc refresh " + discovery.RepoRoot + "`"
 	}
-	addTaskBriefing(out, discovery.RepoRoot)
-	addRunBriefing(out, discovery.RepoRoot)
+	taskState := addTaskBriefing(out, discovery.RepoRoot)
+	addRunBriefing(out, discovery.RepoRoot, taskState)
 	addActivePolicyBriefing(out, discovery.RepoRoot)
 	return out
 }
 
-func addRunBriefing(out map[string]interface{}, repoRoot string) {
-	status, err := agentsession.ReadRepositoryRunStatus(repoRoot)
+func inspectSessionPolicy(discovery ingest.DiscoveryResult) (*sessionPolicySnapshot, error) {
+	loadContext, err := ingest.NewSourceLoadContextFromDiscovery(discovery)
+	if err != nil {
+		return nil, err
+	}
+	bundle, err := ingest.LoadPolicySourcesWithContext(loadContext)
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := parser.ParseRuleDocuments(bundle)
+	if err != nil {
+		return nil, err
+	}
+	validation, err := validatePolicyReadOnlySnapshot(bundle, parsed)
+	if err != nil {
+		return nil, err
+	}
+	snapshot := &sessionPolicySnapshot{validation: validation}
+	lockSummary, err := runtime.ValidatePolicyLockfileSnapshotSummaryWithSourceDigest(discovery.RepoRoot, bundle, parsed, validation.sourceDigest)
+	if err != nil {
+		return snapshot, err
+	}
+	snapshot.lockSummary = lockSummary
+	return snapshot, nil
+}
+
+func addRunBriefing(out map[string]interface{}, repoRoot string, taskState *tasklifecycle.RunState) {
+	var status agentsession.RepositoryRunStatus
+	var err error
+	if taskState == nil {
+		status, err = agentsession.ReadRepositoryRunStatus(repoRoot)
+	} else {
+		status, err = agentsession.ReadRepositoryRunStatusWithTaskState(repoRoot, *taskState)
+	}
 	if err != nil {
 		out["run_error"] = boundedBriefingText(err.Error())
 		return
@@ -265,14 +303,15 @@ func addRunBriefing(out map[string]interface{}, repoRoot string) {
 	out["run"] = status
 }
 
-func addTaskBriefing(out map[string]interface{}, repoRoot string) {
+func addTaskBriefing(out map[string]interface{}, repoRoot string) *tasklifecycle.RunState {
 	if board, taskErr := tasklifecycle.Inspect(repoRoot); taskErr != nil {
 		out["task_error"] = taskErr.Error()
 		if _, exists := out["next_action"]; !exists {
 			out["next_action"] = "repair TASK state with `reconc task validate " + repoRoot + "`"
 		}
 	} else if board != nil {
-		taskBriefing := tasklifecycle.BuildBriefing(board)
+		state := tasklifecycle.RunStateFromBoard(board)
+		taskBriefing := tasklifecycle.BuildBriefingWithRunState(board, state)
 		taskRemediation := taskBriefing.Remediation
 		missingEvidence := append([]string{}, taskBriefing.RequiredEvidence...)
 		missingEvidenceDisplay := append([]string{}, taskBriefing.RequiredEvidenceDisplay...)
@@ -287,7 +326,9 @@ func addTaskBriefing(out map[string]interface{}, repoRoot string) {
 		if _, exists := out["next_action"]; !exists {
 			out["next_action"] = taskRemediation
 		}
+		return &state
 	}
+	return nil
 }
 
 func addActivePolicyBriefing(out map[string]interface{}, repoRoot string) {

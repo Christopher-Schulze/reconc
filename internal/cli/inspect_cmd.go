@@ -387,6 +387,16 @@ func validatePolicyReadOnly(repoRoot string) (*readOnlyPolicyValidation, error) 
 	if err != nil {
 		return nil, err
 	}
+	return validatePolicyReadOnlySnapshot(bundle, parsed)
+}
+
+func validatePolicyReadOnlySnapshot(bundle *ingest.SourceBundle, parsed *parser.ParsedPolicy) (*readOnlyPolicyValidation, error) {
+	if bundle == nil {
+		return nil, fmt.Errorf("policy source bundle is nil")
+	}
+	if parsed == nil {
+		return nil, fmt.Errorf("parsed policy is nil")
+	}
 	conflicts := compiler.DetectConflicts(parsed.Rules)
 	sourceDigest, err := compiler.ComputeSourceDigest(bundle)
 	if err != nil {

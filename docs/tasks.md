@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 488 Reuse one inspection snapshot for session briefings -> tasks/488-reuse-one-inspection-snapshot-for-session-briefings.md
 - [ ] 489 Bound cache memory and shorten decision cache locks -> tasks/489-bound-cache-memory-and-shorten-decision-cache-locks.md
 - [ ] 490 Enforce absolute performance budgets and retain benchmark evidence -> tasks/490-enforce-absolute-performance-budgets-and-retain-benchmark-evidence.md
 - [ ] 491 Profile real workloads and evaluate hardware-aware Go optimization -> tasks/491-profile-real-workloads-and-evaluate-hardware-aware-go-optimization.md
@@ -20,6 +19,8 @@
 ## Blocked
 
 ## Done
+
+- [x] 488 Reuse one inspection snapshot for session briefings -> tasks/done/488-reuse-one-inspection-snapshot-for-session-briefings.md
 
 - [x] 487 Reduce session normalization and publication overhead -> tasks/done/487-reduce-session-normalization-and-publication-overhead.md
 

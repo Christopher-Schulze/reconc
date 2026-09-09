@@ -902,8 +902,12 @@ reconc done .
 and reentry. Its versioned compact contract combines current TASK/Sub-Task,
 policy delta, exact task paths and evidence identifiers with separate bounded
 display fields, exact remediation, and durable repository-run
-state without Git or writes. Static reference material stays on demand through
-`reconc agent-intro --section NAME` instead of inflating every agent prompt.
+state without Git or writes. Each invocation binds discovery, the validated
+policy source bundle, lock summary, and TASK board to one operation-local
+snapshot, so policy parsing, lock decoding, and board inspection are not
+repeated across the compact sections. Static reference material stays on demand
+through `reconc agent-intro --section NAME` instead of inflating every agent
+prompt.
 Active-session inspection uses bounded snapshots without session or active-pointer
 locks and never repairs state or persists evidence taint. Malformed, oversized,
 replaced, or overflowed state is reported as uncertainty; enforcement loads keep

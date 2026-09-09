@@ -46,20 +46,34 @@ func ReadRepositoryRunStatus(repoRoot string) (RepositoryRunStatus, error) {
 	if err != nil {
 		return RepositoryRunStatus{}, err
 	}
-	return readRepositoryRunStatusResolved(root)
+	return readRepositoryRunStatusResolved(root, nil)
 }
 
-func readRepositoryRunStatusResolved(root string) (RepositoryRunStatus, error) {
+// ReadRepositoryRunStatusWithTaskState reads repository run state while
+// reusing a caller's already validated TASK decision. The task state is an
+// operation-local snapshot and is never retained by the run package.
+func ReadRepositoryRunStatusWithTaskState(repoRoot string, taskState tasklifecycle.RunState) (RepositoryRunStatus, error) {
+	root, err := ResolveRepoRoot(repoRoot)
+	if err != nil {
+		return RepositoryRunStatus{}, err
+	}
+	return readRepositoryRunStatusResolved(root, &taskState)
+}
+
+func readRepositoryRunStatusResolved(root string, taskState *tasklifecycle.RunState) (RepositoryRunStatus, error) {
 	state, err := loadRepositoryRunStateResolved(root)
 	if err != nil {
 		return RepositoryRunStatus{}, err
 	}
-	taskState, err := tasklifecycle.InspectRunStateResolved(root)
-	if err != nil {
-		taskState = tasklifecycle.RunState{
-			Disposition: tasklifecycle.RunInvalid,
-			Blocker:     truncateBytes(err.Error(), 512),
+	if taskState == nil {
+		inspected, inspectErr := tasklifecycle.InspectRunStateResolved(root)
+		if inspectErr != nil {
+			inspected = tasklifecycle.RunState{
+				Disposition: tasklifecycle.RunInvalid,
+				Blocker:     truncateBytes(inspectErr.Error(), 512),
+			}
 		}
+		taskState = &inspected
 	}
 	return RepositoryRunStatus{
 		Enabled:              state.Enabled,

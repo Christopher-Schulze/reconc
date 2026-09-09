@@ -45,6 +45,16 @@ type BriefingBlocker struct {
 // BuildBriefing produces a fixed-shape, archive-independent view for an AI
 // session handoff.
 func BuildBriefing(board *Board) Briefing {
+	return buildBriefing(board, RunStateFromBoard(board))
+}
+
+// BuildBriefingWithRunState produces the same view while reusing a run
+// decision already derived from the same validated board snapshot.
+func BuildBriefingWithRunState(board *Board, state RunState) Briefing {
+	return buildBriefing(board, state)
+}
+
+func buildBriefing(board *Board, state RunState) Briefing {
 	briefing := Briefing{Profile: board.Profile}
 	if board.Active != nil {
 		briefing.Current = &BriefingTask{
@@ -78,7 +88,7 @@ func BuildBriefing(board *Board) Briefing {
 			Reason: reason, DisplayReason: truncateBriefing(reason),
 		})
 	}
-	briefing.Remediation = remediationForRunState(RunStateFromBoard(board))
+	briefing.Remediation = remediationForRunState(state)
 	return briefing
 }
 

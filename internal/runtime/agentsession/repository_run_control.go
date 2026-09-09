@@ -42,7 +42,7 @@ func SetRepositoryRun(repoRoot string, enabled bool) (RepositoryRunStatus, error
 			return RepositoryRunStatus{}, fmt.Errorf("record repository run transition: %w", err)
 		}
 	}
-	return readRepositoryRunStatusResolved(root)
+	return readRepositoryRunStatusResolved(root, nil)
 }
 
 // ResetRepositoryRun is a recovery-only operation. It replaces only the
@@ -75,5 +75,5 @@ func ResetRepositoryRun(repoRoot string) (RepositoryRunStatus, error) {
 	}); err != nil {
 		return RepositoryRunStatus{}, fmt.Errorf("record repository run recovery: %w", err)
 	}
-	return readRepositoryRunStatusResolved(root)
+	return readRepositoryRunStatusResolved(root, nil)
 }

@@ -41,6 +41,14 @@ type decodedLockfile struct {
 	rules       []policy.Rule
 }
 
+// PolicyLockfileSummary contains the bounded metadata needed by status
+// surfaces after one complete lockfile validation. The decoded runtime plan
+// remains private to the evaluator; callers must not retain it as a cache.
+type PolicyLockfileSummary struct {
+	RuleCount   int
+	SourceCount int
+}
+
 // lockfileDefaultMode extracts the validated default_mode from a loaded
 // lockfile payload as a checked operation, so evaluation call sites do
 // not depend on validation ordering for panic safety.
@@ -406,32 +414,60 @@ func validateLockfileFreshnessSnapshot(payload map[string]interface{}, migrated 
 	return nil
 }
 
+// ValidatePolicyLockfileSnapshotSummary verifies one already identity-bound
+// policy source snapshot without rediscovering or rereading it. The complete
+// typed runtime plan is still compiled, so callers share I/O without
+// weakening the ordinary lockfile trust boundary.
+func ValidatePolicyLockfileSnapshotSummary(root string, bundle *ingest.SourceBundle, parsed *parser.ParsedPolicy) (PolicyLockfileSummary, error) {
+	if bundle == nil {
+		return PolicyLockfileSummary{}, fmt.Errorf("policy source bundle is nil")
+	}
+	currentDigest, err := compiler.ComputeSourceDigest(bundle)
+	if err != nil {
+		return PolicyLockfileSummary{}, lockfileRefreshRequired(&rerrors.LockfileError{Message: "compute current source digest", Cause: err})
+	}
+	return ValidatePolicyLockfileSnapshotSummaryWithSourceDigest(root, bundle, parsed, currentDigest)
+}
+
+// ValidatePolicyLockfileSnapshotSummaryWithSourceDigest is the same
+// operation as ValidatePolicyLockfileSnapshotSummary when the caller already
+// computed the digest for its source snapshot.
+func ValidatePolicyLockfileSnapshotSummaryWithSourceDigest(root string, bundle *ingest.SourceBundle, parsed *parser.ParsedPolicy, currentDigest string) (PolicyLockfileSummary, error) {
+	if bundle == nil {
+		return PolicyLockfileSummary{}, fmt.Errorf("policy source bundle is nil")
+	}
+	if currentDigest == "" {
+		return PolicyLockfileSummary{}, fmt.Errorf("policy source digest is empty")
+	}
+	if filepath.Clean(root) != filepath.Clean(bundle.RepoRoot) {
+		return PolicyLockfileSummary{}, fmt.Errorf("policy source bundle belongs to a different repository")
+	}
+	lock, err := readLockfile(root)
+	if err != nil {
+		return PolicyLockfileSummary{}, lockfileRefreshRequired(err)
+	}
+	if err := validateLockfileFreshnessSnapshot(lock.payload, lock.migrated, bundle, currentDigest, parsed); err != nil {
+		return PolicyLockfileSummary{}, lockfileRefreshRequired(err)
+	}
+	if _, err := compileRuntimePlanFromLock(lock); err != nil {
+		return PolicyLockfileSummary{}, lockfileRefreshRequired(err)
+	}
+	if lock.envelope != nil {
+		return PolicyLockfileSummary{RuleCount: lock.envelope.RuleCount, SourceCount: lock.envelope.SourceCount}, nil
+	}
+	return PolicyLockfileSummary{
+		RuleCount:   int(numAsInt(lock.payload["rule_count"])),
+		SourceCount: int(numAsInt(lock.payload["source_count"])),
+	}, nil
+}
+
 // ValidatePolicyLockfileSnapshot verifies one already identity-bound policy
 // source snapshot without rediscovering or rereading it. The complete typed
 // runtime plan is still compiled, so callers share I/O without weakening the
 // ordinary lockfile trust boundary.
 func ValidatePolicyLockfileSnapshot(root string, bundle *ingest.SourceBundle, parsed *parser.ParsedPolicy) error {
-	if bundle == nil {
-		return fmt.Errorf("policy source bundle is nil")
-	}
-	if filepath.Clean(root) != filepath.Clean(bundle.RepoRoot) {
-		return fmt.Errorf("policy source bundle belongs to a different repository")
-	}
-	lock, err := readLockfile(root)
-	if err != nil {
-		return lockfileRefreshRequired(err)
-	}
-	currentDigest, err := compiler.ComputeSourceDigest(bundle)
-	if err != nil {
-		return lockfileRefreshRequired(&rerrors.LockfileError{Message: "compute current source digest", Cause: err})
-	}
-	if err := validateLockfileFreshnessSnapshot(lock.payload, lock.migrated, bundle, currentDigest, parsed); err != nil {
-		return lockfileRefreshRequired(err)
-	}
-	if _, err := compileRuntimePlanFromLock(lock); err != nil {
-		return lockfileRefreshRequired(err)
-	}
-	return nil
+	_, err := ValidatePolicyLockfileSnapshotSummary(root, bundle, parsed)
+	return err
 }
 
 // LoadFreshCustomRuntimeManifestDigests returns only the validated compiled

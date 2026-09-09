@@ -13,6 +13,7 @@ import (
 	"reconc.dev/reconc/internal/jsonl"
 	"reconc.dev/reconc/internal/privatefs"
 	"reconc.dev/reconc/internal/repositorycontrol"
+	"reconc.dev/reconc/internal/tasklifecycle"
 )
 
 func TestReadRunDecisionsMissingIsEmpty(t *testing.T) {
@@ -23,6 +24,24 @@ func TestReadRunDecisionsMissingIsEmpty(t *testing.T) {
 	}
 	if len(ds) != 0 {
 		t.Fatalf("missing log must be empty, got %d", len(ds))
+	}
+}
+
+func TestReadRepositoryRunStatusWithTaskStateReusesProvidedSnapshot(t *testing.T) {
+	repo := t.TempDir()
+	want := tasklifecycle.RunState{
+		Disposition: tasklifecycle.RunContinue,
+		TaskID:      "001",
+		SubTask:     "continue the active task",
+		OpenTasks:   2,
+	}
+	status, err := ReadRepositoryRunStatusWithTaskState(repo, want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.TaskDisposition != string(want.Disposition) || status.TaskID != want.TaskID ||
+		status.CurrentSubTask != want.SubTask || status.OpenTasks != want.OpenTasks {
+		t.Fatalf("status task snapshot = %+v, want %+v", status, want)
 	}
 }
 

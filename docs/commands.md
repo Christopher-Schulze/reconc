@@ -1654,7 +1654,9 @@ wrong-root reports stay bounded diagnostics. TASK remediation and durable
 repository-run state use the same read-only board decision: an executable
 queued TASK remains claimable even when an unrelated TASK is blocked, while
 dependency-waiting and resumable blocked states carry the exact selected TASK
-ID and detail path in their claim or resume action.
+ID and detail path in their claim or resume action. One invocation shares one
+validated discovery/source/lock/TASK snapshot across these sections and does
+not retain it after rendering.
 
 ### `reconc context size [repo] [--limit N] [--files PATH,PATH,...] [--json]`
 Guards the auto-loaded session-file token budget (default 20000 tokens).
