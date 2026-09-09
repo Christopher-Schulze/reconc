@@ -2315,6 +2315,51 @@ func TestRunSessionBriefingBoundsCurrentPolicyFeedback(t *testing.T) {
 	}
 }
 
+func TestRunSessionBriefingPreservesExactPolicyRuleID(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := makeAssertRepo(t, "rules: []\n")
+	state, err := agentsession.InitializeSessionState(repo, "briefing-exact-rule-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ruleID := "gate  " + strings.Repeat("rule/", 80)
+	report := runtime.NewEmptyReport(repo, filepath.Join(repo, ".reconc/policy.lock.json"), policy.ModeBlock, runtime.Empty())
+	report.Violations = []runtime.Violation{{
+		RuleID: ruleID, Mode: policy.ModeBlock, Message: "blocked",
+	}}
+	report.Finalize()
+	body, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(state.ReportPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"session-briefing", repo, "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatalf("session-briefing: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	blockers, ok := payload["historical_policy_blockers"].([]any)
+	if !ok || len(blockers) != 1 {
+		t.Fatalf("historical blockers = %#v", payload["historical_policy_blockers"])
+	}
+	blocker, ok := blockers[0].(map[string]any)
+	if !ok || blocker["id"] != ruleID {
+		t.Fatalf("rule ID was not preserved exactly: %#v", blockers[0])
+	}
+	displayID, _ := blocker["display_id"].(string)
+	if displayID == ruleID || len([]rune(displayID)) > 240 {
+		t.Fatalf("rule ID display = %q, want bounded display distinct from exact ID", displayID)
+	}
+}
+
 func TestRunSessionBriefingReportsOversizedSavedPolicyReport(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := makeAssertRepo(t, "rules: []\n")

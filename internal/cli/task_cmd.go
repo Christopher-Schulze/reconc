@@ -477,19 +477,39 @@ func writeTaskBriefing(stdout io.Writer, briefing tasklifecycle.Briefing) {
 	if briefing.Current == nil {
 		fmt.Fprintln(stdout, "  Current: none")
 	} else {
-		fmt.Fprintf(stdout, "  Current: %s %s -> %s\n", briefing.Current.ID, briefing.Current.Title, briefing.Current.Path)
+		id := briefing.Current.DisplayID
+		if id == "" {
+			id = briefing.Current.ID
+		}
+		path := briefing.Current.DisplayPath
+		if path == "" {
+			path = briefing.Current.Path
+		}
+		fmt.Fprintf(stdout, "  Current: %s %s -> %s\n", id, briefing.Current.Title, path)
 		if briefing.Current.CurrentSubTask != "" {
 			fmt.Fprintf(stdout, "  Sub-Task: %s\n", briefing.Current.CurrentSubTask)
 		}
 	}
 	for _, blocker := range briefing.Blockers {
-		fmt.Fprintf(stdout, "  Blocked: %s %s\n", blocker.ID, blocker.Reason)
+		id := blocker.DisplayID
+		if id == "" {
+			id = blocker.ID
+		}
+		reason := blocker.DisplayReason
+		if reason == "" {
+			reason = blocker.Reason
+		}
+		fmt.Fprintf(stdout, "  Blocked: %s %s\n", id, reason)
 	}
 	if briefing.OmittedBlockers > 0 {
 		fmt.Fprintf(stdout, "  Blocked: +%d more\n", briefing.OmittedBlockers)
 	}
 	if len(briefing.RequiredEvidence) > 0 {
-		fmt.Fprintf(stdout, "  Evidence: %s\n", strings.Join(briefing.RequiredEvidence, ", "))
+		evidence := briefing.RequiredEvidenceDisplay
+		if len(evidence) == 0 {
+			evidence = briefing.RequiredEvidence
+		}
+		fmt.Fprintf(stdout, "  Evidence: %s\n", strings.Join(evidence, ", "))
 	}
 	if briefing.OmittedEvidence > 0 {
 		fmt.Fprintf(stdout, "  Evidence: +%d more\n", briefing.OmittedEvidence)

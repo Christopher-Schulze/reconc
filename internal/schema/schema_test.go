@@ -124,6 +124,7 @@ func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
 
 	assertPropertiesMatch(t, schemaRootProperties(t, fixPlan), runtime.FixPlan{})
 	assertPropertiesMatch(t, schemaDefinition(t, fixPlan, "remediation"), runtime.Remediation{})
+	assertPropertiesMatch(t, schemaDefinition(t, fixPlan, "action"), runtime.RemediationAction{})
 
 	assertPropertiesMatch(t, schemaRootProperties(t, completion), completiongate.Report{})
 	assertPropertiesMatch(t, schemaDefinition(t, completion, "check"), completiongate.Check{})

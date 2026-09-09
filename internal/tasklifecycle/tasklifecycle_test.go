@@ -32,8 +32,8 @@ func TestInspectSectionsAndBoundedBriefing(t *testing.T) {
 	if briefing.Current == nil || briefing.Current.CurrentSubTask != "Build the real thing" {
 		t.Fatalf("unexpected briefing current: %#v", briefing.Current)
 	}
-	if len([]rune(briefing.Blockers[0].Reason)) > maxBriefingTextRunes {
-		t.Fatalf("blocker was not bounded: %d runes", len([]rune(briefing.Blockers[0].Reason)))
+	if len([]rune(briefing.Blockers[0].DisplayReason)) > maxBriefingTextRunes {
+		t.Fatalf("blocker display was not bounded: %d runes", len([]rune(briefing.Blockers[0].DisplayReason)))
 	}
 	body, err := json.Marshal(briefing)
 	if err != nil {

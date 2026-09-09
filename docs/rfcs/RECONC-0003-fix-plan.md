@@ -2,8 +2,8 @@
 
 - Status: Frozen
 - Producer: `reconc fix`
-- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/policy-fix-plan.schema.json`
-- Format version: `1`
+- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v2/policy-fix-plan.schema.json`
+- Format version: `2` (the v1 shape remains available through `BuildLegacyFixPlan`)
 
 ## Purpose
 
@@ -45,9 +45,22 @@ available. Agents use it to identify the shortest valid next action.
 | `suggested_claims` | string array | Required claims for claim rules. |
 | `files_to_inspect` | string array | Rule source, matched paths, and required paths. |
 | `steps` | string array | Ordered remediation steps. |
+| `actions` | optional typed action array | Executable/evidence actions with explicit kind, arguments, working directory, authorization, and evidence requirements. |
 | `source_path` | optional string | Rule authoring source. |
 | `source_block_id` | optional string | Inline/preset block id. |
-| `can_autofix` | boolean | Must be `false` in v1. |
+| `can_autofix` | boolean | Must be `false` in v2 and v1. |
+
+## Typed Actions
+
+`actions` is the machine execution contract for v2. `kind: "shell"` carries
+the complete literal script in `shell`; consumers must not split or
+interpolate it as argv. `kind: "argv"` carries already separated argument
+values in `argv`. `authorization` and the `required_evidence`/
+`required_claims` fields describe prerequisites and never grant permission.
+Stable action codes include `run_command`, `assert_claim`, `provide_evidence`,
+`refresh`, `retry`, `inspect`, and `request_approval`.
+The text renderer presents the same action values and marks shell scripts as
+literal shell operations.
 
 ## Next-Action Semantics
 

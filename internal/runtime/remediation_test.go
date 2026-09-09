@@ -31,7 +31,7 @@ func TestBuildFixPlanPassReport(t *testing.T) {
 func TestBuildFixPlanHonorsSchemaOverride(t *testing.T) {
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "https://schemas.example.test")
 	p := BuildFixPlan(&CheckReport{Decision: DecisionPass, Inputs: Empty()})
-	if got, want := p.Schema, "https://schemas.example.test/schemas/policy-fix-plan/v1"; got != want {
+	if got, want := p.Schema, "https://schemas.example.test/schemas/policy-fix-plan/v2"; got != want {
 		t.Fatalf("schema = %q, want %q", got, want)
 	}
 }

@@ -900,7 +900,8 @@ reconc done .
 
 `session-briefing --json` is the bounded machine handshake for session entry
 and reentry. Its versioned compact contract combines current TASK/Sub-Task,
-policy delta, required evidence, exact remediation, and durable repository-run
+policy delta, exact task paths and evidence identifiers with separate bounded
+display fields, exact remediation, and durable repository-run
 state without Git or writes. Static reference material stays on demand through
 `reconc agent-intro --section NAME` instead of inflating every agent prompt.
 Active-session inspection uses bounded snapshots without session or active-pointer
@@ -919,6 +920,13 @@ state. Active, claimable, dependency-waiting, resumable-blocked, and completed
 dispositions therefore agree; a ready queue entry remains selectable beside an
 unrelated blocker, and claim or resume actions include the selected TASK ID and
 detail path rather than a placeholder.
+
+`reconc fix --json` emits fix-plan format 2. Each remediation carries typed
+`actions`: argv commands preserve argument boundaries, shell commands are
+explicit literal scripts, and cwd, authorization, and required evidence or
+claims are separate fields. `BuildLegacyFixPlan` remains the compatibility path
+for consumers that only accept the v1 fix-plan schema; neither format claims an
+action is authorized automatically.
 
 Review candidate policy before changing the live contract:
 

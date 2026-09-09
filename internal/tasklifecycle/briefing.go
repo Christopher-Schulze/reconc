@@ -11,28 +11,35 @@ const (
 	maxBriefingTextRunes = 240
 )
 
-// Briefing is the bounded TASK portion of session-briefing. It never includes
-// archive history, completed checklists, notes, or full acceptance prose.
+// Briefing is the compact TASK portion of session-briefing. Machine identity
+// fields remain exact; paired display fields are bounded for text rendering.
+// It never includes archive history, completed checklists, notes, or full
+// acceptance prose.
 type Briefing struct {
-	Profile          Profile           `json:"profile"`
-	Current          *BriefingTask     `json:"current,omitempty"`
-	Blockers         []BriefingBlocker `json:"blockers,omitempty"`
-	OmittedBlockers  int               `json:"omitted_blockers,omitempty"`
-	RequiredEvidence []string          `json:"required_evidence,omitempty"`
-	OmittedEvidence  int               `json:"omitted_evidence,omitempty"`
-	Remediation      string            `json:"remediation,omitempty"`
+	Profile                 Profile           `json:"profile"`
+	Current                 *BriefingTask     `json:"current,omitempty"`
+	Blockers                []BriefingBlocker `json:"blockers,omitempty"`
+	OmittedBlockers         int               `json:"omitted_blockers,omitempty"`
+	RequiredEvidence        []string          `json:"required_evidence,omitempty"`
+	RequiredEvidenceDisplay []string          `json:"required_evidence_display,omitempty"`
+	OmittedEvidence         int               `json:"omitted_evidence,omitempty"`
+	Remediation             string            `json:"remediation,omitempty"`
 }
 
 type BriefingTask struct {
 	ID             string `json:"id"`
+	DisplayID      string `json:"display_id,omitempty"`
 	Title          string `json:"title"`
 	Path           string `json:"path"`
+	DisplayPath    string `json:"display_path,omitempty"`
 	CurrentSubTask string `json:"current_sub_task,omitempty"`
 }
 
 type BriefingBlocker struct {
-	ID     string `json:"id"`
-	Reason string `json:"reason"`
+	ID            string `json:"id"`
+	DisplayID     string `json:"display_id,omitempty"`
+	Reason        string `json:"reason"`
+	DisplayReason string `json:"display_reason,omitempty"`
 }
 
 // BuildBriefing produces a fixed-shape, archive-independent view for an AI
@@ -41,8 +48,10 @@ func BuildBriefing(board *Board) Briefing {
 	briefing := Briefing{Profile: board.Profile}
 	if board.Active != nil {
 		briefing.Current = &BriefingTask{
-			ID: board.Active.ID, Title: truncateBriefing(board.Active.Title),
-			Path: truncateBriefing(board.Active.Path), CurrentSubTask: currentSubTask(board.Active),
+			ID: board.Active.ID, DisplayID: truncateBriefing(board.Active.ID),
+			Title: truncateBriefing(board.Active.Title),
+			Path:  board.Active.Path, DisplayPath: truncateBriefing(board.Active.Path),
+			CurrentSubTask: currentSubTask(board.Active),
 		}
 		for _, field := range board.Config.Completion.RequiredEvidenceFields {
 			if strings.TrimSpace(board.Active.EvidenceFields[field]) == "" {
@@ -50,7 +59,8 @@ func BuildBriefing(board *Board) Briefing {
 					briefing.OmittedEvidence++
 					continue
 				}
-				briefing.RequiredEvidence = append(briefing.RequiredEvidence, truncateBriefing(field))
+				briefing.RequiredEvidence = append(briefing.RequiredEvidence, field)
+				briefing.RequiredEvidenceDisplay = append(briefing.RequiredEvidenceDisplay, truncateBriefing(field))
 			}
 		}
 	}
@@ -63,7 +73,10 @@ func BuildBriefing(board *Board) Briefing {
 		if reason == "" {
 			reason = "blocked without a recorded reason"
 		}
-		briefing.Blockers = append(briefing.Blockers, BriefingBlocker{ID: task.ID, Reason: truncateBriefing(reason)})
+		briefing.Blockers = append(briefing.Blockers, BriefingBlocker{
+			ID: task.ID, DisplayID: truncateBriefing(task.ID),
+			Reason: reason, DisplayReason: truncateBriefing(reason),
+		})
 	}
 	briefing.Remediation = remediationForRunState(RunStateFromBoard(board))
 	return briefing

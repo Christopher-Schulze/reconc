@@ -22,7 +22,7 @@ import (
 	"reconc.dev/reconc/internal/tasklifecycle"
 )
 
-const agentBriefingFormatVersion = "1"
+const agentBriefingFormatVersion = "2"
 
 const maxBriefingReportBytes = 1 << 20
 const maxGitPorcelainBytes = 16 << 20
@@ -72,13 +72,29 @@ func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "Session briefing for %s\n", briefing["repo_root"])
 	if task, ok := briefing["task"].(tasklifecycle.Briefing); ok {
 		if task.Current != nil {
-			fmt.Fprintf(stdout, "  TASK:          %s %s -> %s\n", task.Current.ID, task.Current.Title, task.Current.Path)
+			id := task.Current.DisplayID
+			if id == "" {
+				id = task.Current.ID
+			}
+			path := task.Current.DisplayPath
+			if path == "" {
+				path = task.Current.Path
+			}
+			fmt.Fprintf(stdout, "  TASK:          %s %s -> %s\n", id, task.Current.Title, path)
 			if task.Current.CurrentSubTask != "" {
 				fmt.Fprintf(stdout, "  Sub-Task:      %s\n", task.Current.CurrentSubTask)
 			}
 		}
 		for _, blocker := range task.Blockers {
-			fmt.Fprintf(stdout, "  Blocker:       %s %s\n", blocker.ID, blocker.Reason)
+			id := blocker.DisplayID
+			if id == "" {
+				id = blocker.ID
+			}
+			reason := blocker.DisplayReason
+			if reason == "" {
+				reason = blocker.Reason
+			}
+			fmt.Fprintf(stdout, "  Blocker:       %s %s\n", id, reason)
 		}
 		if task.OmittedBlockers > 0 {
 			fmt.Fprintf(stdout, "  Blocker:       +%d more\n", task.OmittedBlockers)
@@ -95,14 +111,26 @@ func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "  Policy delta:  %s\n", briefing["policy_delta"])
 	if blockers, ok := briefing["policy_blockers"].([]policyBriefingBlocker); ok {
 		for _, blocker := range blockers {
-			fmt.Fprintf(stdout, "  Gate:          [%s] %s\n", blocker.ID, blocker.Action)
+			id := blocker.DisplayID
+			if id == "" {
+				id = blocker.ID
+			}
+			action := blocker.DisplayAction
+			if action == "" {
+				action = blocker.Action
+			}
+			fmt.Fprintf(stdout, "  Gate:          [%s] %s\n", id, action)
 		}
 	}
 	if omitted, ok := briefing["omitted_policy_blockers"].(int); ok && omitted > 0 {
 		fmt.Fprintf(stdout, "  Gate:          +%d more\n", omitted)
 	}
 	if evidence, ok := briefing["required_evidence"].([]string); ok && len(evidence) > 0 {
-		fmt.Fprintf(stdout, "  Evidence:      %s\n", strings.Join(evidence, "; "))
+		displayEvidence, _ := briefing["required_evidence_display"].([]string)
+		if len(displayEvidence) == 0 {
+			displayEvidence = evidence
+		}
+		fmt.Fprintf(stdout, "  Evidence:      %s\n", strings.Join(displayEvidence, "; "))
 	}
 	if evidenceStatus, ok := briefing["session_evidence_status"].(string); ok && evidenceStatus != "" {
 		fmt.Fprintf(stdout, "  Evidence status: %s\n", evidenceStatus)
@@ -116,7 +144,15 @@ func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 	}
 	if historical, ok := briefing["historical_policy_blockers"].([]policyBriefingBlocker); ok {
 		for _, blocker := range historical {
-			fmt.Fprintf(stdout, "  Historical gate: [%s] %s\n", blocker.ID, blocker.Action)
+			id := blocker.DisplayID
+			if id == "" {
+				id = blocker.ID
+			}
+			action := blocker.DisplayAction
+			if action == "" {
+				action = blocker.Action
+			}
+			fmt.Fprintf(stdout, "  Historical gate: [%s] %s\n", id, action)
 		}
 	}
 	if omitted, ok := briefing["omitted_historical_policy_blockers"].(int); ok && omitted > 0 {
@@ -135,8 +171,10 @@ func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 }
 
 type policyBriefingBlocker struct {
-	ID     string `json:"id"`
-	Action string `json:"action"`
+	ID            string `json:"id"`
+	DisplayID     string `json:"display_id,omitempty"`
+	Action        string `json:"action"`
+	DisplayAction string `json:"display_action,omitempty"`
 }
 
 func compactSessionBriefing(full map[string]interface{}) map[string]interface{} {
@@ -148,7 +186,7 @@ func compactSessionBriefing(full map[string]interface{}) map[string]interface{} 
 	if nextAction, exists := full["next_action"]; exists && nextAction != nil {
 		out["remediation"] = nextAction
 	}
-	for _, key := range []string{"task", "task_error", "run", "run_error", "policy_report_error", "policy_report_status", "policy_report_reason", "policy_report_hash", "policy_report_evidence_hash", "policy_report_candidate_fingerprint", "policy_report_session_id", "session_evidence_status", "policy_blockers", "omitted_policy_blockers", "historical_policy_blockers", "omitted_historical_policy_blockers", "required_evidence", "report_path"} {
+	for _, key := range []string{"task", "task_error", "run", "run_error", "policy_report_error", "policy_report_status", "policy_report_reason", "policy_report_hash", "policy_report_evidence_hash", "policy_report_candidate_fingerprint", "policy_report_session_id", "session_evidence_status", "policy_blockers", "omitted_policy_blockers", "historical_policy_blockers", "omitted_historical_policy_blockers", "required_evidence", "required_evidence_display", "report_path"} {
 		if value, exists := full[key]; exists && value != nil {
 			out[key] = value
 		}
@@ -237,11 +275,14 @@ func addTaskBriefing(out map[string]interface{}, repoRoot string) {
 		taskBriefing := tasklifecycle.BuildBriefing(board)
 		taskRemediation := taskBriefing.Remediation
 		missingEvidence := append([]string{}, taskBriefing.RequiredEvidence...)
+		missingEvidenceDisplay := append([]string{}, taskBriefing.RequiredEvidenceDisplay...)
 		taskBriefing.Remediation = ""
 		taskBriefing.RequiredEvidence = nil
+		taskBriefing.RequiredEvidenceDisplay = nil
 		out["task"] = taskBriefing
 		if len(missingEvidence) > 0 {
 			out["required_evidence"] = missingEvidence
+			out["required_evidence_display"] = missingEvidenceDisplay
 		}
 		if _, exists := out["next_action"]; !exists {
 			out["next_action"] = taskRemediation
@@ -327,14 +368,17 @@ func addActivePolicyBriefing(out map[string]interface{}, repoRoot string) {
 		if action == "" {
 			action = strings.TrimSpace(violation.Message)
 		}
-		action = boundedBriefingText(action)
+		displayAction := boundedBriefingText(action)
 		if len(blockers) < 3 {
-			blockers = append(blockers, policyBriefingBlocker{ID: boundedBriefingText(violation.RuleID), Action: action})
+			blockers = append(blockers, policyBriefingBlocker{
+				ID: violation.RuleID, DisplayID: boundedBriefingText(violation.RuleID),
+				Action: displayAction, DisplayAction: displayAction,
+			})
 		} else {
 			omittedBlockers++
 		}
-		if action != "" && len(evidence) < 6 {
-			evidence = append(evidence, action)
+		if displayAction != "" && len(evidence) < 6 {
+			evidence = append(evidence, displayAction)
 		}
 	}
 	if len(blockers) == 0 {
@@ -346,6 +390,7 @@ func addActivePolicyBriefing(out map[string]interface{}, repoRoot string) {
 			out["omitted_policy_blockers"] = omittedBlockers
 		}
 		out["required_evidence"] = cleanBriefingStrings(evidence)
+		out["required_evidence_display"] = displayBriefingStrings(evidence)
 		out["next_action"] = "resolve the listed gate(s), then rerun their exact command; full details are in the saved report"
 		return
 	}
@@ -359,13 +404,25 @@ func cleanBriefingStrings(values []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(values))
 	for _, value := range values {
-		value = strings.Join(strings.Fields(value), " ")
 		if value == "" || seen[value] {
 			continue
 		}
 		seen[value] = true
-		value = boundedBriefingText(value)
 		out = append(out, value)
+	}
+	return out
+}
+
+func displayBriefingStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		display := boundedBriefingText(value)
+		if display == "" || seen[display] {
+			continue
+		}
+		seen[display] = true
+		out = append(out, display)
 	}
 	return out
 }

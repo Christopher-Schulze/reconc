@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"reconc.dev/reconc/internal/policy"
@@ -21,10 +22,53 @@ const (
 	// FixPlanSchema / DefaultFixPlanSchema: the JSON-schema URL for
 	// `reconc fix` output. Use ResolveFixPlanSchema() on write paths
 	// so $RECONC_SCHEMA_BASE_URL (W24) is honoured.
-	FixPlanSchema        = DefaultFixPlanSchema
-	DefaultFixPlanSchema = schema.PolicyFixPlanURL
-	FixPlanFormatVersion = "1"
+	FixPlanSchema              = DefaultFixPlanSchema
+	DefaultFixPlanSchema       = schema.PolicyFixPlanURL
+	FixPlanFormatVersion       = "2"
+	LegacyFixPlanSchema        = schema.PolicyFixPlanV1URL
+	LegacyFixPlanFormatVersion = "1"
 )
+
+// RemediationActionCode identifies the stable operation an agent may take
+// after reviewing a remediation. Actions never grant authorization.
+type RemediationActionCode string
+
+const (
+	ActionRunCommand      RemediationActionCode = "run_command"
+	ActionAssertClaim     RemediationActionCode = "assert_claim"
+	ActionProvideEvidence RemediationActionCode = "provide_evidence"
+	ActionRefresh         RemediationActionCode = "refresh"
+	ActionRetry           RemediationActionCode = "retry"
+	ActionInspect         RemediationActionCode = "inspect"
+	ActionRequestApproval RemediationActionCode = "request_approval"
+)
+
+// RemediationActionKind identifies how an action's payload must be treated.
+// A shell action is a literal script and must never be split into argv by a
+// consumer; argv actions are already separated argument values.
+type RemediationActionKind string
+
+const (
+	ActionKindArgv       RemediationActionKind = "argv"
+	ActionKindShell      RemediationActionKind = "shell"
+	ActionKindEvidence   RemediationActionKind = "evidence"
+	ActionKindInspection RemediationActionKind = "inspection"
+	ActionKindApproval   RemediationActionKind = "approval"
+)
+
+// RemediationAction is the executable or evidence-bearing part of a fix
+// recipe. Authorization and evidence requirements are explicit so agents do
+// not infer permission from RecommendedAction prose.
+type RemediationAction struct {
+	Code             RemediationActionCode `json:"code"`
+	Kind             RemediationActionKind `json:"kind"`
+	Argv             []string              `json:"argv,omitempty"`
+	Shell            string                `json:"shell,omitempty"`
+	Cwd              string                `json:"cwd,omitempty"`
+	Authorization    string                `json:"authorization,omitempty"`
+	RequiredEvidence []string              `json:"required_evidence,omitempty"`
+	RequiredClaims   []string              `json:"required_claims,omitempty"`
+}
 
 // FixPlan is the structured remediation report for one CheckReport.
 //
@@ -49,21 +93,22 @@ type FixPlan struct {
 // Priority is "blocking" or "non-blocking" so callers can sort by
 // urgency without re-checking modes.
 type Remediation struct {
-	RuleID            string      `json:"rule_id"`
-	Kind              policy.Kind `json:"kind"`
-	Mode              policy.Mode `json:"mode"`
-	Priority          string      `json:"priority"`
-	Message           string      `json:"message"`
-	Why               string      `json:"why"`
-	RecommendedAction string      `json:"recommended_action"`
-	SuggestedCommands []string    `json:"suggested_commands,omitempty"`
-	ForbiddenCommands []string    `json:"forbidden_commands,omitempty"`
-	SuggestedClaims   []string    `json:"suggested_claims,omitempty"`
-	FilesToInspect    []string    `json:"files_to_inspect,omitempty"`
-	Steps             []string    `json:"steps"`
-	SourcePath        string      `json:"source_path,omitempty"`
-	SourceBlockID     string      `json:"source_block_id,omitempty"`
-	CanAutofix        bool        `json:"can_autofix"`
+	RuleID            string              `json:"rule_id"`
+	Kind              policy.Kind         `json:"kind"`
+	Mode              policy.Mode         `json:"mode"`
+	Priority          string              `json:"priority"`
+	Message           string              `json:"message"`
+	Why               string              `json:"why"`
+	RecommendedAction string              `json:"recommended_action"`
+	SuggestedCommands []string            `json:"suggested_commands,omitempty"`
+	ForbiddenCommands []string            `json:"forbidden_commands,omitempty"`
+	SuggestedClaims   []string            `json:"suggested_claims,omitempty"`
+	FilesToInspect    []string            `json:"files_to_inspect,omitempty"`
+	Steps             []string            `json:"steps"`
+	Actions           []RemediationAction `json:"actions,omitempty"`
+	SourcePath        string              `json:"source_path,omitempty"`
+	SourceBlockID     string              `json:"source_block_id,omitempty"`
+	CanAutofix        bool                `json:"can_autofix"`
 }
 
 // BuildFixPlan converts a CheckReport into a structured fix plan.
@@ -73,22 +118,33 @@ type Remediation struct {
 // still get remediations so callers see the full picture (priority
 // distinguishes them).
 func BuildFixPlan(report *CheckReport) *FixPlan {
+	return buildFixPlan(report, true, ResolveFixPlanSchema(), FixPlanFormatVersion)
+}
+
+// BuildLegacyFixPlan emits the original v1 shape for consumers that cannot
+// yet read typed actions. It intentionally omits Actions while the current
+// BuildFixPlan path emits v2.
+func BuildLegacyFixPlan(report *CheckReport) *FixPlan {
+	return buildFixPlan(report, false, schema.ResolveVersion(schema.PolicyFixPlan, "1"), LegacyFixPlanFormatVersion)
+}
+
+func buildFixPlan(report *CheckReport, includeActions bool, schemaURL, formatVersion string) *FixPlan {
 	if report == nil {
 		return &FixPlan{
-			Schema:        ResolveFixPlanSchema(),
-			FormatVersion: FixPlanFormatVersion,
+			Schema:        schemaURL,
+			FormatVersion: formatVersion,
 			Remediations:  []Remediation{},
 		}
 	}
 
 	remediations := make([]Remediation, 0, len(report.Violations))
 	for _, v := range report.Violations {
-		remediations = append(remediations, buildRemediation(v))
+		remediations = append(remediations, buildRemediation(v, report.RepoRoot, includeActions))
 	}
 
 	return &FixPlan{
-		Schema:                 ResolveFixPlanSchema(),
-		FormatVersion:          FixPlanFormatVersion,
+		Schema:                 schemaURL,
+		FormatVersion:          formatVersion,
 		Decision:               report.Decision,
 		Summary:                renderFixPlanSummary(report),
 		RepoRoot:               report.RepoRoot,
@@ -101,7 +157,7 @@ func BuildFixPlan(report *CheckReport) *FixPlan {
 	}
 }
 
-func buildRemediation(v Violation) Remediation {
+func buildRemediation(v Violation, repoRoot string, includeActions bool) Remediation {
 	priority := "non-blocking"
 	if v.IsBlocking() {
 		priority = "blocking"
@@ -117,7 +173,7 @@ func buildRemediation(v Violation) Remediation {
 		RecommendedAction: v.RecommendedAction,
 		SourcePath:        v.SourcePath,
 		SourceBlockID:     v.SourceBlockID,
-		CanAutofix:        false, // v1: never; reserved for future tooling
+		CanAutofix:        false, // typed actions still require explicit authorization
 	}
 
 	// Per-kind remediation hints.
@@ -146,7 +202,63 @@ func buildRemediation(v Violation) Remediation {
 	rem.FilesToInspect = dedupeStrings(files)
 
 	rem.Steps = buildStepsForKind(v)
+	if includeActions {
+		rem.Actions = buildActionsForViolation(v, repoRoot)
+	}
 	return rem
+}
+
+func buildActionsForViolation(v Violation, repoRoot string) []RemediationAction {
+	actions := make([]RemediationAction, 0, 2)
+	switch v.Kind {
+	case policy.KindRequireCommand, policy.KindRequireCommandSuccess:
+		evidence := "command_executed"
+		if v.Kind == policy.KindRequireCommandSuccess {
+			evidence = "command_success"
+		}
+		for _, command := range dedupeStrings(v.RequiredCommands) {
+			actions = append(actions, RemediationAction{
+				Code: ActionRunCommand, Kind: ActionKindShell, Shell: command,
+				Cwd: repoRoot, Authorization: "operator_approval",
+				RequiredEvidence: []string{evidence},
+			})
+		}
+	case policy.KindRequireClaim:
+		for _, claim := range dedupeStrings(v.RequiredClaims) {
+			actions = append(actions, RemediationAction{
+				Code: ActionAssertClaim, Kind: ActionKindArgv,
+				Argv: []string{"reconc", "check", "--claim", claim},
+				Cwd:  repoRoot, Authorization: "operator_approval",
+				RequiredClaims: []string{claim},
+			})
+		}
+	case policy.KindDenyWrite:
+		actions = append(actions, RemediationAction{
+			Code: ActionRequestApproval, Kind: ActionKindApproval,
+			Authorization: "policy_update", RequiredEvidence: dedupeStrings(v.MatchedPaths),
+		})
+	case policy.KindRequireRead, policy.KindCoupleChange, policy.KindRequireEvidence:
+		actions = append(actions, RemediationAction{
+			Code: ActionProvideEvidence, Kind: ActionKindEvidence,
+			Cwd: repoRoot, RequiredEvidence: dedupeStrings(v.RequiredPaths),
+		})
+	case policy.KindRequireFreshFile:
+		actions = append(actions, RemediationAction{
+			Code: ActionRefresh, Kind: ActionKindEvidence,
+			Cwd: repoRoot, RequiredEvidence: dedupeStrings(v.RequiredPaths),
+		})
+	case policy.KindAllOf, policy.KindAnyOf, policy.KindNot, policy.KindRequireScript, policy.KindRequireAssurance:
+		actions = append(actions, RemediationAction{
+			Code: ActionRetry, Kind: ActionKindInspection,
+			Cwd: repoRoot, RequiredEvidence: dedupeStrings(append(append([]string{}, v.MatchedPaths...), v.RequiredPaths...)),
+		})
+	default:
+		actions = append(actions, RemediationAction{
+			Code: ActionInspect, Kind: ActionKindInspection,
+			Cwd: repoRoot, RequiredEvidence: dedupeStrings(append(append([]string{}, v.MatchedPaths...), v.RequiredPaths...)),
+		})
+	}
+	return actions
 }
 
 // buildStepsForKind produces 2-4 actionable items per violation
@@ -249,14 +361,35 @@ func RenderFixPlanText(p *FixPlan) string {
 		for _, step := range r.Steps {
 			fmt.Fprintf(&b, "    - %s\n", step)
 		}
-		if len(r.SuggestedCommands) > 0 {
-			fmt.Fprintf(&b, "   Run:  %s\n", joinForHumans(r.SuggestedCommands))
+		if len(r.SuggestedCommands) > 0 && len(r.Actions) == 0 {
+			fmt.Fprintf(&b, "   Shell (literal): %s\n", joinForHumans(r.SuggestedCommands))
 		}
 		if len(r.ForbiddenCommands) > 0 {
-			fmt.Fprintf(&b, "   Avoid: %s\n", joinForHumans(r.ForbiddenCommands))
+			fmt.Fprintf(&b, "   Avoid (literal shell): %s\n", joinForHumans(r.ForbiddenCommands))
 		}
 		if len(r.SuggestedClaims) > 0 {
 			fmt.Fprintf(&b, "   Claim: %s\n", joinForHumans(r.SuggestedClaims))
+		}
+		for _, action := range r.Actions {
+			fmt.Fprintf(&b, "   Action: %s (%s)\n", action.Code, action.Kind)
+			if action.Cwd != "" {
+				fmt.Fprintf(&b, "   Cwd:   %s\n", action.Cwd)
+			}
+			if action.Shell != "" {
+				fmt.Fprintf(&b, "   Shell (literal): %s\n", strconv.Quote(action.Shell))
+			}
+			if len(action.Argv) > 0 {
+				fmt.Fprintf(&b, "   Argv:  %s\n", renderActionArgv(action.Argv))
+			}
+			if action.Authorization != "" {
+				fmt.Fprintf(&b, "   Auth:  %s\n", action.Authorization)
+			}
+			if len(action.RequiredEvidence) > 0 {
+				fmt.Fprintf(&b, "   Need:  %s\n", joinForHumans(action.RequiredEvidence))
+			}
+			if len(action.RequiredClaims) > 0 {
+				fmt.Fprintf(&b, "   Claims: %s\n", joinForHumans(action.RequiredClaims))
+			}
 		}
 		if len(r.FilesToInspect) > 0 {
 			fmt.Fprintf(&b, "   See:  %s\n", joinForHumans(r.FilesToInspect))
@@ -266,6 +399,14 @@ func RenderFixPlanText(p *FixPlan) string {
 		}
 	}
 	return b.String()
+}
+
+func renderActionArgv(argv []string) string {
+	quoted := make([]string, len(argv))
+	for index, value := range argv {
+		quoted[index] = "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+	}
+	return strings.Join(quoted, " ")
 }
 
 // RenderCheckReportMarkdown produces a markdown rendering of a
@@ -310,21 +451,20 @@ func RenderCheckReportMarkdown(r *CheckReport) string {
 	return b.String()
 }
 
-// dedupeStrings removes duplicates while preserving order of first
-// occurrence. Empty strings are also dropped.
+// dedupeStrings removes duplicates while preserving each value byte-for-byte
+// and retaining order of first occurrence. Empty strings are dropped.
 func dedupeStrings(xs []string) []string {
 	seen := map[string]struct{}{}
 	out := make([]string, 0, len(xs))
 	for _, s := range xs {
-		t := strings.TrimSpace(s)
-		if t == "" {
+		if s == "" {
 			continue
 		}
-		if _, ok := seen[t]; ok {
+		if _, ok := seen[s]; ok {
 			continue
 		}
-		seen[t] = struct{}{}
-		out = append(out, t)
+		seen[s] = struct{}{}
+		out = append(out, s)
 	}
 	return out
 }
