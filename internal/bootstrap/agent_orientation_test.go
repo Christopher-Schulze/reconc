@@ -14,7 +14,7 @@ func TestBootstrapAgentOrientationIncludesMachineEntryPoints(t *testing.T) {
 			t.Errorf("%s omits the machine-readable session entry point", name)
 		}
 	}
-	if !strings.Contains(renderAgentBlock(), "reconc agent-intro --section NAME") {
+	if !strings.Contains(renderAgentBlock(), "reconc agent-intro --section <section-id>") {
 		t.Error("agent block omits on-demand guide access")
 	}
 	if strings.Contains(renderStart(), "reconc status .") {

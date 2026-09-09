@@ -74,7 +74,7 @@ Generated from `internal/commandmeta`; run `make reference-docs` after changing 
 | `reconc hook claim` | `reconc hook claim <repo> <claim-name> [--session ID] [--json] [--output PATH]` | record one explicit session claim | text, json, file |
 | `reconc hook evidence-status` | `reconc hook evidence-status [repo] [--json]` | inspect effective evidence taint without mutation | text, json |
 | `reconc hook evidence-resolve` | `reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]` | resolve reviewed persistent evidence taint explicitly | text, json |
-| `reconc agent-intro` | `reconc agent-intro [--section NAME \| --list-sections] [--json]` | print the embedded agent integration guide | text, json |
+| `reconc agent-intro` | `reconc agent-intro [--section NAME \| --list-sections] [--json]` | print the compact guide or one lazy reference section | text, json |
 | `reconc audit` | `reconc audit <tail\|stats\|export\|verify>` | inspect, export, or cryptographically verify decision evidence | text, json, jsonl |
 | `reconc audit tail` | `reconc audit tail [repo] [filters]` | tail filtered audit decisions | text, json |
 | `reconc audit stats` | `reconc audit stats [repo] [--json]` | aggregate audit decision statistics | text, json |
@@ -1483,10 +1483,13 @@ session must reproduce every required proof.
 ## Workflow maintenance
 
 ### `reconc agent-intro [--section NAME] [--list-sections] [--json]`
-Prints the embedded reconc integration guide. Section lookup is
-case-insensitive substring match. A selected section ends at the next heading
-of equal or higher rank, so a leaf heading cannot absorb later parent or
-sibling sections. Section listing remains top-level only.
+Prints the compact embedded reconc integration guide. The default output is the
+core inspect, act, evidence, blocker, and completion workflow. Use
+`--list-sections` for stable lazy-reference IDs, then pass an ID to `--section`.
+Human heading fragments remain accepted for compatibility. A selected section
+ends at the next heading of equal or higher rank, so a leaf heading cannot
+absorb later parent or sibling sections. `--json` includes the section titles
+and stable reference descriptors.
 
 ### `reconc audit tail [repo] [-n N] [--rule ID] [--since RFC3339] [--decision pass|warn|block] [--json] [--compact]`
 Tail the decision log only after verifying its complete retained SHA-256 chain,

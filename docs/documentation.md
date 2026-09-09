@@ -946,7 +946,7 @@ state without Git or writes. Each invocation binds discovery, the validated
 policy source bundle, lock summary, and TASK board to one operation-local
 snapshot, so policy parsing, lock decoding, and board inspection are not
 repeated across the compact sections. Static reference material stays on demand
-through `reconc agent-intro --section NAME` instead of inflating every agent
+through `reconc agent-intro --section <section-id>` instead of inflating every agent
 prompt.
 Active-session inspection uses bounded snapshots without session or active-pointer
 locks and never repairs state or persists evidence taint. Malformed, oversized,
@@ -3748,10 +3748,13 @@ Key invariants:
 
 ## Agent Skill
 
-The repo ships one agent-facing skill at `skills/reconc/SKILL.md`.
+The repo ships one compact agent-facing skill at `skills/reconc/SKILL.md` and
+the same core workflow through `reconc agent-intro`. Both default entries are
+bounded and progressively disclose specialized material through stable
+`agent-intro --section` IDs and skill-owned `references/` files.
 
-It is written for Codex, OpenCode, Claude Code, Oh My Pi, Pi, ZCode, and other coding agents. The
-skill documents the same reconc workflow for every agent runtime:
+The core workflow for Codex, OpenCode, Claude Code, Oh My Pi, Pi, ZCode, and
+other coding agents is:
 
 - begin and reenter with the versioned `session-briefing --json` contract
 - collect truthful read, write, command, and claim evidence

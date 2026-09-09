@@ -3,7 +3,6 @@
 ## Active
 
 ## Queue
-- [ ] 495 Make agent guidance compact current and progressively disclosed -> tasks/495-make-agent-guidance-compact-current-and-progressively-disclosed.md
 - [ ] 496 Reconcile bootstrap copy ownership and run-state contracts -> tasks/496-reconcile-bootstrap-copy-ownership-and-run-state-contracts.md
 - [ ] 497 Bound advanced harness completion and improvement loops -> tasks/497-bound-advanced-harness-completion-and-improvement-loops.md
 - [ ] 498 Add evidence-backed compatibility migration generation and performance recipes -> tasks/498-add-evidence-backed-compatibility-migration-generation-and-performance-recipes.md
@@ -12,6 +11,8 @@
 ## Blocked
 
 ## Done
+
+- [x] 495 Make agent guidance compact current and progressively disclosed -> tasks/done/495-make-agent-guidance-compact-current-and-progressively-disclosed.md
 
 - [x] 494 Scope test and documentation evidence to changed owners -> tasks/done/494-scope-test-and-documentation-evidence-to-changed-owners.md
 

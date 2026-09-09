@@ -235,7 +235,7 @@ func renderAgentBlock() string {
 		"policy implicitly. After policy edits, run `reconc refresh .` explicitly.",
 		"Use `reconc session-briefing . --json` for one versioned, machine-readable TASK,",
 		"policy, and repository-run delta. Fetch only needed reference sections with",
-		"`reconc agent-intro --section NAME` instead of loading the full guide.",
+		"`reconc agent-intro --section <section-id>` instead of loading the full guide.",
 		"",
 		"Before implementation, read `docs/tasks.md` and its active detail when those",
 		"files exist. Before claiming completion, run the repository's real tests and",

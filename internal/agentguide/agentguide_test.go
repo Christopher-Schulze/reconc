@@ -9,6 +9,12 @@ func TestMarkdownNonEmpty(t *testing.T) {
 	if strings.TrimSpace(Markdown()) == "" {
 		t.Error("embedded guide is empty")
 	}
+	if len(Markdown()) > CoreByteBudget {
+		t.Fatalf("default guide is %d bytes, budget is %d", len(Markdown()), CoreByteBudget)
+	}
+	if len(FullMarkdown()) <= len(Markdown()) {
+		t.Fatal("full guide should retain lazy reference material")
+	}
 }
 
 func TestSectionsAndSectionRoundTrip(t *testing.T) {
@@ -59,7 +65,53 @@ func TestSectionNotFound(t *testing.T) {
 }
 
 func TestSectionEmptyNameReturnsFullDoc(t *testing.T) {
-	if Section("") != Markdown() {
+	if Section("") != FullMarkdown() {
 		t.Error("empty section name should return full markdown")
+	}
+}
+
+func TestSectionCatalogUsesStableIDs(t *testing.T) {
+	catalog := SectionCatalog()
+	if len(catalog) == 0 {
+		t.Fatal("lazy section catalog is empty")
+	}
+	seen := make(map[string]bool, len(catalog))
+	for _, section := range catalog {
+		if section.ID == "" || section.Title == "" || seen[section.ID] {
+			t.Fatalf("invalid or duplicate section descriptor: %+v", section)
+		}
+		seen[section.ID] = true
+		body := Section(section.ID)
+		if !strings.HasPrefix(body, "## ") {
+			t.Fatalf("stable id %q did not resolve to a top-level section", section.ID)
+		}
+	}
+	if got := Section("platform-integration"); !strings.Contains(got, "hook status") {
+		t.Fatal("platform-integration stable id did not resolve its contract")
+	}
+}
+
+func TestCoreWorkflowSupportsDecisionWalkthroughs(t *testing.T) {
+	core := Markdown()
+	for _, token := range []string{
+		"session-briefing . --json",
+		"argv",
+		"recommended_action",
+		"reconc next .",
+		"reconc done .",
+		"reconc hook status . --json",
+	} {
+		if !strings.Contains(core, token) {
+			t.Errorf("core workflow omits %q", token)
+		}
+	}
+	ordered := []string{"reconc session-briefing . --json", "reconc check . --write", "reconc next .", "reconc done ."}
+	last := -1
+	for _, token := range ordered {
+		index := strings.Index(core, token)
+		if index <= last {
+			t.Fatalf("core workflow order invalid at %q", token)
+		}
+		last = index
 	}
 }

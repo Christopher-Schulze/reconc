@@ -1,0 +1,93 @@
+# Platform integration
+
+## Platform Model
+
+The typed registry owns native event coverage, fallback routes, failure and
+timeout policy, output budgets, artifact paths, and activation probes:
+
+| Platform | Artifact | Integration model |
+|---|---|---|
+| Claude Code | `.claude/settings.json` | Native session, tool, permission, Stop, cleanup, and compact-session recovery hooks |
+| Codex | `.codex/hooks.json` | Native session start/end, tool, permission, evidence, and Stop hooks |
+| GitHub Copilot | `.github/hooks/reconc.json` | Repository hooks for Copilot CLI and coding agent; host timeouts remain fail-open |
+| Cursor | `.cursor/hooks.json` | Registry-driven Agent/Cmd+K, Tab, CLI, and eligible cloud routes; `surface_events`, workspace liveness, decisions, outcomes, and guarantees are event-specific |
+| OpenCode | `.opencode/plugins/reconc.js` | Thin project plugin with strict shell exits and inferred bounded async idle continuation; decisions and state stay in Go |
+| Devin CLI | `.devin/hooks.v1.json` | Native lifecycle plus post-compaction recovery |
+| Antigravity CLI | `.agents/hooks.json` | Invocation, tool, evidence, and Stop adapters |
+| Kilo Code | `.kilo/plugin/reconc.js` | Thin CLI/VS Code project plugin with strict shell exits and inferred bounded async idle continuation; disabled when `KILO_PURE` is set |
+| Oh My Pi | `.omp/extensions/reconc.ts` | Typed project extension with blocking pre-tool and awaited main-session Stop; observational approval, outcome, compaction, and shutdown routes |
+| Pi Coding Agent | `.pi/extensions/reconc.ts` | Trust-aware typed project extension with blocking tool/user-shell boundaries, observational results/lifecycle/compaction, and inferred bounded settled continuation |
+| ZCode | `.zcode/config.json` | Native seven-event process hooks with blocking pre-tool, permission, and synchronous Stop routes |
+| Grok Build | `.grok/hooks/reconc.json` | Native lifecycle and hard PreToolUse; project trust required; capability-probed native Stop or optional local leader fallback |
+| Kimi Code CLI | `$KIMI_CODE_HOME/config.toml` | Explicit user-global 16-event hook block; repository discovery before action; exit-code-2 PreToolUse, prompt, and Stop control |
+
+Run `reconc hook status . --json` before making enforcement claims.
+`configured` proves a complete static artifact; `discoverable` means the named
+host surface scans its path; `loaded` requires a current session/init route;
+`observed` requires that exact route; `enforced` requires a disposable negative
+probe that stopped the side effect; `inferred` is weaker host lifecycle;
+`degraded` is missing or unproven required behavior; `unsupported` means no
+sound host boundary. Never promote one state into another.
+
+Cursor uses one project file, but desktop Agent, Cmd+K, Tab, interactive CLI,
+print CLI, and cloud agents do not promise identical event delivery. Use the
+same Reconc semantics when the same event fires and keep every unseen route
+unproven. `postToolUse` is success, `postToolUseFailure` is failure, and
+`afterShellExecution` is liveness only because it has no authoritative exit
+status. Cursor CLI uses `agent`; `cursor-agent` is its compatibility alias.
+`surface_events` lists the documented routes for each CLI mode.
+`workspaceOpen` is sessionless loading evidence only. Cursor currently emits
+no generic tool hooks for `AskQuestion`, so never claim Reconc gated that host
+action.
+
+Kimi Code hook installation is always explicit and global:
+`reconc hook install kimi-code`, without a repository path. It atomically
+merges only Reconc's marker block and preserves unrelated TOML. Global
+invocations silently no-op outside repositories with explicit Reconc
+configuration. Kimi fails open on hook crashes, timeouts, and non-zero exits
+other than 2, and its post-tool payload has no authoritative exit status.
+Never claim live enforcement from static configuration or contract tests;
+require exact `hook status` liveness.
+
+OpenCode and Kilo accept shell success only from integer
+`output.metadata.exit == 0`. Their `session.idle` continuation calls only
+asynchronous `promptAsync`, is generation-deduplicated and capped, and remains
+fail-open/inferred. A missing API, rejected request, or invalid response is not
+delivered continuation.
+
+Oh My Pi uses exact `isError` tool outcomes; only successful built-in `Bash`
+receives synthetic exit code zero. `tool_call` and `session_stop` fail closed on
+deny, malformed decision, Reconc failure, or timeout. A host-aborted Stop yields
+immediately without continuation. Observational routes fail open after bounded
+diagnostics. Never infer live enforcement from the generated extension alone.
+
+Pi loads project extensions only after trust. Reconc owns only
+`.pi/extensions/reconc.ts` and never changes Pi trust. Require saved
+canonical-path trust or `defaultProjectTrust: "always"` for static
+`configured` status; `pi --approve` is one-run activation only. `tool_call` and
+`user_bash` fail closed. `tool_result.isError` is authoritative, and only a
+successful built-in `Bash` result receives synthetic exit code zero. Pi has no
+native permission event, MCP discriminator, post-user-shell result,
+synchronous Stop gate, or continuation acknowledgement.
+
+ZCode snapshots `.zcode/config.json` at session start. Reconc merges only exact
+managed process entries and preserves foreign settings, events, commands, and
+an explicit user `hooks.enabled=false`; status reports that state as disabled.
+Restart the ZCode session after install or uninstall. Hard `PreToolUse` blocks
+use exit code 2, `PermissionRequest` denials use the native decision object,
+and Stop uses native block JSON. Observation routes and host timeouts fail
+open. Stop is limited by the host to three consecutive blocks. Static
+configuration and offline fixtures are not live route proof.
+
+MCP repository effects are opt-in exact mappings in `.reconc.yml`. Use
+`reconc why mcp .` to inspect the compiled contract. Never treat an unknown
+identity, malformed selector value, unknown outcome, or `external` effect as
+repository evidence. Cursor can strictly deny unclassified calls through its
+dedicated MCP pre-hook. OpenCode/Kilo generic hooks cannot identify
+unconfigured MCP calls soundly; OMP, Pi, and ZCode have the same generic-tool identity limit.
+Report strict unclassified deny as unavailable on those surfaces while exact
+configured tool identities remain enforceable.
+
+`installed`, `degraded`, `shadowed`, and `unsupported` require the status
+detail to be handled or reported. Generic agents use explicit CLI checks.
+Every platform keeps Git pre-commit as the hard repository backstop.

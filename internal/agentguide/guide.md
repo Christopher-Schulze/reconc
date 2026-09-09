@@ -1,12 +1,45 @@
 # reconc - Agent Integration Guide
 
-## What reconc Does
+## Core workflow
+
+`reconc` compiles repository policy into a deterministic contract and checks
+real agent evidence against it. It does not invent acceptance criteria,
+priorities, approvals, or test results.
+
+1. **Inspect** `reconc session-briefing . --json` and keep exact machine fields.
+2. **Select** the emitted next action, including typed `argv`, `cwd`,
+   authorization, and required evidence; never infer from display text.
+3. **Gather** only truthful reads, writes, command outcomes, and claims.
+4. **Handle** a block with its recommended action before writing or retrying.
+5. **Prove** the candidate with the final completion gate and report the real
+   evidence.
+
+The compact repository loop is:
+
+```bash
+reconc session-briefing . --json
+reconc check . --write path/to/changed-file
+reconc next .
+reconc done .
+```
+
+On a block, read `violations[].recommended_action` before retrying. Exit `0`
+is pass or warn, `1` is a runtime/input error, and `2` is a block.
+Use `reconc agent-intro --list-sections` followed by
+`reconc agent-intro --section <section-id>` for verified detail. Use
+`reconc hook status . --json` before claiming host enforcement.
+
+<!-- RECONC LAZY REFERENCES -->
+
+## Reference: Fundamentals
+
+### What reconc Does
 
 `reconc` (Repository Control Compiler) compiles repo policy from YAML / Markdown into a lockfile, then evaluates your proposed actions (writes, reads, commands, claims) against that lockfile. Its core policy and evidence runtime runs offline, uses no LLM inference, and returns deterministic JSON with a `decision` of `pass`, `warn`, or `block`. Optional agent-provider inference remains outside the policy runtime and its trust boundary.
 
 **You do not interpret policy. reconc tells you what is allowed and what is not.**
 
-## Exit Codes (Stable Contract)
+### Exit Codes (Stable Contract)
 
 - `0` = pass or warn (non-blocking)
 - `1` = runtime/input error (reconc itself is unhappy)
@@ -14,7 +47,7 @@
 
 Treat exit 2 as "stop writing and remediate first".
 
-## Rule Kinds
+### Rule Kinds
 
 | Kind | Meaning | What the Agent Must Do |
 |---|---|---|
@@ -168,7 +201,7 @@ Waiting never clears a block. Text mode prints all failed checks and one exact
 next action; exit 0 means done, exit 2 means blocked, and exit 1 means the gate
 itself failed.
 
-The current v0.9.5 release can export the same candidate as portable JSON or Markdown
+The running build can export the same candidate as portable JSON or Markdown
 reviewer evidence without executing missing commands or persisting a new
 policy decision:
 ```bash

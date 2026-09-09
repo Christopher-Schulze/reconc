@@ -5,431 +5,72 @@ description: Use when a coding agent should bootstrap, maintain, or obey reconc 
 
 # reconc
 
-## Purpose
+## Core workflow
 
-`reconc` is the Repository Control Compiler. It turns repo-local policy from
-`AGENTS.md`, `.reconc.yml`, presets, templates, and policy YAML into
-`.reconc/policy.lock.json`, then checks actual agent evidence against that
-compiled contract.
+`reconc` compiles repository policy into a deterministic contract and checks
+real agent evidence against it. It does not invent acceptance criteria,
+priorities, approvals, or test results.
 
-Use it to add a small amount of determinism to AI coding sessions:
+1. **Inspect** the versioned machine briefing.
+2. **Select** the exact next action and its typed `argv`, `cwd`, authorization,
+   and required evidence; never reconstruct an action from display text.
+3. **Gather** only truthful reads, writes, command outcomes, and claims.
+4. **Handle** a block with the emitted remediation before writing or retrying.
+5. **Prove** the completed candidate with the final gate and report the evidence.
 
-- stop writes to generated or protected paths
-- require reads before sensitive edits
-- require tests, commands, claims, or matching docs changes
-- expose one next remediation instead of a giant rule lecture
-- gate task completion with a terse `done` / `blocked` result
-
-Keep the workflow simple. `reconc` may enforce a repository's existing typed
-TASK control plane, but it never invents product priorities, acceptance, test
-evidence, or human approval.
-
-## Trigger
-
-Use this skill in Codex, OpenCode, Claude Code, Oh My Pi, Pi Coding Agent,
-ZCode, Kimi Code CLI, or any other agent runtime
-when:
-
-- the repo has `.reconc.yml`, `.reconc/policy.lock.json`, or `AGENTS.md`
-  policy blocks
-- the user asks to bootstrap repository controls, agent guardrails, policy
-  lockfiles, task-finish gates, or deterministic agent behavior
-- an agent is about to make code, docs, or config changes in a repo that should
-  be checked before completion
-- the user asks whether a task is safe, done, blocked, or missing evidence
-
-Do not use it for one-off shell questions or when the user explicitly says not
-to touch policy, hooks, lockfiles, or repo controls.
-
-## Agent Contract
-
-This skill is platform-agnostic. The loop is identical across agents:
-
-1. Read the versioned machine briefing.
-2. Do the actual work.
-3. Report only evidence that really happened.
-4. Ask `reconc` for the next remediation when blocked.
-5. Run the final done gate before claiming completion.
-
-When the user requests autonomous TASK execution, the agent also owns the run
-switch. Never ask the user to type Reconc commands.
-
-Never fake reads, commands, claims, or write paths to satisfy policy. If an
-agent runtime cannot enforce a rule natively, use the CLI loop and git
-pre-commit as the backstop.
-
-Reconc is not an operating-system sandbox. If the agent is treated as a
-hostile same-user process, put the repository inside an external sandbox and
-enforce final truth in protected remote CI or branch rules.
-
-## Install Or Build
-
-Prefer an installed `reconc` binary:
-
-```bash
-reconc --help
-```
-
-If the binary is not installed and the current repo is the `reconc` source
-tree, build an owned, pruneable session binary:
-
-```bash
-mkdir -p .reconc/cache
-go build -o .reconc/cache/reconc-session ./cmd/reconc
-.reconc/cache/reconc-session install-cli
-reconc --version
-```
-
-The path-qualified binary is needed only for that one installation call.
-`install-cli` atomically publishes the exact running build and proves bare
-`reconc` resolves to it. If PATH activation needs a new terminal, apply the
-exact emitted remediation before bootstrap. In any other repo, use the
-portable binary shipped with its Reconc toolkit for the same one-time command;
-never keep navigating versioned artifact paths.
-
-## Bootstrap A Repo
-
-For a new target repo:
-
-```bash
-reconc init .
-reconc session-briefing . --json
-```
-
-`init` is the canonical CLI onboarding path. It scaffolds `.reconc.yml` and
-`AGENTS.md` when missing, compiles the lockfile, installs git hooks, and wires
-native agent hooks when supported directories such as `.claude/`, `.codex/`,
-`.cursor/`, `.opencode/`, `.devin/`, `.agents/`, `.kilo/`, `.omp/`, `.pi/`,
-`.zcode/`, or `.grok/`
-already exist.
-Kimi Code is intentionally excluded because its hooks are user-global. Only an
-explicit operator action installs them:
-
-```bash
-reconc hook install kimi-code
-```
-
-Never add a repository argument, install Kimi itself, or write the real Kimi
-configuration during tests. Use an isolated temporary `KIMI_CODE_HOME`.
-Init mutation performs the same exact running-build installation, fails
-before repository writes when bare `reconc` still does not resolve to it, and
-transactional verification repeats that check.
-
-For the full repo-local governance rollout with copied Reconc toolkit, harness,
-root scaffold, `start.md`, TASK files, and repo-local release binaries, have an
-agent follow `harness/template/BOOTSTRAP.md` from the copied toolkit instead of
-assuming canonical init copies a complete toolkit.
-
-For a lighter/manual start:
-
-```bash
-reconc init .
-reconc refresh .
-```
-
-Default new repos should normally use the bundled `default` + `agent` presets.
-Only add stronger presets when the repo is ready for them:
-
-- `docs-sync`: public surface changes should update user-facing docs
-- `strict`: source edits require tests, architecture reads, and `ci-green`
-- `release`: release manifests/artifacts require changelog, checksums, and
-  verification
-
-## Daily Agent Loop
-
-Run this compact loop around actual work:
+Use this loop around every repository change:
 
 ```bash
 reconc session-briefing . --json
-```
-
-This one read-only response carries `format_version`, TASK/Sub-Task, policy
-delta, exact remediation, and repository-run state. Fetch static detail only
-when needed with `reconc agent-intro --section NAME`.
-
-Before or during edits, collect explicit evidence. At the end of a task, check
-the real touched surface:
-
-```bash
-reconc check . \
-  --write path/changed.go \
-  --read docs/documentation.md \
-  --command-success 'go test ./...'
-```
-
-If blocked or unclear:
-
-```bash
+reconc check . --write path/to/changed-file
 reconc next .
-```
-
-Before claiming completion:
-
-```bash
 reconc done .
 ```
 
-The current v0.9.5 release can export that same candidate as portable reviewer evidence
-without running missing commands or persisting a new policy decision:
+On a block, stop the write, read `violations[].recommended_action`, and run
+`reconc next .`. Use `reconc exec . --staged -- <command>` and
+`reconc ci . --staged` for commit-bound command proof. Run
+`reconc proof . --format markdown` when a portable reviewer record is needed.
+Exit `0` is pass or warn, `1` is a runtime/input error, and `2` is a block.
+
+## Trigger and contract
+
+Use this skill when a repository has Reconc policy or the user asks for
+guardrails, deterministic evidence, bootstrap, or task completion. It applies
+to any host. Never fake evidence, bypass a block, or claim native enforcement
+without live `reconc hook status . --json` proof. When autonomous TASK work is
+requested, operate the repository run switch yourself; do not ask the user to
+type Reconc commands.
+
+## Lazy references
+
+Fetch only the detail required for the current decision:
 
 ```bash
-reconc proof . --format markdown --output proof.md
+reconc agent-intro --list-sections
+reconc agent-intro --section <section-id>
 ```
 
-For autonomous repository execution:
+The embedded guide exposes stable IDs for bootstrap, repository upgrade,
+decision loops, rule inspection, claims, platform integration, autonomous run
+control, output modes, locations, and golden rules. The skill's owned detail
+references are:
 
-```bash
-reconc run on
-reconc run status
-reconc run off
-```
+- [install and bootstrap](references/install-and-bootstrap.md)
+- [workflow and evidence](references/workflow-and-evidence.md)
+- [platform integration](references/platform-integration.md)
+- [completion and boundaries](references/completion-and-boundaries.md)
 
-Repository mode is durable for this repository, not machine-global. Claude
-Code, Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, ZCode, and Kimi Code
-CLI expose synchronous Stop continuation. Oh My Pi exposes awaited native
-main-session Stop continuation capped at eight accepted requests. OpenCode and
-Kilo Code use inferred
-`session.idle`, so their host continuation remains best-effort and fail-open.
-Pi uses inferred fail-open `agent_settled` continuation with at most ten
-requests per session; `sendUserMessage` provides no delivery acknowledgement.
-Grok Build has hard native PreToolUse. Reconc also emits exact native Stop
-blocks without a leader, but accepts synchronous enforcement only when the
-installed Grok hook guide advertises blocking Stop decision control. Passive
-Stop distributions may use optional leader steering over the Unix socket or
-Windows named pipe. Only delivered
-interjections consume the 32-attempt no-progress series; capability-proven
-native hosts suppress duplicate interjection.
-Only a changed material-event snapshot or a clean Stop resets that series;
-reason wording alone does not. Spawned Grok children receive exactly one
-`RECONC_GROK_STEER=0` entry after inherited duplicates are removed; it disables
-only leader steering. Managed activation
-requires exact hook/wrapper artifacts and route tokens. Deep doctor reports
-native Stop capability and separately probes protocol 1 plus `_x.ai/interject`.
-Typed `continue` and `claim` states continue; an empty active slot claims queued
-executable work. Complete or absent state disables the switch after terminal
-gates, blocked state reaches terminal Stop without silently disabling it, and
-invalid state fails closed. An interrupt or six repeated no-progress
-continuations releases only the current invocation. Prompt text, session
-boundaries, runtime changes, and application restarts never mutate the durable
-switch; `run off` is the only manual disable action. Pre-write, TASK mutation,
-pre-commit, and terminal Stop gates remain authoritative.
+The registry currently covers Claude Code, Codex, GitHub Copilot, Cursor,
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi Coding Agent,
+ZCode, Grok Build, and Kimi Code CLI. Host-specific proof includes
+`surface_events`, `workspaceOpen`, `AskQuestion`, `afterShellExecution`,
+`postToolUseFailure`, `output.metadata.exit`, and `reconc why mcp`; read the
+platform reference before making a stronger claim.
 
-If `reconc task status .` finds a configured TASK control plane, also run
-`reconc task check-done .` and use `reconc task promote .` only after every
-real Sub-Task and configured evidence field is complete. Use `task block`,
-`resume`, or `split` for actual state changes; never hand-edit multiple TASK
-files into a half-transition.
+## Boundaries
 
-Treat `done` as the minimal task-finish gate:
-
-- `done`: task may be closed
-- `blocked: ...`: do the next action first
-- exit code `2`: blocking policy remains
-
-For staged git work, prefer:
-
-```bash
-reconc exec . --staged -- go test ./...
-reconc ci . --staged \
-  --read docs/documentation.md
-```
-
-`exec --staged` publishes command success only when the real exit code is zero
-and HEAD plus the staged index remain unchanged. Do not substitute mutable
-agent-hook outcomes or `ci --command-success` for a staged proof.
-
-## Evidence Rules
-
-Pass only evidence that actually happened:
-
-- `--write`: files you changed or intend to change
-- `--read`: files you really read before editing
-- `--command-success`: commands that really completed successfully
-- `--claim`: claims that are true in this session, such as `ci-green`
-
-Never fake evidence to satisfy policy. If policy asks for a command, run the
-command or report why it cannot be run.
-
-When unsure which paths to pass, use the changed files from `git status` or
-`git diff --name-only`. Do not pass broad path globs just to make the check
-look complete.
-
-## Common Commands
-
-Use the shortest command that answers the current question:
-
-```bash
-reconc session-briefing . --json # versioned session/reentry handshake
-reconc status .              # one-line health
-reconc task status .         # bounded current TASK context
-reconc task validate .       # typed control-plane validation
-reconc check . ...           # evaluate current evidence
-reconc next .                # next remediation
-reconc done .                # final task gate
-reconc proof . --format markdown # portable reviewer evidence
-reconc doctor --global       # global installation and ownership truth
-reconc doctor . --deep       # deeper diagnostics
-reconc sources . --json      # body-free effective source provenance
-reconc audit verify . --json # retained audit chain integrity
-reconc hook status . --json  # exact platform activation truth
-reconc hook evidence-status . --json # persistent evidence-taint truth
-reconc why mcp .             # compiled MCP mappings and unclassified mode
-reconc run status .          # run mode and typed TASK disposition
-reconc ci . --base HEAD~1 --head HEAD
-reconc preset list
-reconc preset show agent
-reconc agent-intro           # built-in guide for humans and agents
-```
-
-Inspection, evaluation, planning, and rendering commands never refresh policy
-implicitly. Explicit `--output` flags may publish the requested report or
-plan, and `RECONC_AUDIT=1` lets enforcement commands append chained decision
-evidence. Policy or control-state mutation is explicit through `refresh`,
-`init`, `bootstrap apply|remove`, `repo sync apply|resolve|recover`,
-`install-cli`, `update`, `uninstall`, `adopt --apply`, hook installation,
-uninstallation, scaffold sync, claim/evidence resolution/runtime routes,
-`exec`, TASK mutators, `run on|off|reset`, and `prune`.
-
-## Platform Model
-
-The typed registry owns native event coverage, fallback routes, failure and
-timeout policy, output budgets, artifact paths, and activation probes:
-
-| Platform | Artifact | Integration model |
-|---|---|---|
-| Claude Code | `.claude/settings.json` | Native session, tool, permission, Stop, cleanup, and compact-session recovery hooks |
-| Codex | `.codex/hooks.json` | Native session start/end, tool, permission, evidence, and Stop hooks |
-| GitHub Copilot | `.github/hooks/reconc.json` | Repository hooks for Copilot CLI and coding agent; host timeouts remain fail-open |
-| Cursor | `.cursor/hooks.json` | Registry-driven Agent/Cmd+K, Tab, CLI, and eligible cloud routes; `surface_events`, workspace liveness, decisions, outcomes, and guarantees are event-specific |
-| OpenCode | `.opencode/plugins/reconc.js` | Thin project plugin with strict shell exits and inferred bounded async idle continuation; decisions and state stay in Go |
-| Devin CLI | `.devin/hooks.v1.json` | Native lifecycle plus post-compaction recovery |
-| Antigravity CLI | `.agents/hooks.json` | Invocation, tool, evidence, and Stop adapters |
-| Kilo Code | `.kilo/plugin/reconc.js` | Thin CLI/VS Code project plugin with strict shell exits and inferred bounded async idle continuation; disabled when `KILO_PURE` is set |
-| Oh My Pi | `.omp/extensions/reconc.ts` | Typed project extension with blocking pre-tool and awaited main-session Stop; observational approval, outcome, compaction, and shutdown routes |
-| Pi Coding Agent | `.pi/extensions/reconc.ts` | Trust-aware typed project extension with blocking tool/user-shell boundaries, observational results/lifecycle/compaction, and inferred bounded settled continuation |
-| ZCode | `.zcode/config.json` | Native seven-event process hooks with blocking pre-tool, permission, and synchronous Stop routes |
-| Grok Build | `.grok/hooks/reconc.json` | Native lifecycle and hard PreToolUse; project trust required; capability-probed native Stop or optional local leader fallback |
-| Kimi Code CLI | `$KIMI_CODE_HOME/config.toml` | Explicit user-global 16-event hook block; repository discovery before action; exit-code-2 PreToolUse, prompt, and Stop control |
-
-Run `reconc hook status . --json` before making enforcement claims.
-`configured` proves a complete static artifact; `discoverable` means the named
-host surface scans its path; `loaded` requires a current session/init route;
-`observed` requires that exact route; `enforced` requires a disposable negative
-probe that stopped the side effect; `inferred` is weaker host lifecycle;
-`degraded` is missing or unproven required behavior; `unsupported` means no
-sound host boundary. Never promote one state into another.
-
-Cursor uses one project file, but desktop Agent, Cmd+K, Tab, interactive CLI,
-print CLI, and cloud agents do not promise identical event delivery. Use the
-same Reconc semantics when the same event fires and keep every unseen route
-unproven. `postToolUse` is success, `postToolUseFailure` is failure, and
-`afterShellExecution` is liveness only because it has no authoritative exit
-status. Cursor CLI uses `agent`; `cursor-agent` is its compatibility alias.
-`surface_events` lists the documented routes for each CLI mode.
-`workspaceOpen` is sessionless loading evidence only. Cursor currently emits
-no generic tool hooks for `AskQuestion`, so never claim Reconc gated that host
-action.
-
-Kimi Code hook installation is always explicit and global:
-`reconc hook install kimi-code`, without a repository path. It atomically
-merges only Reconc's marker block and preserves unrelated TOML. Global
-invocations silently no-op outside repositories with explicit Reconc
-configuration. Kimi fails open on hook crashes, timeouts, and non-zero exits
-other than 2, and its post-tool payload has no authoritative exit status.
-Never claim live enforcement from static configuration or contract tests;
-require exact `hook status` liveness.
-
-OpenCode and Kilo accept shell success only from integer
-`output.metadata.exit == 0`. Their `session.idle` continuation calls only
-asynchronous `promptAsync`, is generation-deduplicated and capped, and remains
-fail-open/inferred. A missing API, rejected request, or invalid response is not
-delivered continuation.
-
-Oh My Pi uses exact `isError` tool outcomes; only successful built-in `Bash`
-receives synthetic exit code zero. `tool_call` and `session_stop` fail closed on
-deny, malformed decision, Reconc failure, or timeout. A host-aborted Stop yields
-immediately without continuation. Observational routes fail open after bounded
-diagnostics. Never infer live enforcement from the generated extension alone.
-
-Pi loads project extensions only after trust. Reconc owns only
-`.pi/extensions/reconc.ts` and never changes Pi trust. Require saved
-canonical-path trust or `defaultProjectTrust: "always"` for static
-`configured` status; `pi --approve` is one-run activation only. `tool_call` and
-`user_bash` fail closed. `tool_result.isError` is authoritative, and only a
-successful built-in `Bash` result receives synthetic exit code zero. Pi has no
-native permission event, MCP discriminator, post-user-shell result,
-synchronous Stop gate, or continuation acknowledgement.
-
-ZCode snapshots `.zcode/config.json` at session start. Reconc merges only exact
-managed process entries and preserves foreign settings, events, commands, and
-an explicit user `hooks.enabled=false`; status reports that state as disabled.
-Restart the ZCode session after install or uninstall. Hard `PreToolUse` blocks
-use exit code 2, `PermissionRequest` denials use the native decision object,
-and Stop uses native block JSON. Observation routes and host timeouts fail
-open. Stop is limited by the host to three consecutive blocks. Static
-configuration and offline fixtures are not live route proof.
-
-MCP repository effects are opt-in exact mappings in `.reconc.yml`. Use
-`reconc why mcp .` to inspect the compiled contract. Never treat an unknown
-identity, malformed selector value, unknown outcome, or `external` effect as
-repository evidence. Cursor can strictly deny unclassified calls through its
-dedicated MCP pre-hook. OpenCode/Kilo generic hooks cannot identify
-unconfigured MCP calls soundly; OMP, Pi, and ZCode have the same generic-tool identity limit.
-Report strict unclassified deny as unavailable on those surfaces while exact
-configured tool identities remain enforceable.
-
-`installed`, `degraded`, `shadowed`, and `unsupported` require the status
-detail to be handled or reported. Generic agents use explicit CLI checks.
-Every platform keeps Git pre-commit as the hard repository backstop.
-
-## When Policy Is Stale
-
-If `status`, `doctor`, or `check` reports a stale or missing lockfile:
-
-```bash
-reconc refresh .
-reconc status .
-```
-
-Read-only commands never refresh implicitly. Do not hand-edit
-`.reconc/policy.lock.json`; it is generated output.
-
-## Agent Behavior
-
-When `reconc` blocks:
-
-1. Read the violation and recommended action.
-2. Run `reconc next .` for the shortest remediation.
-3. Fix the real missing evidence or source issue.
-4. Re-run `reconc check . ...`.
-5. Finish with `reconc done .`.
-
-When `reconc` warns:
-
-- report the warning if it matters for the user-visible outcome
-- do not inflate the workflow unless the warning points to a real missed step
-
-When no policy exists:
-
-- ask whether to bootstrap if repository controls are relevant
-- otherwise proceed normally
-
-## Output Discipline
-
-When reporting to the user, keep it concrete:
-
-- mention the command that passed or blocked
-- name blocking rule IDs when available
-- separate hard blocks from warnings
-- say when a platform limitation means enforcement was self-checked
-- never present a warning-only result as a hard failure
-
-## Design Boundary
-
-`reconc` should stay low-friction:
-
-- prefer the canonical daily loop over option sprawl
-- prefer warning presets for agent guidance until a team proves it wants blocks
-- keep policy repo-local and explicit
-- compile deterministic lockfiles
-- do not use `reconc` to replace tests, review, or user approval
+Inspection and evaluation do not refresh policy implicitly. Refresh, init,
+bootstrap apply/remove, repository sync, hook installation, TASK mutation,
+run-state mutation, and prune are explicit state changes. Git pre-commit and
+the CLI remain the deterministic backstop when a host cannot enforce natively.

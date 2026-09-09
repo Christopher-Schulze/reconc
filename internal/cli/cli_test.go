@@ -961,7 +961,7 @@ func TestRunAdoptHelp(t *testing.T) {
 
 // --- W11: agent-intro ------------------------------------------------
 
-func TestRunAgentIntroFullMarkdown(t *testing.T) {
+func TestRunAgentIntroCompactMarkdown(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"agent-intro"}, "0.1.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("agent-intro: %v", err)
@@ -976,11 +976,18 @@ func TestRunAgentIntroListSections(t *testing.T) {
 	if err := Run([]string{"agent-intro", "--list-sections"}, "0.1.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("agent-intro --list-sections: %v", err)
 	}
-	sections := agentguide.Sections()
-	if len(sections) == 0 {
+	references := agentguide.SectionCatalog()
+	if len(references) == 0 {
 		t.Fatal("embedded guide has no sections")
 	}
-	if got, want := stdout.String(), strings.Join(sections, "\n")+"\n"; got != want {
+	var want strings.Builder
+	for _, reference := range references {
+		want.WriteString(reference.ID)
+		want.WriteByte('\t')
+		want.WriteString(reference.Title)
+		want.WriteByte('\n')
+	}
+	if got := stdout.String(); got != want.String() {
 		t.Errorf("--list-sections output differs from the embedded guide inventory")
 	}
 }
@@ -1026,11 +1033,34 @@ func TestRunAgentIntroSectionJSON(t *testing.T) {
 	}
 }
 
+func TestRunAgentIntroJSONExposesCompactReferences(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"agent-intro", "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("agent-intro --json: %v", err)
+	}
+	var payload struct {
+		Body       string                   `json:"body"`
+		References []agentguide.SectionInfo `json:"references"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("--json should produce valid JSON: %v\n%s", err, stdout.String())
+	}
+	if payload.Body != agentguide.Markdown() || len(payload.Body) > agentguide.CoreByteBudget {
+		t.Fatalf("default JSON body is not the compact guide: bytes=%d", len(payload.Body))
+	}
+	if len(payload.References) != len(agentguide.SectionCatalog()) {
+		t.Fatalf("JSON references = %d, want %d", len(payload.References), len(agentguide.SectionCatalog()))
+	}
+}
+
 func TestRunAgentIntroUnknownSection(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"agent-intro", "--section", "definitely-bogus"}, "0.1.0-test", &stdout, &stderr)
 	if err == nil {
 		t.Fatal("expected error for unknown section")
+	}
+	if !strings.Contains(err.Error(), "available:") || !strings.Contains(err.Error(), "platform-integration") {
+		t.Fatalf("missing-section error lacks actionable stable IDs: %v", err)
 	}
 }
 

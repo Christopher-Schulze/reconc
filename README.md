@@ -397,7 +397,7 @@ reconc done .
 reentry. `check` evaluates current evidence. `next` returns the highest-priority
 remediation from the latest still-current block. `done` is the final
 evidence-complete gate. Detailed static help stays on demand through
-`reconc agent-intro --section NAME`, `reconc help <command>`, and
+`reconc agent-intro --section <section-id>`, `reconc help <command>`, and
 `reconc <command> --help`.
 
 Inspection and enforcement commands never compile policy implicitly. If a

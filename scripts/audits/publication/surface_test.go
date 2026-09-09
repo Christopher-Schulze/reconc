@@ -82,6 +82,43 @@ func TestCanonicalDailyLoopMatchesEveryTeachingSurface(t *testing.T) {
 	}
 }
 
+func TestAgentGuidanceDefaultsStayCompactAndReferencesResolve(t *testing.T) {
+	root := publicSurfaceRoot(t)
+	skill := readPublicSurfaceFile(t, root, "skills/reconc/SKILL.md")
+	if len(skill) > 5000 {
+		t.Fatalf("default skill is %d bytes, want at most 5000", len(skill))
+	}
+	guide := readPublicSurfaceFile(t, root, "internal/agentguide/guide.md")
+	marker := "<!-- RECONC LAZY REFERENCES -->"
+	markerIndex := strings.Index(guide, marker)
+	if markerIndex < 0 {
+		t.Fatal("embedded guide has no lazy-reference boundary")
+	}
+	if len(guide[:markerIndex]) > 4096 {
+		t.Fatalf("default embedded guide is %d bytes, want at most 4096", len(guide[:markerIndex]))
+	}
+	for _, body := range []struct {
+		name string
+		text string
+	}{
+		{name: "skill", text: skill},
+		{name: "guide", text: guide},
+	} {
+		if strings.Contains(body.text, "v0.9.5") {
+			t.Errorf("%s retains stale current-version guidance", body.name)
+		}
+	}
+	for _, match := range markdownLinkPattern.FindAllStringSubmatch(skill, -1) {
+		if len(match) < 2 || isRemoteLink(match[1]) {
+			continue
+		}
+		path := filepath.Join(root, "skills", "reconc", filepath.FromSlash(match[1]))
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("skill reference %q is unavailable: %v", match[1], err)
+		}
+	}
+}
+
 func TestCurrentDocumentationListsCanonicalCommandSurface(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	documentation := readPublicSurfaceFile(t, root, "docs/documentation.md")

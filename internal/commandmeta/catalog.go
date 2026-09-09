@@ -186,7 +186,7 @@ var commandCatalog = []Command{
 		sub("evidence-resolve", "reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]", "resolve reviewed persistent evidence taint explicitly", flags(f("--token", "TOKEN"), f("--reason", "TEXT"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON, OutputFile)),
 
-	command("agent-intro", CategoryMaintenance, "reconc agent-intro [--section NAME | --list-sections] [--json]", "print the embedded agent integration guide", flags(f("--section", "NAME"), f("--list-sections", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
+	command("agent-intro", CategoryMaintenance, "reconc agent-intro [--section NAME | --list-sections] [--json]", "print the compact guide or one lazy reference section", flags(f("--section", "NAME"), f("--list-sections", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("audit", CategoryMaintenance, "reconc audit <tail|stats|export|verify>", "inspect, export, or cryptographically verify decision evidence", nil, []Subcommand{
 		sub("tail", "reconc audit tail [repo] [filters]", "tail filtered audit decisions", flags(f("-n", "N"), f("--rule", "ID"), f("--since", "RFC3339"), f("--decision", "DECISION", "pass", "warn", "block"), f("--json", ""), f("--compact", "")), nil, modes(OutputText, OutputJSON)),
 		sub("stats", "reconc audit stats [repo] [--json]", "aggregate audit decision statistics", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),

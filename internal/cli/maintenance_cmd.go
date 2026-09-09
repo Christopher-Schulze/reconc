@@ -32,7 +32,7 @@ func runAgentIntro(args []string, stdout, stderr io.Writer) error {
 		switch a {
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc agent-intro [--section NAME] [--list-sections] [--json]")
-			fmt.Fprintln(stdout, "Print the embedded reconc agent integration guide.")
+			fmt.Fprintln(stdout, "Print the compact guide; fetch stable lazy sections by id.")
 			return nil
 		case "--section":
 			if i+1 >= len(args) {
@@ -55,13 +55,14 @@ func runAgentIntro(args []string, stdout, stderr io.Writer) error {
 
 	if listSections {
 		sections := agentguide.Sections()
+		references := agentguide.SectionCatalog()
 		if jsonOut {
 			enc := json.NewEncoder(stdout)
 			enc.SetIndent("", "  ")
-			return enc.Encode(map[string]any{"sections": sections})
+			return enc.Encode(map[string]any{"sections": sections, "references": references})
 		}
-		for _, s := range sections {
-			fmt.Fprintln(stdout, s)
+		for _, reference := range references {
+			fmt.Fprintf(stdout, "%s\t%s\n", reference.ID, reference.Title)
 		}
 		return nil
 	}
@@ -69,7 +70,12 @@ func runAgentIntro(args []string, stdout, stderr io.Writer) error {
 	if section != "" {
 		body := agentguide.Section(section)
 		if body == "" {
-			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc agent-intro: section %q not found (try --list-sections)", section)}
+			references := agentguide.SectionCatalog()
+			ids := make([]string, len(references))
+			for index, reference := range references {
+				ids[index] = reference.ID
+			}
+			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc agent-intro: section %q not found; use --list-sections (available: %s)", section, strings.Join(ids, ", "))}
 		}
 		if jsonOut {
 			enc := json.NewEncoder(stdout)
@@ -87,8 +93,9 @@ func runAgentIntro(args []string, stdout, stderr io.Writer) error {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(map[string]any{
-			"body":     agentguide.Markdown(),
-			"sections": agentguide.Sections(),
+			"body":       agentguide.Markdown(),
+			"sections":   agentguide.Sections(),
+			"references": agentguide.SectionCatalog(),
 		})
 	}
 
