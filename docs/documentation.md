@@ -258,6 +258,8 @@ make lint
 make coverage
 make build
 make benchmark-record
+make benchmark-profile
+make benchmark-pgo
 make benchmark-compare
 go run ./cmd/reconc --help
 make self-host
@@ -301,6 +303,31 @@ identity, sample count, and benchmark parameters; incompatible runs emit a
 failed comparison report instead of passing. The baseline must reference a
 clean source tree. `make benchmark-baseline` is the only baseline-writing
 operation and requires `CONFIRM_BENCHMARK_BASELINE=1`.
+
+`make benchmark-profile` runs the same suite and, for the explicitly bounded
+real-workload groups `hook-worker-end-to-end`, `runtime-lockfile-decode`,
+`runtime-source-freshness`, and `session-evidence-workloads`, records one
+profile pass per selected benchmark pattern under `.build/profiles/current/`.
+Each pass retains CPU, heap, blocking, mutex, and execution-trace artifacts plus
+the structured benchmark output. `manifest.json` binds every artifact to the
+Go version, OS, architecture, CPU identity, source commit, dirty state, sample
+parameters, benchmark group, pattern, byte count, and SHA-256. Profiling is
+opt-in, requires an explicit group list, refuses a non-empty destination, and
+uses local `go test` processes only; it never starts a production profiling
+server. Override `BENCHMARK_PROFILE_GROUPS` or `BENCHMARK_PROFILE_DIR` when a
+different bounded workload set is needed.
+
+Go PGO ([official contract](https://go.dev/doc/pgo)) consumes CPU pprof profiles. The checked profile artifacts are therefore
+inputs for an experiment, not an implicit optimization switch: build controls
+with `-pgo=off`, compare a candidate with an explicitly selected profile, and
+retain binary-size and cold-start measurements before considering adoption.
+Cross-compiled artifacts can prove build compatibility, but their performance
+is unavailable until the matching GOOS/GOARCH runs on native hardware. After a
+profile run, `make benchmark-pgo` uses the hook-worker CPU profile by default,
+builds provenance-verified `-pgo=off` and profile-guided host binaries, and
+writes a report with profile identity, binary sizes, and seven-sample cold-start
+p50/p95 measurements under `.build/benchmarks/pgo/`. The report is evidence for
+review; it does not change the normal build or release path.
 
 The benchmark workflow runs on scoped pull requests, a weekly scheduled
 macOS runner, or explicit dispatch. It uploads raw samples and the comparison
@@ -355,6 +382,8 @@ make coverage
 make cover
 make bench
 make benchmark-record
+make benchmark-profile
+make benchmark-pgo
 make benchmark-compare
 make benchmark-baseline
 make self-host

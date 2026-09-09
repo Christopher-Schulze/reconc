@@ -55,7 +55,7 @@ type goEnvironment struct {
 	GOARCH    string `json:"GOARCH"`
 }
 
-func recordBenchmarks(root, goBinary string, parameters Parameters) (BenchmarkResult, error) {
+func recordBenchmarksWithProfiles(root, goBinary string, parameters Parameters, profiles *profileOptions) (BenchmarkResult, error) {
 	environment, err := detectEnvironment(root, goBinary)
 	if err != nil {
 		return BenchmarkResult{}, err
@@ -71,6 +71,11 @@ func recordBenchmarks(root, goBinary string, parameters Parameters) (BenchmarkRe
 	result := BenchmarkResult{
 		FormatVersion: resultFormat, SuiteVersion: suiteVersion,
 		Environment: environment, Parameters: parameters, Groups: groups,
+	}
+	if profiles != nil {
+		if err := runProfiles(root, goBinary, parameters, environment, *profiles); err != nil {
+			return BenchmarkResult{}, err
+		}
 	}
 	return result, validateResult(result)
 }

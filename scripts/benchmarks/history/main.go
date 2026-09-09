@@ -51,13 +51,19 @@ func runRecord(args []string, stdout io.Writer) error {
 	output := flags.String("output", "", "result path")
 	count := flags.Int("count", 5, "samples per benchmark")
 	benchtime := flags.String("benchtime", "100x", "Go benchmark duration or iteration count")
+	profileDir := flags.String("profile-dir", "", "optional empty directory for bounded pprof/trace artifacts")
+	profileGroups := flags.String("profile-groups", "", "comma-separated benchmark groups to profile")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || *output == "" || *count < 1 || *count > 20 || !validBenchtime(*benchtime) {
-		return errors.New("usage: history record --output PATH [--root PATH] [--go PATH] [--count 1..20] [--benchtime VALUE]")
+		return errors.New("usage: history record --output PATH [--root PATH] [--go PATH] [--count 1..20] [--benchtime VALUE] [--profile-dir PATH --profile-groups GROUP,...]")
 	}
-	result, err := recordBenchmarks(*root, *goBinary, Parameters{Count: *count, Benchtime: *benchtime, CPU: 1})
+	profiles, err := profileOptionsFromFlags(*root, *profileDir, *profileGroups)
+	if err != nil {
+		return err
+	}
+	result, err := recordBenchmarksWithProfiles(*root, *goBinary, Parameters{Count: *count, Benchtime: *benchtime, CPU: 1}, profiles)
 	if err != nil {
 		return err
 	}

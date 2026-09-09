@@ -26,6 +26,8 @@
 #   make reference-docs     -- regenerate registry-owned Markdown reference sections
 #   make reference-docs-check -- fail when generated Markdown references drift
 #   make benchmark-record   -- record the calibrated benchmark suite
+#   make benchmark-profile  -- record bounded pprof/trace evidence for real workloads
+#   make benchmark-pgo      -- compare -pgo=off and profile-guided host builds
 #   make benchmark-compare  -- compare a result with the checked baseline
 #   make benchmark-baseline -- intentionally refresh the checked baseline
 
@@ -44,6 +46,10 @@ BENCHMARK_BENCHTIME ?= 100x
 BENCHMARK_RESULT ?= .build/benchmarks/current.json
 BENCHMARK_COMPARISON ?= .build/benchmarks/comparison.json
 BENCHMARK_BASELINE ?= scripts/benchmarks/baseline.json
+BENCHMARK_PROFILE_DIR ?= .build/profiles/current
+BENCHMARK_PROFILE_GROUPS ?= hook-worker-end-to-end,runtime-lockfile-decode,runtime-source-freshness,session-evidence-workloads
+BENCHMARK_PGO_PROFILE ?= $(BENCHMARK_PROFILE_DIR)/01-hook-worker-end-to-end.cpu.pprof
+BENCHMARK_PGO_DIR ?= .build/benchmarks/pgo
 RELEASE_COMMIT ?= $(shell git rev-parse HEAD)
 SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct $(RELEASE_COMMIT))
 
@@ -56,7 +62,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test-fast test test-langchain test-release-trust self-host publication-audit harness-pack-check reference-docs reference-docs-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices checksums verify-release bench benchmark-record benchmark-compare benchmark-baseline check-test-parallelism
+.PHONY: build test-fast test test-langchain test-release-trust self-host publication-audit harness-pack-check reference-docs reference-docs-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices checksums verify-release bench benchmark-record benchmark-profile benchmark-pgo benchmark-compare benchmark-baseline check-test-parallelism
 
 build:
 	@mkdir -p $(BINDIR)
@@ -142,6 +148,12 @@ bench:
 
 benchmark-record:
 	$(GO) run ./scripts/benchmarks/history record --root . --count $(BENCHMARK_COUNT) --benchtime $(BENCHMARK_BENCHTIME) --output $(BENCHMARK_RESULT)
+
+benchmark-profile:
+	$(GO) run ./scripts/benchmarks/history record --root . --count $(BENCHMARK_COUNT) --benchtime $(BENCHMARK_BENCHTIME) --output $(BENCHMARK_RESULT) --profile-dir $(BENCHMARK_PROFILE_DIR) --profile-groups "$(BENCHMARK_PROFILE_GROUPS)"
+
+benchmark-pgo:
+	GO="$(GO)" VERSION="$(VERSION)" ./scripts/benchmarks/pgo.sh --root . --profile "$(BENCHMARK_PGO_PROFILE)" --output-dir "$(BENCHMARK_PGO_DIR)"
 
 benchmark-compare:
 	$(GO) run ./scripts/benchmarks/history compare --baseline $(BENCHMARK_BASELINE) --result $(BENCHMARK_RESULT) --output $(BENCHMARK_COMPARISON)

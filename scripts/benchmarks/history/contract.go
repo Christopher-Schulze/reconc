@@ -2,13 +2,16 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"path"
 	"slices"
+	"strings"
 
 	"reconc.dev/reconc/internal/boundedio"
 )
@@ -17,8 +20,10 @@ const (
 	resultFormat     = "reconc.benchmark-result/v2"
 	baselineFormat   = "reconc.benchmark-baseline/v2"
 	comparisonFormat = "reconc.benchmark-comparison/v2"
+	profileFormat    = "reconc.benchmark-profile/v1"
 	suiteVersion     = "reconc.performance-history/v10"
 	maxContractBytes = 4 << 20
+	maxProfileBytes  = 64 << 20
 )
 
 type Environment struct {
@@ -75,6 +80,27 @@ type BenchmarkResult struct {
 	Environment   Environment   `json:"environment"`
 	Parameters    Parameters    `json:"parameters"`
 	Groups        []GroupResult `json:"groups"`
+}
+
+type ProfileManifest struct {
+	FormatVersion string            `json:"format_version"`
+	Environment   Environment       `json:"environment"`
+	Parameters    Parameters        `json:"parameters"`
+	Workloads     []ProfileWorkload `json:"workloads"`
+}
+
+type ProfileWorkload struct {
+	Group    string            `json:"group"`
+	Package  string            `json:"package"`
+	Pattern  string            `json:"pattern"`
+	Profiles []ProfileArtifact `json:"profiles"`
+}
+
+type ProfileArtifact struct {
+	Kind   string `json:"kind"`
+	Path   string `json:"path"`
+	Bytes  int64  `json:"bytes"`
+	SHA256 string `json:"sha256"`
 }
 
 type Tolerances struct {
@@ -221,6 +247,78 @@ func validateBaseline(baseline BenchmarkBaseline) error {
 		return errors.New("benchmark baseline must reference a clean source tree")
 	}
 	return validateResult(baseline.Result)
+}
+
+func validateProfileManifest(manifest ProfileManifest) error {
+	if manifest.FormatVersion != profileFormat {
+		return fmt.Errorf("unsupported benchmark profile format %q", manifest.FormatVersion)
+	}
+	if manifest.Environment.GoVersion == "" || manifest.Environment.GOOS == "" ||
+		manifest.Environment.GOARCH == "" || manifest.Environment.CPU == "" || manifest.Environment.Commit == "" {
+		return errors.New("benchmark profile environment is incomplete")
+	}
+	if manifest.Parameters.Count < 1 || manifest.Parameters.Count > 20 ||
+		!validBenchtime(manifest.Parameters.Benchtime) || manifest.Parameters.CPU != 1 {
+		return errors.New("benchmark profile parameters are invalid")
+	}
+	if len(manifest.Workloads) == 0 || len(manifest.Workloads) > len(benchmarkSuite)*2 {
+		return errors.New("benchmark profile workloads are outside the supported range")
+	}
+	knownGroups := make(map[string]bool, len(benchmarkSuite))
+	for _, spec := range benchmarkSuite {
+		knownGroups[spec.Name] = true
+	}
+	seenWorkloads := make(map[string]bool, len(manifest.Workloads))
+	seenPaths := make(map[string]bool)
+	for _, workload := range manifest.Workloads {
+		if !knownGroups[workload.Group] || workload.Package == "" || workload.Pattern == "" {
+			return fmt.Errorf("benchmark profile workload %q is invalid", workload.Group)
+		}
+		workloadKey := workload.Group + "\x00" + workload.Pattern
+		if seenWorkloads[workloadKey] {
+			return fmt.Errorf("benchmark profile workload %q was recorded more than once", workload.Group)
+		}
+		seenWorkloads[workloadKey] = true
+		var spec groupSpec
+		for _, candidate := range benchmarkSuite {
+			if candidate.Name == workload.Group {
+				spec = candidate
+				break
+			}
+		}
+		if workload.Package != spec.Package {
+			return fmt.Errorf("benchmark profile workload %q has package %q, want %q", workload.Group, workload.Package, spec.Package)
+		}
+		patternExpected := false
+		for _, pattern := range benchmarkPatterns(append([]string{spec.Calibration}, spec.Targets...)) {
+			patternExpected = patternExpected || pattern == workload.Pattern
+		}
+		if !patternExpected {
+			return fmt.Errorf("benchmark profile workload %q has an unexpected pattern", workload.Group)
+		}
+		if len(workload.Profiles) == 0 || len(workload.Profiles) > len(profileKinds)+1 {
+			return fmt.Errorf("benchmark profile workload %q has an invalid artifact count", workload.Group)
+		}
+		seenKinds := make(map[string]bool, len(workload.Profiles))
+		for _, artifact := range workload.Profiles {
+			clean := path.Clean(artifact.Path)
+			knownKind := artifact.Kind == "benchmark-output"
+			for _, kind := range profileKinds {
+				knownKind = knownKind || artifact.Kind == kind.name
+			}
+			if !knownKind || seenKinds[artifact.Kind] || artifact.Bytes <= 0 || artifact.Bytes > maxProfileBytes ||
+				clean != artifact.Path || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") ||
+				path.IsAbs(clean) || seenPaths[clean] || len(artifact.SHA256) != 64 {
+				return fmt.Errorf("benchmark profile artifact %q is invalid", artifact.Path)
+			}
+			if _, err := hex.DecodeString(artifact.SHA256); err != nil {
+				return fmt.Errorf("benchmark profile artifact %q has invalid SHA-256: %w", artifact.Path, err)
+			}
+			seenKinds[artifact.Kind] = true
+			seenPaths[clean] = true
+		}
+	}
+	return nil
 }
 
 func validateResult(result BenchmarkResult) error {

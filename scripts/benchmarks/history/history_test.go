@@ -85,6 +85,43 @@ func TestBenchmarkPatternsRespectGoSubBenchmarkHierarchy(t *testing.T) {
 	}
 }
 
+func TestProfileGroupSelectionIsExplicitAndBounded(t *testing.T) {
+	selected, err := parseProfileGroups("hook-worker-end-to-end, session-evidence-workloads")
+	if err != nil || len(selected) != 2 || !selected["hook-worker-end-to-end"] || !selected["session-evidence-workloads"] {
+		t.Fatalf("selected profile groups = %#v err=%v", selected, err)
+	}
+	for _, value := range []string{"", "unknown", "hook-worker-end-to-end,hook-worker-end-to-end"} {
+		if _, err := parseProfileGroups(value); err == nil {
+			t.Fatalf("invalid profile groups %q were accepted", value)
+		}
+	}
+	if _, err := profileOptionsFromFlags("/repo", "", "hook-worker-end-to-end"); err == nil {
+		t.Fatal("profile groups without a directory were accepted")
+	}
+	if _, err := profileOptionsFromFlags("/repo", ".build/profiles", ""); err == nil {
+		t.Fatal("profile directory without groups was accepted")
+	}
+}
+
+func TestProfileManifestValidationRejectsUnsafeArtifacts(t *testing.T) {
+	manifest := ProfileManifest{
+		FormatVersion: profileFormat,
+		Environment:   Environment{GoVersion: "go1.27.0", GOOS: "darwin", GOARCH: "arm64", CPU: "Test CPU", Commit: strings.Repeat("a", 40)},
+		Parameters:    Parameters{Count: 1, Benchtime: "1x", CPU: 1},
+		Workloads: []ProfileWorkload{{
+			Group: benchmarkSuite[0].Name, Package: benchmarkSuite[0].Package, Pattern: benchmarkPatterns(append([]string{benchmarkSuite[0].Calibration}, benchmarkSuite[0].Targets...))[0],
+			Profiles: []ProfileArtifact{{Kind: "cpu", Path: "profile.pprof", Bytes: 1, SHA256: strings.Repeat("a", 64)}},
+		}},
+	}
+	if err := validateProfileManifest(manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest.Workloads[0].Profiles[0].Path = "../outside.pprof"
+	if err := validateProfileManifest(manifest); err == nil {
+		t.Fatal("profile artifact escaped its manifest directory")
+	}
+}
+
 func TestBuildGroupsRefusesMissingBenchmark(t *testing.T) {
 	_, err := buildGroups(map[string][]MetricSample{}, 5)
 	if err == nil || !strings.Contains(err.Error(), benchmarkSuite[0].Calibration) {
