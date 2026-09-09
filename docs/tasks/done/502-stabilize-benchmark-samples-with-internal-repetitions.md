@@ -25,11 +25,11 @@ regression detection.
 
 ## Sub-Tasks
 
-- [~] Add bounded repetition parameters, deterministic aggregation, validation,
+- [x] Add bounded repetition parameters, deterministic aggregation, validation,
   and focused tests.
-- [ ] Regenerate and verify the clean baseline and repeated current comparison.
-- [ ] Update benchmark documentation and record gate evidence.
-- [ ] Re-read modified files, archive this task, commit, and push every task
+- [x] Regenerate and verify the clean baseline and repeated current comparison.
+- [x] Update benchmark documentation and record gate evidence.
+- [x] Re-read modified files, archive this task, commit, and push every task
   commit to `origin/main`.
 
 ## Notes
@@ -37,6 +37,22 @@ regression detection.
 - Scope is benchmark-history evidence only; product behavior is unchanged.
 - The default internal repetition count is three and is bounded to 1..5 to keep
   the full suite finite and comparable across machines.
+- Result, baseline, and comparison contracts are v4, v4, and v5 respectively;
+  all include `repetitions=3` and reject mismatched parameters.
+- The stable baseline result was recorded from clean c814f5b4 and published in
+  commit `9450cbdf`; it covers 19 groups, 24 targets, and five outer samples.
+- A clean current run from commit `53238607` passed against that baseline with
+  zero gated regressions: normalized ns -18.60..+6.76%, CPU-sentinel
+  calibration -10.22..+8.01%, CPU-adjusted absolute ns -19.02..+13.99%,
+  normalized bytes -8.99..+4.98%, absolute bytes -0.00..+3.96%, allocations
+  -0.08..+0.39%, and peak RSS -0.79..+4.07%. The only difference between that
+  clean measured source and the final HEAD is the baseline contract itself.
+- Two earlier baseline captures and three current captures with CPU-adjusted
+  failures were retained as noise evidence while unrelated workspaces drove
+  high host load; no tolerance or gate was weakened to make them pass.
+- `make test-fast`, `make test`, `make vet`, `make lint`, `make self-host`,
+  `make reference-docs-check`, `make publication-audit`, and `git diff --check`
+  passed.
 
 ## Deviations
 

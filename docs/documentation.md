@@ -292,8 +292,8 @@ times with 250-millisecond benchmark samples and three bounded internal
 under `.build/benchmarks/`. The bounded duration avoids both the scheduler
 noise of very short fixed-iteration samples and the thermal drift of longer
 samples across the full suite; each internal repetition set is collapsed to a
-deterministic median before outer statistics are calculated. `make
-benchmark-compare` normalizes every target against its same-package calibration
+deterministic median before outer statistics are calculated. `make benchmark-compare`
+normalizes every target against its same-package calibration
 benchmark and independently compares absolute bytes and allocations against the
 checked baseline. Every package sample also runs an independent CPU sentinel
 before and after the product benchmarks with the same internal repetition
