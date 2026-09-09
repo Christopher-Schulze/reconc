@@ -19,7 +19,7 @@ import (
 const (
 	resultFormat     = "reconc.benchmark-result/v2"
 	baselineFormat   = "reconc.benchmark-baseline/v2"
-	comparisonFormat = "reconc.benchmark-comparison/v2"
+	comparisonFormat = "reconc.benchmark-comparison/v3"
 	profileFormat    = "reconc.benchmark-profile/v1"
 	suiteVersion     = "reconc.performance-history/v10"
 	maxContractBytes = 4 << 20
@@ -132,6 +132,7 @@ type GroupComparison struct {
 	Benchmark             string           `json:"benchmark"`
 	BaselineAbsolute      MetricValues     `json:"baseline_absolute"`
 	CurrentAbsolute       MetricValues     `json:"current_absolute"`
+	CalibrationAbsoluteNS MetricComparison `json:"calibration_absolute_ns_per_op"`
 	BaselineP50           MetricValues     `json:"baseline_p50"`
 	CurrentP50            MetricValues     `json:"current_p50"`
 	BaselineP95           MetricValues     `json:"baseline_p95"`

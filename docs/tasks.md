@@ -7,6 +7,8 @@
 ## Blocked
 
 ## Done
+- [x] 500 Reality-check all 30 review fixes and stabilize performance evidence -> tasks/done/500-reality-check-and-stabilize-performance-evidence.md
+
 - [x] 499 Prove template enforcement through real adapter scenarios -> tasks/done/499-prove-template-enforcement-through-real-adapter-scenarios.md
 
 - [x] 498 Add evidence-backed compatibility migration generation and performance recipes -> tasks/done/498-add-evidence-backed-compatibility-migration-generation-and-performance-recipes.md

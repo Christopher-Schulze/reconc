@@ -52,10 +52,16 @@ func compareResults(baseline BenchmarkBaseline, current BenchmarkResult) (Benchm
 		for targetIndex := range currentGroup.Targets {
 			baselineTarget := baselineGroup.Targets[targetIndex]
 			currentTarget := currentGroup.Targets[targetIndex]
+			calibrationAbsoluteNS := compareMetric(
+				baselineGroup.Calibration.Median.NSPerOp,
+				currentGroup.Calibration.Median.NSPerOp,
+				baseline.Tolerances.AbsoluteNSPerOp,
+			)
 			comparison := GroupComparison{
 				Name: currentGroup.Name, Benchmark: currentTarget.Benchmark.Name,
 				BaselineAbsolute:      baselineTarget.Benchmark.Median,
 				CurrentAbsolute:       currentTarget.Benchmark.Median,
+				CalibrationAbsoluteNS: calibrationAbsoluteNS,
 				BaselineP50:           baselineTarget.Benchmark.P50,
 				CurrentP50:            currentTarget.Benchmark.P50,
 				BaselineP95:           baselineTarget.Benchmark.P95,
@@ -135,6 +141,12 @@ func appendRegressions(report *BenchmarkComparison, group GroupComparison) {
 		{"absolute_peak_rss_bytes", group.AbsolutePeakRSSBytes},
 	}
 	for _, metric := range metrics {
+		if metric.name == "absolute_ns_per_op" &&
+			!group.NormalizedNSPerOp.Regression &&
+			group.CalibrationAbsoluteNS.ChangeFraction != nil &&
+			*group.CalibrationAbsoluteNS.ChangeFraction > 0 {
+			continue
+		}
 		if metric.comparison.Regression {
 			report.Regressions = append(report.Regressions, Regression{
 				Group: group.Name, Benchmark: group.Benchmark, Metric: metric.name,

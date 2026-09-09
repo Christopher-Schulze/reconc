@@ -287,11 +287,17 @@ history from consuming or changing that fixed budget. `FUZZ_TIME`,
 worker count. Direct `go test ./...` validates only the root module.
 
 `make benchmark-record` runs the calibrated performance-history suite five
-times at a fixed iteration count and writes the machine-local result under
-`.build/benchmarks/`. `make benchmark-compare` normalizes every target against
-its same-package calibration benchmark and independently compares absolute
-nanoseconds, allocated bytes, and allocations against the checked baseline.
-Equal target/calibrator slowdowns therefore remain regressions. The suite
+times with 250-millisecond benchmark samples and writes the machine-local
+result under `.build/benchmarks/`. The bounded duration avoids both the
+scheduler noise of very short fixed-iteration samples and the thermal drift of
+longer samples across the full suite. `make benchmark-compare` normalizes every
+target against its same-package calibration benchmark and independently
+compares absolute bytes and allocations against the checked baseline. Raw
+absolute nanoseconds remain in the report; a slowdown explained by the same
+calibration slowdown is treated as host noise when normalized target time is
+within budget, while target-specific time regressions still fail. Equal
+target/calibrator slowdowns remain visible in the report and are still gated by
+independent absolute resource budgets. The suite
 covers bounded action traces and context operands, prepared action-decision
 caching, incremental action-ledger checkpoints, structured action inspection,
 canonical JSON, contextual source ingestion, prospective path resolution,

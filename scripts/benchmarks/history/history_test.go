@@ -237,6 +237,71 @@ func TestComparisonRejectsEqualRatioSlowdownWithAbsoluteBudgets(t *testing.T) {
 	}
 }
 
+func TestComparisonSuppressesCalibrationExplainedTimingNoise(t *testing.T) {
+	baselineResult := syntheticResult()
+	baseline, err := refreshBaseline(baselineResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := syntheticResult()
+	for groupIndex := range current.Groups {
+		calibration := &current.Groups[groupIndex].Calibration
+		calibration.Median.NSPerOp *= 2
+		calibration.P50.NSPerOp *= 2
+		calibration.P95.NSPerOp *= 2
+		for index := range calibration.Samples {
+			calibration.Samples[index].NSPerOp *= 2
+		}
+		for targetIndex := range current.Groups[groupIndex].Targets {
+			target := &current.Groups[groupIndex].Targets[targetIndex]
+			target.Benchmark.Median.NSPerOp *= 2
+			target.Benchmark.P50.NSPerOp *= 2
+			target.Benchmark.P95.NSPerOp *= 2
+			for index := range target.Benchmark.Samples {
+				target.Benchmark.Samples[index].NSPerOp *= 2
+			}
+			normalized, normalizeErr := normalize(target.Benchmark.Median, calibration.Median)
+			if normalizeErr != nil {
+				t.Fatal(normalizeErr)
+			}
+			target.Normalized = normalized
+		}
+	}
+	report, err := compareResults(baseline, current)
+	if err != nil || !report.Passed {
+		t.Fatalf("calibration-explained slowdown = report=%+v err=%v", report, err)
+	}
+	for _, group := range report.Groups {
+		if !group.CalibrationAbsoluteNS.Regression {
+			t.Fatalf("calibration slowdown was not recorded: %+v", group)
+		}
+	}
+
+	targetOnly := syntheticResult()
+	target := &targetOnly.Groups[0].Targets[0]
+	target.Benchmark.Median.NSPerOp *= 2
+	target.Benchmark.P50.NSPerOp *= 2
+	target.Benchmark.P95.NSPerOp *= 2
+	for index := range target.Benchmark.Samples {
+		target.Benchmark.Samples[index].NSPerOp *= 2
+	}
+	normalized, err := normalize(target.Benchmark.Median, targetOnly.Groups[0].Calibration.Median)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target.Normalized = normalized
+	report, err = compareResults(baseline, targetOnly)
+	if !errors.Is(err, errRegression) || report.Passed {
+		t.Fatalf("target-specific slowdown was accepted: report=%+v err=%v", report, err)
+	}
+	for _, regression := range report.Regressions {
+		if regression.Group == targetOnly.Groups[0].Name && regression.Metric == "normalized_ns_per_op" {
+			return
+		}
+	}
+	t.Fatalf("target-specific normalized timing regression missing: %+v", report.Regressions)
+}
+
 func TestComparisonReportsIncompatibleEvidence(t *testing.T) {
 	baselineResult := syntheticResult()
 	baseline, err := refreshBaseline(baselineResult)

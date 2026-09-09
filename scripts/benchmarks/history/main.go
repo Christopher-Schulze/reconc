@@ -50,7 +50,7 @@ func runRecord(args []string, stdout io.Writer) error {
 	goBinary := flags.String("go", "go", "Go command")
 	output := flags.String("output", "", "result path")
 	count := flags.Int("count", 5, "samples per benchmark")
-	benchtime := flags.String("benchtime", "100x", "Go benchmark duration or iteration count")
+	benchtime := flags.String("benchtime", "250ms", "Go benchmark duration or iteration count")
 	profileDir := flags.String("profile-dir", "", "optional empty directory for bounded pprof/trace artifacts")
 	profileGroups := flags.String("profile-groups", "", "comma-separated benchmark groups to profile")
 	if err := flags.Parse(args); err != nil {

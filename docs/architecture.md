@@ -1552,11 +1552,11 @@ These are reproducible observations, not latency contracts. The routine paths
 start no Git process; fsync-backed state, pointer, decision-log, and audit
 durability dominate the remaining cost.
 
-Calibrated benchmark history covers twelve allocation-sensitive paths in the
-action evaluator, action ledger, inspection, compiler, hook worker, source
-loader, path resolver, and runtime evaluator. `make
-benchmark-record` runs five samples at 100 fixed iterations with one logical
-CPU, records the raw medians plus Go version, OS, architecture, CPU identity,
+Calibrated benchmark history covers nineteen allocation-sensitive groups across
+the action evaluator, action ledger, inspection, compiler, hook worker, source
+loader, path resolver, runtime evaluator and session evidence. `make
+benchmark-record` runs five 250-millisecond samples with one logical CPU,
+records the raw medians plus Go version, OS, architecture, CPU identity,
 commit, dirty state, and benchmark parameters, and normalizes every target
 against a same-package reference from the same run. `make benchmark-compare`
 accepts only the same suite, Go version, OS, architecture, sample count,
@@ -1565,13 +1565,17 @@ same-run calibrated; this reduces host noise but does not make different
 machines equivalent. Absolute medians remain visible and informational.
 
 The checked baseline allows at most 20% normalized time growth and 5%
-normalized bytes or allocation growth. `make benchmark-baseline
+normalized bytes or allocation growth. Absolute bytes and allocations retain
+their independent budgets; raw absolute nanoseconds remain visible, with
+calibration-explained host drift excluded when normalized target time is within
+budget. `make benchmark-baseline
 CONFIRM_BENCHMARK_BASELINE=1` is the only baseline-refresh path and requires a
 fresh `make benchmark-record`; comparison never rewrites either input. The
-manual `Calibrated Benchmarks` workflow records and compares on macOS. Normal
-push and pull-request verification never starts the benchmark suite, so these
-measurements inform deliberate performance review without becoming noisy
-wall-clock CI gates.
+`Calibrated Benchmarks` workflow records and compares on macOS for
+benchmark-sensitive pull requests, the weekly schedule, and manual dispatch.
+Unrelated pushes do not start the suite, so these measurements remain scoped to
+performance-relevant changes without turning every ordinary check into a long
+wall-clock gate.
 
 ### Causal command-success evidence
 
