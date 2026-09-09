@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -186,6 +188,103 @@ func TestRenderFixPlanTextEmpty(t *testing.T) {
 	text := RenderFixPlanText(BuildFixPlan(report))
 	if !strings.Contains(text, "No remediation") {
 		t.Errorf("empty plan text wrong, got: %s", text)
+	}
+}
+
+func TestBuildFixPlanBoundsCurrentOutputAndReportsOmissions(t *testing.T) {
+	commands := make([]string, MaxFixPlanActions+5)
+	for index := range commands {
+		commands[index] = "  command " + string(rune('α'+index)) + " ; $HOME\t"
+	}
+	readPaths := make([]string, MaxFixPlanInputItems+3)
+	for index := range readPaths {
+		readPaths[index] = "read/" + string(rune('界'+index))
+	}
+	writeEpochs := make(map[string]uint64, MaxFixPlanInputItems+3)
+	for index := 0; index < MaxFixPlanInputItems+3; index++ {
+		writeEpochs[fmt.Sprintf("epoch-%03d", index)] = uint64(index + 1)
+	}
+	violations := make([]Violation, MaxFixPlanRemediations+4)
+	for index := range violations {
+		violations[index] = Violation{RuleID: fmt.Sprintf("rule-%03d", index), Kind: policy.KindDenyWrite, Mode: policy.ModeBlock}
+	}
+	violations[0].Kind = policy.KindRequireCommand
+	violations[0].RequiredCommands = commands
+	report := &CheckReport{
+		Decision:               DecisionBlock,
+		RepoRoot:               "/repo exact\twith spaces",
+		ViolationCount:         len(violations),
+		BlockingViolationCount: len(violations),
+		Inputs: ExecutionInputs{
+			ReadPaths:   readPaths,
+			WriteEpochs: writeEpochs,
+		},
+		Violations: violations,
+	}
+
+	plan := BuildFixPlan(report)
+	if got, want := len(plan.Remediations), MaxFixPlanRemediations; got != want {
+		t.Fatalf("retained remediations = %d, want %d", got, want)
+	}
+	if plan.RemediationCount != len(plan.Remediations) {
+		t.Fatalf("remediation_count = %d, emitted = %d", plan.RemediationCount, len(plan.Remediations))
+	}
+	if plan.Omissions == nil || plan.Omissions.Remediations != len(violations)-MaxFixPlanRemediations {
+		t.Fatalf("remediation omissions = %#v", plan.Omissions)
+	}
+	if got := plan.Inputs.ReadPaths[MaxFixPlanInputItems-1]; got != readPaths[MaxFixPlanInputItems-1] {
+		t.Fatalf("retained path changed: %q", got)
+	}
+	if len(plan.Inputs.ReadPaths) != MaxFixPlanInputItems || plan.Omissions.InputItems == 0 {
+		t.Fatalf("input bounds = len(%d), omissions=%#v", len(plan.Inputs.ReadPaths), plan.Omissions)
+	}
+	if len(plan.Inputs.WriteEpochs) != MaxFixPlanInputItems {
+		t.Fatalf("write epoch bound = %d", len(plan.Inputs.WriteEpochs))
+	}
+	if _, ok := plan.Inputs.WriteEpochs["epoch-000"]; !ok {
+		t.Fatal("deterministic epoch selection dropped the first key")
+	}
+	if _, ok := plan.Inputs.WriteEpochs["epoch-299"]; ok {
+		t.Fatal("deterministic epoch selection retained an omitted key")
+	}
+	first := plan.Remediations[0]
+	if len(first.SuggestedCommands) != MaxFixPlanFieldItems || first.SuggestedCommands[0] != commands[0] {
+		t.Fatalf("suggested command bounds changed exact values: len=%d first=%q", len(first.SuggestedCommands), first.SuggestedCommands[0])
+	}
+	if len(first.Actions) != MaxFixPlanActions || first.Actions[0].Shell != commands[0] {
+		t.Fatalf("action bounds changed exact values: len=%d first=%q", len(first.Actions), first.Actions[0].Shell)
+	}
+	if plan.Omissions.RemediationItems == 0 || plan.Omissions.ActionItems == 0 {
+		t.Fatalf("nested omissions missing: %#v", plan.Omissions)
+	}
+	body, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"omissions"`) {
+		t.Fatalf("v2 JSON omitted metadata: %s", body)
+	}
+	text := RenderFixPlanText(plan)
+	if !strings.Contains(text, "Omitted entries:") || !strings.Contains(text, commands[0]) {
+		t.Fatalf("text omitted bounded metadata or exact action: %s", text[:minInt(len(text), 512)])
+	}
+}
+
+func TestBuildLegacyFixPlanRetainsV1ShapeWhenCurrentPlanIsBounded(t *testing.T) {
+	violations := make([]Violation, MaxFixPlanRemediations+1)
+	for index := range violations {
+		violations[index] = Violation{RuleID: fmt.Sprintf("legacy-%d", index), Kind: policy.KindRequireClaim, RequiredClaims: []string{"claim"}}
+	}
+	legacy := BuildLegacyFixPlan(&CheckReport{Violations: violations, ViolationCount: len(violations)})
+	if len(legacy.Remediations) != len(violations) || legacy.Omissions != nil {
+		t.Fatalf("legacy plan was bounded or gained metadata: len=%d omissions=%#v", len(legacy.Remediations), legacy.Omissions)
+	}
+	body, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), `"omissions"`) || strings.Contains(string(body), `"actions"`) {
+		t.Fatalf("legacy shape changed: %s", body)
 	}
 }
 

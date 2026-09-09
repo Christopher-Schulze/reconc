@@ -29,6 +29,23 @@ available. Agents use it to identify the shortest valid next action.
 
 `remediation_count` must equal `len(remediations)`.
 
+Current v2 output applies bounded cardinality limits: at most 256
+remediations, 256 entries per input collection, 256 entries per remediation
+hint collection, and 256 typed actions per remediation. Retained strings,
+paths, identifiers, and shell/argv values are byte-exact. When a limit drops
+source entries, the optional `omissions` object reports the counts:
+
+| Field | Meaning |
+|---|---|
+| `input_items` | Input slice/map entries not emitted. |
+| `remediations` | Violations without an emitted remediation. |
+| `remediation_items` | Hint-array entries not emitted. |
+| `actions` | Typed actions not emitted. |
+| `action_items` | Nested action evidence/claim entries not emitted. |
+
+The v1 compatibility path keeps its registered unbounded shape and never emits
+the v2 `omissions` field.
+
 ## Remediation Object
 
 | Field | Type | Rule |

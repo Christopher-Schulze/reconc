@@ -993,7 +993,11 @@ detail path rather than a placeholder.
 explicit literal scripts, and cwd, authorization, and required evidence or
 claims are separate fields. `BuildLegacyFixPlan` remains the compatibility path
 for consumers that only accept the v1 fix-plan schema; neither format claims an
-action is authorized automatically.
+action is authorized automatically. Current v2 output bounds each input,
+remediation hint, action, and top-level remediation collection at 256 entries.
+Retained values stay byte-exact. If source entries exceed a limit, the optional
+`omissions` object reports omitted input, remediation, hint, action, and nested
+action-item counts; `remediation_count` always equals the emitted array length.
 
 Review candidate policy before changing the live contract:
 

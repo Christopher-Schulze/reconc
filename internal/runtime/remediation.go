@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -27,6 +28,13 @@ const (
 	FixPlanFormatVersion       = "2"
 	LegacyFixPlanSchema        = schema.PolicyFixPlanV1URL
 	LegacyFixPlanFormatVersion = "1"
+
+	// Current fix plans are bounded at the output boundary. These limits cap
+	// collection cardinality while preserving every retained value exactly.
+	MaxFixPlanRemediations = 256
+	MaxFixPlanInputItems   = 256
+	MaxFixPlanFieldItems   = 256
+	MaxFixPlanActions      = 256
 )
 
 // RemediationActionCode identifies the stable operation an agent may take
@@ -75,17 +83,33 @@ type RemediationAction struct {
 // FixPlan is designed for agent consumption: each remediation has step-by-step
 // instructions plus suggested commands / claims / files to surface.
 type FixPlan struct {
-	Schema                 string          `json:"$schema"`
-	FormatVersion          string          `json:"format_version"`
-	Decision               Decision        `json:"decision"`
-	Summary                string          `json:"summary"`
-	RepoRoot               string          `json:"repo_root"`
-	LockfilePath           string          `json:"lockfile_path"`
-	Inputs                 ExecutionInputs `json:"inputs"`
-	ViolationCount         int             `json:"violation_count"`
-	BlockingViolationCount int             `json:"blocking_violation_count"`
-	RemediationCount       int             `json:"remediation_count"`
-	Remediations           []Remediation   `json:"remediations"`
+	Schema                 string            `json:"$schema"`
+	FormatVersion          string            `json:"format_version"`
+	Decision               Decision          `json:"decision"`
+	Summary                string            `json:"summary"`
+	RepoRoot               string            `json:"repo_root"`
+	LockfilePath           string            `json:"lockfile_path"`
+	Inputs                 ExecutionInputs   `json:"inputs"`
+	ViolationCount         int               `json:"violation_count"`
+	BlockingViolationCount int               `json:"blocking_violation_count"`
+	RemediationCount       int               `json:"remediation_count"`
+	Remediations           []Remediation     `json:"remediations"`
+	Omissions              *FixPlanOmissions `json:"omissions,omitempty"`
+}
+
+// FixPlanOmissions reports v2 values that were left out at a bounded output
+// boundary. Counts include source entries that were not represented in the
+// emitted arrays; no emitted string or argument is shortened.
+type FixPlanOmissions struct {
+	InputItems       int `json:"input_items,omitempty"`
+	Remediations     int `json:"remediations,omitempty"`
+	RemediationItems int `json:"remediation_items,omitempty"`
+	Actions          int `json:"actions,omitempty"`
+	ActionItems      int `json:"action_items,omitempty"`
+}
+
+func (o *FixPlanOmissions) empty() bool {
+	return o == nil || (o.InputItems == 0 && o.Remediations == 0 && o.RemediationItems == 0 && o.Actions == 0 && o.ActionItems == 0)
 }
 
 // Remediation is one structured fix recipe per violation.
@@ -137,9 +161,22 @@ func buildFixPlan(report *CheckReport, includeActions bool, schemaURL, formatVer
 		}
 	}
 
-	remediations := make([]Remediation, 0, len(report.Violations))
+	var omissions *FixPlanOmissions
+	inputs := report.Inputs
+	if includeActions {
+		omissions = &FixPlanOmissions{}
+		inputs = boundFixPlanInputs(inputs, omissions)
+	}
+	remediations := make([]Remediation, 0, minInt(len(report.Violations), MaxFixPlanRemediations))
 	for _, v := range report.Violations {
-		remediations = append(remediations, buildRemediation(v, report.RepoRoot, includeActions))
+		if includeActions && len(remediations) >= MaxFixPlanRemediations {
+			omissions.Remediations++
+			continue
+		}
+		remediations = append(remediations, buildRemediation(v, report.RepoRoot, includeActions, omissions))
+	}
+	if omissions.empty() {
+		omissions = nil
 	}
 
 	return &FixPlan{
@@ -149,15 +186,16 @@ func buildFixPlan(report *CheckReport, includeActions bool, schemaURL, formatVer
 		Summary:                renderFixPlanSummary(report),
 		RepoRoot:               report.RepoRoot,
 		LockfilePath:           report.LockfilePath,
-		Inputs:                 report.Inputs,
+		Inputs:                 inputs,
 		ViolationCount:         report.ViolationCount,
 		BlockingViolationCount: report.BlockingViolationCount,
 		RemediationCount:       len(remediations),
 		Remediations:           remediations,
+		Omissions:              omissions,
 	}
 }
 
-func buildRemediation(v Violation, repoRoot string, includeActions bool) Remediation {
+func buildRemediation(v Violation, repoRoot string, includeActions bool, omissions *FixPlanOmissions) Remediation {
 	priority := "non-blocking"
 	if v.IsBlocking() {
 		priority = "blocking"
@@ -176,18 +214,22 @@ func buildRemediation(v Violation, repoRoot string, includeActions bool) Remedia
 		CanAutofix:        false, // typed actions still require explicit authorization
 	}
 
+	var omittedItems *int
+	if omissions != nil {
+		omittedItems = &omissions.RemediationItems
+	}
 	// Per-kind remediation hints.
 	switch v.Kind {
 	case policy.KindRequireCommand, policy.KindRequireCommandSuccess:
-		rem.SuggestedCommands = dedupeStrings(v.RequiredCommands)
+		rem.SuggestedCommands = boundedFixPlanStrings(v.RequiredCommands, MaxFixPlanFieldItems, omittedItems)
 	case policy.KindForbidCommand:
-		rem.ForbiddenCommands = dedupeStrings(v.MatchedCommands)
+		rem.ForbiddenCommands = boundedFixPlanStrings(v.MatchedCommands, MaxFixPlanFieldItems, omittedItems)
 		// Surface the rule's forbidden commands too if any
 		if len(rem.ForbiddenCommands) == 0 {
-			rem.ForbiddenCommands = dedupeStrings(v.RequiredCommands)
+			rem.ForbiddenCommands = boundedFixPlanStrings(v.RequiredCommands, MaxFixPlanFieldItems, omittedItems)
 		}
 	case policy.KindRequireClaim:
-		rem.SuggestedClaims = dedupeStrings(v.RequiredClaims)
+		rem.SuggestedClaims = boundedFixPlanStrings(v.RequiredClaims, MaxFixPlanFieldItems, omittedItems)
 	}
 
 	// Files to inspect: the rule's source location (where the rule
@@ -199,33 +241,42 @@ func buildRemediation(v Violation, repoRoot string, includeActions bool) Remedia
 	}
 	files = append(files, v.MatchedPaths...)
 	files = append(files, v.RequiredPaths...)
-	rem.FilesToInspect = dedupeStrings(files)
+	rem.FilesToInspect = boundedFixPlanStrings(files, MaxFixPlanFieldItems, omittedItems)
 
 	rem.Steps = buildStepsForKind(v)
 	if includeActions {
-		rem.Actions = buildActionsForViolation(v, repoRoot)
+		rem.Actions = buildActionsForViolation(v, repoRoot, omissions)
 	}
 	return rem
 }
 
-func buildActionsForViolation(v Violation, repoRoot string) []RemediationAction {
+func buildActionsForViolation(v Violation, repoRoot string, omissions *FixPlanOmissions) []RemediationAction {
 	actions := make([]RemediationAction, 0, 2)
+	appendAction := func(action RemediationAction) {
+		if len(actions) >= MaxFixPlanActions {
+			omissions.Actions++
+			return
+		}
+		actions = append(actions, action)
+	}
 	switch v.Kind {
 	case policy.KindRequireCommand, policy.KindRequireCommandSuccess:
 		evidence := "command_executed"
 		if v.Kind == policy.KindRequireCommandSuccess {
 			evidence = "command_success"
 		}
-		for _, command := range dedupeStrings(v.RequiredCommands) {
-			actions = append(actions, RemediationAction{
+		commands := boundedFixPlanStrings(v.RequiredCommands, MaxFixPlanActions, &omissions.ActionItems)
+		for _, command := range commands {
+			appendAction(RemediationAction{
 				Code: ActionRunCommand, Kind: ActionKindShell, Shell: command,
 				Cwd: repoRoot, Authorization: "operator_approval",
 				RequiredEvidence: []string{evidence},
 			})
 		}
 	case policy.KindRequireClaim:
-		for _, claim := range dedupeStrings(v.RequiredClaims) {
-			actions = append(actions, RemediationAction{
+		claims := boundedFixPlanStrings(v.RequiredClaims, MaxFixPlanActions, &omissions.ActionItems)
+		for _, claim := range claims {
+			appendAction(RemediationAction{
 				Code: ActionAssertClaim, Kind: ActionKindArgv,
 				Argv: []string{"reconc", "check", "--claim", claim},
 				Cwd:  repoRoot, Authorization: "operator_approval",
@@ -233,32 +284,105 @@ func buildActionsForViolation(v Violation, repoRoot string) []RemediationAction 
 			})
 		}
 	case policy.KindDenyWrite:
-		actions = append(actions, RemediationAction{
+		appendAction(RemediationAction{
 			Code: ActionRequestApproval, Kind: ActionKindApproval,
-			Authorization: "policy_update", RequiredEvidence: dedupeStrings(v.MatchedPaths),
+			Authorization: "policy_update", RequiredEvidence: boundedFixPlanStrings(v.MatchedPaths, MaxFixPlanFieldItems, &omissions.ActionItems),
 		})
 	case policy.KindRequireRead, policy.KindCoupleChange, policy.KindRequireEvidence:
-		actions = append(actions, RemediationAction{
+		appendAction(RemediationAction{
 			Code: ActionProvideEvidence, Kind: ActionKindEvidence,
-			Cwd: repoRoot, RequiredEvidence: dedupeStrings(v.RequiredPaths),
+			Cwd: repoRoot, RequiredEvidence: boundedFixPlanStrings(v.RequiredPaths, MaxFixPlanFieldItems, &omissions.ActionItems),
 		})
 	case policy.KindRequireFreshFile:
-		actions = append(actions, RemediationAction{
+		appendAction(RemediationAction{
 			Code: ActionRefresh, Kind: ActionKindEvidence,
-			Cwd: repoRoot, RequiredEvidence: dedupeStrings(v.RequiredPaths),
+			Cwd: repoRoot, RequiredEvidence: boundedFixPlanStrings(v.RequiredPaths, MaxFixPlanFieldItems, &omissions.ActionItems),
 		})
 	case policy.KindAllOf, policy.KindAnyOf, policy.KindNot, policy.KindRequireScript, policy.KindRequireAssurance:
-		actions = append(actions, RemediationAction{
+		appendAction(RemediationAction{
 			Code: ActionRetry, Kind: ActionKindInspection,
-			Cwd: repoRoot, RequiredEvidence: dedupeStrings(append(append([]string{}, v.MatchedPaths...), v.RequiredPaths...)),
+			Cwd: repoRoot, RequiredEvidence: boundedFixPlanStrings(append(append([]string{}, v.MatchedPaths...), v.RequiredPaths...), MaxFixPlanFieldItems, &omissions.ActionItems),
 		})
 	default:
-		actions = append(actions, RemediationAction{
+		appendAction(RemediationAction{
 			Code: ActionInspect, Kind: ActionKindInspection,
-			Cwd: repoRoot, RequiredEvidence: dedupeStrings(append(append([]string{}, v.MatchedPaths...), v.RequiredPaths...)),
+			Cwd: repoRoot, RequiredEvidence: boundedFixPlanStrings(append(append([]string{}, v.MatchedPaths...), v.RequiredPaths...), MaxFixPlanFieldItems, &omissions.ActionItems),
 		})
 	}
 	return actions
+}
+
+func boundFixPlanInputs(inputs ExecutionInputs, omissions *FixPlanOmissions) ExecutionInputs {
+	bounded := inputs
+	bounded.ReadPaths, omissions.InputItems = boundFixPlanSlice(inputs.ReadPaths, MaxFixPlanInputItems, omissions.InputItems)
+	bounded.WritePaths, omissions.InputItems = boundFixPlanSlice(inputs.WritePaths, MaxFixPlanInputItems, omissions.InputItems)
+	bounded.Commands, omissions.InputItems = boundFixPlanSlice(inputs.Commands, MaxFixPlanInputItems, omissions.InputItems)
+	bounded.Claims, omissions.InputItems = boundFixPlanSlice(inputs.Claims, MaxFixPlanInputItems, omissions.InputItems)
+	if len(inputs.CommandResults) > MaxFixPlanInputItems {
+		bounded.CommandResults = append([]CommandResult{}, inputs.CommandResults[:MaxFixPlanInputItems]...)
+		omissions.InputItems += len(inputs.CommandResults) - MaxFixPlanInputItems
+	} else if inputs.CommandResults != nil {
+		bounded.CommandResults = append([]CommandResult{}, inputs.CommandResults...)
+	}
+	if inputs.WriteEpochs != nil {
+		keys := make([]string, 0, len(inputs.WriteEpochs))
+		for key := range inputs.WriteEpochs {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		bounded.WriteEpochs = make(map[string]uint64, minInt(len(keys), MaxFixPlanInputItems))
+		for _, key := range keys {
+			if len(bounded.WriteEpochs) >= MaxFixPlanInputItems {
+				omissions.InputItems++
+				continue
+			}
+			bounded.WriteEpochs[key] = inputs.WriteEpochs[key]
+		}
+	}
+	return bounded
+}
+
+func boundFixPlanSlice(values []string, limit, omitted int) ([]string, int) {
+	if values == nil {
+		return nil, omitted
+	}
+	if len(values) <= limit {
+		return append([]string{}, values...), omitted
+	}
+	return append([]string{}, values[:limit]...), omitted + len(values) - limit
+}
+
+func boundedFixPlanStrings(values []string, limit int, omitted *int) []string {
+	if values == nil {
+		return nil
+	}
+	if omitted == nil {
+		return dedupeStrings(values)
+	}
+	seen := make(map[string]struct{}, minInt(len(values), limit))
+	out := make([]string, 0, minInt(len(values), limit))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		if len(out) >= limit {
+			(*omitted)++
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // buildStepsForKind produces 2-4 actionable items per violation
@@ -348,8 +472,16 @@ func renderFixPlanSummary(r *CheckReport) string {
 // RenderFixPlanText produces a human-readable text rendering of a fix
 // plan. Used by `reconc fix` when --json is not specified.
 func RenderFixPlanText(p *FixPlan) string {
+	if p == nil {
+		return "Fix plan unavailable.\n"
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Fix plan: %s\n", p.Summary)
+	if p.Omissions != nil {
+		fmt.Fprintf(&b, "Omitted entries: inputs=%d remediations=%d remediation_items=%d actions=%d action_items=%d\n",
+			p.Omissions.InputItems, p.Omissions.Remediations, p.Omissions.RemediationItems,
+			p.Omissions.Actions, p.Omissions.ActionItems)
+	}
 	if p.RemediationCount == 0 {
 		return b.String()
 	}

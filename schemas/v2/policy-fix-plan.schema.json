@@ -31,12 +31,24 @@
     "remediations": {
       "type": "array",
       "items": { "$ref": "#/$defs/remediation" }
-    }
+    },
+    "omissions": { "$ref": "#/$defs/omissions" }
   },
   "$defs": {
     "stringArray": {
       "type": "array",
       "items": { "type": "string" }
+    },
+    "omissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input_items": { "type": "integer", "minimum": 1 },
+        "remediations": { "type": "integer", "minimum": 1 },
+        "remediation_items": { "type": "integer", "minimum": 1 },
+        "actions": { "type": "integer", "minimum": 1 },
+        "action_items": { "type": "integer", "minimum": 1 }
+      }
     },
     "remediation": {
       "type": "object",
