@@ -427,6 +427,44 @@ func TestDecisionCacheNilAndEvictionBehavior(t *testing.T) {
 	}
 }
 
+func TestDecisionCacheByteBoundAndOversizedEntries(t *testing.T) {
+	t.Parallel()
+	evaluator, baseline := testActionEvaluator(t, nil, Defaults{}, testExternalEffect())
+	result := evaluator.Evaluate(baseline)
+	cache := NewDecisionCache()
+	oversized := result
+	oversized.Trace = []TraceEntry{{RuleID: strings.Repeat("x", MaxDecisionCacheBytes+1024)}}
+	if cache.Store(evaluator, baseline, oversized) {
+		t.Fatal("oversized legal result was admitted to the decision cache")
+	}
+	if cache.bytes != 0 || len(cache.entries) != 0 {
+		t.Fatalf("oversized result changed cache state: bytes=%d entries=%d", cache.bytes, len(cache.entries))
+	}
+
+	payload := strings.Repeat("x", MaxDecisionCacheBytes/3+1024)
+	inputs := make([]EvaluationInput, 3)
+	for index := range inputs {
+		input := baseline
+		arguments := mustTestValue(t, fmt.Sprintf(`{"index":%d}`, index))
+		input.Request.Arguments = &arguments
+		stored := evaluator.Evaluate(input)
+		stored.Trace = []TraceEntry{{RuleID: payload}}
+		if !cache.Store(evaluator, input, stored) {
+			t.Fatalf("mixed-size result %d was not admitted", index)
+		}
+		inputs[index] = input
+		if cache.bytes > MaxDecisionCacheBytes {
+			t.Fatalf("retained bytes exceeded budget after result %d: %d", index, cache.bytes)
+		}
+	}
+	if _, hit, _ := cache.Lookup(evaluator, inputs[0]); hit {
+		t.Fatal("oldest mixed-size result survived byte eviction")
+	}
+	if _, hit, _ := cache.Lookup(evaluator, inputs[len(inputs)-1]); !hit {
+		t.Fatal("newest mixed-size result was evicted")
+	}
+}
+
 func TestPreparedDecisionCacheBindsOneImmutableEvaluation(t *testing.T) {
 	t.Parallel()
 	evaluator, input := testActionEvaluator(t, nil, Defaults{}, testExternalEffect())

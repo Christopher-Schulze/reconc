@@ -10,6 +10,10 @@ const (
 	MaxTraceEntries         = 256
 	MaxTraceBytes           = 64 << 10
 	MaxDecisionCacheEntries = 256
+	// MaxDecisionCacheBytes bounds retained result graphs in addition to the
+	// entry count. The accounting is conservative and includes backing arrays,
+	// string payloads, and allocator overhead for one immutable cached result.
+	MaxDecisionCacheBytes = 64 << 20
 )
 
 type AuthorityMode string

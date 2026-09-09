@@ -241,6 +241,46 @@ func TestRuntimePlanCacheEvictsLeastRecentlyUsedEntries(t *testing.T) {
 	}
 }
 
+func TestRuntimePlanCacheBoundsRetainedBytesAndBypassesOversizedPlans(t *testing.T) {
+	evaluator := NewEvaluator()
+	if evaluator.cacheRuntimePlan("oversized", runtimePlanCacheEntry{
+		plan: &runtimePlan{}, bytes: maxRuntimePlanCacheBytes + 1,
+	}) {
+		t.Fatal("oversized runtime plan was admitted")
+	}
+	if len(evaluator.plans) != 0 || evaluator.planBytes != 0 {
+		t.Fatalf("oversized plan changed cache state: entries=%d bytes=%d", len(evaluator.plans), evaluator.planBytes)
+	}
+
+	const entryBytes = maxRuntimePlanCacheBytes/3 + 1
+	for index := 0; index < 3; index++ {
+		root := "mixed-" + strconv.Itoa(index)
+		if !evaluator.cacheRuntimePlan(root, runtimePlanCacheEntry{
+			plan: &runtimePlan{}, bytes: entryBytes,
+		}) {
+			t.Fatalf("mixed plan %d was not admitted", index)
+		}
+		if evaluator.planBytes > maxRuntimePlanCacheBytes {
+			t.Fatalf("retained runtime plan bytes exceeded budget: %d", evaluator.planBytes)
+		}
+	}
+	if _, ok := evaluator.plans["mixed-0"]; ok {
+		t.Fatal("oldest mixed-size plan survived byte eviction")
+	}
+	if _, ok := evaluator.plans["mixed-2"]; !ok {
+		t.Fatal("newest mixed-size plan was evicted")
+	}
+
+	if !evaluator.cacheRuntimePlan("mixed-2", runtimePlanCacheEntry{
+		plan: &runtimePlan{}, bytes: 1024,
+	}) {
+		t.Fatal("replacement runtime plan was not admitted")
+	}
+	if evaluator.planBytes > maxRuntimePlanCacheBytes {
+		t.Fatalf("replacement double-counted retained bytes: %d", evaluator.planBytes)
+	}
+}
+
 func BenchmarkRuntimePlanFreshnessHit(b *testing.B) {
 	b.Setenv("RECONC_HOME", b.TempDir())
 	repo := benchmarkFreshnessRepo(b, 2)

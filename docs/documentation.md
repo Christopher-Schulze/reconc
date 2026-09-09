@@ -3409,6 +3409,16 @@ lifecycle at bounded stage and per-entry boundaries. Compatibility entry points
 use a background context, while context-bearing evaluation returns the original
 cancellation or deadline through the existing error chain.
 
+The evaluator retains at most 32 immutable runtime plans and 128 MiB of
+conservatively accounted plan graphs. A legal plan larger than that budget is
+served uncached; it is not treated as a policy failure. At most four distinct
+roots compile concurrently per evaluator, while same-root callers share one
+load, so transient lockfile, source, and compiled-plan graphs remain bounded
+and cancellation-aware. Action decision caches retain at most 256 results and
+64 MiB of accounted result graphs. Cached results own their backing arrays;
+lookup cloning happens after the cache lock is released, and oversized legal
+results bypass retention while preserving the exact cache identity contract.
+
 Action inspection now consumes read-only compiled detector-policy views rather
 than deep-cloning every matching policy, field list, pointer-token list, and
 allowlist for each phase. Present and null selected values compute only their

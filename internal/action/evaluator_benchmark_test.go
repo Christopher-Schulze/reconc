@@ -3,6 +3,7 @@ package action
 import (
 	"fmt"
 	"sort"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -305,6 +306,33 @@ func BenchmarkPreparedDecisionCacheStore(b *testing.B) {
 			b.Fatal("prepared cache store failed")
 		}
 	}
+}
+
+func BenchmarkDecisionCacheConcurrentMixed(b *testing.B) {
+	evaluator, input := testActionEvaluator(b, evaluatorBenchmarkRules(16, true), Defaults{}, testExternalEffect())
+	cache := NewDecisionCache()
+	inputs := make([]EvaluationInput, 4)
+	for index := range inputs {
+		candidate := input
+		arguments := mustTestValue(b, fmt.Sprintf(`{"index":%d}`, index))
+		candidate.Request.Arguments = &arguments
+		result := evaluator.Evaluate(candidate)
+		result.Trace = []TraceEntry{{RuleID: fmt.Sprintf("trace-%d", index)}}
+		if !cache.Store(evaluator, candidate, result) {
+			b.Fatal("mixed result was not stored")
+		}
+		inputs[index] = candidate
+	}
+	var sequence atomic.Uint64
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			input := inputs[sequence.Add(1)%uint64(len(inputs))]
+			if _, hit, _ := cache.Lookup(evaluator, input); !hit {
+				b.Fatal("mixed cache hit became a miss")
+			}
+		}
+	})
 }
 
 func benchmarkActionEvaluator(b *testing.B, rules []Rule) {

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unsafe"
 
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/compiler"
@@ -30,6 +31,8 @@ type Evaluator struct {
 	mu        sync.Mutex
 	plans     map[string]runtimePlanCacheEntry
 	loads     map[string]*runtimePlanLoad
+	loadSlots chan struct{}
+	planBytes uint64
 	useSerial uint64
 	loadHook  func(runtimePlanLoadStage)
 	loadStats *sourceFreshnessStats
@@ -37,12 +40,23 @@ type Evaluator struct {
 
 const maxRuntimePlanCacheEntries = 32
 
+// The byte bound covers retained immutable plans in addition to the count
+// bound. A compiled plan can be substantially larger than its lockfile, so
+// admission uses conservative graph accounting rather than entry count alone.
+const maxRuntimePlanCacheBytes = 128 << 20
+
+// One evaluator may compile at most four distinct roots concurrently. This
+// bounds transient lockfile/source/compiled-plan graphs that are not yet
+// eligible for the retained-plan budget and remains cancellation-aware.
+const maxRuntimePlanConcurrentLoads = 4
+
 type runtimePlanCacheEntry struct {
 	lockHash       [sha256.Size]byte
 	freshness      [sha256.Size]byte
 	freshnessValid bool
 	lastUsed       uint64
 	plan           *runtimePlan
+	bytes          uint64
 }
 
 type runtimePlanLoad struct {
@@ -78,6 +92,7 @@ type runtimePlan struct {
 	templateMatchers       *runtimeTemplateMatchers
 	commandExpectations    *commandExpectationPlan
 	commandExpectationRoot string
+	memoryBytes            uint64
 }
 
 type runtimeEnvelope struct {
@@ -109,7 +124,11 @@ type runtimeSource struct {
 
 // NewEvaluator returns an isolated plan owner with no process-global state.
 func NewEvaluator() *Evaluator {
-	return &Evaluator{plans: make(map[string]runtimePlanCacheEntry), loads: make(map[string]*runtimePlanLoad)}
+	return &Evaluator{
+		plans:     make(map[string]runtimePlanCacheEntry),
+		loads:     make(map[string]*runtimePlanLoad),
+		loadSlots: make(chan struct{}, maxRuntimePlanConcurrentLoads),
+	}
 }
 
 func (e *Evaluator) loadFreshRuntimePlan(root string) (*runtimePlan, error) {
@@ -151,18 +170,34 @@ func (e *Evaluator) loadRuntimePlanWithContext(ctx context.Context, root string)
 	if e.loads == nil {
 		e.loads = make(map[string]*runtimePlanLoad)
 	}
+	if e.loadSlots == nil {
+		e.loadSlots = make(chan struct{}, maxRuntimePlanConcurrentLoads)
+	}
 	if active := e.loads[root]; active != nil {
 		e.mu.Unlock()
-		select {
-		case <-active.done:
-			return active.plan, active.err
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+		return waitRuntimePlanLoad(ctx, active)
+	}
+	slots := e.loadSlots
+	e.mu.Unlock()
+	select {
+	case slots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	// A different caller may have published the same-root load while this
+	// caller waited for a bounded compilation slot. Reuse it and release the
+	// transient slot rather than creating duplicate work.
+	e.mu.Lock()
+	if active := e.loads[root]; active != nil {
+		e.mu.Unlock()
+		<-slots
+		return waitRuntimePlanLoad(ctx, active)
 	}
 	active := &runtimePlanLoad{done: make(chan struct{})}
 	e.loads[root] = active
 	e.mu.Unlock()
+	defer func() { <-slots }()
 
 	active.plan, active.err = e.loadRuntimePlanOwned(ctx, root)
 	e.mu.Lock()
@@ -170,6 +205,15 @@ func (e *Evaluator) loadRuntimePlanWithContext(ctx context.Context, root string)
 	close(active.done)
 	e.mu.Unlock()
 	return active.plan, active.err
+}
+
+func waitRuntimePlanLoad(ctx context.Context, active *runtimePlanLoad) (*runtimePlan, error) {
+	select {
+	case <-active.done:
+		return active.plan, active.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (e *Evaluator) loadRuntimePlanOwned(ctx context.Context, root string) (*runtimePlan, error) {
@@ -279,14 +323,10 @@ func (e *Evaluator) loadRuntimePlanOwned(ctx context.Context, root string) (*run
 		e.invalidateRuntimePlan(root)
 		return nil, &rerrors.LockfileError{Message: "policy sources changed while preparing the runtime plan", Cause: err}
 	}
-	e.mu.Lock()
-	e.useSerial++
-	e.evictRuntimePlanCache(root)
-	e.plans[root] = runtimePlanCacheEntry{
+	e.cacheRuntimePlan(root, runtimePlanCacheEntry{
 		lockHash: lockHash, freshness: freshness, freshnessValid: true,
-		lastUsed: e.useSerial, plan: plan,
-	}
-	e.mu.Unlock()
+		plan: plan, bytes: plan.memoryBytes,
+	})
 	return plan, nil
 }
 
@@ -298,26 +338,54 @@ func (e *Evaluator) runLoadHook(stage runtimePlanLoadStage) {
 
 func (e *Evaluator) invalidateRuntimePlan(root string) {
 	e.mu.Lock()
-	delete(e.plans, root)
+	e.removeRuntimePlanLocked(root)
 	e.mu.Unlock()
 }
 
-func (e *Evaluator) evictRuntimePlanCache(incomingRoot string) {
-	if len(e.plans) < maxRuntimePlanCacheEntries {
-		return
+func (e *Evaluator) cacheRuntimePlan(root string, entry runtimePlanCacheEntry) bool {
+	if entry.plan == nil || entry.bytes > maxRuntimePlanCacheBytes {
+		return false
 	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.plans == nil {
+		e.plans = make(map[string]runtimePlanCacheEntry)
+	}
+	e.useSerial++
+	entry.lastUsed = e.useSerial
+	e.evictRuntimePlanCache(root, entry.bytes)
+	e.plans[root] = entry
+	e.planBytes += entry.bytes
+	return true
+}
+
+func (e *Evaluator) removeRuntimePlanLocked(root string) {
+	if entry, ok := e.plans[root]; ok {
+		if e.planBytes >= entry.bytes {
+			e.planBytes -= entry.bytes
+		} else {
+			e.planBytes = 0
+		}
+		delete(e.plans, root)
+	}
+}
+
+func (e *Evaluator) evictRuntimePlanCache(incomingRoot string, incomingBytes uint64) {
+	// Replacing a root must not double-count its retained graph.
+	e.removeRuntimePlanLocked(incomingRoot)
 	var oldestRoot string
 	var oldest uint64
-	for root, entry := range e.plans {
-		if root == incomingRoot {
-			continue
+	for len(e.plans)+1 > maxRuntimePlanCacheEntries || e.planBytes+incomingBytes > maxRuntimePlanCacheBytes {
+		oldestRoot = ""
+		for root, entry := range e.plans {
+			if oldestRoot == "" || entry.lastUsed < oldest {
+				oldestRoot, oldest = root, entry.lastUsed
+			}
 		}
-		if oldestRoot == "" || entry.lastUsed < oldest {
-			oldestRoot, oldest = root, entry.lastUsed
+		if oldestRoot == "" {
+			return
 		}
-	}
-	if oldestRoot != "" {
-		delete(e.plans, oldestRoot)
+		e.removeRuntimePlanLocked(oldestRoot)
 	}
 }
 
@@ -426,7 +494,48 @@ func compileRuntimePlanPrepared(
 	}
 	plan.templateMatchers = templateMatchers
 	plan.bindCommandExpectations(repoRoot)
+	if len(rulesJSON) == 0 {
+		rulesJSON = envelope.Rules
+	}
+	if len(actionsJSON) == 0 {
+		actionsJSON = envelope.Actions
+	}
+	plan.memoryBytes = estimateRuntimePlanBytes(plan, rulesJSON, actionsJSON)
 	return plan, nil
+}
+
+const runtimePlanAllocationOverhead = uint64(1024)
+
+// estimateRuntimePlanBytes bounds retained heap conservatively. The typed
+// rule/action wire graphs are multiplied to cover decoded values, maps, and
+// compiled matchers; explicit backing-array and map overhead is then added.
+// This is admission accounting, not a claim about exact allocator behavior.
+func estimateRuntimePlanBytes(plan *runtimePlan, rulesJSON, actionsJSON []byte) uint64 {
+	if plan == nil {
+		return 0
+	}
+	size := runtimePlanAllocationOverhead + uint64(unsafe.Sizeof(*plan))
+	wireBytes := uint64(len(rulesJSON)) + uint64(len(actionsJSON))
+	addRuntimePlanBytes(&size, wireBytes*4)
+	addRuntimePlanBytes(&size, uint64(len(plan.rules))*uint64(unsafe.Sizeof(policy.Rule{})))
+	addRuntimePlanBytes(&size, uint64(len(plan.sources))*uint64(unsafe.Sizeof(runtimeSource{})))
+	addRuntimePlanBytes(&size, uint64(len(plan.templateDependencies))*uint64(unsafe.Sizeof(templates.Dependency{})))
+	addRuntimePlanBytes(&size, uint64(len(plan.ruleByID)+len(plan.rulesByKind))*128)
+	for key, value := range plan.ruleByID {
+		addRuntimePlanBytes(&size, uint64(len(key))+uint64(unsafe.Sizeof(value))+32)
+	}
+	for key, value := range plan.customRuntimeDigests {
+		addRuntimePlanBytes(&size, uint64(len(key)+len(value))+32+uint64(unsafe.Sizeof(value)))
+	}
+	return size
+}
+
+func addRuntimePlanBytes(total *uint64, amount uint64) {
+	if ^uint64(0)-*total < amount {
+		*total = ^uint64(0)
+		return
+	}
+	*total += amount
 }
 
 func (plan *runtimePlan) bindCommandExpectations(repoRoot string) {
