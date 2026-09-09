@@ -32,20 +32,46 @@ rules:
   - id: preset-strict-tests-follow-source
     kind: couple_change
     mode: block
+    # A repeated {module} or {crate} binds each companion to the changed
+    # package. Literal couple_change rules remain available for projects that
+    # intentionally accept any companion path.
     paths:
-      - "cmd/**"
-      - "internal/**"
-      - "pkg/**"
-      - "lib/**"
-      - "app/**"
-      - "src/**"
+      - "cmd/{module}.go"
+      - "cmd/{module}/**/*.go"
+      - "internal/{module}.go"
+      - "internal/{module}/**/*.go"
+      - "pkg/{module}.go"
+      - "pkg/{module}/**/*.go"
+      - "lib/{module}.go"
+      - "lib/{module}/**/*.go"
+      - "app/{module}.go"
+      - "app/{module}/**/*.go"
+      - "src/{module}.go"
+      - "src/{module}/**/*.go"
+      - "packages/{module}/src/**/*.ts"
+      - "packages/{module}/src/**/*.tsx"
+      - "crates/{crate}/src/**/*.rs"
     when_paths:
-      - "cmd/**/*_test.go"
-      - "internal/**/*_test.go"
-      - "pkg/**/*_test.go"
-      - "tests/**"
-      - "test/**"
-    message: Source changes must include matching test updates.
+      - "cmd/{module}_test.go"
+      - "cmd/{module}/**/*_test.go"
+      - "internal/{module}_test.go"
+      - "internal/{module}/**/*_test.go"
+      - "pkg/{module}_test.go"
+      - "pkg/{module}/**/*_test.go"
+      - "lib/{module}_test.go"
+      - "lib/{module}/**/*_test.go"
+      - "app/{module}_test.go"
+      - "app/{module}/**/*_test.go"
+      - "src/{module}_test.go"
+      - "src/{module}/**/*_test.go"
+      - "packages/{module}/src/**/*.test.ts"
+      - "packages/{module}/src/**/*.test.tsx"
+      - "packages/{module}/src/**/*.spec.ts"
+      - "packages/{module}/src/**/*.spec.tsx"
+      - "packages/{module}/src/**/__tests__/**"
+      - "packages/{module}/tests/**"
+      - "crates/{crate}/tests/**"
+    message: Source changes must include a matching test update for each changed package.
 
   - id: preset-strict-architecture-read-before-edit
     kind: require_read

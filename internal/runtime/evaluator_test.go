@@ -481,6 +481,68 @@ func TestCheckCoupleChangeClassifiesOverlappingCompanionPaths(t *testing.T) {
 	}
 }
 
+func TestCheckCoupleChangeOwnerAwareTemplateScopes(t *testing.T) {
+	withRECONCHome(t)
+	legacyRepo := makeRepo(t, "# project\n", "", `rules:
+  - id: legacy
+    kind: couple_change
+    paths: ['packages/**']
+    when_paths: ['tests/**']
+    mode: block
+    message: legacy coupling
+`)
+	legacyReport, err := CheckRepoPolicy(legacyRepo, ExecutionInputs{WritePaths: []string{"packages/api/main.go", "tests/worker/main_test.go"}})
+	if err != nil || legacyReport.Decision != DecisionPass {
+		t.Fatalf("literal couple_change must retain broad companion semantics: decision=%s err=%v", legacyReport.Decision, err)
+	}
+
+	repo := makeRepo(t, "# project\n", "", `rules:
+  - id: go-tests
+    kind: couple_change
+    paths: ['services/{module}/**/*.go']
+    when_paths: ['services/{module}/**/*_test.go']
+    mode: block
+    message: Go tests required for the changed module
+  - id: ts-tests
+    kind: couple_change
+    paths: ['packages/{module}/src/**/*.ts', 'packages/{module}/src/**/*.tsx']
+    when_paths: ['packages/{module}/src/**/*.test.ts', 'packages/{module}/src/**/*.spec.ts', 'packages/{module}/src/**/__tests__/**']
+    mode: block
+    message: TypeScript tests required for the changed package
+  - id: rust-tests
+    kind: couple_change
+    paths: ['crates/{crate}/src/**/*.rs']
+    when_paths: ['crates/{crate}/tests/**']
+    mode: block
+    message: Rust integration tests required for the changed crate
+`)
+	cases := []struct {
+		name     string
+		writes   []string
+		decision Decision
+	}{
+		{name: "unrelated Go package test does not satisfy owner", writes: []string{"services/api/main.go", "services/worker/main_test.go"}, decision: DecisionBlock},
+		{name: "Go owner test satisfies", writes: []string{"services/api/main.go", "services/api/main_test.go"}, decision: DecisionPass},
+		{name: "glob metacharacters stay literal in owner", writes: []string{"services/a[b]/main.go", "services/a[b]/main_test.go"}, decision: DecisionPass},
+		{name: "multiple Go owners each need a test", writes: []string{"services/api/main.go", "services/api/main_test.go", "services/worker/main.go"}, decision: DecisionBlock},
+		{name: "TypeScript test arrangement satisfies", writes: []string{"packages/web/src/Button.tsx", "packages/web/src/__tests__/Button.test.ts"}, decision: DecisionPass},
+		{name: "unrelated TypeScript package spec does not satisfy owner", writes: []string{"packages/web/src/Button.ts", "packages/admin/src/Button.spec.ts"}, decision: DecisionBlock},
+		{name: "Rust integration test satisfies", writes: []string{"crates/parser/src/lib.rs", "crates/parser/tests/parse.rs"}, decision: DecisionPass},
+		{name: "Rust integration test for another crate does not satisfy owner", writes: []string{"crates/parser/src/lib.rs", "crates/cli/tests/parse.rs"}, decision: DecisionBlock},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			report, err := CheckRepoPolicy(repo, ExecutionInputs{WritePaths: testCase.writes})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.Decision != testCase.decision {
+				t.Fatalf("decision = %s, want %s: %+v", report.Decision, testCase.decision, report.Violations)
+			}
+		})
+	}
+}
+
 func TestCheckRequireCommand(t *testing.T) {
 	withRECONCHome(t)
 	repo := makeRepo(t, "# project\n", "",

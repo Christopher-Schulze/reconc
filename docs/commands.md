@@ -1171,6 +1171,10 @@ User overrides in `$RECONC_HOME/templates/*.yml`.
 `presets` or `templates` roots must be real directories, never symlinks; Reconc
 does not fall back to a CWD-relative state path.
 
+The coupling templates retain broad literal-pattern semantics. Repeating a
+`{name}` capture in `paths` and `when_paths` enables owner-aware companion
+matching for package or module layouts.
+
 `authority-change-approval` keeps `authority-change-approved` as completion
 evidence. A protected write must also carry a signed `reconc_approval` request
 and receipt whose binding matches the current repository, policy lock, exact

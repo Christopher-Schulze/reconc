@@ -5,3 +5,11 @@ message: "Source change must be coupled with a matching test change."
 # User must supply:
 #   paths:      the source patterns (e.g. ['src/**/*.ts'])
 #   when_paths: the test patterns   (e.g. ['tests/**/*.ts'])
+#
+# Owner-aware opt-in: repeat a capture such as {module} in both lists to bind
+# each companion to the changed owner, for example
+#   paths: ['packages/{module}/src/**']
+#   when_paths: ['packages/{module}/src/**/*.test.ts']
+# Literal patterns retain the legacy any-companion behavior. Use a separate
+# require_assurance rule instead when current successful verification is the
+# contract for a source-only fix; that avoids an artificial test-file edit.

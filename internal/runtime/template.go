@@ -172,6 +172,11 @@ func compileRuntimeTemplateMatchers(rules []policy.Rule) (*runtimeTemplateMatche
 		if !ruleUsesTemplateContexts(rule.Kind) {
 			continue
 		}
+		if rule.Kind == policy.KindCoupleChange {
+			for _, pattern := range rule.Paths {
+				patterns[pattern] = struct{}{}
+			}
+		}
 		for _, pattern := range rule.WhenPaths {
 			patterns[pattern] = struct{}{}
 		}
@@ -191,7 +196,7 @@ func compileRuntimeTemplateMatchers(rules []policy.Rule) (*runtimeTemplateMatche
 func ruleUsesTemplateContexts(kind policy.Kind) bool {
 	switch kind {
 	case policy.KindRequireFreshFile, policy.KindRequireEvidence, policy.KindRequireScript,
-		policy.KindAllOf, policy.KindAnyOf, policy.KindNot:
+		policy.KindAllOf, policy.KindAnyOf, policy.KindNot, policy.KindCoupleChange:
 		return true
 	default:
 		return false
@@ -252,6 +257,32 @@ func MatchTemplateAny(patterns []string, path string) (matched string, captures 
 // configuration mistake clearly).
 func SubstituteTemplate(s string, captures map[string]string) (string, error) {
 	return templates.Substitute(s, captures)
+}
+
+// substituteTemplateGlobLiteral binds captures into a glob while escaping
+// path-segment metacharacters. Owner-aware couple_change matching must treat a
+// captured directory name as data, never as additional glob syntax.
+func substituteTemplateGlobLiteral(s string, captures map[string]string) (string, error) {
+	variables, err := templates.Variables(s)
+	if err != nil {
+		return "", err
+	}
+	if len(variables) == 0 {
+		return s, nil
+	}
+	var builder strings.Builder
+	last := 0
+	for _, variable := range variables {
+		builder.WriteString(s[last:variable.Start])
+		value, ok := captures[variable.Name]
+		if !ok {
+			return "", fmt.Errorf("unresolved template variables: %s", variable.Name)
+		}
+		builder.WriteString(escapeGlobLiteral(value))
+		last = variable.End
+	}
+	builder.WriteString(s[last:])
+	return builder.String(), nil
 }
 
 // SubstituteTemplateInList applies SubstituteTemplate to every entry

@@ -94,6 +94,13 @@ A rule using `template: <name>` receives the template's fields as
 defaults. User-provided fields win. Template expansion happens before
 rule validation, so invalid expanded rules fail at compile time.
 
+`tests-follow-source` and `docs-follow-code` accept an owner-aware opt-in by
+repeating a `{name}` capture in `paths` and `when_paths`; literal patterns
+retain their historical any-companion behavior. The strict pack uses explicit
+captures for common Go, TypeScript, and Rust test layouts. Current successful
+verification remains a separate `require_assurance` rule when a source-only
+change should not require an artificial companion edit.
+
 ## Determinism
 
 Preset and template listing must be sorted by name. Embedded assets are

@@ -89,6 +89,43 @@ func TestEveryBundledPackCompilesAndEvaluatesPassAndViolationFixtures(t *testing
 	}
 }
 
+func TestStrictPackUsesOwnerAwareLanguageLayouts(t *testing.T) {
+	t.Setenv(presets.HomeEnvVar, t.TempDir())
+	repo := t.TempDir()
+	writePackFixture(t, repo, "AGENTS.md", "# Fixture\n")
+	writePackFixture(t, repo, ".reconc.yml", "extends:\n  - strict\n")
+	if _, err := compiler.CompileRepoPolicy(repo, "strict-owner-test"); err != nil {
+		t.Fatal(err)
+	}
+	inputs := policyruntime.ExecutionInputs{
+		ReadPaths: []string{"docs/architecture.md"},
+		Claims:    []string{"ci-green"},
+	}
+	cases := []struct {
+		name   string
+		writes []string
+		want   policyruntime.Decision
+	}{
+		{name: "Go colocated", writes: []string{"src/parser.go", "src/parser_test.go"}, want: policyruntime.DecisionPass},
+		{name: "TypeScript spec", writes: []string{"packages/web/src/Button.tsx", "packages/web/src/Button.spec.ts"}, want: policyruntime.DecisionPass},
+		{name: "Rust integration", writes: []string{"crates/parser/src/lib.rs", "crates/parser/tests/parse.rs"}, want: policyruntime.DecisionPass},
+		{name: "cross-package test", writes: []string{"packages/web/src/Button.tsx", "packages/admin/src/Button.spec.ts"}, want: policyruntime.DecisionBlock},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			report, err := policyruntime.CheckRepoPolicy(repo, policyruntime.ExecutionInputs{
+				ReadPaths: inputs.ReadPaths, Claims: inputs.Claims, WritePaths: testCase.writes,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.Decision != testCase.want {
+				t.Fatalf("decision = %s, want %s: %+v", report.Decision, testCase.want, report.Violations)
+			}
+		})
+	}
+}
+
 func writePackFixture(t *testing.T, root, relative, body string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(relative))

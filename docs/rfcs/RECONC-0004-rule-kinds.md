@@ -21,7 +21,7 @@
 | `require_command` | `commands`, `when_paths` | Writes matching `when_paths` require at least one command string. |
 | `require_command_success` | `commands`, `when_paths` | Like `require_command`, but success must be present in command results. |
 | `forbid_command` | `commands` | Fails when a command matches forbidden command patterns. |
-| `couple_change` | `paths`, `when_paths` | A primary write matching `paths` requires a separate companion write matching `when_paths`; a path matching both is classified as a companion. |
+| `couple_change` | `paths`, `when_paths` | A primary write matching `paths` requires a companion write matching `when_paths`; literal patterns retain any-companion semantics, while repeating a `{name}` capture in both pattern sets binds each companion to its changed owner and requires every changed owner to match. |
 | `require_claim` | `claims`, `when_paths` | Writes matching `when_paths` require at least one listed claim. |
 
 Every string-list entry is trimmed during parsing and must remain non-empty.

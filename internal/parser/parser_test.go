@@ -565,6 +565,29 @@ func TestParseRuleTemplateUserModeOverride(t *testing.T) {
 	}
 }
 
+func TestParseCoupleChangeOwnerBindings(t *testing.T) {
+	parsed, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
+		Kind:    policy.SourcePolicyFile,
+		Path:    "p.yml",
+		Content: "rules:\n  - id: package-tests\n    kind: couple_change\n    paths: ['packages/{module}/src/**']\n    when_paths: ['packages/{module}/src/**/*.test.ts', 'packages/{module}/tests/**']\n    mode: block\n    message: tests required\n",
+	}))
+	if err != nil {
+		t.Fatalf("owner-aware couple_change should parse: %v", err)
+	}
+	if parsed.Rules[0].Paths[0] != "packages/{module}/src/**" {
+		t.Fatalf("source owner pattern changed: %v", parsed.Rules[0].Paths)
+	}
+
+	_, err = ParseRuleDocuments(makeBundle(policy.PolicySource{
+		Kind:    policy.SourcePolicyFile,
+		Path:    "p.yml",
+		Content: "rules:\n  - id: unbound\n    kind: couple_change\n    paths: ['packages/{module}/src/**']\n    when_paths: ['tests/{other}/**']\n    mode: block\n    message: tests required\n",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "unbound owner variable 'other'") {
+		t.Fatalf("unbound owner variable should fail clearly: %v", err)
+	}
+}
+
 func TestParseRuleTemplateUnknownFails(t *testing.T) {
 	yml := "rules:\n  - id: t1\n    template: bogus-template-name\n    paths: ['x']\n"
 	_, err := ParseRuleDocuments(makeBundle(policy.PolicySource{

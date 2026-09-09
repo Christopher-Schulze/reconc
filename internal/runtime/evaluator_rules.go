@@ -547,6 +547,9 @@ func evalRequireRead(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mod
 }
 
 func evalCoupleChange(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+	if coupleChangeUsesTemplateOwners(rule) {
+		return evalOwnerAwareCoupleChange(ctx, rule, defaultMode, inputs)
+	}
 	triggered, err := matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, stringListField(rule, "paths"))
 	if err != nil {
 		return nil, err
@@ -563,6 +566,122 @@ func evalCoupleChange(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mo
 		return nil, nil
 	}
 	return buildViolation(rule, defaultMode, triggered, nil, nil, required, nil, nil), nil
+}
+
+// coupleChangeUsesTemplateOwners is the opt-in owner-aware form of
+// couple_change. Literal paths retain the historical any-companion semantics;
+// a template variable binds each companion pattern to the source path that
+// triggered it.
+func coupleChangeUsesTemplateOwners(rule *policy.Rule) bool {
+	if rule == nil {
+		return false
+	}
+	patterns := append(append([]string{}, rule.Paths...), rule.WhenPaths...)
+	return PatternHasAnyTemplateVar(patterns)
+}
+
+func evalOwnerAwareCoupleChange(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+	contexts, err := collectCoupleSourceContexts(ctx, rule.Paths, rule.WhenPaths, inputs.WritePaths)
+	if err != nil {
+		return nil, err
+	}
+	if len(contexts) == 0 {
+		return nil, nil
+	}
+
+	triggered := newStableStringCollector(nil)
+	missingOwners := newStableStringCollector(nil)
+	for _, context := range contexts {
+		triggered.add(context.path)
+		ownerMatched := false
+		for _, requiredPattern := range rule.WhenPaths {
+			concrete, substituteErr := substituteTemplateGlobLiteral(requiredPattern, context.captures)
+			if substituteErr != nil {
+				// A rule may list several source owners (for example {module}
+				// and {crate}) with corresponding companion patterns. Patterns
+				// that require a different capture set do not apply to this
+				// source context; an owner with no applicable companion still
+				// fails closed below.
+				continue
+			}
+			matched, matchErr := matchConcreteCouplePaths(concrete, inputs.WritePaths)
+			if matchErr != nil {
+				return nil, matchErr
+			}
+			if len(matched) == 0 {
+				continue
+			}
+			ownerMatched = true
+			break
+		}
+		if !ownerMatched {
+			missingOwners.add(context.path)
+		}
+	}
+	if len(missingOwners.items) == 0 {
+		return nil, nil
+	}
+	violation := buildViolation(rule, defaultMode, triggered.items, nil, nil, rule.WhenPaths, nil, nil)
+	violation.Explanation = fmt.Sprintf(
+		"Write activity %s triggered owner-aware couple_change rule %s, but no companion matched the captured owner for %s.",
+		joinForHumans(triggered.items), quote(ruleIDOf(rule)), joinForHumans(missingOwners.items),
+	)
+	violation.RecommendedAction = fmt.Sprintf(
+		"Update a companion path matching %s for each changed owner.", joinForHumans(rule.WhenPaths),
+	)
+	return violation, nil
+}
+
+func matchConcreteCouplePaths(pattern string, writes []string) ([]string, error) {
+	matched := make([]string, 0)
+	for _, write := range writes {
+		hit, err := MatchPath(pattern, write)
+		if err != nil {
+			return nil, err
+		}
+		if hit {
+			matched = append(matched, write)
+		}
+	}
+	return matched, nil
+}
+
+func collectCoupleSourceContexts(ctx *evalContext, patterns, companions, writes []string) ([]matchContext, error) {
+	contexts := make([]matchContext, 0, len(writes))
+	for _, write := range writes {
+		companion, err := pathMatchesTemplateSet(ctx, companions, write)
+		if err != nil {
+			return nil, err
+		}
+		if companion {
+			continue
+		}
+		for _, pattern := range patterns {
+			captures, matched, err := matchTemplateWithMatchers(ctx.templateMatchers, pattern, write)
+			if err != nil {
+				return nil, err
+			}
+			if !matched {
+				continue
+			}
+			contexts = append(contexts, matchContext{path: write, pattern: pattern, captures: captures})
+			break
+		}
+	}
+	return contexts, nil
+}
+
+func pathMatchesTemplateSet(ctx *evalContext, patterns []string, path string) (bool, error) {
+	for _, pattern := range patterns {
+		_, matched, err := matchTemplateWithMatchers(ctx.templateMatchers, pattern, path)
+		if err != nil {
+			return false, err
+		}
+		if matched {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func evalRequireClaim(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {

@@ -2998,6 +2998,21 @@ available for source tooling such as `scripts/build/`; users can override a
 template rule's `paths` explicitly when a repository owns a different output
 layout.
 
+`couple_change` keeps its legacy behavior for literal patterns: any write
+matching `when_paths` can satisfy a triggered source write. An owner-aware
+coupling is opt-in when a `{name}` capture appears in the source or companion
+patterns. Repeating the captured name binds each companion match to that
+source owner, so a test or documentation edit in another package cannot
+satisfy it; every changed owner must have a matching companion. The parser
+rejects companion variables that are not captured by the source patterns.
+This checks path relationship and edit presence only; it does not judge test
+quality or documentation correctness. Use a `require_assurance` rule instead
+when current successful verification is sufficient for a source-only fix; it
+does not require an artificial companion edit. The strict preset's explicit
+owner patterns cover Go `*_test.go`, TypeScript `.test.*`/`.spec.*` and
+`__tests__`, and Rust `tests/` layouts; inline Rust tests remain verification
+evidence rather than a distinct file edit.
+
 Generic dependency-locality audits exclude supported agent-runtime state trees,
 including `.devin/`, `.grok/`, `.kilo/`, legacy `.kilocode/`, `.omp/`, `.pi/`, `.zcode/`, and the
 other registered platform directories, so plugin dependencies are not mistaken

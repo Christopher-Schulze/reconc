@@ -530,6 +530,11 @@ func validateRuleItem(
 			return policy.Rule{}, err
 		}
 	}
+	if kind == policy.KindCoupleChange {
+		if err := validateCoupleOwnerBindings(paths, whenPaths, id); err != nil {
+			return policy.Rule{}, err
+		}
+	}
 	commands, err := optionalStringList(item, "commands", id)
 	if err != nil {
 		return policy.Rule{}, err
@@ -1344,6 +1349,35 @@ func validateGlobPatterns(patterns []string, context string) error {
 		if _, err := doublestar.Match(pattern, "reconc-glob-syntax-probe"); err != nil {
 			return &rerrors.RuleValidationError{
 				Message: context + " has an invalid glob pattern " + strconv.Quote(pattern) + ": " + err.Error(),
+			}
+		}
+	}
+	return nil
+}
+
+// validateCoupleOwnerBindings makes template-bearing couple_change rules
+// explicit and fail closed. A companion pattern may refer only to variables
+// captured by a source pattern; literal couple_change rules retain their
+// legacy any-companion semantics.
+func validateCoupleOwnerBindings(paths, whenPaths []string, ruleID string) error {
+	sourceVariables := map[string]struct{}{}
+	for _, pattern := range paths {
+		variables, err := templates.Variables(pattern)
+		if err != nil {
+			return &rerrors.RuleValidationError{Message: "rule '" + ruleID + "' source owner pattern is invalid: " + err.Error()}
+		}
+		for _, variable := range variables {
+			sourceVariables[variable.Name] = struct{}{}
+		}
+	}
+	for _, pattern := range whenPaths {
+		variables, err := templates.Variables(pattern)
+		if err != nil {
+			return &rerrors.RuleValidationError{Message: "rule '" + ruleID + "' companion owner pattern is invalid: " + err.Error()}
+		}
+		for _, variable := range variables {
+			if _, ok := sourceVariables[variable.Name]; !ok {
+				return &rerrors.RuleValidationError{Message: "rule '" + ruleID + "' companion pattern references unbound owner variable '" + variable.Name + "'"}
 			}
 		}
 	}

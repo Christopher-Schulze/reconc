@@ -5,3 +5,9 @@ message: "Public-API change requires a matching documentation update."
 # User must supply:
 #   paths:      the code patterns (e.g. ['src/api/**'])
 #   when_paths: the docs patterns (e.g. ['docs/**'])
+#
+# Owner-aware opt-in: repeat a capture such as {module} in both lists to bind
+# documentation to the changed owner, for example
+#   paths: ['packages/{module}/src/api/**']
+#   when_paths: ['docs/packages/{module}/api/**']
+# Literal patterns retain the legacy any-companion behavior.

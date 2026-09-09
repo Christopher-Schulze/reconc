@@ -412,8 +412,18 @@ func ruleTriggerMatches(ctx *evalContext, rule *policy.Rule, inputs ExecutionInp
 	switch rule.Kind {
 	case policy.KindDenyWrite:
 		paths, err = matchingPathsWithExclusions(ctx.matchers, inputs.WritePaths, rule.Paths, rule.ExcludePaths)
-	case policy.KindRequireRead, policy.KindCoupleChange:
+	case policy.KindRequireRead:
 		paths, err = matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, rule.Paths)
+	case policy.KindCoupleChange:
+		if coupleChangeUsesTemplateOwners(rule) {
+			var contexts []matchContext
+			contexts, err = collectCoupleSourceContexts(ctx, rule.Paths, rule.WhenPaths, inputs.WritePaths)
+			for _, context := range contexts {
+				paths = append(paths, context.path)
+			}
+		} else {
+			paths, err = matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, rule.Paths)
+		}
 	case policy.KindForbidCommand:
 		commands := matchingForbiddenCommandsWithCache(ctx.commandCache, ctx.rawCommands, rule.Commands, ctx.repoRoot, rule.CommandMatch)
 		if len(commands) == 0 {
