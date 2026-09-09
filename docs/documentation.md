@@ -3936,6 +3936,31 @@ Complete hook-verification reports exit 0. Incomplete reports are fully rendered
 and exit 2 so shell and CI consumers can use the command as a gate. Input,
 runtime, report-generation, and output failures exit 1.
 
+The cross-host template enforcement corpus lives in
+`internal/cli/hook_scenario_e2e_test.go`. It compiles the real template
+sources into an isolated repository, drives the generated runtime boundary,
+performs a filesystem effect only after a pre-action decision, records the
+post-action evidence, and evaluates Stop. The corpus keeps the following
+guarantees separate:
+
+| Scenario | Proven behavior | Guarantee boundary |
+| --- | --- | --- |
+| `prevention-before-effect` | `no-generated-writes` blocks a real generated-file write and the target bytes stay unchanged | PreToolUse prevention |
+| `stop-only-recipe-detection` | `generated-artifact-consistency` expands to `require_script`; the source write occurs, PostToolUse records it, and Stop blocks the failing generator check | Stop detection, never pre-action prevention |
+| `prior-authorization` | A blocking `ci-green` claim is recorded after the write and the next Stop passes only after the explicit claim | Prior authorization is completion evidence; it does not authorize a native write |
+| `composite-prevention` | A composite rule containing a protected-path denial blocks before the effect even when another check cannot run | Composite pre-action prevention |
+| `stale-repeated-tool-id` | Reusing a tool ID with a changed path is re-evaluated and cannot replay the earlier allow | Tool identity and input freshness |
+| `long-session-evidence` | 72 real write and post-evidence pairs survive one session and reach a clean Stop | Bounded long-session evidence |
+
+The same file checks every registry platform with its own generated pre/Stop
+route and host envelope. Native JSON adapters run the generated command in a
+child process; OpenCode, Kilo, Oh My Pi, and Pi use the existing Bun worker
+contracts; Kimi Code remains a global receipt-bound configuration and is not
+claimed as a local project execution. Copilot, Cursor, Grok, and Antigravity
+decision JSON, exit-code routes, and permission shapes are asserted explicitly
+per host. Generated route presence or compilation alone never upgrades a host
+to `enforced`.
+
 The explicit `--live --host KIND --surface SURFACE --allow-authenticated` mode
 prepares one disposable host exercise and waits for the operator without
 launching or authenticating the host. Its temporary shim records only route
