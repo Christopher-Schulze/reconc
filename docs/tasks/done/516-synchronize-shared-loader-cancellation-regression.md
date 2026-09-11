@@ -20,10 +20,14 @@ this does not establish publication of a partial or canceled-worker plan.
 
 - [x] Trace the failed fixture and reference-counted shared-worker ownership.
 - [x] Synchronize the existing regression with the real worker cancellation.
-- [~] Run focused and required gates, verify native CI, archive, commit, and push.
+- [x] Run focused and required gates, verify native CI, archive, commit, and push.
 
 ## Notes
 
+- Native CI 34595642657 and 34597546372 pass on macOS, Linux, and Windows,
+  including the synchronized regression; CodeQL 34597546362 passes. Latest
+  verified code: 6116c64d8b6fe9f391177368ba851e450d09f8ed. Complete root/template
+  race, publication, release-trust, vet, and staticcheck gates also pass locally.
 - Original fixture reproduces 98 failures in 100 runs with `GOMAXPROCS=1`.
   The synchronized fixture passes all 100 runs and 25 race-enabled runs of
   canceled-caller and same-root concurrency tests. All original assertions
