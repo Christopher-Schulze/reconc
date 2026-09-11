@@ -24,10 +24,63 @@ replacement source baseline.
 - [x] Inspect conflict-index ownership and every caller; measure the exact unchanged workload.
 - [x] Remove proven redundant rule copies and verify output parity and input/output isolation.
 - [x] Complete bounded warm-prefix attribution with preserved raw/profile evidence.
-- [~] Run local/native gates, inspect the full comparison, flush documentation, archive, commit, and push.
+- [x] Apply the approved target-and-ratio comparison rule, verify unchanged absolute limits, and investigate the independent cache timing observation.
+- [~] Run local/native gates, inspect the full comparison, archive, commit, and push.
 
 ## Notes
 
+- The approved comparison change passes the complete uncached root/template
+  race suites, publication/reference checks, vet, staticcheck, and release-trust
+  (real isolated release target: 90s). Ten targeted boundary/drift scenarios and
+  the recipe CLI regression also pass. Local log prefix:
+  `/tmp/reconc-task519-approved-`. Native verification of this change follows.
+- Replaying the retained native inputs with comparison v6 leaves every group
+  metric exactly unchanged. Blocking violations decrease from four to only the
+  absolute cache-store observation; all three ratio exceedances remain visible.
+  `.build/benchmarks/task519-ci-34601720834/comparison-v6.json` preserves this
+  result alongside the original v5 report. The checked baseline SHA-256 remains
+  `dbf4c975b819b539447376cb0906c4c99bf93093d0540ec6965b2702cb1b4dde`.
+- All 143,304 action-package machine instructions in the preserved local
+  baseline/current test binaries are identical (SHA-256
+  `a1e13f675ede6ff3a59a9f423c6fc57aa6f18ca1a8faf25982383a393b5aa729`).
+  The package depends only on unchanged external modules and the standard
+  library. `.build/benchmarks/task519-action/machine-code-comparison.json`
+  retains the comparison and both disassemblies. This is local code-identity
+  evidence; it does not claim inspection of the native CI binaries or establish
+  the external cause of the historical timing fluctuation.
+
+- Christopher approved the target-and-ratio rule: a normalized exceedance blocks
+  only when the target also degrades beyond that normalized metric's tolerance.
+  Time uses the existing CPU-adjusted target measurement. Preserve all absolute
+  limits, raw observations, and ratio exceedances; version only the comparison
+  contract for the changed blocking meaning. Add boundary, CPU drift, resource,
+  zero-baseline, and recipe-propagation regressions before native verification.
+
+- Candidate 2f8ae5b256eee62e28b0bfe6b18185dfcd6f8a95 is committed and pushed.
+  Native CI 34601707654 passes all five jobs; CodeQL 34601707560 passes.
+  Native benchmark 34601720834 records compatible exact clean sources and
+  retains all 19 groups, 24 targets, and 30 hash/length-verified profile files
+  in `.build/benchmarks/task519-ci-34601720834/`. Reference parameters and all
+  tolerances are unchanged; comparison remains failed and is not hidden.
+- This run reports normalized root-predicate time +30.24%, normalized compiler
+  duplicate time +132.01%, normalized compiler duplicate B/op +614.16%, and
+  absolute CPU-adjusted cache-store time +23.20%. Compiler target raw time
+  improves while its calibration improves more; target B/op changes only
+  +0.0795%. Compiler process RSS is 372,391,936 baseline versus 164,659,200
+  candidate bytes. The same baseline source had a much lower process peak in
+  the prior run, so this Go-driver high-water mark is not isolated workload
+  attribution. The separately measured direct-binary improvement remains valid.
+- `internal/action` has no source difference from the checked baseline. A
+  separate precompiled baseline/current/current/baseline control with ten
+  measurements per variant gives cache-store p50 1,522.5 to 1,585 ns (+4.11%)
+  and cache-hit p50 1,169 to 1,173 ns (+0.34%). Retained evidence:
+  `.build/benchmarks/task519-action/`. This does not erase the native +23.20%
+  absolute timing failure or establish its cause. No unchanged CI rerun or
+  speculative cache implementation change was made to obtain a green result.
+- Compiler implementation and native correctness verification are complete.
+  The approved comparison-semantics change is now in progress; the absolute
+  cache timing observation remains separate. This TASK
+  and the overall thirty-item completion claim remain open.
 - Controlled precompiled before/after/after/before comparison, six measurements
   per variant at CPU 1 and 250ms, is retained with binaries, source patch, and
   SHA-256 identities in `.build/benchmarks/task519-compiler/`. Maximum observed
@@ -47,11 +100,10 @@ replacement source baseline.
   filesystem system calls. These data do not prove a single production cause;
   no freshness, path, evidence, or cancellation check is removed.
 - Improving the unique-rule calibration path more than the duplicate target
-  raises the current target/calibration ratios despite improvements in both
-  workloads. The existing comparison contract is unchanged. Christopher's
-  decision is pending on whether normalized violations should additionally
-  require target degradation beyond that normalized metric's tolerance; every
-  existing absolute limit and recorded ratio would remain visible.
+  raises the target/calibration ratios despite improvements in both workloads.
+  The approved comparison contract additionally requires target degradation
+  beyond that normalized metric's tolerance; every existing absolute limit and
+  recorded ratio remains visible.
 - Root and portable-template race suites, publication/reference checks, vet,
   and staticcheck pass. The final release-trust stage rejects numeric coverage
   observations in project text, including historical TASK notes. TASK 518 now
@@ -65,7 +117,7 @@ replacement source baseline.
   6116c64d8b6fe9f391177368ba851e450d09f8ed. Evidence remains in
   `.build/benchmarks/task518-ci-34597552388/` and
   `.build/benchmarks/task518-diagnostics/`.
-- Compiler indexing currently copies `policy.Rule` values in `byKind` and again
+- The inspected predecessor copied `policy.Rule` values in `byKind` and again
   in semantic groups. All consumers are internal, read-only, and clone returned
   path slices. Inspect pointer/index reuse before adding any new abstraction.
 - Warm-prefix native raw p50 is +18.33%, normalized +33.05%, p95 -4.61%; local
@@ -76,4 +128,4 @@ replacement source baseline.
 
 - Native verification requires publishing a locally verified candidate on main
   under the standing push instruction. Keep this TASK active until native
-  evidence and the pending comparison-contract decision are resolved.
+  evidence and the approved comparison-contract change are verified.

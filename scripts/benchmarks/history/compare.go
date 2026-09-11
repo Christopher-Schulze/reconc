@@ -167,16 +167,22 @@ func appendRegressions(report *BenchmarkComparison, group GroupComparison) {
 	metrics := []struct {
 		name       string
 		comparison MetricComparison
+		target     *MetricComparison
 	}{
-		{"normalized_ns_per_op", group.NormalizedNSPerOp},
-		{"normalized_bytes_per_op", group.NormalizedBytesPerOp},
-		{"normalized_allocs_per_op", group.NormalizedAllocsPerOp},
-		{"absolute_ns_per_op", group.AbsoluteNSPerOp},
-		{"absolute_bytes_per_op", group.AbsoluteBytesPerOp},
-		{"absolute_allocs_per_op", group.AbsoluteAllocsPerOp},
-		{"absolute_peak_rss_bytes", group.AbsolutePeakRSSBytes},
+		{"normalized_ns_per_op", group.NormalizedNSPerOp, &group.AbsoluteNSPerOp},
+		{"normalized_bytes_per_op", group.NormalizedBytesPerOp, &group.AbsoluteBytesPerOp},
+		{"normalized_allocs_per_op", group.NormalizedAllocsPerOp, &group.AbsoluteAllocsPerOp},
+		{"absolute_ns_per_op", group.AbsoluteNSPerOp, nil},
+		{"absolute_bytes_per_op", group.AbsoluteBytesPerOp, nil},
+		{"absolute_allocs_per_op", group.AbsoluteAllocsPerOp, nil},
+		{"absolute_peak_rss_bytes", group.AbsolutePeakRSSBytes, nil},
 	}
 	for _, metric := range metrics {
+		// Retain ratio exceedances in the group, but gate them on target degradation
+		// at the ratio's tolerance. Time uses the existing CPU-adjusted target.
+		if metric.target != nil && !compareMetric(metric.target.Baseline, metric.target.Current, metric.comparison.Tolerance).Regression {
+			continue
+		}
 		if metric.comparison.Regression {
 			report.Regressions = append(report.Regressions, Regression{
 				Group: group.Name, Benchmark: group.Benchmark, Metric: metric.name,

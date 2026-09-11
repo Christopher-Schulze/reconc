@@ -301,8 +301,14 @@ count; the bracketed sentinel median is retained per group. Raw absolute
 nanoseconds, same-package calibration drift, and sentinel drift remain in the
 report. The gated absolute time comparison adjusts the current target by the
 baseline-sentinel/current-sentinel ratio, while equal target/calibrator
-slowdowns with an unchanged sentinel still fail. Target-specific normalized
-time regressions and independent absolute resource regressions remain blocking.
+slowdowns with an unchanged sentinel still fail. In comparison contract v6,
+a normalized exceedance blocks only when the target also degrades beyond the
+same normalized metric's tolerance. This target check uses CPU-adjusted time
+and unadjusted bytes/allocations. Improving a calibration benchmark cannot alone
+block an improved target. Every metric's `regression` flag retains its threshold
+exceedance; the report's `regressions` list and `passed` field describe blocking
+outcomes. Independent absolute time, bytes, allocation, and peak-RSS limits are
+unchanged and remain blocking even when normalized ratios pass.
 The suite
 covers bounded action traces and context operands, prepared action-decision
 caching, incremental action-ledger checkpoints, structured action inspection,

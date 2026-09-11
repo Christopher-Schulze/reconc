@@ -19,7 +19,7 @@ import (
 const (
 	resultFormat     = "reconc.benchmark-result/v4"
 	baselineFormat   = "reconc.benchmark-baseline/v4"
-	comparisonFormat = "reconc.benchmark-comparison/v5"
+	comparisonFormat = "reconc.benchmark-comparison/v6"
 	profileFormat    = "reconc.benchmark-profile/v1"
 	suiteVersion     = "reconc.performance-history/v10"
 	cpuSentinelName  = "BenchmarkReconcCPUSentinel"
