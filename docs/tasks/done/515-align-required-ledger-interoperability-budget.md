@@ -27,10 +27,15 @@ the product's normal call budget is sixty seconds.
 
 - [x] Inspect the raw harness, call context, approval, and required-ledger failure paths against the retained Windows diagnostic.
 - [x] Correct only the functional fixture's call budget and retain exact lifecycle and failure assertions.
-- [~] Run focused and required local gates, then verify the full native Windows gate before archiving, committing, and pushing.
+- [x] Run focused and required local gates, then verify the full native Windows gate before archiving, committing, and pushing.
 
 ## Notes
 
+- Complete native Windows suites pass in runs 34594464390, 34595642657, and
+  34597546372. The latest run also passes Linux, macOS, LangChain, release
+  trust, and companion CodeQL 34597546362 for clean code
+  6116c64d8b6fe9f391177368ba851e450d09f8ed. Existing receipt, downstream-call,
+  ordered eleven-event ledger, integrity, and cancellation assertions remain.
 - The focused interoperability, deadline, timeout, and cancellation tests pass
   ten consecutive race-enabled runs (62.649 seconds). Root/template vet and
   staticcheck pass. The helper retains five seconds unless explicitly configured;
