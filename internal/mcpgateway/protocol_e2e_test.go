@@ -36,6 +36,7 @@ type rawGatewayOptions struct {
 	home                string
 	approvalAuthorities string
 	approvalPolicyID    string
+	callTimeout         time.Duration
 	clock               actionstate.TrustedClock
 }
 
@@ -82,6 +83,10 @@ func newRawGatewayHarnessWithOptions(
 	gatewayInput, clientInput := io.Pipe()
 	clientOutput, gatewayOutput := io.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
+	callTimeout := options.callTimeout
+	if callTimeout == 0 {
+		callTimeout = 5 * time.Second
+	}
 	gateway, err := startGateway(ctx, Config{
 		Repository: repository, ServerLabel: "fake", Principal: "test-operator",
 		PolicyAuthority: actionstate.PolicyAuthority{
@@ -92,7 +97,7 @@ func newRawGatewayHarnessWithOptions(
 			fakeCancellationMarkerEnvironment, fakeMarkerEnvironment,
 			fakeModeEnvironment, fakeProcessEnvironment,
 		),
-		ReconcHome: home, Version: "test", CallTimeout: 5 * time.Second,
+		ReconcHome: home, Version: "test", CallTimeout: callTimeout,
 		ApprovalAuthorities: options.approvalAuthorities,
 		ApprovalPolicyID:    options.approvalPolicyID,
 		clock:               options.clock,

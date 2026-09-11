@@ -80,6 +80,8 @@ func testRawLegacyFormApproval(t *testing.T) {
 	}
 	harness := newRawGatewayHarnessWithOptions(t, plan, evaluator, rawGatewayOptions{
 		approvalAuthorities: registry, approvalPolicyID: "post-result-policy",
+		// Eleven durable lifecycle records exercise the normal production budget.
+		callTimeout: DefaultCallTimeout,
 	})
 	initializeRawGateway(t, harness, gatewayProtocolLegacy)
 	started := time.Now()

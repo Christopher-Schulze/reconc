@@ -25,12 +25,26 @@ the product's normal call budget is sixty seconds.
 
 ## Sub-Tasks
 
-- [ ] Inspect the raw harness, call context, approval, and required-ledger failure paths against the retained Windows diagnostic.
-- [ ] Correct only the functional fixture's call budget and retain exact lifecycle and failure assertions.
-- [ ] Run focused and required local gates, then verify the full native Windows gate before archiving, committing, and pushing.
+- [x] Inspect the raw harness, call context, approval, and required-ledger failure paths against the retained Windows diagnostic.
+- [x] Correct only the functional fixture's call budget and retain exact lifecycle and failure assertions.
+- [~] Run focused and required local gates, then verify the full native Windows gate before archiving, committing, and pushing.
 
 ## Notes
 
+- The focused interoperability, deadline, timeout, and cancellation tests pass
+  ten consecutive race-enabled runs (62.649 seconds). Root/template vet and
+  staticcheck pass. The helper retains five seconds unless explicitly configured;
+  only the required-ledger approval fixture selects `DefaultCallTimeout`.
+- Complete `go test -p=2 ./...` and `make build` pass. The preceding TASK 514
+  complete root/template race and release-trust gate is green; this candidate
+  changes only the two test fixtures and TASK tracking.
+- `Gateway.callContext` derives the configured call deadline and passes it
+  through approval issuance and required-ledger writes. Both approval ledger
+  failures map to `ledger_unavailable`. The retained diagnostic proves elapsed
+  time beyond the fixture deadline, but does not expose the storage error;
+  it does not prove an independent storage defect.
+- TASK 514 candidate bcceb9d085ead6e74b5e0b2be232801b914ff241 is committed
+  and pushed; its native benchmark run 34593702927 continues independently.
 - Source: https://github.com/Christopher-Schulze/reconc/actions/runs/34591894232.
 - Relevant boundaries: `internal/mcpgateway/protocol_e2e_test.go`,
   `internal/mcpgateway/interoperability_e2e_test.go`, `call.go`, `ledger.go`,

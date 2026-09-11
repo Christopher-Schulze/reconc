@@ -1,12 +1,12 @@
 # TASK Control Plane
 
 ## Active
-- [~] 514 Bind CI benchmarks to the baseline source on the same runner -> tasks/514-bind-ci-benchmarks-to-baseline-source.md
+- [~] 515 Align required-ledger interoperability with the production call budget -> tasks/515-align-required-ledger-interoperability-budget.md
 
 ## Queue
-- [ ] 515 Align required-ledger interoperability with the production call budget -> tasks/515-align-required-ledger-interoperability-budget.md
 
 ## Blocked
+- [!] 514 Bind CI benchmarks to the baseline source on the same runner (paused for TASK 515) -> tasks/514-bind-ci-benchmarks-to-baseline-source.md
 
 ## Done
 - [x] 513 Repair existing Windows integration gate failures -> tasks/done/513-repair-windows-integration-gate-failures.md
