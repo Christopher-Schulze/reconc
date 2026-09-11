@@ -157,9 +157,8 @@ candidates C221, C222, C224, and C225.
 - Focused pre-decision tests passed uncached, under the race detector, and for
   five consecutive repetitions.
 - `make test-fast`, `make test`, `make vet`, `make lint`, `make coverage`,
-  `make build`, `make self-host`, and `make publication-audit` passed. Complete
-  coverage measured 82.3484% for the root module and 84.0628% for the portable
-  template module.
+  `make build`, `make self-host`, and `make publication-audit` passed. Coverage
+  remains whole-module review evidence, not a numeric pass/fail contract.
 - The final Go sources are `gofmt`-clean, `git diff --check` passes, and every
   modified file and task acceptance item was re-read before archival.
 

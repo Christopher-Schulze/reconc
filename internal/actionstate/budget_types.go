@@ -296,6 +296,13 @@ func stateError(code action.ReasonCode, message string, cause error) error {
 	return &StateError{Code: code, Message: message, Cause: cause}
 }
 
+func DenialCountCapacityExhausted(err error) bool {
+	var stateErr *StateError
+	return errors.As(err, &stateErr) &&
+		stateErr.Code == action.ReasonBudgetExhausted &&
+		stateErr.Message == "denial-count capacity is exhausted"
+}
+
 func actionRequestReason(err error, fallback action.ReasonCode) action.ReasonCode {
 	var requestErr *action.RequestError
 	if errors.As(err, &requestErr) && requestErr.Code.Valid() {

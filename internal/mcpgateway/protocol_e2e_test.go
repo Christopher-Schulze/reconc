@@ -38,6 +38,7 @@ type rawGatewayOptions struct {
 	approvalPolicyID    string
 	callTimeout         time.Duration
 	clock               actionstate.TrustedClock
+	diagnostics         io.Writer
 }
 
 func newRawGatewayHarness(
@@ -101,7 +102,7 @@ func newRawGatewayHarnessWithOptions(
 		ApprovalAuthorities: options.approvalAuthorities,
 		ApprovalPolicyID:    options.approvalPolicyID,
 		clock:               options.clock,
-		Input:               gatewayInput, Output: gatewayOutput, Diagnostics: io.Discard,
+		Input:               gatewayInput, Output: gatewayOutput, Diagnostics: gatewayDiagnostics(options.diagnostics),
 		PolicyLoader: loader,
 	})
 	if err != nil {
@@ -315,4 +316,11 @@ func TestGatewayPreservesExactCanonicalArgumentsEndToEnd(t *testing.T) {
 	if !bytes.Equal(got, want) {
 		t.Fatalf("downstream arguments = %s, want canonical %s", got, want)
 	}
+}
+
+func gatewayDiagnostics(writer io.Writer) io.Writer {
+	if writer == nil {
+		return io.Discard
+	}
+	return writer
 }

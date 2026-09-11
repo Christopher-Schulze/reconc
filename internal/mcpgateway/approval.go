@@ -630,7 +630,7 @@ func (g *Gateway) finalizePendingApproval(
 		ExpectedStateVersion: pending.issuanceVersion,
 		Status:               status,
 	})
-	return result
+	return result.Result
 }
 
 func approvalFailureFinalizeStatus(err error) actionapproval.Status {

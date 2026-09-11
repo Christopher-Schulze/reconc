@@ -102,6 +102,22 @@ type ApprovalFinalizeRequest struct {
 	Status               actionapproval.Status
 }
 
+// ApprovalFinalizeOutcome reports whether a terminal approval transition is
+// durably present. DenialCapacityExhausted is a secondary diagnostic after a
+// successful persist; it must not be treated as an uncommitted mutation.
+type ApprovalFinalizeOutcome struct {
+	Persisted               bool
+	Result                  ApprovalConsumeResult
+	DenialCapacityExhausted bool
+}
+
+func (outcome ApprovalFinalizeOutcome) TerminalResult() (ApprovalConsumeResult, bool) {
+	if !outcome.Persisted || outcome.Result.StateVersion == "" || outcome.Result.Evidence.RequestID == "" {
+		return ApprovalConsumeResult{}, false
+	}
+	return outcome.Result, true
+}
+
 type ApprovalReconcileResult struct {
 	StateVersion string                  `json:"state_version"`
 	Expired      []ApprovalConsumeResult `json:"expired"`
@@ -609,28 +625,49 @@ func (s *Store) commitPendingApproval(
 func (s *Store) FinalizeApproval(
 	ctx context.Context,
 	input ApprovalFinalizeRequest,
-) (result ApprovalConsumeResult, resultErr error) {
+) (outcome ApprovalFinalizeOutcome, resultErr error) {
 	resultErr = s.withLock(ctx, func() error {
-		if !finalApprovalFailureStatus(input.Status) {
-			return stateError(action.ReasonApprovalInvalid, "approval final status is invalid", nil)
-		}
-		if err := s.resampleRepositoryIdentity(); err != nil {
-			return err
-		}
-		state, persisted, clock, index, err := s.pendingApprovalTransition(input.RequestState, input.ExpectedStateVersion)
-		if err != nil {
-			return err
-		}
-		if input.Status == actionapproval.StatusExpired {
-			expires, parseErr := time.Parse(time.RFC3339Nano, state.Approvals[index].Request.ExpiresAt)
-			if parseErr != nil || clock.Time.Before(expires) {
-				return stateError(action.ReasonApprovalInvalid, "approval has not reached its trusted expiry", parseErr)
-			}
-		}
-		result, err = s.finishPendingApproval(state, persisted, clock, index, input.Status, nil, nil)
+		var err error
+		outcome, err = s.finalizeApprovalLocked(input)
 		return err
 	})
-	return result, resultErr
+	return outcome, resultErr
+}
+
+func (s *Store) finalizeApprovalLocked(input ApprovalFinalizeRequest) (ApprovalFinalizeOutcome, error) {
+	if !finalApprovalFailureStatus(input.Status) {
+		return ApprovalFinalizeOutcome{}, stateError(action.ReasonApprovalInvalid, "approval final status is invalid", nil)
+	}
+	if err := s.resampleRepositoryIdentity(); err != nil {
+		return ApprovalFinalizeOutcome{}, err
+	}
+	state, persisted, clock, index, err := s.approvalFinalizationRecord(input.RequestState, input.ExpectedStateVersion)
+	if err != nil {
+		return ApprovalFinalizeOutcome{}, err
+	}
+	record := state.Approvals[index]
+	if terminalApprovalStatus(record.Status) {
+		return ApprovalFinalizeOutcome{Persisted: true, Result: approvalResult(state.Digest, record)}, nil
+	}
+	if input.Status == actionapproval.StatusExpired {
+		expires, parseErr := time.Parse(time.RFC3339Nano, record.Request.ExpiresAt)
+		if parseErr != nil || clock.Time.Before(expires) {
+			return ApprovalFinalizeOutcome{}, stateError(action.ReasonApprovalInvalid, "approval has not reached its trusted expiry", parseErr)
+		}
+	}
+	result, err := s.finishPendingApproval(state, persisted, clock, index, input.Status, nil, nil)
+	outcome := ApprovalFinalizeOutcome{Result: result}
+	if result.StateVersion != "" && result.Evidence.RequestID != "" {
+		outcome.Persisted = true
+	}
+	if err == nil {
+		return outcome, nil
+	}
+	if outcome.Persisted && DenialCountCapacityExhausted(err) {
+		outcome.DenialCapacityExhausted = true
+		return outcome, err
+	}
+	return ApprovalFinalizeOutcome{}, err
 }
 
 // ReconcileExpiredApprovals atomically terminalizes every pending approval
@@ -705,7 +742,7 @@ func (s *Store) reconcileExpiredApprovalsLocked(
 	return result, nil
 }
 
-func (s *Store) pendingApprovalTransition(
+func (s *Store) approvalFinalizationRecord(
 	requestState string,
 	expectedVersion string,
 ) (State, bool, ClockSnapshot, int, error) {
@@ -722,8 +759,14 @@ func (s *Store) pendingApprovalTransition(
 		return State{}, false, ClockSnapshot{}, -1, err
 	}
 	index := approvalRecordIndex(state.Approvals, token.RequestID)
-	if expectedVersion != token.IssuanceStateVersion || index < 0 ||
-		state.Approvals[index].Status != actionapproval.StatusPending || !token.matches(state.Approvals[index]) {
+	if index < 0 || !token.matches(state.Approvals[index]) {
+		return State{}, false, ClockSnapshot{}, -1, stateError(action.ReasonStateUnavailable, "pending approval transition is stale", nil)
+	}
+	record := state.Approvals[index]
+	if terminalApprovalStatus(record.Status) {
+		return state, persisted, clock, index, nil
+	}
+	if record.Status != actionapproval.StatusPending || expectedVersion != token.IssuanceStateVersion {
 		return State{}, false, ClockSnapshot{}, -1, stateError(action.ReasonStateUnavailable, "pending approval transition is stale", nil)
 	}
 	return state, persisted, clock, index, nil
@@ -903,6 +946,18 @@ func approvalReason(err error) action.ReasonCode {
 func finalApprovalFailureStatus(status actionapproval.Status) bool {
 	switch status {
 	case actionapproval.StatusExpired, actionapproval.StatusCancelled,
+		actionapproval.StatusUnavailable, actionapproval.StatusMalformed,
+		actionapproval.StatusReplayed:
+		return true
+	default:
+		return false
+	}
+}
+
+func terminalApprovalStatus(status actionapproval.Status) bool {
+	switch status {
+	case actionapproval.StatusApproved, actionapproval.StatusRejected,
+		actionapproval.StatusExpired, actionapproval.StatusCancelled,
 		actionapproval.StatusUnavailable, actionapproval.StatusMalformed,
 		actionapproval.StatusReplayed:
 		return true

@@ -341,8 +341,11 @@ In-flight calls stop when either their MCP request context or the gateway
 shutdown context is cancelled. Shutdown gives pending approvals a bounded
 terminalization attempt in stable call order before draining calls, continues
 after individual approval failures, and reports safe call-and-phase errors from
-both stages. Pure user cancellation exits cleanly; an independent cleanup
-failure remains a non-zero CLI result even when joined with cancellation.
+both stages. A persisted terminal approval is recovered on retry even when
+denial-count capacity is exhausted; that diagnostic is reported after durable
+cleanup instead of stranding the identity-key lease. Pure user cancellation exits
+cleanly; an independent cleanup failure remains a non-zero CLI result even when
+joined with cancellation.
 
 LangChain uses its official external MCP adapter, not Reconc-authored adapter
 code. After `reconc action key init --reconc-home

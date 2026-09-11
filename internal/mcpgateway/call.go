@@ -502,7 +502,7 @@ func (g *Gateway) finalizeIssuedApproval(
 	result, _ := g.state.FinalizeApproval(terminalCtx, actionstate.ApprovalFinalizeRequest{
 		RequestState: issued.RequestState, ExpectedStateVersion: issued.StateVersion, Status: status,
 	})
-	return result
+	return result.Result
 }
 
 func (g *Gateway) releaseReservation(

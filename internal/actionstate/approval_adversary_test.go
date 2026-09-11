@@ -530,12 +530,17 @@ func TestApprovalMalformedReceiptAndCancellationTerminalizeExactlyOnce(t *testin
 				})
 				requireStateCode(t, err, test.code)
 			} else {
-				result, err = fixture.store.FinalizeApproval(context.Background(), ApprovalFinalizeRequest{
+				outcome, finalizeErr := fixture.store.FinalizeApproval(context.Background(), ApprovalFinalizeRequest{
 					RequestState: issued.issue.RequestState, ExpectedStateVersion: issued.issue.StateVersion,
 					Status: *test.finalize,
 				})
-				if err != nil {
-					t.Fatal(err)
+				if finalizeErr != nil {
+					t.Fatal(finalizeErr)
+				}
+				var ok bool
+				result, ok = outcome.TerminalResult()
+				if !ok {
+					t.Fatalf("terminal approval outcome = %#v", outcome)
 				}
 			}
 			if result.Status != test.want {

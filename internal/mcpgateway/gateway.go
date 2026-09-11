@@ -138,6 +138,7 @@ type pendingApprovalCleanup struct {
 	result                   actionstate.ApprovalConsumeResult
 	reason                   action.ReasonCode
 	finalized                bool
+	denialCapacityExhausted  bool
 	approvalRecorded         bool
 	reservationSettled       bool
 	reservationIndeterminate bool
@@ -307,7 +308,12 @@ func startGateway(parent context.Context, config Config) (*Gateway, error) {
 		return fail(err)
 	}
 	if _, err := gateway.state.ReconcileExpiredApprovals(startupCtx); err != nil {
-		return fail(fmt.Errorf("reconcile expired approvals: %w", err))
+		if !actionstate.DenialCountCapacityExhausted(err) {
+			return fail(fmt.Errorf("reconcile expired approvals: %w", err))
+		}
+		gateway.diagnostic(
+			"expired approval reconciliation persisted with " + string(action.ReasonBudgetExhausted),
+		)
 	}
 	_, err = gateway.inspectionEngine(snapshot.Plan)
 	if err != nil {
@@ -845,18 +851,42 @@ func (g *Gateway) finishShutdownApproval(
 		if g.state == nil {
 			return fmt.Errorf("shutdown approval state is unavailable")
 		}
-		result, err := g.state.FinalizeApproval(ctx, actionstate.ApprovalFinalizeRequest{
+		outcome, err := g.state.FinalizeApproval(ctx, actionstate.ApprovalFinalizeRequest{
 			RequestState:         cleanup.pending.requestState,
 			ExpectedStateVersion: cleanup.pending.issuanceVersion,
 			Status:               actionapproval.StatusCancelled,
 		})
-		if err != nil {
-			return err
+		if !retainShutdownFinalization(cleanup, outcome) {
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("shutdown approval finalization did not persist a terminal result")
 		}
-		cleanup.result = result
-		cleanup.finalized = true
 	}
-	return g.finishTerminalizedApproval(ctx, cleanup)
+	if err := g.finishTerminalizedApproval(ctx, cleanup); err != nil {
+		return err
+	}
+	if cleanup.denialCapacityExhausted {
+		g.diagnostic(
+			"approval shutdown persisted a terminal result with " +
+				string(action.ReasonBudgetExhausted),
+		)
+	}
+	return nil
+}
+
+func retainShutdownFinalization(
+	cleanup *pendingApprovalCleanup,
+	outcome actionstate.ApprovalFinalizeOutcome,
+) bool {
+	result, ok := outcome.TerminalResult()
+	if !ok || cleanup == nil {
+		return false
+	}
+	cleanup.result = result
+	cleanup.finalized = true
+	cleanup.denialCapacityExhausted = outcome.DenialCapacityExhausted
+	return true
 }
 
 func (g *Gateway) tool(name string) (ToolContract, uint64, bool) {
