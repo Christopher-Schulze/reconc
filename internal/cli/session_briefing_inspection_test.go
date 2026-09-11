@@ -201,17 +201,21 @@ func TestSessionBriefingMissingReportReportsUnavailableReadOnly(t *testing.T) {
 			t.Fatalf("missing report briefing changed %s: before=%+v after=%+v", path, want, got)
 		}
 	}
-	_, reportErr := os.Stat(state.ReportPath)
+	_, reportErr := os.Lstat(state.ReportPath)
 	if !errors.Is(reportErr, os.ErrNotExist) {
 		t.Fatalf("missing report fixture: %v", reportErr)
 	}
-	var reportPathError *os.PathError
-	if !errors.As(reportErr, &reportPathError) {
-		t.Fatalf("missing report error has no path context: %v", reportErr)
+	var briefing struct {
+		Status    string `json:"policy_report_status"`
+		Error     string `json:"policy_report_error"`
+		SessionID string `json:"policy_report_session_id"`
+		Path      string `json:"report_path"`
 	}
-	for _, want := range []string{"policy_report_status", "unavailable", state.SessionID, reportPathError.Err.Error()} {
-		if !strings.Contains(stdout.String(), want) {
-			t.Fatalf("missing report diagnostic lacks %q: %s", want, stdout.String())
-		}
+	if err := json.Unmarshal(stdout.Bytes(), &briefing); err != nil {
+		t.Fatal(err)
+	}
+	if briefing.Status != "unavailable" || briefing.SessionID != state.SessionID ||
+		briefing.Path != state.ReportPath || briefing.Error != boundedBriefingText(reportErr.Error()) {
+		t.Fatalf("missing report diagnostic = %+v; filesystem error = %v", briefing, reportErr)
 	}
 }

@@ -82,10 +82,14 @@ func testRawLegacyFormApproval(t *testing.T) {
 		approvalAuthorities: registry, approvalPolicyID: "post-result-policy",
 	})
 	initializeRawGateway(t, harness, gatewayProtocolLegacy)
+	started := time.Now()
 	harness.notify(t, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"echo","arguments":{"value":"legacy-approved"}}}`)
 	elicitation := harness.readResponse(t)
 	if elicitation.Method != "elicitation/create" || len(elicitation.ID) == 0 {
-		t.Fatalf("legacy approval elicitation = %#v", elicitation)
+		elapsed := time.Since(started)
+		records, report, ledgerErr := harness.gateway.ledger.Snapshot(context.Background())
+		t.Fatalf("legacy approval elicitation after %s (timeout %s): method=%q result=%s error=%s; records=%#v; report=%#v; ledger=%v",
+			elapsed, harness.gateway.config.CallTimeout, elicitation.Method, elicitation.Result, elicitation.Error, records, report, ledgerErr)
 	}
 	var params struct {
 		Message string `json:"message"`

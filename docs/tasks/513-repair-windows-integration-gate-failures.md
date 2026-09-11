@@ -72,6 +72,25 @@ Windows job and its later native installer step.
   test fixtures and their process-error reporting; production enforcement is
   unchanged. Native Windows acceptance remains pending candidate publication.
 
+- Candidate 8f8f7b1dda9596ce230af782424b6ff20954a1aa passes all other CI jobs
+  and CodeQL. Windows run 34587010018 removes 16 of the original 17 failing
+  leaf cases. The remaining missing-report assertion incorrectly requires an
+  unabridged native error despite the documented 240-rune diagnostic bound;
+  compare the parsed diagnostic with the bounded real `Lstat` error and verify
+  report status, session, path, and the complete filesystem inventory.
+- The same Windows run newly fails legacy form approval with
+  `ledger_unavailable` before elicitation. Its 6.61-second duration alone does
+  not prove expiry of the five-second call deadline. Add elapsed time and a
+  verified ledger snapshot to that failure report before attributing or
+  changing behavior. Required ledger enforcement and timeout remain intact.
+- The bounded-report regression passes locally with the race detector. The
+  legacy form-approval case passes ten consecutive local race runs, and the
+  complete MCP gateway race suite passes. The second candidate also passes
+  `make test` (both complete race suites and release trust, including an
+  86-second real artifact build), `make vet`, `make lint`, and `git diff --check`.
+  The native ledger failure remains unattributed; do not describe diagnostic
+  coverage or local success as a verified Windows repair.
+
 ## Deviations
 
 - Native Windows acceptance requires GitHub CI to receive the candidate on
