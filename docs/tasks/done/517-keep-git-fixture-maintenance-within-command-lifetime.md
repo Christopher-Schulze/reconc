@@ -20,10 +20,15 @@ detached automatic maintenance to outlive them.
 
 - [x] Inspect the failed cleanup and Git command ownership; verify Git's documented maintenance configuration.
 - [x] Bind fixture housekeeping to the existing awaited Git command.
-- [~] Run local and native verification, archive, commit, and push.
+- [x] Run local and native verification, archive, commit, and push.
 
 ## Notes
 
+- Native runs 34595642657 and 34597546372 pass every CI job, including the
+  complete macOS fixture suite; CodeQL 34597546362 also passes. The verified
+  latest code is 6116c64d8b6fe9f391177368ba851e450d09f8ed. No cleanup errors
+  are suppressed. This proves the corrected command lifetime and green native
+  fixtures, not attribution of the earlier runner's unobserved writer.
 - All rename integration cases pass 50 race-enabled repetitions (134.741
   seconds). Complete `go test -p=2 ./...`, `make vet`, and `make lint` pass.
 - Run 34594464390 completes the full Windows suite, Linux gates, release trust,
