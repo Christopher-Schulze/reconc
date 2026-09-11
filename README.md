@@ -1233,13 +1233,15 @@ inventory before publication; every published release SBOM is regenerated and
 byte-verified before its checksum and build provenance are published.
 
 Candidate CI runs root and portable-template race tests on Ubuntu, normal tests
-on macOS and native Windows, Windows installer failure paths, whole-module
+on macOS, whole-module
 coverage measurement, formatting, tidy checks, Vet, pinned Staticcheck, pinned
 Govulncheck, the pinned official LangChain MCP consumer proof, release-trust
 tests, one publication-boundary check, harness-pack
 parity, and Go CodeQL. GitHub Actions are allowlisted and commit-pinned, checkout
 credentials are not persisted, and release/publication jobs use full history
-where the post-boundary audit requires it.
+where the post-boundary audit requires it. Windows implementation, tests, and
+release artifacts remain maintained; native checks are manual only through
+`windows_smoke: true`, with a hard two-minute job limit and no release dependency.
 
 `make self-host` builds the local binary and runs the clean-repository golden
 path across all three bootstrap profiles, git pre-commit plus all thirteen agent
@@ -1255,7 +1257,7 @@ erase older public history.
 
 The protected `main` ruleset rejects deletion, non-fast-forward updates, and
 unchecked candidates. A pull request is not mandatory, but the same required
-Ubuntu, macOS, Windows, release-trust, and CodeQL checks must succeed for the
+Ubuntu, macOS, LangChain MCP, release-trust, and CodeQL checks must succeed for the
 exact commit before the branch can advance.
 
 ## License

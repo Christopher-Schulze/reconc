@@ -238,14 +238,14 @@ require_action "$release_workflow" "actions/attest-build-provenance"
 for workflow in "$ci_workflow" "$release_workflow"; do
   require_text "$workflow" "uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0"
 done
-[ "$(grep -Fc 'node-version: 24.18.0' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must provision Node.js 24.18.0 in both executable-test jobs"
-[ "$(grep -Fc 'node-version: 24.18.0' "$release_workflow")" -eq 2 ] \
-  || fail "$release_workflow must provision Node.js 24.18.0 in both release jobs"
-[ "$(grep -Fc 'package-manager-cache: false' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must disable implicit package-manager caching in both executable-test jobs"
-[ "$(grep -Fc 'package-manager-cache: false' "$release_workflow")" -eq 2 ] \
-  || fail "$release_workflow must disable implicit package-manager caching in both release jobs"
+[ "$(grep -Fc 'node-version: 24.18.0' "$ci_workflow")" -eq 1 ] \
+  || fail "$ci_workflow must provision Node.js 24.18.0 in the executable-test job"
+[ "$(grep -Fc 'node-version: 24.18.0' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must provision Node.js 24.18.0 in the artifact-build job"
+[ "$(grep -Fc 'package-manager-cache: false' "$ci_workflow")" -eq 1 ] \
+  || fail "$ci_workflow must disable implicit package-manager caching in the executable-test job"
+[ "$(grep -Fc 'package-manager-cache: false' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must disable implicit package-manager caching in the artifact-build job"
 require_text "$ci_workflow" "uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0"
 require_text "$ci_workflow" "python-version: 3.13.14"
 require_text "$ci_workflow" "python -m pip install --require-hashes -r scripts/tests/langchain-requirements.lock"
@@ -267,23 +267,23 @@ for workflow in "$ci_workflow" "$release_workflow"; do
   fi
 done
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must fetch the exact Bun package in both executable-test jobs"
+[ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$ci_workflow")" -eq 1 ] \
+  || fail "$ci_workflow must fetch the exact Bun package in the executable-test job"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$release_workflow")" -eq 2 ] \
-  || fail "$release_workflow must fetch the exact Bun package in both release jobs"
+[ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must fetch the exact Bun package in the artifact-build job"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must install only the verified Bun tarball in both executable-test jobs"
+[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$ci_workflow")" -eq 1 ] \
+  || fail "$ci_workflow must install only the verified Bun tarball in the executable-test job"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$release_workflow")" -eq 2 ] \
-  || fail "$release_workflow must install only the verified Bun tarball in both release jobs"
+[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must install only the verified Bun tarball in the artifact-build job"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must verify the exact Bun version in both executable-test jobs"
+[ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$ci_workflow")" -eq 1 ] \
+  || fail "$ci_workflow must verify the exact Bun version in the executable-test job"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$release_workflow")" -eq 2 ] \
-  || fail "$release_workflow must verify the exact Bun version in both release jobs"
+[ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must verify the exact Bun version in the artifact-build job"
 require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
 [ "$(grep -Fc 'make publication-audit' "$ci_workflow")" -eq 1 ] \
   || fail "$ci_workflow must run the publication audit exactly once"
@@ -303,17 +303,38 @@ require_text "$release_workflow" 'test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"'
 require_text "$release_workflow" 'REPLACE_PUBLISHED: ${{ inputs.replace_published }}'
 require_text "$release_workflow" './scripts/release/publish-github-release.sh'
 require_text "$release_workflow" 'go run ./scripts/release/schema-assets verify-published'
-require_text "$release_workflow" "  windows-runtime:"
-require_text "$release_workflow" "    runs-on: windows-2025"
-require_text "$release_workflow" "    needs: [windows-runtime, langchain-runtime]"
-require_text "$release_workflow" "      - name: Test natively"
-require_text "$release_workflow" "(cd harness/template && go test -p=2 -count=1 ./...)"
-require_text "$release_workflow" "./scripts/tests/test-windows-installer.ps1"
+require_text "$release_workflow" "    needs: [langchain-runtime]"
 for workflow in "$ci_workflow" "$release_workflow"; do
-  require_text "$workflow" "      - name: Windows runtime preflight"
-  require_text "$workflow" "        timeout-minutes: 4"
-  require_text "$workflow" "run: ./scripts/tests/windows-runtime-preflight.sh"
+  awk '
+    /^      windows_smoke:$/ { in_block = 1; found = 1; next }
+    in_block && /^      [[:alnum:]_-]+:$/ { in_block = 0 }
+    in_block && /^        default: false$/ { safe_default = 1 }
+    in_block && /^        type: boolean$/ { boolean_type = 1 }
+    END { exit !(found && safe_default && boolean_type) }
+  ' "$workflow" || fail "$workflow windows_smoke must be a default-false boolean"
+  windows_job="$tmp/windows-job.yml"
+  awk '/^  windows-runtime:$/ { active = 1; print; next }
+    active && /^  [[:alnum:]_-]+:$/ { exit }
+    active { print }' "$workflow" > "$windows_job"
+  require_text "$windows_job" "    runs-on: windows-2025"
+  require_text "$windows_job" "    timeout-minutes: 2"
+  # shellcheck disable=SC2016 # Match the workflow expression literally.
+  require_text "$windows_job" '    if: ${{ github.event_name == '\''workflow_dispatch'\'' && inputs.windows_smoke }}'
+  require_text "$windows_job" "run: ./scripts/tests/windows-runtime-preflight.sh"
+  require_text "$windows_job" "make release-one TARGET=windows/amd64"
+  # shellcheck disable=SC2016 # Match the workflow shell expressions literally.
+  require_text "$windows_job" '"$artifact" --version'
+  # shellcheck disable=SC2016
+  require_text "$windows_job" '"$artifact" --help >/dev/null'
+  if grep -Eq 'go test|setup-node|Set up Bun|test-windows-installer|FULL_WINDOWS_SUITE' "$windows_job"; then
+    fail "$workflow Windows checks exceed the optional smoke contract"
+  fi
+  if grep -Eq 'full_windows:|live_release:|needs:.*windows-runtime' "$workflow"; then
+    fail "$workflow retains a mandatory or long Windows gate"
+  fi
 done
+require_text "$root/scripts/tests/windows-runtime-preflight.sh" 'test -p=2 -count=1 -timeout=90s'
+require_text "$root/scripts/tests/windows-runtime-preflight.sh" 'TestTaskPathGuardRejectsReplacementAfterRead'
 # shellcheck disable=SC2016 # Match the workflow shell expression literally.
 require_text "$release_workflow" 'make verify-release'
 if grep -Fq './scripts/release/verify-artifacts.sh dist reconc' "$release_workflow"; then
@@ -340,19 +361,6 @@ done
 require_text "$ci_workflow" "  push:"
 require_text "$ci_workflow" "  pull_request:"
 require_text "$ci_workflow" "  workflow_dispatch:"
-require_text "$ci_workflow" "      full_windows:"
-awk '
-  /^      full_windows:$/ { in_block = 1; found = 1; next }
-  in_block && /^      [[:alnum:]_-]+:$/ { in_block = 0 }
-  in_block && /^        default: false$/ { safe_default = 1 }
-  in_block && /^        type: boolean$/ { boolean_type = 1 }
-  END { exit !(found && safe_default && boolean_type) }
-' "$ci_workflow" \
-  || fail "$ci_workflow full_windows must remain a default-false boolean input"
-# shellcheck disable=SC2016 # Match the workflow expression literally.
-require_text "$ci_workflow" 'FULL_WINDOWS_SUITE: ${{ (github.event_name == '\''push'\'' && github.ref_name == github.event.repository.default_branch) || (github.event_name == '\''workflow_dispatch'\'' && inputs.full_windows) }}'
-[ "$(grep -Fc "if: env.FULL_WINDOWS_SUITE == 'true'" "$ci_workflow")" -eq 3 ] \
-  || fail "$ci_workflow must limit Node, Bun, and the all-package Windows suite to explicit full Windows runs"
 if grep -Eq 'pull-requests:[[:space:]]*write|issues:[[:space:]]*write' "$ci_workflow"; then
   fail "$ci_workflow must not create or mutate pull requests or issues"
 fi
@@ -361,10 +369,6 @@ fi
 require_text "$ci_workflow" 'go test -p="$TEST_PARALLELISM" -count=1 ./...'
 # shellcheck disable=SC2016 # Match the workflow shell expression literally.
 require_text "$ci_workflow" '(cd harness/template && go test -p="$TEST_PARALLELISM" -count=1 ./...)'
-require_text "$ci_workflow" "go test -p=2 -count=1 ./..."
-require_text "$ci_workflow" "(cd harness/template && go test -p=2 -count=1 ./...)"
-require_text "$release_workflow" "go test -p=2 -count=1 ./..."
-require_text "$release_workflow" "(cd harness/template && go test -p=2 -count=1 ./...)"
 require_text "$release_workflow" "go test -race -count=1 ./..."
 require_text "$release_workflow" "(cd harness/template && go test -race -count=1 ./...)"
 root_go_version=$(sed -n 's/^go //p' "$root/go.mod")
@@ -380,8 +384,6 @@ require_text "$ci_workflow" "staticcheck@v0.8.1"
 require_text "$release_workflow" "staticcheck@v0.8.1"
 require_text "$release_workflow" "govulncheck@v1.7.0"
 require_text "$ci_workflow" "make self-host"
-require_text "$ci_workflow" "shell: pwsh"
-require_text "$ci_workflow" "./scripts/tests/test-windows-installer.ps1"
 require_text "$release_workflow" "make self-host"
 require_text "$root/scripts/tests/self-hosting.sh" "--profile governed"
 require_text "$root/scripts/tests/self-hosting.sh" "--profile existing"

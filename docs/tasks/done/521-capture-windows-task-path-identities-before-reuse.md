@@ -12,13 +12,16 @@ can therefore resolve the replacement path during later revalidation.
 - Capture each Windows TASK component's identity before retaining its snapshot.
 - Reject replacement even when file size, mode, and modification time match.
 - Preserve Unix work, existing symlink rejection, and read-only inspection.
-- Verify the focused regression and native Windows CI without redundant runs.
+- Verify the focused regression without redundant runs.
+- Preserve Windows code and tests; replace automatic native gates with manual
+  smoke jobs capped at two minutes, without blocking main or releases.
 
 ## Sub-Tasks
 
 - [x] Trace the failing native test, guard callers, and actual Go file-ID behavior.
 - [x] Capture identity at observation and make replacement metadata deterministic.
-- [~] Verify focused/local and native gates, archive, commit, push, and resume TASK 520.
+- [x] Apply the requested Windows validation limit, verify policy, archive,
+  commit, push, and resume TASK 520.
 
 ## Notes
 
@@ -32,11 +35,24 @@ can therefore resolve the replacement path during later revalidation.
 - Local tasklifecycle race suite passed in 5.066 seconds; scoped vet and
   staticcheck passed. The replacement test now fixes file and directory times
   so timestamp granularity cannot hide deferred identity lookup on Windows.
+- Both workflows now expose only optional Windows smoke with a two-minute
+  whole-job limit; the short filesystem selection has a 90-second per-binary
+  timeout. Windows code, installer tests, and release artifacts remain intact.
+- Read back ruleset 18998289 after removing only `Windows build and smoke`.
+  All five other required checks, bypass actors, and protections are unchanged.
+- Focused YAML/workflow and LangChain prerequisite tests passed. The complete
+  release-trust workflow-policy prefix, reference check, Bash syntax, and diff
+  check passed. ShellCheck reports only the same three pre-existing warnings
+  around the intentional fixture `RELEASE_TAG` assignment, with no new findings.
+- CI 34620481438 was cancelled as requested; CodeQL 34620481464 passed.
+  Complete Linux/macOS CI will run on the policy commit without native Windows.
 
 ## Deviations
 
-- Native Windows verification requires the implementation on a clean remote
-  commit. Keep the task active until that CI evidence is available, then archive.
+- Christopher explicitly ended extended native Windows validation on September
+  11. Cancelled CI run 34620481438; no new native Windows run is required for
+  completion. Local regression evidence remains valid; the Windows-specific
+  identity fix has no completed native verification. Preserve all test definitions.
 - Per the explicit efficiency instruction, do not duplicate the full suites
-  locally before the required native CI; run the changed package locally and
-  use the next source-bound CI for the complete platform and race gates.
+  locally; run changed contracts locally and use source-bound Linux/macOS CI
+  for complete platform and race gates. Native Windows is no longer required.

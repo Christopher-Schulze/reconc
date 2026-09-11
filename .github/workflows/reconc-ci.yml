@@ -5,13 +5,8 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      live_release:
-        description: Verify the published Windows release over HTTPS
-        required: false
-        default: false
-        type: boolean
-      full_windows:
-        description: Run the slow all-package Windows suite in addition to preflight, build, and installer checks
+      windows_smoke:
+        description: Run optional Windows filesystem and CLI smoke checks (two-minute job limit)
         required: false
         default: false
         type: boolean
@@ -133,10 +128,9 @@ jobs:
 
   windows-runtime:
     name: Windows build and smoke
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_smoke }}
     runs-on: windows-2025
-    timeout-minutes: 40
-    env:
-      FULL_WINDOWS_SUITE: ${{ (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) || (github.event_name == 'workflow_dispatch' && inputs.full_windows) }}
+    timeout-minutes: 2
     defaults:
       run:
         shell: bash
@@ -152,64 +146,21 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-          cache-dependency-path: |
-            go.sum
-            harness/template/go.sum
+          cache-dependency-path: go.sum
 
       - name: Download modules
-        run: |
-          go mod download
-          (cd harness/template && go mod download)
+        run: go mod download
 
       - name: Windows runtime preflight
-        timeout-minutes: 4
         run: ./scripts/tests/windows-runtime-preflight.sh
-
-      - name: Set up Node
-        if: env.FULL_WINDOWS_SUITE == 'true'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24.18.0
-          package-manager-cache: false
-
-      - name: Set up Bun
-        if: env.FULL_WINDOWS_SUITE == 'true'
-        run: |
-          bun_package_dir="$(mktemp -d)"
-          trap 'rm -rf "$bun_package_dir"' EXIT
-          npm pack "bun@$BUN_VERSION" --pack-destination "$bun_package_dir" --json > "$bun_package_dir/pack.json"
-          actual_bun_integrity="$(node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(data[0].integrity)' "$bun_package_dir/pack.json")"
-          test "$actual_bun_integrity" = "$BUN_INTEGRITY"
-          npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"
-          test "$(bun --version)" = "$BUN_VERSION"
-
-      - name: Test full Windows suite
-        if: env.FULL_WINDOWS_SUITE == 'true'
-        run: |
-          go test -p=2 -count=1 ./...
-          (cd harness/template && go test -p=2 -count=1 ./...)
 
       - name: Build and smoke CLI
         run: |
           version="$(./scripts/build/resolve-version.sh)"
           make release-one TARGET=windows/amd64
-          printf 'RECONC_BUILD_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
           artifact="dist/reconc-$version-windows-amd64.exe"
           "$artifact" --version
           "$artifact" --help >/dev/null
-
-      - name: Test native Windows installer
-        shell: pwsh
-        env:
-          RECONC_LIVE_RELEASE: ${{ inputs.live_release || 'false' }}
-        run: |
-          $version = $env:RECONC_BUILD_VERSION
-          $liveRelease = [Convert]::ToBoolean($env:RECONC_LIVE_RELEASE)
-          ./scripts/tests/test-windows-installer.ps1 `
-            -InstallerPath ./install.ps1 `
-            -BinaryPath "./dist/reconc-$version-windows-amd64.exe" `
-            -ExpectedVersion $version `
-            -LiveRelease $liveRelease
 
   langchain-integration:
     name: LangChain MCP interoperability

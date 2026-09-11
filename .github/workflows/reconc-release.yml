@@ -12,6 +12,11 @@ on:
         required: false
         default: false
         type: boolean
+      windows_smoke:
+        description: Run optional Windows filesystem and CLI smoke checks (two-minute job limit)
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: release-${{ inputs.tag }}
@@ -29,9 +34,10 @@ env:
 
 jobs:
   windows-runtime:
-    name: Native Windows release gate
+    name: Windows build and smoke
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_smoke }}
     runs-on: windows-2025
-    timeout-minutes: 40
+    timeout-minutes: 2
     permissions:
       contents: read
     defaults:
@@ -50,57 +56,21 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-          cache-dependency-path: |
-            go.sum
-            harness/template/go.sum
+          cache-dependency-path: go.sum
 
       - name: Download modules
-        run: |
-          go mod download
-          (cd harness/template && go mod download)
+        run: go mod download
 
       - name: Windows runtime preflight
-        timeout-minutes: 4
         run: ./scripts/tests/windows-runtime-preflight.sh
-
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24.18.0
-          package-manager-cache: false
-
-      - name: Set up Bun
-        run: |
-          bun_package_dir="$(mktemp -d)"
-          trap 'rm -rf "$bun_package_dir"' EXIT
-          npm pack "bun@$BUN_VERSION" --pack-destination "$bun_package_dir" --json > "$bun_package_dir/pack.json"
-          actual_bun_integrity="$(node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(data[0].integrity)' "$bun_package_dir/pack.json")"
-          test "$actual_bun_integrity" = "$BUN_INTEGRITY"
-          npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"
-          test "$(bun --version)" = "$BUN_VERSION"
-
-      - name: Test natively
-        run: |
-          go test -p=2 -count=1 ./...
-          (cd harness/template && go test -p=2 -count=1 ./...)
 
       - name: Build and smoke CLI
         run: |
           version="$(./scripts/build/resolve-version.sh)"
           make release-one TARGET=windows/amd64
-          printf 'RECONC_BUILD_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
           artifact="dist/reconc-$version-windows-amd64.exe"
           "$artifact" --version
           "$artifact" --help >/dev/null
-
-      - name: Test native Windows installer
-        shell: pwsh
-        run: |
-          $version = $env:RECONC_BUILD_VERSION
-          ./scripts/tests/test-windows-installer.ps1 `
-            -InstallerPath ./install.ps1 `
-            -BinaryPath "./dist/reconc-$version-windows-amd64.exe" `
-            -ExpectedVersion $version
 
   langchain-runtime:
     name: LangChain MCP release gate
@@ -143,7 +113,7 @@ jobs:
 
   release:
     name: Build release artifacts
-    needs: [windows-runtime, langchain-runtime]
+    needs: [langchain-runtime]
     runs-on: macos-15
     timeout-minutes: 45
     defaults:

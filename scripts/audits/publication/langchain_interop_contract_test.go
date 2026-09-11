@@ -85,7 +85,7 @@ func TestLangChainGatewayIsProminentAndReleaseBlocking(t *testing.T) {
 
 	assertContainsAll(t, "documentation release contract", documentation,
 		"The `LangChain MCP interoperability` check is required for protected `main`",
-		"Both exact-tag prerequisite jobs must pass before artifact publication can start",
+		"This prerequisite must pass before artifact publication can start",
 	)
 	gateStart := strings.Index(releaseWorkflow, "\n  langchain-runtime:\n")
 	releaseStart := strings.Index(releaseWorkflow, "\n  release:\n")
@@ -102,7 +102,7 @@ func TestLangChainGatewayIsProminentAndReleaseBlocking(t *testing.T) {
 		"ref: ${{ inputs.tag }}",
 	)
 	assertContainsAll(t, "release workflow publication job", releaseWorkflow[releaseStart:],
-		"needs: [windows-runtime, langchain-runtime]",
+		"needs: [langchain-runtime]",
 		"./scripts/release/publish-github-release.sh",
 	)
 	if count := strings.Count(releaseWorkflow, "ref: ${{ inputs.tag }}"); count != 3 {

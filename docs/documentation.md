@@ -505,8 +505,8 @@ selected tag and compares them with local registered bytes; historical schema
 URLs retain their original publication locations and compatibility meaning.
 
 Installer tests use synthetic versions only in disposable fixture binaries and
-repositories. Windows CI also builds and smokes the actual development binary;
-the optional live installer check selects an existing published stable release.
+repositories. An explicitly requested Windows smoke job builds and smokes the
+actual development binary within a two-minute job limit.
 
 The advanced harness pack embedded in the binary belongs to the same source
 build. Its manifest, inventory, sizes, and hashes are verified independently of
@@ -1582,10 +1582,9 @@ or foreign state.
 
 The Go binary and `.exe` or `.com` policy scripts run natively. Shell hook
 wrappers plus `.sh` and extensionless policy scripts require `sh` on `PATH`;
-Git for Windows supplies it. CI runs focused Windows-native contracts on every
-candidate and the complete native suite at the bounded checkpoints described
-below; the clean-repository self-host golden path currently runs on Ubuntu and
-macOS.
+Git for Windows supplies it. Windows implementation and test definitions are
+maintained, but native validation is best effort. Automatic CI and complete
+validation run on Linux and macOS; Windows tests never block publication.
 Windows cannot represent POSIX permission bits: Reconc validates protected
 current-user-only DACLs for private state and uses the readonly attribute as
 the representable atomic-file mode boundary. Private binary backup and update
@@ -1594,15 +1593,13 @@ public executable directory. Repository `.reconc` roots inherit the checkout's
 ACL for shared access, while `.reconc/run` and individual audit files use the
 protected current-user-only DACL. An opened Windows identity may prevent rename or
 replacement entirely; this is a successful identity-boundary outcome rather
-than missing POSIX mode behavior. The Windows candidate job runs a
-focused four-minute native filesystem, hook, and runtime preflight immediately
-after Go module download, then always builds and smokes the Windows binary and
-exercises the native installer. It skips the slow all-package suite and
-Node/Bun setup on pull requests and candidate-branch pushes. The complete
-native suite still runs with two package test binaries at a time after every
-accepted update to the default branch, on an explicit manual dispatch with
-`full_windows: true`, and unconditionally against an exact tag in the Release
-workflow.
+than missing POSIX mode behavior. CI and Release offer an optional manual
+`windows_smoke: true` job with a hard two-minute limit including setup, focused
+filesystem tests, and native CLI version/help smoke. The focused test command
+has a 90-second test-binary timeout. No all-package suite, Node/Bun adapter
+suite, native installer suite, or live HTTPS installer check runs on Windows
+in these workflows. Their test definitions and Windows release artifacts remain
+available; extended Windows test and repair loops are outside routine work.
 
 ### Is the private production repository public?
 
@@ -5132,22 +5129,12 @@ CI checks:
   on macOS 15; whole-module root/template coverage measurement, publication
   audit, formatting, tidy, vet, pinned Govulncheck v1.7.0, and pinned
   Staticcheck v0.8.1 run once on Linux
-- native Windows 2025 runtime preflight plus native binary version/help smoke
-  and native PowerShell installer success, malformed
-  manifest, missing asset, checksum, execution, locked/unwritable target,
-  attestation, cleanup, and existing-install preservation paths;
-  a focused four-minute native runtime preflight runs immediately after module
-  download. The all-package root and `harness/template` suite and its Node/Bun
-  adapter runtime run only after default-branch updates or an explicit manual
-  `full_windows: true` dispatch, with two package test binaries at a time. The
-  exact-tag Release workflow always reruns that complete native suite before
-  publication; shell hook wrappers and shell policy scripts use the documented
-  `sh` runtime.
-- push and pull-request checks exercise the Windows installer entirely against
-  the candidate binary and local fixtures, so an unpublished release candidate
-  never depends on a nonexistent remote asset. After publication, a manual CI
-  dispatch with `live_release: true` additionally verifies the tagged Windows
-  binary and checksum manifest over HTTPS;
+- Windows 2025 checks run only with an explicit manual `windows_smoke: true`
+  input; the complete optional job has a hard two-minute limit and runs focused
+  filesystem checks plus native binary version/help smoke. Windows code, test
+  definitions, and release artifacts remain maintained. Automatic native suites,
+  installer execution, and live HTTPS installer checks are disabled; Windows
+  does not gate protected-branch updates or release publication.
 - SHA-pinned GitHub-owned `actions/setup-node` provisions Node.js 24.18.0 with
   implicit package-manager caching disabled. Each executable-test job packs
   exact `bun@1.3.14`, compares the tarball's npm SRI against the committed
@@ -5184,7 +5171,7 @@ and the repository does not enable auto-merge.
 
 The public source repository protects its default branch with the active
 `Protect main` ruleset. It blocks branch deletion and non-fast-forward updates,
-and requires successful Ubuntu, macOS, native Windows, LangChain MCP,
+and requires successful Ubuntu, macOS, LangChain MCP,
 release-trust, and Go CodeQL checks for the exact candidate commit before
 `main` can advance. A pull request is not mandatory, but an unchecked direct
 push is rejected; maintainer fast-forwards must first obtain the same checks on
@@ -5207,12 +5194,11 @@ Release:
   `-f replace_published=true`; requesting replacement when no release exists
   also fails. Existing drafts remain resumable without expanding authority.
 - The explicitly selected tag must use stable semantic versioning, identify clean HEAD, and have committed release notes. Source code contains no assigned release version.
-- Release workflow first runs root and portable-template tests, a binary smoke
-  test, and the installer gate natively on Windows 2025 against the exact tag.
-  In parallel, an isolated Ubuntu prerequisite checks out the same tag and runs
-  the hash-pinned official LangChain consumer against the Go gateway and Go
-  fixture. Both exact-tag prerequisite jobs must pass before artifact
-  publication can start. The artifact job then provisions the same pinned
+- An isolated Ubuntu prerequisite checks out the exact tag and runs the
+  hash-pinned official LangChain consumer against the Go gateway and Go fixture.
+  This prerequisite must pass before artifact publication can start. Optional
+  Windows smoke is independent and never blocks publication. The macOS artifact
+  job provisions the same pinned
   GitHub-owned Node.js runtime and exact verified Bun runtime and runs formatting,
   tidy, vet, pinned
   Govulncheck, pinned Staticcheck, race, publication, trust, and clean-repository

@@ -59,6 +59,11 @@ test oracle. Production schema validation uses
 - Do not add runtime network calls.
 - Put behavior in internal packages; keep `cmd/reconc/main.go` thin.
 - Update tests and user-facing docs with behavior changes.
+- Preserve Windows implementation and test definitions and develop them to the
+  best available knowledge. Never run automatic or long Windows test suites.
+  Only explicitly requested Windows smoke checks may run, with a hard two-minute
+  job limit. Linux and macOS own complete validation; Windows never blocks
+  releases or starts extended repair loops. Preserve Windows release artifacts.
 - Keep the repository self-contained; do not depend on files outside this root.
 - Work directly on `main`. Never create, publish, or switch to another branch
   unless Christopher explicitly requests that exact branch. Push repository

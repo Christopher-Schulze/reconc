@@ -627,7 +627,7 @@ func TestDependabotCoversBoundedDependencySurfaces(t *testing.T) {
 	}
 }
 
-func TestNativeWindowsInstallerIsWiredIntoCIAndRelease(t *testing.T) {
+func TestNativeWindowsSmokeIsOptionalAndInstallerRemainsPublished(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	for _, path := range []string{
 		"install.ps1",
@@ -636,20 +636,38 @@ func TestNativeWindowsInstallerIsWiredIntoCIAndRelease(t *testing.T) {
 		assertBoundedFile(t, filepath.Join(root, filepath.FromSlash(path)), 64*1024)
 	}
 
-	ci := readPublicSurfaceFile(t, root, ".github/workflows/reconc-ci.yml")
-	for _, token := range []string{
-		"shell: pwsh",
-		"make release-one TARGET=windows/amd64",
-		`artifact="dist/reconc-$version-windows-amd64.exe"`,
-		"./scripts/tests/test-windows-installer.ps1",
-		"-InstallerPath ./install.ps1",
-		`-BinaryPath "./dist/reconc-$version-windows-amd64.exe"`,
-		"live_release:",
-		"RECONC_LIVE_RELEASE",
-		"-LiveRelease",
-	} {
-		if !strings.Contains(ci, token) {
-			t.Errorf("native Windows CI omits installer contract %q", token)
+	for _, path := range []string{".github/workflows/reconc-ci.yml", ".github/workflows/reconc-release.yml"} {
+		var workflow githubWorkflow
+		if err := yaml.Unmarshal([]byte(readPublicSurfaceFile(t, root, path)), &workflow); err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		job, ok := workflow.Jobs["windows-runtime"]
+		if !ok || job.RunsOn != "windows-2025" || job.TimeoutMinutes != 2 ||
+			job.If != "${{ github.event_name == 'workflow_dispatch' && inputs.windows_smoke }}" {
+			t.Fatalf("%s must opt into a two-minute Windows smoke job", path)
+		}
+		var commands string
+		for _, step := range job.Steps {
+			commands += step.Run + "\n"
+			if strings.Contains(step.Uses, "setup-node") || strings.Contains(step.Name, "Bun") {
+				t.Errorf("%s Windows smoke provisions an unnecessary adapter runtime", path)
+			}
+		}
+		assertContainsAll(t, path, commands,
+			"./scripts/tests/windows-runtime-preflight.sh", "make release-one TARGET=windows/amd64",
+			`"$artifact" --version`, `"$artifact" --help >/dev/null`,
+		)
+		for _, forbidden := range []string{"go test", "test-windows-installer.ps1"} {
+			if strings.Contains(commands, forbidden) {
+				t.Errorf("%s Windows smoke retains long execution %q", path, forbidden)
+			}
+		}
+		for _, candidate := range workflow.Jobs {
+			for _, dependency := range candidate.Needs {
+				if dependency == "windows-runtime" {
+					t.Errorf("%s retains a mandatory Windows dependency", path)
+				}
+			}
 		}
 	}
 
@@ -700,8 +718,10 @@ type githubWorkflow struct {
 	} `yaml:"on"`
 	Permissions map[string]string `yaml:"permissions"`
 	Jobs        map[string]struct {
-		RunsOn         string `yaml:"runs-on"`
-		TimeoutMinutes int    `yaml:"timeout-minutes"`
+		If             string   `yaml:"if"`
+		Needs          []string `yaml:"needs"`
+		RunsOn         string   `yaml:"runs-on"`
+		TimeoutMinutes int      `yaml:"timeout-minutes"`
 		Steps          []struct {
 			ID              string            `yaml:"id"`
 			Name            string            `yaml:"name"`
