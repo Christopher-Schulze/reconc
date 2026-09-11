@@ -1,9 +1,9 @@
 # TASK Control Plane
 
 ## Active
+- [~] 520 Isolate benchmark process measurements -> tasks/520-isolate-benchmark-process-measurements.md
 
 ## Queue
-- [ ] 520 Isolate benchmark process measurements -> tasks/520-isolate-benchmark-process-measurements.md
 
 ## Blocked
 

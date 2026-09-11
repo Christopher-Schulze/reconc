@@ -54,6 +54,9 @@ func bindRunnerBaseline(reference BenchmarkBaseline, result BenchmarkResult) (Be
 	if err := validateBaseline(reference); err != nil {
 		return BenchmarkBaseline{}, err
 	}
+	if result.FormatVersion != resultFormat {
+		return BenchmarkBaseline{}, errors.New("runner baseline requires precompiled benchmark measurements")
+	}
 	commit := reference.Result.Environment.Commit
 	if !baselineCommitPattern.MatchString(commit) || result.Environment.Commit != commit {
 		return BenchmarkBaseline{}, errors.New("runner result must match the exact checked baseline source commit")
@@ -62,5 +65,6 @@ func bindRunnerBaseline(reference BenchmarkBaseline, result BenchmarkResult) (Be
 		return BenchmarkBaseline{}, errors.New("runner result must match the checked baseline parameters")
 	}
 	reference.Result = result
+	reference.FormatVersion = baselineFormat
 	return reference, validateBaseline(reference)
 }

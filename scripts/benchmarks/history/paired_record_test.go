@@ -26,7 +26,7 @@ func TestPairedPackageRecordsRealAlternatingSources(t *testing.T) {
 				benchmark = "BenchmarkMissing"
 			}
 			parameters := Parameters{Count: 2, Benchtime: "1x", CPU: 1, Repetitions: 1}
-			samples, cpu, err := runPairedPackageBenchmarks(ctx, roots, "go", ".", []string{benchmark}, parameters)
+			measurements, err := runPackageBenchmarks(ctx, roots[:], "go", ".", []string{benchmark}, parameters)
 			if name != "complete" {
 				if err == nil || (name == "canceled" && !errors.Is(err, context.Canceled)) {
 					t.Fatalf("%s execution error = %v", name, err)
@@ -41,10 +41,11 @@ func TestPairedPackageRecordsRealAlternatingSources(t *testing.T) {
 			}
 			assertFileBytes(t, log, []byte("baseline\ncandidate\ncandidate\nbaseline\n"))
 			for index := range roots {
-				if len(samples[index]) != 1 || len(samples[index][benchmark]) != 2 || len(cpu[index]) != 2 {
-					t.Fatalf("root %d samples = %#v, CPU = %#v", index, samples[index], cpu[index])
+				measurement := measurements[index]
+				if len(measurement.samples) != 1 || len(measurement.samples[benchmark]) != 2 || len(measurement.cpu) != 2 || !validBinarySHA256(measurement.binarySHA256) {
+					t.Fatalf("root %d measurements = %#v", index, measurement)
 				}
-				for _, sample := range samples[index][benchmark] {
+				for _, sample := range measurement.samples[benchmark] {
 					if sample.Iterations != 1 || sample.NSPerOp <= 0 {
 						t.Fatalf("invalid real benchmark sample: %+v", sample)
 					}
@@ -74,6 +75,8 @@ func BenchmarkPairContentDigest(b *testing.B) {
  closeErr := file.Close()
  if writeErr != nil { b.Fatal(writeErr) }
  if closeErr != nil { b.Fatal(closeErr) }
+ // A second compilation would fail; later samples must reuse the built binary.
+ if err := os.WriteFile("cannot_recompile.go", []byte("invalid Go source\n"), 0600); err != nil { b.Fatal(err) }
 }
 `, strings.Repeat(label, 64), log, label+"\n")
 	if err := os.WriteFile(filepath.Join(root, "paired_test.go"), []byte(source), 0o600); err != nil {

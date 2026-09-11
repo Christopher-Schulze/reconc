@@ -142,7 +142,7 @@ func TestProfileManifestValidationRejectsUnsafeArtifacts(t *testing.T) {
 }
 
 func TestBuildGroupsRefusesMissingBenchmark(t *testing.T) {
-	_, err := buildGroups(map[string][]MetricSample{}, map[string][]MetricSample{}, 5)
+	_, err := buildGroups(map[string]packageMeasurements{}, 5)
 	if err == nil || !strings.Contains(err.Error(), benchmarkSuite[0].Calibration) {
 		t.Fatalf("missing benchmark error = %v", err)
 	}
@@ -623,7 +623,7 @@ func syntheticResult() BenchmarkResult {
 	for _, spec := range benchmarkSuite {
 		calibration := syntheticStats(spec.Calibration, MetricValues{NSPerOp: 100, BytesPerOp: 100, AllocsPerOp: 10})
 		cpuCalibration := syntheticStats(cpuSentinelName, MetricValues{NSPerOp: 100, BytesPerOp: 0, AllocsPerOp: 0})
-		group := GroupResult{Name: spec.Name, Package: spec.Package, Calibration: calibration, CPUCalibration: cpuCalibration}
+		group := GroupResult{Name: spec.Name, Package: spec.Package, BinarySHA256: strings.Repeat("a", 64), Calibration: calibration, CPUCalibration: cpuCalibration}
 		for _, targetName := range spec.Targets {
 			target := syntheticStats(targetName, MetricValues{NSPerOp: 50, BytesPerOp: 50, AllocsPerOp: 5})
 			normalized, _ := normalize(target.Median, calibration.Median)

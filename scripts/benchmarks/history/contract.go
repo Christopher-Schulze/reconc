@@ -17,14 +17,16 @@ import (
 )
 
 const (
-	resultFormat     = "reconc.benchmark-result/v4"
-	baselineFormat   = "reconc.benchmark-baseline/v4"
-	comparisonFormat = "reconc.benchmark-comparison/v6"
-	profileFormat    = "reconc.benchmark-profile/v1"
-	suiteVersion     = "reconc.performance-history/v10"
-	cpuSentinelName  = "BenchmarkReconcCPUSentinel"
-	maxContractBytes = 4 << 20
-	maxProfileBytes  = 64 << 20
+	legacyResultFormat   = "reconc.benchmark-result/v4"
+	legacyBaselineFormat = "reconc.benchmark-baseline/v4"
+	resultFormat         = "reconc.benchmark-result/v5"
+	baselineFormat       = "reconc.benchmark-baseline/v5"
+	comparisonFormat     = "reconc.benchmark-comparison/v7"
+	profileFormat        = "reconc.benchmark-profile/v1"
+	suiteVersion         = "reconc.performance-history/v10"
+	cpuSentinelName      = "BenchmarkReconcCPUSentinel"
+	maxContractBytes     = 4 << 20
+	maxProfileBytes      = 64 << 20
 
 	defaultBenchmarkRepetitions = 3
 	minBenchmarkRepetitions     = 1
@@ -76,6 +78,7 @@ type TargetResult struct {
 type GroupResult struct {
 	Name           string         `json:"name"`
 	Package        string         `json:"package"`
+	BinarySHA256   string         `json:"binary_sha256,omitempty"`
 	Calibration    BenchmarkStats `json:"calibration"`
 	CPUCalibration BenchmarkStats `json:"cpu_calibration"`
 	Targets        []TargetResult `json:"targets"`
@@ -137,6 +140,8 @@ type MetricComparison struct {
 type GroupComparison struct {
 	Name                     string           `json:"name"`
 	Benchmark                string           `json:"benchmark"`
+	BaselineBinarySHA256     string           `json:"baseline_binary_sha256,omitempty"`
+	CurrentBinarySHA256      string           `json:"current_binary_sha256,omitempty"`
 	BaselineAbsolute         MetricValues     `json:"baseline_absolute"`
 	CurrentAbsolute          MetricValues     `json:"current_absolute"`
 	CalibrationAbsoluteNS    MetricComparison `json:"calibration_absolute_ns_per_op"`
@@ -167,15 +172,17 @@ type Regression struct {
 }
 
 type BenchmarkComparison struct {
-	FormatVersion       string            `json:"format_version"`
-	SuiteVersion        string            `json:"suite_version"`
-	BaselineEnvironment Environment       `json:"baseline_environment"`
-	CurrentEnvironment  Environment       `json:"current_environment"`
-	Compatible          bool              `json:"compatible"`
-	Passed              bool              `json:"passed"`
-	CompatibilityIssues []string          `json:"compatibility_issues,omitempty"`
-	Groups              []GroupComparison `json:"groups"`
-	Regressions         []Regression      `json:"regressions"`
+	FormatVersion        string            `json:"format_version"`
+	SuiteVersion         string            `json:"suite_version"`
+	BaselineResultFormat string            `json:"baseline_result_format"`
+	CurrentResultFormat  string            `json:"current_result_format"`
+	BaselineEnvironment  Environment       `json:"baseline_environment"`
+	CurrentEnvironment   Environment       `json:"current_environment"`
+	Compatible           bool              `json:"compatible"`
+	Passed               bool              `json:"passed"`
+	CompatibilityIssues  []string          `json:"compatibility_issues,omitempty"`
+	Groups               []GroupComparison `json:"groups"`
+	Regressions          []Regression      `json:"regressions"`
 }
 
 func encodeContract(value any) ([]byte, error) {
@@ -237,8 +244,12 @@ func decodeStrict(body []byte, target any) error {
 }
 
 func validateBaseline(baseline BenchmarkBaseline) error {
-	if baseline.FormatVersion != baselineFormat {
+	if baseline.FormatVersion != baselineFormat && baseline.FormatVersion != legacyBaselineFormat {
 		return fmt.Errorf("unsupported benchmark baseline format %q", baseline.FormatVersion)
+	}
+	if baseline.FormatVersion == baselineFormat && baseline.Result.FormatVersion != resultFormat ||
+		baseline.FormatVersion == legacyBaselineFormat && baseline.Result.FormatVersion != legacyResultFormat {
+		return errors.New("benchmark baseline and result measurement formats differ")
 	}
 	for name, value := range map[string]float64{
 		"normalized_ns_per_op":     baseline.Tolerances.NormalizedNSPerOp,
@@ -333,7 +344,7 @@ func validateProfileManifest(manifest ProfileManifest) error {
 }
 
 func validateResult(result BenchmarkResult) error {
-	if result.FormatVersion != resultFormat || result.SuiteVersion != suiteVersion {
+	if (result.FormatVersion != resultFormat && result.FormatVersion != legacyResultFormat) || result.SuiteVersion != suiteVersion {
 		return errors.New("benchmark result format or suite is unsupported")
 	}
 	if result.Environment.GoVersion == "" || result.Environment.GOOS == "" || result.Environment.GOARCH == "" ||
@@ -347,8 +358,20 @@ func validateResult(result BenchmarkResult) error {
 	if len(result.Groups) != len(benchmarkSuite) {
 		return fmt.Errorf("benchmark result has %d groups, want %d", len(result.Groups), len(benchmarkSuite))
 	}
+	binaries := make(map[string]string)
 	for index, spec := range benchmarkSuite {
 		group := result.Groups[index]
+		if result.FormatVersion == resultFormat {
+			if !validBinarySHA256(group.BinarySHA256) {
+				return fmt.Errorf("benchmark group %s has an invalid executable SHA-256", group.Name)
+			}
+			if previous, exists := binaries[group.Package]; exists && previous != group.BinarySHA256 {
+				return fmt.Errorf("benchmark package %s has inconsistent executable identities", group.Package)
+			}
+			binaries[group.Package] = group.BinarySHA256
+		} else if group.BinarySHA256 != "" {
+			return errors.New("historical Go-driver measurements cannot identify a precompiled executable")
+		}
 		if group.Name != spec.Name || group.Package != spec.Package || group.Calibration.Name != spec.Calibration || len(group.Targets) != len(spec.Targets) {
 			return fmt.Errorf("benchmark group %d is incompatible with suite %s", index, suiteVersion)
 		}
@@ -376,6 +399,14 @@ func validateResult(result BenchmarkResult) error {
 		}
 	}
 	return nil
+}
+
+func validBinarySHA256(value string) bool {
+	if len(value) != 64 || value != strings.ToLower(value) {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 func validateStats(stats BenchmarkStats, count int) error {

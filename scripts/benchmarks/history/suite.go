@@ -61,17 +61,13 @@ func recordBenchmarksWithProfiles(root, goBinary string, parameters Parameters, 
 	if err != nil {
 		return BenchmarkResult{}, err
 	}
-	samples, cpuCalibrations, err := runSuite(root, goBinary, parameters)
-	if err != nil {
-		return BenchmarkResult{}, err
-	}
-	groups, err := buildGroups(samples, cpuCalibrations, parameters.Count)
+	groups, err := runSuite([]string{root}, goBinary, parameters)
 	if err != nil {
 		return BenchmarkResult{}, err
 	}
 	result := BenchmarkResult{
 		FormatVersion: resultFormat, SuiteVersion: suiteVersion,
-		Environment: environment, Parameters: parameters, Groups: groups,
+		Environment: environment, Parameters: parameters, Groups: groups[0],
 	}
 	if profiles != nil {
 		if err := runProfiles(root, goBinary, parameters, environment, *profiles); err != nil {
@@ -96,41 +92,94 @@ func benchmarkPackages() (map[string][]string, []string) {
 	return byPackage, packages
 }
 
-func runSuite(root, goBinary string, parameters Parameters) (map[string][]MetricSample, map[string][]MetricSample, error) {
-	byPackage, packages := benchmarkPackages()
-	all := make(map[string][]MetricSample)
-	cpuCalibrations := make(map[string][]MetricSample, len(packages))
-	for _, packageName := range packages {
-		names := byPackage[packageName]
-		parsed, cpuSamples, err := runPackageBenchmarks(context.Background(), root, goBinary, packageName, names, parameters)
-		if err != nil {
-			return nil, nil, err
-		}
-		cpuCalibrations[packageName] = cpuSamples
-		for name, values := range parsed {
-			if _, exists := all[name]; exists {
-				return nil, nil, fmt.Errorf("benchmark %s was emitted by multiple packages", name)
-			}
-			all[name] = values
-		}
-	}
-	return all, cpuCalibrations, nil
+type packageMeasurements struct {
+	samples      map[string][]MetricSample
+	cpu          []MetricSample
+	binarySHA256 string
 }
 
-func runPackageBenchmarks(parent context.Context, root, goBinary, packageName string, names []string, parameters Parameters) (map[string][]MetricSample, []MetricSample, error) {
+func runSuite(roots []string, goBinary string, parameters Parameters) ([][]GroupResult, error) {
+	byPackage, packages := benchmarkPackages()
+	all := make([]map[string]packageMeasurements, len(roots))
+	for index := range roots {
+		all[index] = make(map[string]packageMeasurements, len(packages))
+	}
+	for _, packageName := range packages {
+		measurements, err := runPackageBenchmarks(context.Background(), roots, goBinary, packageName, byPackage[packageName], parameters)
+		if err != nil {
+			return nil, err
+		}
+		for index := range roots {
+			all[index][packageName] = measurements[index]
+		}
+	}
+	groups := make([][]GroupResult, len(roots))
+	for index := range roots {
+		var err error
+		groups[index], err = buildGroups(all[index], parameters.Count)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return groups, nil
+}
+
+func runPackageBenchmarks(parent context.Context, roots []string, goBinary, packageName string, names []string, parameters Parameters) (all []packageMeasurements, err error) {
+	if len(roots) < 1 || len(roots) > 2 {
+		return nil, errors.New("benchmark recording requires one or two source roots")
+	}
+	ctx, cancel := context.WithTimeout(parent, time.Duration(len(roots))*5*time.Minute)
+	defer cancel()
+	directory, err := os.MkdirTemp("", "reconc-benchmark-binaries-")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, os.RemoveAll(directory)) }()
+	binaries := make([]benchmarkBinary, len(roots))
+	all = make([]packageMeasurements, len(roots))
+	for index, root := range roots {
+		binaries[index], err = buildBenchmarkBinary(ctx, root, goBinary, packageName, filepath.Join(directory, fmt.Sprintf("%d.test.exe", index)))
+		if err != nil {
+			return nil, err
+		}
+		all[index] = packageMeasurements{samples: make(map[string][]MetricSample), binarySHA256: binaries[index].sha256}
+	}
+	sentinel, err := buildCPUSentinel(ctx, goBinary, directory)
+	if err != nil {
+		return nil, err
+	}
+	one := parameters
+	one.Count = 1
+	for sample := 0; sample < parameters.Count; sample++ {
+		for position := range roots {
+			index := (sample + position) % len(roots)
+			values, cpu, err := runCompiledPackageSamples(ctx, binaries[index], sentinel, packageName, names, one)
+			if err != nil {
+				return nil, fmt.Errorf("root %d package %s sample %d: %w", index, packageName, sample+1, err)
+			}
+			all[index].cpu = append(all[index].cpu, cpu...)
+			for name, samples := range values {
+				all[index].samples[name] = append(all[index].samples[name], samples...)
+			}
+		}
+	}
+	return all, nil
+}
+
+func runCompiledPackageSamples(parent context.Context, binary, sentinel benchmarkBinary, packageName string, names []string, parameters Parameters) (map[string][]MetricSample, []MetricSample, error) {
 	patterns := benchmarkPatterns(names)
 	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	defer cancel()
 	all := make(map[string][]MetricSample, len(names))
 	cpuSamples := make([]MetricSample, 0, parameters.Count)
 	for sampleIndex := 0; sampleIndex < parameters.Count; sampleIndex++ {
-		before, err := runCPUSentinelSample(ctx, goBinary, parameters)
+		before, err := runCPUSentinelSample(ctx, sentinel, parameters)
 		if err != nil {
 			return nil, nil, fmt.Errorf("CPU sentinel before package %s sample %d: %w", packageName, sampleIndex+1, err)
 		}
 		sample := make(map[string][]MetricSample, len(names))
 		for _, pattern := range patterns {
-			parsed, err := runBenchmarkSample(ctx, root, goBinary, packageName, pattern, parameters, sampleIndex)
+			parsed, err := runBenchmarkSample(ctx, binary, packageName, pattern, parameters, sampleIndex)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -141,7 +190,7 @@ func runPackageBenchmarks(parent context.Context, root, goBinary, packageName st
 				sample[name] = values
 			}
 		}
-		after, err := runCPUSentinelSample(ctx, goBinary, parameters)
+		after, err := runCPUSentinelSample(ctx, sentinel, parameters)
 		if err != nil {
 			return nil, nil, fmt.Errorf("CPU sentinel after package %s sample %d: %w", packageName, sampleIndex+1, err)
 		}
@@ -181,24 +230,9 @@ func BenchmarkReconcCPUSentinel(b *testing.B) {
 }
 `
 
-func runCPUSentinelSample(ctx context.Context, goBinary string, parameters Parameters) (sample MetricSample, err error) {
-	directory, err := os.MkdirTemp("", "reconc-benchmark-cpu-sentinel-")
-	if err != nil {
-		return MetricSample{}, fmt.Errorf("create CPU sentinel directory: %w", err)
-	}
-	defer func() {
-		if cleanupErr := os.RemoveAll(directory); err == nil && cleanupErr != nil {
-			err = fmt.Errorf("remove CPU sentinel directory: %w", cleanupErr)
-		}
-	}()
-	path := filepath.Join(directory, "sentinel_test.go")
-	if err := os.WriteFile(path, []byte(cpuSentinelSource), 0o600); err != nil {
-		return MetricSample{}, fmt.Errorf("write CPU sentinel source: %w", err)
-	}
-	args := []string{"test", "-json", "-run", "^$", "-bench", "^" + regexp.QuoteMeta(cpuSentinelName) + "$", "-benchmem", "-count", strconv.Itoa(parameters.Repetitions), "-benchtime", parameters.Benchtime, "-cpu", strconv.Itoa(parameters.CPU), "-timeout", "5m"}
-	command := exec.CommandContext(ctx, goBinary, args...)
-	command.Dir = directory
-	command.Env = append(os.Environ(), "GO111MODULE=off")
+func runCPUSentinelSample(ctx context.Context, binary benchmarkBinary, parameters Parameters) (MetricSample, error) {
+	args := []string{"-test.run=^$", "-test.bench=^" + regexp.QuoteMeta(cpuSentinelName) + "$", "-test.benchmem", "-test.count=" + strconv.Itoa(parameters.Repetitions), "-test.benchtime=" + parameters.Benchtime, "-test.cpu=" + strconv.Itoa(parameters.CPU), "-test.timeout=5m"}
+	command := binary.command(ctx, args...)
 	output, err := boundedexec.Output(command, maxBenchmarkOutput)
 	if ctx.Err() != nil {
 		return MetricSample{}, fmt.Errorf("CPU sentinel timed out: %w", ctx.Err())
@@ -206,7 +240,7 @@ func runCPUSentinelSample(ctx context.Context, goBinary string, parameters Param
 	if err != nil {
 		return MetricSample{}, fmt.Errorf("CPU sentinel failed: %w", err)
 	}
-	parsed, err := parseBenchmarkJSON(output)
+	parsed, err := parseBenchmarkText(string(output))
 	if err != nil {
 		return MetricSample{}, fmt.Errorf("parse CPU sentinel: %w", err)
 	}
@@ -275,10 +309,9 @@ func benchmarkPatterns(names []string) []string {
 	return patterns
 }
 
-func runBenchmarkSample(ctx context.Context, root, goBinary, packageName, pattern string, parameters Parameters, sampleIndex int) (map[string][]MetricSample, error) {
-	args := []string{"test", "-json", "-run", "^$", "-bench", pattern, "-benchmem", "-count", strconv.Itoa(parameters.Repetitions), "-benchtime", parameters.Benchtime, "-cpu", strconv.Itoa(parameters.CPU), "-timeout", "5m", packageName}
-	command := exec.CommandContext(ctx, goBinary, args...)
-	command.Dir = root
+func runBenchmarkSample(ctx context.Context, binary benchmarkBinary, packageName, pattern string, parameters Parameters, sampleIndex int) (map[string][]MetricSample, error) {
+	args := []string{"-test.run=^$", "-test.bench=" + pattern, "-test.benchmem", "-test.count=" + strconv.Itoa(parameters.Repetitions), "-test.benchtime=" + parameters.Benchtime, "-test.cpu=" + strconv.Itoa(parameters.CPU), "-test.timeout=5m"}
+	command := binary.command(ctx, args...)
 	output, err := boundedexec.Output(command, maxBenchmarkOutput)
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("benchmark package %s timed out: %w", packageName, ctx.Err())
@@ -286,7 +319,7 @@ func runBenchmarkSample(ctx context.Context, root, goBinary, packageName, patter
 	if err != nil {
 		return nil, fmt.Errorf("benchmark package %s sample %d failed: %w", packageName, sampleIndex+1, err)
 	}
-	parsed, err := parseBenchmarkJSON(output)
+	parsed, err := parseBenchmarkText(string(output))
 	if err != nil {
 		return nil, fmt.Errorf("parse benchmark package %s sample %d: %w", packageName, sampleIndex+1, err)
 	}
@@ -345,20 +378,21 @@ func sortedBenchmarkNames(samples map[string][]MetricSample) []string {
 	return names
 }
 
-func buildGroups(samples map[string][]MetricSample, cpuCalibrations map[string][]MetricSample, count int) ([]GroupResult, error) {
+func buildGroups(packages map[string]packageMeasurements, count int) ([]GroupResult, error) {
 	groups := make([]GroupResult, 0, len(benchmarkSuite))
 	for _, spec := range benchmarkSuite {
-		calibration, err := statsFor(spec.Calibration, samples[spec.Calibration], count)
+		measurements := packages[spec.Package]
+		calibration, err := statsFor(spec.Calibration, measurements.samples[spec.Calibration], count)
 		if err != nil {
 			return nil, err
 		}
-		cpuCalibration, err := statsFor(cpuSentinelName, cpuCalibrations[spec.Package], count)
+		cpuCalibration, err := statsFor(cpuSentinelName, measurements.cpu, count)
 		if err != nil {
 			return nil, fmt.Errorf("CPU calibration for %s: %w", spec.Package, err)
 		}
-		group := GroupResult{Name: spec.Name, Package: spec.Package, Calibration: calibration, CPUCalibration: cpuCalibration}
+		group := GroupResult{Name: spec.Name, Package: spec.Package, BinarySHA256: measurements.binarySHA256, Calibration: calibration, CPUCalibration: cpuCalibration}
 		for _, targetName := range spec.Targets {
-			target, err := statsFor(targetName, samples[targetName], count)
+			target, err := statsFor(targetName, measurements.samples[targetName], count)
 			if err != nil {
 				return nil, err
 			}

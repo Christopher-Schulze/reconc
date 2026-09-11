@@ -9,6 +9,9 @@ import (
 var errRegression = errors.New("benchmark regression detected")
 
 func refreshBaseline(result BenchmarkResult) (BenchmarkBaseline, error) {
+	if result.FormatVersion != resultFormat {
+		return BenchmarkBaseline{}, errors.New("baseline refresh requires precompiled benchmark measurements")
+	}
 	if err := validateResult(result); err != nil {
 		return BenchmarkBaseline{}, err
 	}
@@ -37,6 +40,7 @@ func compareResults(baseline BenchmarkBaseline, current BenchmarkResult) (Benchm
 	}
 	report := BenchmarkComparison{
 		FormatVersion: comparisonFormat, SuiteVersion: suiteVersion,
+		BaselineResultFormat: baseline.Result.FormatVersion, CurrentResultFormat: current.FormatVersion,
 		BaselineEnvironment: baseline.Result.Environment, CurrentEnvironment: current.Environment,
 		Compatible: true, Passed: true,
 	}
@@ -78,6 +82,8 @@ func compareResults(baseline BenchmarkBaseline, current BenchmarkResult) (Benchm
 			comparison := GroupComparison{
 				Name:                     currentGroup.Name,
 				Benchmark:                currentTarget.Benchmark.Name,
+				BaselineBinarySHA256:     baselineGroup.BinarySHA256,
+				CurrentBinarySHA256:      currentGroup.BinarySHA256,
 				BaselineAbsolute:         baselineTarget.Benchmark.Median,
 				CurrentAbsolute:          currentTarget.Benchmark.Median,
 				CalibrationAbsoluteNS:    calibrationAbsoluteNS,
@@ -126,6 +132,7 @@ func compatibilityIssues(baseline, current BenchmarkResult) []string {
 		baseline string
 		current  string
 	}{
+		{"measurement format", baseline.FormatVersion, current.FormatVersion},
 		{"suite", baseline.SuiteVersion, current.SuiteVersion},
 		{"Go version", baseline.Environment.GoVersion, current.Environment.GoVersion},
 		{"operating system", baseline.Environment.GOOS, current.Environment.GOOS},

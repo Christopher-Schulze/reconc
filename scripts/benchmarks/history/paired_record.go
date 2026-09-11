@@ -1,14 +1,12 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	"reconc.dev/reconc/internal/pathidentity"
 )
@@ -112,7 +110,7 @@ func recordPairedBenchmarks(roots [2]string, goBinary string, reference Benchmar
 	if err := validatePairedEnvironments(reference, results); err != nil {
 		return results, err
 	}
-	groups, err := runPairedSuite(roots, goBinary, reference.Result.Parameters)
+	groups, err := runSuite(roots[:], goBinary, reference.Result.Parameters)
 	if err != nil {
 		return results, err
 	}
@@ -149,57 +147,4 @@ func validatePairedEnvironments(reference BenchmarkBaseline, results [2]Benchmar
 		return fmt.Errorf("paired benchmark environments are incompatible: %s", strings.Join(issues, "; "))
 	}
 	return nil
-}
-
-func runPairedSuite(roots [2]string, goBinary string, parameters Parameters) ([2][]GroupResult, error) {
-	var groups [2][]GroupResult
-	byPackage, packages := benchmarkPackages()
-	all := [2]map[string][]MetricSample{make(map[string][]MetricSample), make(map[string][]MetricSample)}
-	cpu := [2]map[string][]MetricSample{make(map[string][]MetricSample), make(map[string][]MetricSample)}
-	for _, packageName := range packages {
-		samples, calibrations, err := runPairedPackageBenchmarks(context.Background(), roots, goBinary, packageName, byPackage[packageName], parameters)
-		if err != nil {
-			return groups, err
-		}
-		for index := range roots {
-			cpu[index][packageName] = calibrations[index]
-			for name, values := range samples[index] {
-				if _, exists := all[index][name]; exists {
-					return groups, fmt.Errorf("paired benchmark %s was emitted by multiple packages", name)
-				}
-				all[index][name] = values
-			}
-		}
-	}
-	for index := range roots {
-		var err error
-		groups[index], err = buildGroups(all[index], cpu[index], parameters.Count)
-		if err != nil {
-			return groups, err
-		}
-	}
-	return groups, nil
-}
-
-func runPairedPackageBenchmarks(parent context.Context, roots [2]string, goBinary, packageName string, names []string, parameters Parameters) ([2]map[string][]MetricSample, [2][]MetricSample, error) {
-	all := [2]map[string][]MetricSample{make(map[string][]MetricSample), make(map[string][]MetricSample)}
-	var cpu [2][]MetricSample
-	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
-	defer cancel()
-	one := parameters
-	one.Count = 1
-	for sample := 0; sample < parameters.Count; sample++ {
-		first := sample % 2
-		for _, index := range [2]int{first, 1 - first} {
-			values, calibration, err := runPackageBenchmarks(ctx, roots[index], goBinary, packageName, names, one)
-			if err != nil {
-				return all, cpu, fmt.Errorf("paired root %d package %s sample %d: %w", index, packageName, sample+1, err)
-			}
-			cpu[index] = append(cpu[index], calibration...)
-			for name, samples := range values {
-				all[index][name] = append(all[index][name], samples...)
-			}
-		}
-	}
-	return all, cpu, nil
 }

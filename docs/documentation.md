@@ -288,7 +288,7 @@ worker count. Direct `go test ./...` validates only the root module.
 
 `make benchmark-record` runs the calibrated performance-history suite five
 times with 250-millisecond benchmark samples and three bounded internal
-`go test -count` repetitions per sample. It writes the machine-local result
+`-test.count` repetitions per sample. It writes the machine-local result
 under `.build/benchmarks/`. The bounded duration avoids both the scheduler
 noise of very short fixed-iteration samples and the thermal drift of longer
 samples across the full suite; each internal repetition set is collapsed to a
@@ -301,7 +301,7 @@ count; the bracketed sentinel median is retained per group. Raw absolute
 nanoseconds, same-package calibration drift, and sentinel drift remain in the
 report. The gated absolute time comparison adjusts the current target by the
 baseline-sentinel/current-sentinel ratio, while equal target/calibrator
-slowdowns with an unchanged sentinel still fail. In comparison contract v6,
+slowdowns with an unchanged sentinel still fail. In comparison contract v7,
 a normalized exceedance blocks only when the target also degrades beyond the
 same normalized metric's tolerance. This target check uses CPU-adjusted time
 and unadjusted bytes/allocations. Improving a calibration benchmark cannot alone
@@ -314,8 +314,24 @@ covers bounded action traces and context operands, prepared action-decision
 caching, incremental action-ledger checkpoints, structured action inspection,
 canonical JSON, contextual source ingestion, prospective path resolution,
 prepared command matching and evidence, source freshness, write-epoch batching,
-and end-to-end hook-worker and long-session evidence workloads. Its parser
-reconstructs benchmark lines split across Go JSON output events. Baseline and
+and end-to-end hook-worker and long-session evidence workloads. Each package's
+source variants and shared CPU sentinel are compiled before its sample loop;
+sampling directly executes those binaries from the package source directory.
+Result/baseline v5 retain the package executable SHA-256, and comparison v7
+retains both identities. Builds use `-trimpath` except for the historical CLI
+transport workload, which resolves its module through `runtime.Caller` and
+builds its child CLI during benchmark setup. That package's identity includes
+source paths. RSS describes the benchmark process lifetime, including setup
+and platform-accounted child usage, rather than the outer Go driver. It is
+shared by benchmarks executed in the same process, not a per-operation or
+retained-cache measurement. Unsupported platform RSS remains zero.
+Compilation and sampling share bounded package deadlines; output is limited
+to 16 MiB per stream, binary size is limited to 512 MiB for streamed hashing,
+and private build directories are removed after recording. Binary identity never bypasses a
+regression. Historical v4 Go-driver measurements remain readable and comparable
+to other v4 results, but mixed v4/v5 comparisons are rejected. Refresh requires
+an actual v5 measurement. The parser accepts direct benchmark text and also
+reconstructs historical lines split across Go JSON output events. Baseline and
 comparison contracts require the same Go toolchain, OS, architecture, CPU
 identity, sample count, and benchmark parameters; incompatible runs emit a
 failed comparison report instead of passing. The baseline must reference a
@@ -324,9 +340,11 @@ clean source tree. Intentional checked-baseline refresh uses
 The tooling command `baseline-commit --baseline PATH` validates the complete
 baseline and emits only its full immutable Git commit. The optional
 `baseline --reference PATH --result PATH --output PATH --refresh` mode creates
-a new runner-local baseline from a clean measurement of that exact commit and
+a new runner-local v5 baseline from a clean v5 measurement of that exact commit and
 the same parameters. It preserves every reference tolerance, rejects an existing
-output, and never refreshes the checked baseline implicitly.
+output, and never refreshes the checked baseline implicitly. A historical v4
+reference can supply its source and tolerances for this actual remeasurement;
+its old process measurements are never relabeled.
 
 `make benchmark-profile` runs the same suite and, for the explicitly bounded
 real-workload groups `hook-worker-end-to-end`, `runtime-lockfile-decode`,
