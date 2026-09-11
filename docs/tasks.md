@@ -1,9 +1,9 @@
 # TASK Control Plane
 
 ## Active
+- [~] 519 Resolve residual benchmark memory and hook timing -> tasks/519-resolve-residual-benchmark-memory-and-hook-timing.md
 
 ## Queue
-- [ ] 519 Resolve residual benchmark memory and hook timing -> tasks/519-resolve-residual-benchmark-memory-and-hook-timing.md
 
 ## Blocked
 

@@ -63,8 +63,10 @@ func DetectConflicts(rules []policy.Rule) []Conflict {
 	// Index rules by kind for targeted scans. Composite rules
 	// (all_of / any_of / not) are intentionally skipped here; they
 	// need their own recursive check which is out of v1 scope.
-	byKind := map[policy.Kind][]policy.Rule{}
-	for _, r := range rules {
+	// Indexes borrow input rules only for this read-only invocation.
+	byKind := map[policy.Kind][]*policy.Rule{}
+	for index := range rules {
+		r := &rules[index]
 		byKind[r.Kind] = append(byKind[r.Kind], r)
 	}
 
@@ -120,9 +122,9 @@ func DetectConflicts(rules []policy.Rule) []Conflict {
 // findDuplicateDenies compares both the denied paths and their bounded
 // exceptions. Two deny_write rules with the same paths but different
 // exclusions have different behavior and are therefore not redundant.
-func findDuplicateDenies(rules []policy.Rule, limit int) ([]Conflict, bool) {
+func findDuplicateDenies(rules []*policy.Rule, limit int) ([]Conflict, bool) {
 	var out []Conflict
-	groups := groupRulesByKey(rules, func(rule policy.Rule) (string, bool) {
+	groups := groupRulesByKey(rules, func(rule *policy.Rule) (string, bool) {
 		pathsKey, ok := normalizedListsKey([][]string{rule.Paths})
 		if !ok {
 			return "", false
@@ -157,9 +159,9 @@ func findDuplicateDenies(rules []policy.Rule, limit int) ([]Conflict, bool) {
 // findExactDuplicates emits a Conflict for every pair of rules of the
 // same kind whose target slice (selected by `field`) matches exactly
 // after sorting. A pair is only reported once (smaller id first).
-func findExactDuplicates(rules []policy.Rule, field string, kind string, limit int) ([]Conflict, bool) {
+func findExactDuplicates(rules []*policy.Rule, field string, kind string, limit int) ([]Conflict, bool) {
 	var out []Conflict
-	groups := groupRulesByLists(rules, func(rule policy.Rule) [][]string {
+	groups := groupRulesByLists(rules, func(rule *policy.Rule) [][]string {
 		return [][]string{selectField(rule, field)}
 	})
 	for _, group := range groups {
@@ -190,9 +192,9 @@ func findExactDuplicates(rules []policy.Rule, field string, kind string, limit i
 // paths selects writes governed by the rule; before_paths selects the reads
 // that must precede them. Both non-empty lists must match for rules to be
 // semantically redundant.
-func findDuplicateRequireReads(rules []policy.Rule, limit int) ([]Conflict, bool) {
+func findDuplicateRequireReads(rules []*policy.Rule, limit int) ([]Conflict, bool) {
 	var out []Conflict
-	groups := groupRulesByLists(rules, func(rule policy.Rule) [][]string {
+	groups := groupRulesByLists(rules, func(rule *policy.Rule) [][]string {
 		return [][]string{rule.Paths, rule.BeforePaths}
 	})
 	for _, group := range groups {
@@ -219,7 +221,7 @@ func findDuplicateRequireReads(rules []policy.Rule, limit int) ([]Conflict, bool
 	return out, false
 }
 
-func findDenyVsRequireRead(denies, reads []policy.Rule, limit int) ([]Conflict, bool) {
+func findDenyVsRequireRead(denies, reads []*policy.Rule, limit int) ([]Conflict, bool) {
 	var out []Conflict
 	for _, d := range denies {
 		denySet := map[string]struct{}{}
@@ -264,7 +266,7 @@ func exactPathListed(paths []string, target string) bool {
 	return false
 }
 
-func findForbidVsRequireCommand(forbids, requires []policy.Rule, limit int) ([]Conflict, bool) {
+func findForbidVsRequireCommand(forbids, requires []*policy.Rule, limit int) ([]Conflict, bool) {
 	var out []Conflict
 	for _, f := range forbids {
 		forbidSet := map[string]struct{}{}
@@ -347,7 +349,7 @@ func uniqueSorted(values []string) []string {
 
 // selectField picks the target slice for duplicate detection. Kept
 // trivial so we don't need reflection.
-func selectField(r policy.Rule, field string) []string {
+func selectField(r *policy.Rule, field string) []string {
 	switch field {
 	case "paths":
 		return r.Paths
@@ -365,19 +367,19 @@ func selectField(r policy.Rule, field string) []string {
 // the same strings. Comparing sorted copies keeps the check order-
 // insensitive so ['a','b'] matches ['b','a'].
 func groupRulesByLists(
-	rules []policy.Rule,
-	selectLists func(policy.Rule) [][]string,
-) [][]policy.Rule {
-	return groupRulesByKey(rules, func(rule policy.Rule) (string, bool) {
+	rules []*policy.Rule,
+	selectLists func(*policy.Rule) [][]string,
+) [][]*policy.Rule {
+	return groupRulesByKey(rules, func(rule *policy.Rule) (string, bool) {
 		return normalizedListsKey(selectLists(rule))
 	})
 }
 
 func groupRulesByKey(
-	rules []policy.Rule,
-	keyFor func(policy.Rule) (string, bool),
-) [][]policy.Rule {
-	groups := make(map[string][]policy.Rule)
+	rules []*policy.Rule,
+	keyFor func(*policy.Rule) (string, bool),
+) [][]*policy.Rule {
+	groups := make(map[string][]*policy.Rule)
 	order := make([]string, 0, len(rules))
 	for _, rule := range rules {
 		key, ok := keyFor(rule)
@@ -389,7 +391,7 @@ func groupRulesByKey(
 		}
 		groups[key] = append(groups[key], rule)
 	}
-	result := make([][]policy.Rule, 0, len(order))
+	result := make([][]*policy.Rule, 0, len(order))
 	for _, key := range order {
 		if len(groups[key]) > 1 {
 			result = append(result, groups[key])

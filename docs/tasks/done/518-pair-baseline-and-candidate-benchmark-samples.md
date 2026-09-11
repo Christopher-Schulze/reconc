@@ -34,8 +34,9 @@ child; sequential phases also retain avoidable scheduling and thermal bias.
 
 - Native CI 34597546372 and CodeQL 34597546362 pass for clean commit
   6116c64d8b6fe9f391177368ba851e450d09f8ed, including Linux, macOS, Windows,
-  LangChain, and release trust. Whole-module coverage is 82.2690% root and
-  84.1104% portable template.
+  LangChain, and release trust. Whole-module coverage measurements remain
+  review evidence in the native Linux job log:
+  https://github.com/Christopher-Schulze/reconc/actions/runs/34597546372/job/103256741600.
 - Paired run 34597552388 completes recording, profiles, reference-bound baseline
   generation, and artifact retention within 18 minutes. Its comparison is
   compatible but fails three limits; it is not a passing performance result.
