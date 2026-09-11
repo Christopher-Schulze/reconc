@@ -27,10 +27,23 @@ weakening hardware identity and regression limits.
 - [x] Add strict baseline-commit inspection and source-bound runner baseline generation to the existing Go benchmark tool.
 - [x] Wire the workflow to measure the checked source and candidate on the same runner, retaining reviewed tolerances and artifacts.
 - [x] Cover identity, cleanliness, parameter, tolerance, and workflow boundaries; update the existing performance documentation.
-- [~] Run local and native gates, review actual comparison/profile evidence, archive, commit, and push.
+- [x] Run local and native gates, review actual comparison/profile evidence, archive, commit, and push.
 
 ## Notes
 
+- Native runs 34593702927 and 34597552388 verify exact baseline source
+  selection, both clean measurements, reference-preserving runner baseline
+  generation, compatible comparison, and complete artifact retention. TASK 518
+  additionally pairs sample order under one launcher. All 30 profile lengths
+  and hashes match in both retained runs; the checked baseline SHA-256 remains
+  dbf4c975b819b539447376cb0906c4c99bf93093d0540ec6965b2702cb1b4dde.
+- The latest comparison correctly remains failed for two compiler RSS limits
+  on one process and one warm-prefix normalized timing limit. TASK 518 records
+  the raw data and diagnostic controls; TASK 519 owns the remaining performance
+  work. Source compatibility is proven and is not presented as budget success.
+- Full native CI 34597546372 and CodeQL 34597546362 pass for clean candidate
+  6116c64d8b6fe9f391177368ba851e450d09f8ed, including every platform, LangChain,
+  and release trust. Local complete test/race, vet, and lint gates pass.
 - Local `make test`, `make vet`, and `make lint` pass, including uncached
   root/template race suites and real isolated release-trust verification.
   The staged publication audit passes with all new files included.
