@@ -33,9 +33,23 @@ workloads or be presented as isolated application memory regressions.
 - [x] Verify native source-bound execution and inspect every retained artifact and residual budget failure.
 - [x] Separate RSS sampling with a fixed operation count; version its identity and preserve historical comparisons.
 - [x] Resolve the profiled rule-array allocation overhead; verify bounded preallocation and unchanged validation.
-- [~] Verify the final method locally and natively, reconcile implementation commits, archive, commit, and push.
+- [x] Verify the final method locally and natively, reconcile implementation commits, archive, commit, and push.
 
 ## Notes
+
+- Final source d1b6345c155dc53b0c3e6118e9efd7dd6453f1b5 passed CI 34624482527
+  (Linux, macOS, LangChain, release trust; Windows skipped) and CodeQL
+  34624482516. Native benchmark run 34624492840 passed with zero regressions.
+- Verified the exact clean baseline/candidate commits, identical checked
+  parameters and tolerances, all 19 groups and 24 targets, all five RSS samples
+  at 64 operations, and every size/SHA-256 of the 30 retained profile artifacts.
+  Evidence: `.build/benchmarks/task520-final-ci-34624492840/`.
+- Final same-runner large-lockfile comparison: CPU-adjusted time 17,676,496 to
+  14,620,861.44 ns/op (-17.29%); allocation 16,366,114 to 8,443,989 B/op (-48.41%).
+  Frame time is +1.97%, with unchanged bytes/op. Shared runtime-process RSS is
+  174,260,224 to 198,197,248 bytes (+13.74%), below the unchanged 20% tolerance.
+  This does not establish an overall application RSS reduction. The earlier
+  failed samples remain retained, and no threshold or baseline was relaxed.
 
 - Native v6 run 34618412613 completed recording and all 30 profile artifacts.
   The remaining flags are one unchanged frame timing measurement (+24.5%) and
@@ -107,7 +121,7 @@ workloads or be presented as isolated application memory regressions.
   error-message propagation. Logs use `/tmp/reconc-task520-fixed-rss-` prefixes;
   the final race suite completed in 10.216 seconds. Replaying native v5 evidence
   with comparison v8 preserves every group and all eleven RSS failures exactly.
-  Native v6 recording and full CI remain required before completion.
+  Final native v6 recording and full Linux/macOS CI passed as recorded above.
 
 - Baseline source remains `c814f5b40579d2feed47231ec9dc2d80afda1dea` and checked
   file SHA-256 `dbf4c975b819b539447376cb0906c4c99bf93093d0540ec6965b2702cb1b4dde`.
