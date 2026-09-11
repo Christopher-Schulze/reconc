@@ -11,6 +11,7 @@ when_paths:
   - "openapi/**"
   - "*.proto"
 recipe:
+  contract: public-api-compatibility
   input_paths:
     - "api/**"
     - "public/**"
@@ -32,11 +33,11 @@ recipe:
     - "cache_inputs"
   examples:
     - name: "compatible candidate"
-      command: "./scripts/check-api-compat.sh --base origin/main@BASE_SHA --current HEAD"
+      command: "./scripts/check-api-compat.sh --base 0123456789abcdef0123456789abcdef01234567 --current 89abcdef0123456789abcdef0123456789abcdef"
       cwd: "."
       expect: pass
     - name: "breaking candidate"
-      command: "./scripts/check-api-compat.sh --base origin/main@BASE_SHA --current HEAD"
+      command: "./scripts/check-api-compat.sh --base 0123456789abcdef0123456789abcdef01234567 --current 89abcdef0123456789abcdef0123456789abcdef"
       cwd: "."
       expect: block
 # User must supply:

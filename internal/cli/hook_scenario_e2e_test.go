@@ -36,7 +36,7 @@ const generatedRecipeScenarioPolicy = `rules:
     template: generated-artifact-consistency
     script: scripts/check-generated.sh
     when_paths: ['src/**']
-    args: ['--source', 'candidate', '--outputs', 'generated/out.txt']
+    args: ['--source', '0123456789abcdef0123456789abcdef01234567', '--outputs', 'generated/out.txt']
     cache_inputs: ['scripts/check-generated.sh']
 `
 
@@ -52,7 +52,7 @@ var templateHookScenarioCorpus = []templateHookScenario{
 	{
 		name:      "stop-only-recipe-detection",
 		policy:    generatedRecipeScenarioPolicy,
-		initial:   map[string]string{"scripts/check-generated.sh": "#!/bin/sh\nprintf 'generator evidence is stale\\n'\nexit 2\n"},
+		initial:   map[string]string{"scripts/check-generated.sh": "#!/bin/sh\nprintf '%s\\n' '{\"contract\":\"generated-artifact-consistency\",\"result\":\"block\",\"source\":\"0123456789abcdef0123456789abcdef01234567\",\"outputs\":[\"generated/out.txt\"],\"evidence\":\"stale-generator-proof\"}'\nexit 2\n"},
 		caseName:  "stop-only",
 		allowed:   "src/app.go",
 		sessionID: "scenario-stop-only",

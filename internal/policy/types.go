@@ -138,6 +138,28 @@ func (k Kind) Valid() bool {
 	return false
 }
 
+// RecipeContract identifies a built-in evidence recipe whose invocation
+// arguments have a machine-validated identity contract. Empty means the rule
+// is an ordinary require_script or a user template without a typed contract.
+type RecipeContract string
+
+const (
+	RecipeContractPublicAPI       RecipeContract = "public-api-compatibility"
+	RecipeContractSchemaMigration RecipeContract = "schema-migration-safety"
+	RecipeContractGenerated       RecipeContract = "generated-artifact-consistency"
+	RecipeContractPerformance     RecipeContract = "performance-budget"
+)
+
+// Valid reports whether c is one of the supported built-in recipe contracts.
+func (c RecipeContract) Valid() bool {
+	switch c {
+	case "", RecipeContractPublicAPI, RecipeContractSchemaMigration, RecipeContractGenerated, RecipeContractPerformance:
+		return true
+	default:
+		return false
+	}
+}
+
 // Rule is a single parsed, validated policy rule. Field presence depends
 // on Kind; the parser layer validates that required fields are populated
 // for each kind.
@@ -189,6 +211,10 @@ type Rule struct {
 	// none. Literal paths only: resolving a glob would require a directory
 	// walk on the Stop hot path.
 	CacheInputs []string `json:"cache_inputs,omitempty" yaml:"cache_inputs,omitempty"`
+	// RecipeContract is set only when a typed evidence recipe expands this
+	// rule. It survives compilation so runtime evaluation can reject an
+	// unbound generic exit-0 script.
+	RecipeContract RecipeContract `json:"recipe_contract,omitempty" yaml:"-"`
 
 	// Assurance contains native, typed gate configurations. The parent rule's
 	// when_paths determines when the gate set runs.

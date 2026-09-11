@@ -760,6 +760,9 @@ func validateRuntimeRuleFieldPresence(data []byte, rules []policy.Rule) error {
 			"source_path", "source_block_id",
 			"scope_paths", "scope_id",
 		)
+		if rules[index].RecipeContract != "" {
+			runtimeAddFields(allowed, "recipe_contract")
+		}
 		for _, field := range parser.RuleKindFields(rules[index].Kind) {
 			// template is an authoring-only field and is consumed before a
 			// rule reaches the compiled lockfile.
@@ -979,6 +982,9 @@ func validateRuntimeRule(rule *policy.Rule) error {
 	if !rule.CommandMatch.Valid() {
 		return fmt.Errorf("unsupported command_match %q", rule.CommandMatch)
 	}
+	if rule.RecipeContract != "" && rule.Kind != policy.KindRequireScript {
+		return fmt.Errorf("recipe_contract is invalid for kind %s", rule.Kind)
+	}
 	if rule.CommandMatch != "" && rule.Kind != policy.KindRequireCommand && rule.Kind != policy.KindRequireCommandSuccess && rule.Kind != policy.KindForbidCommand {
 		return fmt.Errorf("command_match is invalid for kind %s", rule.Kind)
 	}
@@ -986,7 +992,7 @@ func validateRuntimeRule(rule *policy.Rule) error {
 		if !field.present {
 			continue
 		}
-		if field.name != "scope_paths" && field.name != "scope_id" && !parser.RuleKindFieldAllowed(rule.Kind, field.name) {
+		if field.name != "scope_paths" && field.name != "scope_id" && field.name != "recipe_contract" && !parser.RuleKindFieldAllowed(rule.Kind, field.name) {
 			return fmt.Errorf("field %q is invalid for kind %s", field.name, rule.Kind)
 		}
 	}
@@ -1081,6 +1087,7 @@ func runtimeRuleFieldValues(rule *policy.Rule) []struct {
 		{"timeout_sec", rule.TimeoutSec != 0},
 		{"kill_timeout_sec", rule.KillTimeoutSec != 0},
 		{"cache_inputs", len(rule.CacheInputs) > 0},
+		{"recipe_contract", rule.RecipeContract != ""},
 		{"assurance", len(rule.Assurance) > 0},
 		{"scope_paths", len(rule.ScopePaths) > 0},
 		{"scope_id", rule.ScopeID != ""},
@@ -1133,6 +1140,14 @@ func validateRuntimeRuleShape(rule *policy.Rule) error {
 		}
 		return require("when_paths", rule.WhenPaths)
 	case policy.KindRequireScript:
+		if !rule.RecipeContract.Valid() {
+			return fmt.Errorf("unsupported recipe contract %q", rule.RecipeContract)
+		}
+		if rule.RecipeContract != "" {
+			if err := templates.ValidateRecipeInvocation(rule.RecipeContract, rule.Args, "compiled rule "+rule.ID); err != nil {
+				return err
+			}
+		}
 		if !runtimePlanRepoRelativePath(rule.Script) {
 			return fmt.Errorf("script must be a safe repo-relative path")
 		}

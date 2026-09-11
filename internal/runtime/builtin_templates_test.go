@@ -2,7 +2,10 @@
 
 package runtime
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestBuiltinGuardrailTemplatesEnforceBehavior(t *testing.T) {
 	t.Run("legacy CI claim", func(t *testing.T) {
@@ -213,18 +216,75 @@ func TestEvidenceRecipeTemplatesBlockAndPassConfiguredScript(t *testing.T) {
 	} {
 		t.Run(recipe, func(t *testing.T) {
 			withRECONCHome(t)
-			repo := makeRepo(t, "# project\n", "", "rules:\n  - id: evidence-recipe\n    template: "+recipe+"\n    script: .reconc/check.sh\n    when_paths: ['owned/**']\n    args: ['--candidate', 'HEAD']\n    cache_inputs: ['policy-input.json']\n")
-			writeScript(t, repo, ".reconc/check.sh", "#!/bin/sh\nexit 2\n")
+			args := evidenceRecipeRuntimeArgs(recipe)
+			repo := makeRepo(t, "# project\n", "", "rules:\n  - id: evidence-recipe\n    template: "+recipe+"\n    script: .reconc/check.sh\n    when_paths: ['owned/**']\n    args: ["+args+"]\n    cache_inputs: ['policy-input.json']\n")
+			writeScript(t, repo, ".reconc/check.sh", evidenceRecipeRuntimeScript(t, recipe, "block"))
 			inputs := ExecutionInputs{WritePaths: []string{"owned/source.go"}}
 			report, err := CheckRepoPolicy(repo, inputs)
 			if err != nil || report.Decision != DecisionBlock {
 				t.Fatalf("blocking recipe result = %s, err=%v; want block", report.Decision, err)
 			}
-			writeScript(t, repo, ".reconc/check.sh", "#!/bin/sh\nexit 0\n")
+			writeScript(t, repo, ".reconc/check.sh", evidenceRecipeRuntimeScript(t, recipe, "pass"))
 			report, err = CheckRepoPolicy(repo, inputs)
 			if err != nil || report.Decision != DecisionPass {
 				t.Fatalf("passing recipe result = %s, err=%v; want pass", report.Decision, err)
 			}
+			writeScript(t, repo, ".reconc/check.sh", "#!/bin/sh\nexit 0\n")
+			report, err = CheckRepoPolicy(repo, inputs)
+			if err != nil || report.Decision != DecisionBlock {
+				t.Fatalf("generic exit-0 recipe result = %s, err=%v; want block", report.Decision, err)
+			}
 		})
+	}
+}
+
+func evidenceRecipeRuntimeScript(t *testing.T, name, result string) string {
+	t.Helper()
+	const base = "0123456789abcdef0123456789abcdef01234567"
+	const current = "89abcdef0123456789abcdef0123456789abcdef"
+	evidence := map[string]interface{}{"contract": name, "result": result, "evidence": "fixture-proof"}
+	validation := ""
+	switch name {
+	case "public-api-compatibility":
+		validation = "[ \"$#\" -eq 4 ] && [ \"$1\" = \"--base\" ] && [ \"$2\" = \"" + base + "\" ] && [ \"$3\" = \"--current\" ] && [ \"$4\" = \"" + current + "\" ] || exit 1\n"
+		evidence["base"], evidence["current"] = base, current
+	case "schema-migration-safety":
+		validation = "[ \"$#\" -eq 7 ] && [ \"$1\" = \"--engine\" ] && [ \"$2\" = \"sqlite\" ] && [ \"$3\" = \"--database\" ] && [ \"$4\" = '$TMPDIR/reconc-test.db' ] && [ \"$5\" = \"--forward\" ] && [ \"$6\" = \"--rollback\" ] && [ \"$7\" = \"--isolated\" ] || exit 1\n"
+		evidence["engine"], evidence["database"] = "sqlite", "$TMPDIR/reconc-test.db"
+		evidence["forward"], evidence["rollback"], evidence["isolated"] = true, true, true
+	case "generated-artifact-consistency":
+		validation = "[ \"$#\" -eq 4 ] && [ \"$1\" = \"--source\" ] && [ \"$2\" = \"" + base + "\" ] && [ \"$3\" = \"--outputs\" ] && [ \"$4\" = \"generated/api.go\" ] || exit 1\n"
+		evidence["source"], evidence["outputs"] = base, []string{"generated/api.go"}
+	case "performance-budget":
+		validation = "[ \"$#\" -eq 10 ] && [ \"$1\" = \"--baseline\" ] && [ \"$2\" = \"baseline.json\" ] && [ \"$3\" = \"--result\" ] && [ \"$4\" = \"result.json\" ] && [ \"$5\" = \"--output\" ] && [ \"$6\" = \"comparison.json\" ] && [ \"$7\" = \"--suite\" ] && [ \"$8\" = \"reconc\" ] && [ \"$9\" = \"--current\" ] && [ \"${10}\" = \"" + current + "\" ] || exit 1\n"
+		evidence["baseline"], evidence["benchmark_result"], evidence["comparison"], evidence["suite"] = "baseline.json", "result.json", "comparison.json", "reconc"
+		evidence["current"] = current
+		evidence["absolute_budget_pass"], evidence["normalized_budget_pass"] = true, true
+	}
+	body, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := "0"
+	if result == "block" {
+		code = "2"
+	}
+	return "#!/bin/sh\nset -eu\ninput=$(cat)\nprintf '%s\\n' \"$input\" | grep -F '\"rule_id\":\"evidence-recipe\"' >/dev/null || exit 1\nprintf '%s\\n' \"$input\" | grep -F '\"owned/source.go\"' >/dev/null || exit 1\n" + validation + "printf '%s\\n' '" + string(body) + "'\nexit " + code + "\n"
+}
+
+func evidenceRecipeRuntimeArgs(name string) string {
+	const base = "0123456789abcdef0123456789abcdef01234567"
+	const current = "89abcdef0123456789abcdef0123456789abcdef"
+	switch name {
+	case "public-api-compatibility":
+		return "'--base', '" + base + "', '--current', '" + current + "'"
+	case "schema-migration-safety":
+		return "'--engine', 'sqlite', '--database', '$TMPDIR/reconc-test.db', '--forward', '--rollback', '--isolated'"
+	case "generated-artifact-consistency":
+		return "'--source', '" + base + "', '--outputs', 'generated/api.go'"
+	case "performance-budget":
+		return "'--baseline', 'baseline.json', '--result', 'result.json', '--output', 'comparison.json', '--suite', 'reconc', '--current', '" + current + "'"
+	default:
+		return ""
 	}
 }

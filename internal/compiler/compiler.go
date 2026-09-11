@@ -837,6 +837,9 @@ func ruleToMap(r policy.Rule) map[string]interface{} {
 	if len(r.CacheInputs) > 0 {
 		m["cache_inputs"] = r.CacheInputs
 	}
+	if r.RecipeContract != "" {
+		m["recipe_contract"] = string(r.RecipeContract)
+	}
 	if len(r.Assurance) > 0 {
 		out := make([]interface{}, len(r.Assurance))
 		for i, gate := range r.Assurance {

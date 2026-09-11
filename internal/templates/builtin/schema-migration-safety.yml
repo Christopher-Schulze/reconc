@@ -11,6 +11,7 @@ when_paths:
   - "src/**"
   - "**/*schema*.sql"
 recipe:
+  contract: schema-migration-safety
   input_paths:
     - "migrations/**"
     - "db/**"
@@ -32,11 +33,11 @@ recipe:
     - "cache_inputs"
   examples:
     - name: "forward and rollback pass"
-      command: "./scripts/check-migrations.sh --engine sqlite --database '$TMPDIR/reconc-migration.db' --forward --rollback"
+      command: "./scripts/check-migrations.sh --engine sqlite --database .build/reconc-migration.db --forward --rollback --isolated"
       cwd: "."
       expect: pass
     - name: "migration invariant failure"
-      command: "./scripts/check-migrations.sh --engine sqlite --database '$TMPDIR/reconc-migration.db' --forward --rollback"
+      command: "./scripts/check-migrations.sh --engine sqlite --database .build/reconc-migration.db --forward --rollback --isolated"
       cwd: "."
       expect: block
 # User must supply:
@@ -44,5 +45,6 @@ recipe:
 #                 runner and isolated database/engine fixture.
 #   when_paths:   migration, schema and persistence paths that activate it.
 #   args:         engine, disposable database target, forward policy and the
-#                 explicit rollback policy (for example --rollback-required).
+#                 explicit rollback policy (--rollback-required or
+#                 --rollback-not-supported for an irreversible migration).
 #   cache_inputs: all migration files, schema code, fixtures and runner config.

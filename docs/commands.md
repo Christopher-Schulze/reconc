@@ -1178,13 +1178,29 @@ The coupling templates retain broad literal-pattern semantics. Repeating a
 matching for package or module layouts.
 
 The four evidence recipes expose a validated `recipe` contract in
-`reconc template show --json`: input paths, repository-relative cwd, command
-identity, evidence identity, applicability, limitations, remediation, the
-required expanded-rule fields, and pass/block examples. The metadata is
-template-only and is stripped before rule validation. Each recipe declares and
-enforces the repository-owned `script`, `when_paths`, arguments, and literal
-`cache_inputs`; Reconc never invents an API comparator, migration engine,
-generator, or benchmark command.
+`reconc template show --json`: the contract name, input paths,
+repository-relative cwd, command identity, evidence identity, applicability,
+limitations, remediation, the required expanded-rule fields, and pass/block
+examples. The metadata is template-only and is stripped before rule validation.
+Each recipe declares and enforces the repository-owned `script`, `when_paths`,
+arguments, and literal `cache_inputs`; Reconc never invents an API comparator,
+migration engine, generator, or benchmark command.
+
+Contract-aware recipe rules remain `require_script` rules, but their boundary is
+strict. Public API and generator invocations must use full immutable Git
+identities; migration invocations must name an engine and repository-local
+database target, enable forward and rollback policy, and declare isolation;
+performance invocations must name local baseline, result, and comparison files
+and workload suite/current commit identities. A successful or blocking contract
+script must emit exactly one JSON
+object on stdout with `contract`, `result`, `evidence`, and the recipe-specific
+identity fields bound to those arguments. Missing, mutable, mismatched, extra,
+or trailing evidence blocks the rule. Ordinary `require_script` rules are
+unchanged.
+
+The script remains responsible for proving that its database is disposable and
+its domain checks are complete. See the exact stdout fields and trust boundary
+in [Policy packs and native assurance](documentation.md#policy-packs-and-native-assurance).
 
 `authority-change-approval` keeps `authority-change-approved` as completion
 evidence. A protected write must also carry a signed `reconc_approval` request

@@ -12,6 +12,7 @@ when_paths:
   - "templates/**"
   - "scripts/generators/**"
 recipe:
+  contract: generated-artifact-consistency
   input_paths:
     - "generated/**"
     - "dist/**"
@@ -34,11 +35,11 @@ recipe:
     - "cache_inputs"
   examples:
     - name: "generated outputs match"
-      command: "./scripts/check-generated.sh --source HEAD --outputs generated/api.go,dist/api.json"
+      command: "./scripts/check-generated.sh --source 0123456789abcdef0123456789abcdef01234567 --outputs generated/api.go,dist/api.json"
       cwd: "."
       expect: pass
     - name: "stale or incomplete output"
-      command: "./scripts/check-generated.sh --source HEAD --outputs generated/api.go,dist/api.json"
+      command: "./scripts/check-generated.sh --source 0123456789abcdef0123456789abcdef01234567 --outputs generated/api.go,dist/api.json"
       cwd: "."
       expect: block
 # User must supply:

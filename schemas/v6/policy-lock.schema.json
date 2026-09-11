@@ -99,6 +99,14 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }
+        },
+        "recipe_contract": {
+          "enum": [
+            "public-api-compatibility",
+            "schema-migration-safety",
+            "generated-artifact-consistency",
+            "performance-budget"
+          ]
         }
       }
     },
@@ -300,6 +308,10 @@
             { "required": ["required_files"] }, { "required": ["evidence"] }, { "required": ["checks"] }, { "required": ["script"] },
             { "required": ["args"] }, { "required": ["timeout_sec"] }, { "required": ["kill_timeout_sec"] }, { "required": ["cache_inputs"] }
           ] } }
+        },
+        {
+          "if": { "not": { "properties": { "kind": { "const": "require_script" } } } },
+          "then": { "not": { "required": ["recipe_contract"] } }
         },
         {
           "if": { "required": ["exclude_paths"] },

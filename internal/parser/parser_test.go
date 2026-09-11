@@ -687,6 +687,7 @@ func TestParseEvidenceRecipeTemplatesRequireConfiguredFields(t *testing.T) {
 		"performance-budget",
 	} {
 		t.Run(name, func(t *testing.T) {
+			args := evidenceRecipeTestArgs(name)
 			withoutScript := "rules:\n  - id: recipe\n    template: " + name + "\n"
 			_, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
 				Kind: policy.SourcePolicyFile, Path: "p.yml", Content: withoutScript,
@@ -703,7 +704,7 @@ func TestParseEvidenceRecipeTemplatesRequireConfiguredFields(t *testing.T) {
 				t.Fatalf("missing configured args error = %v", err)
 			}
 
-			withoutCacheInputs := "rules:\n  - id: recipe\n    template: " + name + "\n    script: .reconc/check.sh\n    args: ['--candidate', 'HEAD']\n"
+			withoutCacheInputs := "rules:\n  - id: recipe\n    template: " + name + "\n    script: .reconc/check.sh\n    args: [" + args + "]\n"
 			_, err = ParseRuleDocuments(makeBundle(policy.PolicySource{
 				Kind: policy.SourcePolicyFile, Path: "p.yml", Content: withoutCacheInputs,
 			}))
@@ -711,7 +712,7 @@ func TestParseEvidenceRecipeTemplatesRequireConfiguredFields(t *testing.T) {
 				t.Fatalf("missing configured cache_inputs error = %v", err)
 			}
 
-			withScript := "rules:\n  - id: recipe\n    template: " + name + "\n    script: .reconc/check.sh\n    args: ['--candidate', 'HEAD']\n    cache_inputs: ['policy-input.json']\n"
+			withScript := "rules:\n  - id: recipe\n    template: " + name + "\n    script: .reconc/check.sh\n    args: [" + args + "]\n    cache_inputs: ['policy-input.json']\n"
 			parsed, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
 				Kind: policy.SourcePolicyFile, Path: "p.yml", Content: withScript,
 			}))
@@ -722,6 +723,23 @@ func TestParseEvidenceRecipeTemplatesRequireConfiguredFields(t *testing.T) {
 				t.Fatalf("expanded recipe lost configured script or applicability: %+v", parsed.Rules)
 			}
 		})
+	}
+}
+
+func evidenceRecipeTestArgs(name string) string {
+	const base = "0123456789abcdef0123456789abcdef01234567"
+	const current = "89abcdef0123456789abcdef0123456789abcdef"
+	switch name {
+	case "public-api-compatibility":
+		return "'--base', '" + base + "', '--current', '" + current + "'"
+	case "schema-migration-safety":
+		return "'--engine', 'sqlite', '--database', '$TMPDIR/reconc-test.db', '--forward', '--rollback', '--isolated'"
+	case "generated-artifact-consistency":
+		return "'--source', '" + base + "', '--outputs', 'generated/api.go'"
+	case "performance-budget":
+		return "'--baseline', 'baseline.json', '--result', 'result.json', '--output', 'comparison.json', '--suite', 'reconc', '--current', '" + current + "'"
+	default:
+		return ""
 	}
 }
 

@@ -425,15 +425,19 @@ func validateRuleItem(
 	index int,
 	templateCache *templateSnapshot,
 ) (policy.Rule, error) {
+	recipeContract := policy.RecipeContract("")
 	// Template expansion (W18): if the rule references a template, merge
 	// the template's fields as defaults before schema validation. User
 	// fields always win. The template: field itself is consumed here.
 	if tmplName, ok := item["template"].(string); ok && strings.TrimSpace(tmplName) != "" {
-		expanded, err := expandTemplate(item, tmplName, src, index, templateCache)
+		expanded, tmpl, err := expandTemplate(item, tmplName, src, index, templateCache)
 		if err != nil {
 			return policy.Rule{}, err
 		}
 		item = expanded
+		if tmpl != nil && tmpl.Recipe != nil {
+			recipeContract = tmpl.Recipe.Contract
+		}
 	}
 
 	id, err := requiredString(item, "id", src.Path, index)
@@ -739,6 +743,7 @@ func validateRuleItem(
 		TimeoutSec:           timeoutSec,
 		KillTimeoutSec:       killTimeoutSec,
 		CacheInputs:          cacheInputs,
+		RecipeContract:       recipeContract,
 		Assurance:            assurance,
 		SourcePath:           src.Path,
 		SourceBlockID:        src.BlockID,
@@ -1396,22 +1401,22 @@ func expandTemplate(
 	src policy.PolicySource,
 	index int,
 	cache *templateSnapshot,
-) (map[string]interface{}, error) {
+) (map[string]interface{}, *templates.Template, error) {
 	tmpl, err := cache.resolve(name)
 	if err != nil {
-		return nil, &rerrors.RuleValidationError{
+		return nil, nil, &rerrors.RuleValidationError{
 			Message: "rule #" + strconv.Itoa(index) + " in " + src.Path + ": " + err.Error(),
 			Cause:   err,
 		}
 	}
 	merged := templates.Apply(tmpl, userItem)
 	if err := templates.ValidateRequiredRuleFields(tmpl, merged, src.Path+" rule["+strconv.Itoa(index)+"]"); err != nil {
-		return nil, &rerrors.RuleValidationError{
+		return nil, nil, &rerrors.RuleValidationError{
 			Message: "rule #" + strconv.Itoa(index) + " in " + src.Path + ": " + err.Error(),
 			Cause:   err,
 		}
 	}
-	return merged, nil
+	return merged, tmpl, nil
 }
 
 func validateTemplateCache(cache *templateSnapshot) error {

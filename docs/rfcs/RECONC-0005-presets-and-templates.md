@@ -99,13 +99,35 @@ defaults. User-provided fields win. Template expansion happens before
 rule validation, so invalid expanded rules fail at compile time.
 
 Evidence recipes may include a template-only `recipe` mapping. Its strict
-metadata contract contains `input_paths`, repository-relative `cwd`,
-`command_identity`, `evidence_identity`, `applicability`, non-empty
-`limitations`, `remediation`, `required_rule_fields`, and executable pass/block
-`examples`. `required_rule_fields` is limited to supported expanded rule fields
-and is enforced after defaults and user overrides are merged. The metadata is
-exposed by catalog commands and removed before policy-rule validation;
-enforcement remains the existing expanded rule kind.
+metadata contract contains a typed `contract`, `input_paths`,
+repository-relative `cwd`, `command_identity`, `evidence_identity`,
+`applicability`, non-empty `limitations`, `remediation`, `required_rule_fields`,
+and executable pass/block `examples`. `required_rule_fields` is limited to
+supported expanded rule fields and is enforced after defaults and user
+overrides are merged. The metadata is exposed by catalog commands and removed
+before policy-rule validation; the typed contract survives compilation as
+`recipe_contract` on a `require_script` rule.
+
+The four built-in contracts enforce invocation identity before runtime:
+public API and generated-artifact recipes require full 40- or 64-hex Git
+identities; schema migration requires a named engine, repository-local database
+evidence, enabled forward and rollback policy, and `--isolated`; performance
+requires repository-local baseline, result, and comparison files plus a workload
+suite and immutable current commit identity. The
+contract script must emit exactly one JSON object on stdout. It must carry the
+matching `contract`, the expected `result`, a non-empty `evidence` identity, and
+recipe-specific identity fields equal to the invocation. Passing migration evidence
+must declare successful forward, declared rollback, and isolation; passing performance evidence must declare
+absolute and normalized budget passes. Blocking evidence may report failed checks.
+Unknown fields, duplicate keys, trailing output, mutable
+identities, and mismatches fail closed. Ordinary `require_script` rules remain
+unchanged, and project-owned scripts still provide the domain semantics and
+complete evidence.
+
+Migration rollback policy is explicit and mutually exclusive: `--rollback` or
+`--rollback-required` requires successful rollback evidence, while
+`--rollback-not-supported` permits a forward-only workflow. Forward success and
+isolation remain required in either case.
 
 `tests-follow-source` and `docs-follow-code` accept an owner-aware opt-in by
 repeating a `{name}` capture in `paths` and `when_paths`; literal patterns

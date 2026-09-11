@@ -3029,18 +3029,57 @@ supplies the repository-owned paths, commands, or script where the shape
 requires those inputs.
 
 The four evidence recipes use the existing `require_script` boundary and add a
-validated template-only `recipe` metadata contract. `input_paths` and
-`applicability` describe the activation surface; `cwd`, `command_identity`,
-and `evidence_identity` state how a result is bound; `limitations` and
-`remediation` keep the guarantee honest; `required_rule_fields` declares the
-non-empty expanded-rule fields the recipe will enforce; and `examples` contain
-executable pass/block command forms. Metadata is shown by `reconc template show`
-and is removed before the expanded policy reaches the rule parser. The project still
-owns the executable and its arguments: API checks must resolve explicit base
-and current revisions, migration checks must use an isolated real engine and
-their declared rollback policy, generator checks must compare the complete
-output set and reject unrelated candidate changes, and performance checks must
-consume attributable TASK 490 absolute and normalized comparison results.
+validated template-only `recipe` metadata contract. `contract` identifies the
+typed recipe; `input_paths` and `applicability` describe the activation surface;
+`cwd`, `command_identity`, and `evidence_identity` state how a result is bound;
+`limitations` and `remediation` keep the guarantee honest;
+`required_rule_fields` declares the non-empty expanded-rule fields the recipe
+will enforce; and `examples` contain executable pass/block command forms.
+Metadata is shown by `reconc template show` and is removed before the expanded
+policy reaches the rule parser. The project still owns the executable and its
+arguments, while Reconc enforces the invocation boundary and the stdout proof:
+API and generator checks require full immutable Git identities; migration checks
+require a named engine, repository-local database evidence, enabled forward and
+rollback policy, and an isolated run; performance checks require repository-local
+baseline, result, and comparison files plus workload suite and immutable current
+candidate identities. A contract-aware script must
+emit exactly one JSON object with the matching contract, `pass` or `block`
+result, non-empty `evidence`, and recipe-specific identity fields. Reconc binds
+those fields to the invocation and requires successful migration
+isolation/forward/declared rollback and both performance budget flags for a passing result. Unknown or
+trailing stdout, generic exit-0 scripts, mutable identities, and mismatches fail
+closed. The project remains responsible for API semantics, migration execution,
+complete generator output comparison, and attributable TASK 490 metrics.
+
+The stdout object uses the exact field names below. Diagnostics belong on
+stderr. Exit 0 requires `result: "pass"`; exit 2 requires `result: "block"`.
+The common fields are `contract` (the recipe name), `result`, and `evidence`
+(a non-empty domain report identity). A blocking report may contain failed
+migration or budget flags. Duplicate JSON keys and duplicate command flags are
+rejected. A `--` terminator ends option parsing; flags after it cannot satisfy
+the contract.
+
+| Recipe | Required arguments | Stdout identity and outcome fields |
+|---|---|---|
+| `public-api-compatibility` | `--base`, `--current`: full 40- or 64-hex Git identities | `base`, `current`: exact argument values |
+| `schema-migration-safety` | `--engine`, `--database`; value-free `--forward`, `--isolated`, and exactly one of `--rollback`, `--rollback-required`, `--rollback-not-supported` | `engine`, `database`: exact argument values; `forward`, `isolated`: true for pass; `rollback`: true for pass unless explicitly unsupported |
+| `generated-artifact-consistency` | `--source`: full Git identity; `--outputs`: comma-separated unique repository-local paths | `source`: exact identity; `outputs`: ordered array matching the declared paths |
+| `performance-budget` | `--baseline`, `--result`, `--output`: local files; `--suite`: workload identity; `--current`: full Git identity | `baseline`, `benchmark_result`, `comparison`, `suite`, `current`: exact argument values; `absolute_budget_pass`, `normalized_budget_pass`: both true for pass |
+
+These fields validate the script's declared evidence, not its honesty. They do
+not independently prove Git object existence, database isolation, report
+freshness, or domain correctness. The reviewed project-owned script must
+perform those checks and include every mutable input in `cache_inputs`.
+Arguments are passed literally without shell or environment expansion.
+
+The repository benchmark tool supports this envelope with `compare --recipe
+--baseline PATH --result PATH --output PATH --suite SUITE --current COMMIT`.
+That mode rejects a dirty result, a source commit or suite mismatch, and
+incompatible environments before emitting evidence. It runs the ordinary
+absolute and normalized comparison, publishes the complete comparison report,
+and emits a compact recipe object whose `evidence` is the SHA-256 of the report.
+Exit 2 reports a measured regression. A project-owned executable can invoke
+this command; the regular `compare` output remains unchanged.
 
 `no-generated-writes` and the stack-neutral `default` preset share the same
 generated-output boundary: root or nested `generated/` and `dist/` paths, root

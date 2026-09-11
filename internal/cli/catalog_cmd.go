@@ -106,6 +106,9 @@ func runTemplateShow(args []string, stdout, stderr io.Writer) error {
 	}
 	if tmpl.Recipe != nil {
 		fmt.Fprintln(stdout, "Recipe:")
+		if tmpl.Recipe.Contract != "" {
+			fmt.Fprintf(stdout, "  contract: %s\n", tmpl.Recipe.Contract)
+		}
 		fmt.Fprintf(stdout, "  input_paths: %v\n", tmpl.Recipe.InputPaths)
 		fmt.Fprintf(stdout, "  cwd: %s\n", tmpl.Recipe.CWD)
 		fmt.Fprintf(stdout, "  command_identity: %s\n", tmpl.Recipe.CommandIdentity)

@@ -2566,7 +2566,7 @@ func TestRunTemplateShowEvidenceRecipeMetadata(t *testing.T) {
 	if err := Run([]string{"template", "show", "performance-budget"}, "0.1.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("template show: %v", err)
 	}
-	for _, want := range []string{"Recipe:", "command_identity:", "evidence_identity:", "required_rule_fields:", "examples:"} {
+	for _, want := range []string{"Recipe:", "contract: performance-budget", "command_identity:", "evidence_identity:", "required_rule_fields:", "examples:"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("template show missing %q; got:\n%s", want, stdout.String())
 		}

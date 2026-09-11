@@ -81,11 +81,20 @@ func runCompare(args []string, stdout io.Writer) error {
 	baselinePath := flags.String("baseline", "", "baseline path")
 	resultPath := flags.String("result", "", "current result path")
 	output := flags.String("output", "", "optional comparison report path")
+	recipe := flags.Bool("recipe", false, "emit the performance-budget recipe evidence envelope")
+	suite := flags.String("suite", "", "expected recipe workload suite")
+	current := flags.String("current", "", "expected recipe source commit")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || *baselinePath == "" || *resultPath == "" {
 		return errors.New("usage: history compare --baseline PATH --result PATH [--output PATH]")
+	}
+	if !*recipe && (*suite != "" || *current != "") {
+		return errors.New("--suite and --current require --recipe")
+	}
+	if *recipe {
+		return runRecipeComparison(*baselinePath, *resultPath, *output, *suite, *current, stdout)
 	}
 	baseline, err := readBaseline(*baselinePath)
 	if err != nil {

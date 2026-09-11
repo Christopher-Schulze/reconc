@@ -9,6 +9,7 @@ import (
 	"reconc.dev/reconc/internal/assurance"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/templates"
 )
 
 func ruleScopeMatchesWithMatchers(matchers *runtimePathMatchers, rule *policy.Rule, inputs ExecutionInputs) (bool, error) {
@@ -230,6 +231,17 @@ func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 		outcome, err := RunScriptContext(ctx.lifecycleContext(), ctx.repoRoot, scriptPath, substArgs, input, timeoutSec, killTimeoutSec)
 		if outcome.Canceled {
 			return nil, err
+		}
+		if err == nil && rule.RecipeContract != "" && !outcome.TimedOut {
+			expected := "pass"
+			if outcome.Status == "block" {
+				expected = "block"
+			}
+			if evidenceErr := templates.ValidateRecipeEvidence(rule.RecipeContract, substArgs, outcome.Stdout, expected, "rule "+ruleIDOf(rule)); evidenceErr != nil {
+				outcome.Status = "error"
+				outcome.ExitCode = -1
+				err = evidenceErr
+			}
 		}
 		evaluation := classifyScriptOutcome(outcome, err, timeoutSec)
 		switch evaluation.disposition {

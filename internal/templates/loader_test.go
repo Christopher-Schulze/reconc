@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/yamlbound"
 )
 
@@ -53,7 +54,7 @@ func TestEvidenceRecipeMetadataIsComplete(t *testing.T) {
 				t.Fatal("recipe metadata is missing")
 			}
 			recipe := template.Recipe
-			if len(recipe.InputPaths) == 0 || recipe.CWD == "" || recipe.CommandIdentity == "" ||
+			if !recipe.Contract.Valid() || recipe.Contract == "" || len(recipe.InputPaths) == 0 || recipe.CWD == "" || recipe.CommandIdentity == "" ||
 				recipe.EvidenceIdentity == "" || recipe.Applicability == "" || len(recipe.Limitations) == 0 ||
 				recipe.Remediation == "" || len(recipe.RequiredRuleFields) == 0 || len(recipe.Examples) < 2 {
 				t.Fatalf("incomplete recipe metadata: %+v", recipe)
@@ -62,6 +63,56 @@ func TestEvidenceRecipeMetadataIsComplete(t *testing.T) {
 				if example.Command == "" || example.CWD == "" || (example.Expect != "pass" && example.Expect != "block") {
 					t.Fatalf("invalid executable example: %+v", example)
 				}
+			}
+		})
+	}
+}
+
+func TestRecipeInvocationContractsRejectMutableOrIncompleteArguments(t *testing.T) {
+	const base = "0123456789abcdef0123456789abcdef01234567"
+	const current = "89abcdef0123456789abcdef0123456789abcdef"
+	cases := []struct {
+		name     string
+		contract policy.RecipeContract
+		args     []string
+		want     string
+	}{
+		{name: "api mutable head", contract: policy.RecipeContractPublicAPI, args: []string{"--base", "main", "--current", current}, want: "full immutable"},
+		{name: "migration missing isolation", contract: policy.RecipeContractSchemaMigration, args: []string{"--engine", "sqlite", "--database", "$TMPDIR/db", "--forward", "--rollback"}, want: "--isolated"},
+		{name: "migration disabled isolation", contract: policy.RecipeContractSchemaMigration, args: []string{"--engine", "sqlite", "--database", "$TMPDIR/db", "--forward", "--rollback", "--isolated=false"}, want: "--isolated"},
+		{name: "migration disabled forward", contract: policy.RecipeContractSchemaMigration, args: []string{"--engine", "sqlite", "--database", "$TMPDIR/db", "--forward=false", "--rollback", "--isolated"}, want: "--forward"},
+		{name: "generator missing output", contract: policy.RecipeContractGenerated, args: []string{"--source", base}, want: "--outputs"},
+		{name: "performance missing suite", contract: policy.RecipeContractPerformance, args: []string{"--baseline", "base.json", "--result", "result.json", "--output", "comparison.json"}, want: "--suite"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if err := ValidateRecipeInvocation(test.contract, test.args, "fixture"); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ValidateRecipeInvocation error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestRecipeEvidenceBindsIdentityAndRejectsUntrustedOutput(t *testing.T) {
+	const base = "0123456789abcdef0123456789abcdef01234567"
+	const current = "89abcdef0123456789abcdef0123456789abcdef"
+	args := []string{"--base", base, "--current", current}
+	valid := `{"contract":"public-api-compatibility","result":"pass","base":"` + base + `","current":"` + current + `","evidence":"fixture-proof"}`
+	if err := ValidateRecipeEvidence(policy.RecipeContractPublicAPI, args, valid, "pass", "fixture"); err != nil {
+		t.Fatalf("valid recipe evidence rejected: %v", err)
+	}
+	for _, test := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "identity mismatch", body: `{"contract":"public-api-compatibility","result":"pass","base":"` + base + `","current":"main","evidence":"fixture-proof"}`, want: "current"},
+		{name: "unknown field", body: `{"contract":"public-api-compatibility","result":"pass","base":"` + base + `","current":"` + current + `","evidence":"fixture-proof","extra":true}`, want: "unknown field"},
+		{name: "trailing object", body: valid + ` {"extra":true}`, want: "trailing output"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := ValidateRecipeEvidence(policy.RecipeContractPublicAPI, args, test.body, "pass", "fixture"); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ValidateRecipeEvidence error = %v, want %q", err, test.want)
 			}
 		})
 	}
