@@ -24,15 +24,21 @@ weakening hardware identity and regression limits.
 
 ## Sub-Tasks
 
-- [ ] Add strict baseline-commit inspection and source-bound runner baseline generation to the existing Go benchmark tool.
-- [ ] Wire the workflow to measure the checked source and candidate on the same runner, retaining reviewed tolerances and artifacts.
-- [ ] Cover identity, cleanliness, parameter, tolerance, and workflow boundaries; update the existing performance documentation.
-- [ ] Run local and native gates, review actual comparison/profile evidence, archive, commit, and push.
+- [x] Add strict baseline-commit inspection and source-bound runner baseline generation to the existing Go benchmark tool.
+- [x] Wire the workflow to measure the checked source and candidate on the same runner, retaining reviewed tolerances and artifacts.
+- [x] Cover identity, cleanliness, parameter, tolerance, and workflow boundaries; update the existing performance documentation.
+- [~] Run local and native gates, review actual comparison/profile evidence, archive, commit, and push.
 
 ## Notes
 
+- Local `make test`, `make vet`, and `make lint` pass, including uncached
+  root/template race suites and real isolated release-trust verification.
+  The staged publication audit passes with all new files included.
 - Source: https://github.com/Christopher-Schulze/reconc/actions/runs/34590556975.
   Recording/profiling and upload pass; comparison fails solely on CPU identity.
+- Downloaded native evidence includes five workloads and all six profile kinds
+  per workload. All 30 artifact byte counts and SHA-256 identities match the
+  manifest for clean commit 3aef4ab510440978086b818fff145714d735fbd4.
 - Reuse `readBaseline`, `readResult`, `validateBaseline`, and the existing
   `baseline --refresh` command. Add an optional reference baseline for generated
   runner artifacts so the original tolerance policy is preserved exactly.
@@ -41,6 +47,15 @@ weakening hardware identity and regression limits.
   suffix, choose a newer baseline commit, or normalize away a real regression.
 - Keep this as Go/Bash tooling with the existing pinned checkout action; no
   new runtime dependency, branch, product version, tag, or release is required.
+- The checked source is c814f5b40579d2feed47231ec9dc2d80afda1dea. Its old
+  benchmark CLI emits result format 2, while the checked contract uses format
+  4. The candidate tool therefore records both unchanged source trees through
+  its existing `record --root` path; the suite identities match exactly.
+- Focused benchmark-tool and publication tests pass. Tests reject mutable or
+  injected commit outputs, wrong source/parameters, dirty results, corrupt
+  metrics, incompatible runners, and existing output destinations. A 10-percent
+  regression passes the default timing limits but still blocks under the
+  tighter reference limits through the real performance-recipe comparison.
 
 ## Deviations
 

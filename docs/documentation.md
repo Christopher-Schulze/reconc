@@ -313,8 +313,14 @@ reconstructs benchmark lines split across Go JSON output events. Baseline and
 comparison contracts require the same Go toolchain, OS, architecture, CPU
 identity, sample count, and benchmark parameters; incompatible runs emit a
 failed comparison report instead of passing. The baseline must reference a
-clean source tree. `make benchmark-baseline` is the only baseline-writing
-operation and requires `CONFIRM_BENCHMARK_BASELINE=1`.
+clean source tree. Intentional checked-baseline refresh uses
+`make benchmark-baseline` and requires `CONFIRM_BENCHMARK_BASELINE=1`.
+The tooling command `baseline-commit --baseline PATH` validates the complete
+baseline and emits only its full immutable Git commit. The optional
+`baseline --reference PATH --result PATH --output PATH --refresh` mode creates
+a new runner-local baseline from a clean measurement of that exact commit and
+the same parameters. It preserves every reference tolerance, rejects an existing
+output, and never refreshes the checked baseline implicitly.
 
 `make benchmark-profile` runs the same suite and, for the explicitly bounded
 real-workload groups `hook-worker-end-to-end`, `runtime-lockfile-decode`,
@@ -331,10 +337,16 @@ different bounded workload set is needed.
 
 The `reconc-benchmarks` workflow runs this complete profile target on pull
 requests, the weekly schedule, and manual dispatch on the pinned `macos-15`
-runner. It keeps the profile directory under `.build/benchmarks/`, so the
-result, comparison, manifest, CPU, heap, blocking, mutex, and trace artifacts
-are uploaded together even when a benchmark step fails. The job has a 30-minute
-bound and treats profile failures as job failures.
+runner. It resolves the checked baseline's exact source commit and checks it
+out separately under the ignored build directory. The candidate's benchmark
+tool measures both source trees on that same runner and Go toolchain, then
+compares against a generated runner baseline with the unchanged checked
+tolerances. Source or parameter drift fails before comparison; hardware and
+toolchain compatibility remain mandatory between the two new measurements.
+It keeps both results, the generated baseline, comparison, and profile directory
+under `.build/benchmarks/`, so the manifest, CPU, heap, blocking, mutex, and trace
+artifacts are uploaded together even when a benchmark step fails. The job has a
+30-minute bound and treats profile failures as job failures.
 
 Go PGO ([official contract](https://go.dev/doc/pgo)) consumes CPU pprof profiles. The checked profile artifacts are therefore
 inputs for an experiment, not an implicit optimization switch: build controls
@@ -5067,7 +5079,7 @@ because history and protected tags are not rewritten. Every descendant commit
 message, changed path, and newly reachable blob is scanned for the same
 private-path, private-name, session, secret, and sensitive-filename patterns as
 the working tree. The audit therefore catches a leak even when a later commit
-removes it. It requires full Git history; all CI and release checkouts use
+removes it. It requires full Git history; checkouts running this audit use
 `fetch-depth: 0`. This is an explicit containment boundary, not a claim that old
 public history was erased.
 

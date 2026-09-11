@@ -505,7 +505,18 @@ func TestBenchmarkWorkflowRunsCompleteBoundedProfilePipeline(t *testing.T) {
 	}
 	profileStep := false
 	uploadStep := false
+	baselineCheckout := false
 	for _, step := range job.Steps {
+		if step.With["path"] == ".build/benchmark-baseline" {
+			baselineCheckout = true
+			if step.Uses != "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" ||
+				step.With["ref"] != "${{ steps.baseline.outputs.commit }}" || step.With["persist-credentials"] != "false" {
+				t.Errorf("%s baseline checkout is not pinned to the validated source: %+v", path, step)
+			}
+		}
+		if step.ID == "baseline" && !strings.Contains(step.Run, "baseline-commit --baseline scripts/benchmarks/baseline.json") {
+			t.Errorf("%s baseline output does not inspect the checked contract", path)
+		}
 		if strings.Contains(step.Run, "make benchmark-profile") {
 			profileStep = true
 			if step.ContinueOnError {
@@ -522,9 +533,20 @@ func TestBenchmarkWorkflowRunsCompleteBoundedProfilePipeline(t *testing.T) {
 			}
 		}
 	}
-	if !profileStep || !uploadStep {
+	if !profileStep || !uploadStep || !baselineCheckout {
 		t.Fatalf("%s must run the complete profile pipeline and retain its artifacts", path)
 	}
+	assertOrderedTokens(t, path, body, []string{
+		"id: baseline",
+		"baseline-commit --baseline scripts/benchmarks/baseline.json",
+		`printf 'commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"`,
+		"ref: ${{ steps.baseline.outputs.commit }}",
+		"go run ./scripts/benchmarks/history record --root .build/benchmark-baseline --output .build/benchmarks/runner-result.json",
+		"baseline --reference scripts/benchmarks/baseline.json --result .build/benchmarks/runner-result.json --output .build/benchmarks/runner-baseline.json --refresh",
+		"make benchmark-profile",
+		"make benchmark-compare BENCHMARK_BASELINE=.build/benchmarks/runner-baseline.json",
+		"actions/upload-artifact@",
+	})
 	if strings.Contains(body, "-cpuprofile=") || strings.Contains(body, "continue-on-error: true") {
 		t.Fatalf("%s contains the retired incomplete or ignored profile workaround", path)
 	}
@@ -681,6 +703,7 @@ type githubWorkflow struct {
 		RunsOn         string `yaml:"runs-on"`
 		TimeoutMinutes int    `yaml:"timeout-minutes"`
 		Steps          []struct {
+			ID              string            `yaml:"id"`
 			Name            string            `yaml:"name"`
 			If              string            `yaml:"if"`
 			Uses            string            `yaml:"uses"`

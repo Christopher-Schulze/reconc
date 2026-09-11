@@ -29,7 +29,7 @@ func main() {
 
 func run(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: history record|compare|baseline [flags]")
+		return errors.New("usage: history record|compare|baseline|baseline-commit [flags]")
 	}
 	switch args[0] {
 	case "record":
@@ -38,6 +38,8 @@ func run(args []string, stdout io.Writer) error {
 		return runCompare(args[1:], stdout)
 	case "baseline":
 		return runBaseline(args[1:], stdout)
+	case "baseline-commit":
+		return runBaselineCommit(args[1:], stdout)
 	default:
 		return fmt.Errorf("unknown benchmark-history command %q", args[0])
 	}
@@ -127,17 +129,18 @@ func runBaseline(args []string, stdout io.Writer) error {
 	resultPath := flags.String("result", "", "source result path")
 	output := flags.String("output", "", "baseline path")
 	refresh := flags.Bool("refresh", false, "confirm intentional baseline replacement")
+	reference := flags.String("reference", "", "checked baseline whose source and tolerances must be preserved")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || *resultPath == "" || *output == "" || !*refresh {
-		return errors.New("usage: history baseline --result PATH --output PATH --refresh")
+		return errors.New("usage: history baseline --result PATH --output PATH --refresh [--reference PATH]")
 	}
 	result, err := readResult(*resultPath)
 	if err != nil {
 		return err
 	}
-	baseline, err := refreshBaseline(result)
+	baseline, err := prepareBaseline(result, *reference, *output)
 	if err != nil {
 		return err
 	}

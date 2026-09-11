@@ -1,9 +1,10 @@
 # TASK Control Plane
 
 ## Active
+- [~] 514 Bind CI benchmarks to the baseline source on the same runner -> tasks/514-bind-ci-benchmarks-to-baseline-source.md
 
 ## Queue
-- [ ] 514 Bind CI benchmarks to the baseline source on the same runner -> tasks/514-bind-ci-benchmarks-to-baseline-source.md
+- [ ] 515 Align required-ledger interoperability with the production call budget -> tasks/515-align-required-ledger-interoperability-budget.md
 
 ## Blocked
 

@@ -45,11 +45,31 @@ jobs:
       - name: Download modules
         run: go mod download
 
+      - name: Resolve checked baseline source
+        id: baseline
+        run: |
+          commit=$(go run ./scripts/benchmarks/history baseline-commit --baseline scripts/benchmarks/baseline.json)
+          printf 'commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact baseline source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.baseline.outputs.commit }}
+          path: .build/benchmark-baseline
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Record baseline on this runner
+        run: go run ./scripts/benchmarks/history record --root .build/benchmark-baseline --output .build/benchmarks/runner-result.json
+
+      - name: Preserve checked source and tolerances in runner baseline
+        run: go run ./scripts/benchmarks/history baseline --reference scripts/benchmarks/baseline.json --result .build/benchmarks/runner-result.json --output .build/benchmarks/runner-baseline.json --refresh
+
       - name: Record calibrated benchmarks and bounded profiles
         run: make benchmark-profile BENCHMARK_PROFILE_DIR=.build/benchmarks/profiles
 
-      - name: Compare with checked baseline
-        run: make benchmark-compare
+      - name: Compare with source-bound runner baseline
+        run: make benchmark-compare BENCHMARK_BASELINE=.build/benchmarks/runner-baseline.json
 
       - name: Retain benchmark evidence
         if: always()
