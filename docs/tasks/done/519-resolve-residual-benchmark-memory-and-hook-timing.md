@@ -25,15 +25,31 @@ replacement source baseline.
 - [x] Remove proven redundant rule copies and verify output parity and input/output isolation.
 - [x] Complete bounded warm-prefix attribution with preserved raw/profile evidence.
 - [x] Apply the approved target-and-ratio comparison rule, verify unchanged absolute limits, and investigate the independent cache timing observation.
-- [~] Run local/native gates, inspect the full comparison, archive, commit, and push.
+- [x] Run local/native gates, inspect the full comparison, and split the remaining measurement isolation into TASK 520.
 
 ## Notes
+
+- Candidate `3bdd015e190d1b670b06050e496da3458b6e3b82` is committed and
+  pushed. Native CI 34608550555 passes all five jobs; CodeQL 34608550990 passes.
+  Benchmark 34608558526 completes recording/profiling and artifact retention,
+  then fails comparison with ten absolute observations: cache-store time
+  2,077 to 2,695.699 CPU-adjusted ns; frame-process RSS 354,369,536 to
+  469,417,984 bytes; eight runtime targets share 227,835,904 to 282,984,448 bytes.
+  All source/parameter bindings, unchanged tolerances, 19 groups, 24 targets,
+  and 30 profile hashes/lengths are verified in
+  `.build/benchmarks/task519-ci-34608558526/`. No normalized metric blocks.
+- Source inspection confirms `runBenchmarkSample` records `ProcessState` from
+  `go test`, and the CPU sentinel is rebuilt before and after every package
+  sample. This measures the Go driver/build process and inserts compilation
+  between alternating source measurements. TASK 520 owns direct precompiled
+  process measurement and executable-identity controls. The approved comparison
+  and compiler changes are complete; the overall performance gate remains open.
 
 - The approved comparison change passes the complete uncached root/template
   race suites, publication/reference checks, vet, staticcheck, and release-trust
   (real isolated release target: 90s). Ten targeted boundary/drift scenarios and
   the recipe CLI regression also pass. Local log prefix:
-  `/tmp/reconc-task519-approved-`. Native verification of this change follows.
+  `/tmp/reconc-task519-approved-`. Native verification is recorded above.
 - Replaying the retained native inputs with comparison v6 leaves every group
   metric exactly unchanged. Blocking violations decrease from four to only the
   absolute cache-store observation; all three ratio exceedances remain visible.
@@ -53,8 +69,8 @@ replacement source baseline.
   only when the target also degrades beyond that normalized metric's tolerance.
   Time uses the existing CPU-adjusted target measurement. Preserve all absolute
   limits, raw observations, and ratio exceedances; version only the comparison
-  contract for the changed blocking meaning. Add boundary, CPU drift, resource,
-  zero-baseline, and recipe-propagation regressions before native verification.
+  contract for the changed blocking meaning. Boundary, CPU drift, resource,
+  zero-baseline, and recipe-propagation regressions pass.
 
 - Candidate 2f8ae5b256eee62e28b0bfe6b18185dfcd6f8a95 is committed and pushed.
   Native CI 34601707654 passes all five jobs; CodeQL 34601707560 passes.
@@ -77,10 +93,9 @@ replacement source baseline.
   `.build/benchmarks/task519-action/`. This does not erase the native +23.20%
   absolute timing failure or establish its cause. No unchanged CI rerun or
   speculative cache implementation change was made to obtain a green result.
-- Compiler implementation and native correctness verification are complete.
-  The approved comparison-semantics change is now in progress; the absolute
-  cache timing observation remains separate. This TASK
-  and the overall thirty-item completion claim remain open.
+- Compiler and comparison implementation and native correctness verification
+  are complete. The repeated absolute observations are transferred to TASK 520;
+  the overall thirty-item completion claim remains open.
 - Controlled precompiled before/after/after/before comparison, six measurements
   per variant at CPU 1 and 250ms, is retained with binaries, source patch, and
   SHA-256 identities in `.build/benchmarks/task519-compiler/`. Maximum observed
@@ -127,5 +142,6 @@ replacement source baseline.
 ## Deviations
 
 - Native verification requires publishing a locally verified candidate on main
-  under the standing push instruction. Keep this TASK active until native
-  evidence and the approved comparison-contract change are verified.
+  under the standing push instruction. Remaining measurement work is fully
+  split into TASK 520 after native verification; this archive does not claim a
+  passing performance comparison.
