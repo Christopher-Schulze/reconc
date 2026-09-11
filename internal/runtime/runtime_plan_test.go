@@ -574,7 +574,22 @@ func TestRuntimePlanCanceledOwnerLeavesNoPartialLoad(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("runtime plan owner did not reach deterministic load hook")
 	}
+	evaluator.mu.Lock()
+	load := evaluator.loads[repo]
+	evaluator.mu.Unlock()
+	if load == nil {
+		close(release)
+		cancelOwner()
+		t.Fatal("paused worker has no registered load")
+	}
 	cancelOwner()
+	// Caller cancellation reaches the separately owned worker asynchronously.
+	select {
+	case <-load.ctx.Done():
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("last caller did not cancel the shared worker")
+	}
 	close(release)
 	select {
 	case err := <-ownerDone:

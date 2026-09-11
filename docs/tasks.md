@@ -1,11 +1,12 @@
 # TASK Control Plane
 
 ## Active
-- [~] 515 Align required-ledger interoperability with the production call budget -> tasks/515-align-required-ledger-interoperability-budget.md
+- [~] 516 Synchronize the shared-loader cancellation regression -> tasks/516-synchronize-shared-loader-cancellation-regression.md
 
 ## Queue
 
 ## Blocked
+- [!] 515 Align required-ledger interoperability with the production call budget (paused for TASK 516) -> tasks/515-align-required-ledger-interoperability-budget.md
 - [!] 514 Bind CI benchmarks to the baseline source on the same runner (paused for TASK 515) -> tasks/514-bind-ci-benchmarks-to-baseline-source.md
 
 ## Done
