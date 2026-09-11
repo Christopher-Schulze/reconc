@@ -73,6 +73,9 @@ func runPreDecisionResolvedWithEvaluatorAndStopCache(
 		if envelope, present, envelopeErr := nativeApprovalEnvelopeFromPayload(payload); present || envelopeErr != nil || len(envelope.request) > 0 {
 			cacheable = false
 		}
+		if _, declared, declaredErr := commandWritePaths(payload); declared && declaredErr != nil {
+			cacheable = false
+		}
 		if payload.IsWriteTool() {
 			if len(pending) == 0 {
 				cacheable = false
@@ -87,7 +90,7 @@ func runPreDecisionResolvedWithEvaluatorAndStopCache(
 		}
 		if payload.IsCommandTool() {
 			compiled, _, compiledErr := evaluator.CurrentCompiledPolicyEvaluator(root)
-			if compiledErr != nil || compiled.HasBoundApprovalRules() {
+			if compiledErr != nil || (compiled.HasBoundApprovalRules() && commandMayWriteRepository(payload.Command())) {
 				cacheable = false
 			}
 		}
@@ -299,15 +302,17 @@ func preDecisionInputsForPayloadWithEvaluatorAndStopCache(
 		return preDecisionInputs{}, false
 	}
 	payloadIdentity, err := json.Marshal(struct {
-		SessionID string                 `json:"session_id"`
-		ToolUseID string                 `json:"tool_use_id"`
-		ToolName  string                 `json:"tool_name"`
-		ToolInput map[string]interface{} `json:"tool_input"`
+		SessionID  string                 `json:"session_id"`
+		ToolUseID  string                 `json:"tool_use_id"`
+		ToolName   string                 `json:"tool_name"`
+		ToolInput  map[string]interface{} `json:"tool_input"`
+		WritePaths []string               `json:"reconc_write_paths,omitempty"`
 	}{
-		SessionID: payload.SessionID,
-		ToolUseID: payload.ToolUseID,
-		ToolName:  payload.ToolName,
-		ToolInput: payload.ToolInput,
+		SessionID:  payload.SessionID,
+		ToolUseID:  payload.ToolUseID,
+		ToolName:   payload.ToolName,
+		ToolInput:  payload.ToolInput,
+		WritePaths: declaredCommandWritePaths(payload),
 	})
 	if err != nil {
 		return preDecisionInputs{}, false

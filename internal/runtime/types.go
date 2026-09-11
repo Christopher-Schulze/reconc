@@ -112,6 +112,7 @@ type CheckReport struct {
 	BlockingViolationCount int             `json:"blocking_violation_count"`
 	Violations             []Violation     `json:"violations"`
 	cacheableDecision      bool
+	claimRemediation       ClaimRemediationContext
 }
 
 // CacheableDecision reports whether the result came from a complete policy

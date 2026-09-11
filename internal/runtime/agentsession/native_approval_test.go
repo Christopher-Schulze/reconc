@@ -399,6 +399,9 @@ func TestNativeAuthorityApprovalBlocksCommandMediatedAuthorityWrites(t *testing.
 	if result.ExitCode != 2 {
 		t.Fatalf("command-mediated authority write was allowed: %+v", result)
 	}
+	if !strings.Contains(result.Stderr, "exact command effects") || strings.Contains(result.Stderr, "signed pre-action receipt") {
+		t.Fatalf("undeclared mutating command was not reported as a capability gap: %+v", result)
+	}
 	assertNativeAuthorityContent(t, fixture.repo, "original\n")
 	raw := map[string]interface{}{
 		"session_id":         fixture.sessionID,
@@ -463,9 +466,179 @@ func TestNativeAuthorityApprovalCannotUsePreDecisionCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payloadBody)
-	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "signed pre-action receipt") {
-		t.Fatalf("cached allow bypassed the authority receipt gate: %+v", result)
+	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "exact command effects") {
+		t.Fatalf("cached allow bypassed the undeclared command write gate: %+v", result)
 	}
+}
+
+func TestNativeAuthorityAllowsDeclaredDisjointCommandWrites(t *testing.T) {
+	fixture := newNativeApprovalFixture(t)
+	if err := os.WriteFile(filepath.Join(fixture.repo, "notes.md"), []byte("notes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	payload := nativeCommandPayload(t, fixture, "call-disjoint", `printf changed > notes.md`, []string{"notes.md"})
+	result := RunPreToolUse(fixture.repo, payload)
+	if result.ExitCode != 0 {
+		t.Fatalf("declared disjoint command write was blocked: %+v", result)
+	}
+	assertNativeAuthorityContent(t, fixture.repo, "original\n")
+}
+
+func TestNativeAuthorityRejectsStaleEnvelopeOnDisjointCommandWrites(t *testing.T) {
+	fixture := newNativeApprovalFixture(t)
+	if err := os.WriteFile(filepath.Join(fixture.repo, "notes.md"), []byte("notes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw := map[string]interface{}{
+		"session_id":         fixture.sessionID,
+		"tool_use_id":        "call-disjoint-stale",
+		"tool_name":          "Bash",
+		"reconc_write_paths": []interface{}{"notes.md"},
+		"tool_input": map[string]interface{}{
+			"command": `printf changed > notes.md`,
+		},
+	}
+	stale := nativeApprovalPayloadForRaw(t, fixture, raw, []string{"AGENTS.md"}, time.Now().UTC())
+	result := RunPreToolUse(fixture.repo, stale)
+	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "no longer matches the current authority policy") {
+		t.Fatalf("stale envelope on disjoint command was accepted: %+v", result)
+	}
+}
+
+func TestNativeAuthorityRequiresReceiptForMixedProtectedCommandWrites(t *testing.T) {
+	fixture := newNativeApprovalFixture(t)
+	if err := os.WriteFile(filepath.Join(fixture.repo, "notes.md"), []byte("notes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw := map[string]interface{}{
+		"session_id":         fixture.sessionID,
+		"tool_use_id":        "call-mixed",
+		"tool_name":          "Bash",
+		"reconc_write_paths": []interface{}{"AGENTS.md", "notes.md"},
+		"tool_input": map[string]interface{}{
+			"command": `printf changed > AGENTS.md && printf extra > notes.md`,
+		},
+	}
+	bare, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := RunPreToolUse(fixture.repo, bare)
+	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "signed pre-action receipt") {
+		t.Fatalf("mixed protected command write skipped the receipt: %+v", result)
+	}
+	approved := nativeApprovalPayloadForRaw(t, fixture, cloneNativeRaw(t, raw), []string{"AGENTS.md", "notes.md"}, time.Now().UTC())
+	result = RunPreToolUse(fixture.repo, approved)
+	if result.ExitCode != 0 {
+		t.Fatalf("mixed protected command write was not accepted: %+v", result)
+	}
+	subset := nativeApprovalPayloadForRaw(t, fixture, cloneNativeRaw(t, raw), []string{"AGENTS.md"}, time.Now().UTC())
+	var mutated map[string]interface{}
+	if err := json.Unmarshal(subset, &mutated); err != nil {
+		t.Fatal(err)
+	}
+	mutated["reconc_write_paths"] = []interface{}{"AGENTS.md", "notes.md"}
+	mutated["tool_use_id"] = "call-mixed-subset"
+	body, err := json.Marshal(mutated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result = RunPreToolUse(fixture.repo, body)
+	if result.ExitCode != 2 {
+		t.Fatalf("subset receipt authorized additional declared writes: %+v", result)
+	}
+}
+
+func TestNativeAuthorityDisjointCommandStillEnforcesOrdinaryWritePolicy(t *testing.T) {
+	fixture := newNativeApprovalFixture(t)
+	if err := os.WriteFile(filepath.Join(fixture.repo, "notes.md"), []byte("notes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	policy := `rules:
+  - id: authority-files
+    template: authority-change-approval
+    when_paths: ['AGENTS.md']
+  - id: deny-notes
+    kind: deny_write
+    paths: ['notes.md']
+    mode: block
+    message: notes are locked
+`
+	if err := os.WriteFile(filepath.Join(fixture.repo, ".reconc.yml"), []byte(policy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(fixture.repo, "test"); err != nil {
+		t.Fatalf("compile deny policy: %v", err)
+	}
+	payload := nativeCommandPayload(t, fixture, "call-deny-notes", `printf changed > notes.md`, []string{"notes.md"})
+	result := RunPreToolUse(fixture.repo, payload)
+	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "deny-notes") {
+		t.Fatalf("ordinary write policy was skipped for disjoint command: %+v", result)
+	}
+}
+
+func TestNativeAuthorityReadOnlyCommandsSkipApproval(t *testing.T) {
+	fixture := newNativeApprovalFixture(t)
+	payload := nativeCommandPayload(t, fixture, "call-readonly", "cat AGENTS.md", nil)
+	result := RunPreToolUse(fixture.repo, payload)
+	if result.ExitCode != 0 {
+		t.Fatalf("read-only command was blocked: %+v", result)
+	}
+}
+
+func TestPreDecisionCacheAllowsReadOnlyCommandsWhenBoundRulesExist(t *testing.T) {
+	fixture := newNativeApprovalFixture(t)
+	payloadBody := nativeCommandPayload(t, fixture, "call-cached-cat", "cat AGENTS.md", nil)
+	root, err := ResolveRepoRootRef(fixture.repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payloadBody)
+	if result.ExitCode != 0 {
+		t.Fatalf("read-only command was blocked: %+v", result)
+	}
+	assertPreDecisionCacheExists(t, root.Path(), payloadBody)
+	result = RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payloadBody)
+	if result.ExitCode != 0 {
+		t.Fatalf("cached read-only command was blocked: %+v", result)
+	}
+}
+
+func nativeCommandPayload(t *testing.T, fixture nativeApprovalFixture, toolUseID, command string, writePaths []string) []byte {
+	t.Helper()
+	raw := map[string]interface{}{
+		"session_id":  fixture.sessionID,
+		"tool_use_id": toolUseID,
+		"tool_name":   "Bash",
+		"tool_input": map[string]interface{}{
+			"command": command,
+		},
+	}
+	if writePaths != nil {
+		values := make([]interface{}, 0, len(writePaths))
+		for _, path := range writePaths {
+			values = append(values, path)
+		}
+		raw["reconc_write_paths"] = values
+	}
+	body, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+func cloneNativeRaw(t *testing.T, raw map[string]interface{}) map[string]interface{} {
+	t.Helper()
+	body, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cloned map[string]interface{}
+	if err := json.Unmarshal(body, &cloned); err != nil {
+		t.Fatal(err)
+	}
+	return cloned
 }
 
 func TestCommandWriteClassificationFailsClosedForExecutableOrOutputFlags(t *testing.T) {

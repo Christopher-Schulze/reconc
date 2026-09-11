@@ -1073,10 +1073,15 @@ detail path rather than a placeholder.
 `reconc fix --json` emits fix-plan format 2. Each remediation carries typed
 `actions`: argv commands preserve argument boundaries, shell commands are
 explicit literal scripts, and cwd, authorization, and required evidence or
-claims are separate fields. `BuildLegacyFixPlan` remains the compatibility path
-for consumers that only accept the v1 fix-plan schema; neither format claims an
-action is authorized automatically. Current v2 output bounds each input,
-remediation hint, action, and top-level remediation collection at 256 entries.
+claims are separate fields. `require_claim` actions follow the execution
+context: standalone evaluation emits `reconc check --claim <name>`; an active
+agent session emits `reconc hook claim <repo> <name> --session <id>` so the
+claim persists; missing session identity yields a non-executable inspection
+action instead of a one-shot check. `BuildLegacyFixPlan` remains the
+compatibility path for consumers that only accept the v1 fix-plan schema;
+neither format claims an action is authorized automatically. Current v2 output
+bounds each input, remediation hint, action, and top-level remediation
+collection at 256 entries.
 Retained values stay byte-exact. If source entries exceed a limit, the optional
 `omissions` object reports omitted input, remediation, hint, action, and nested
 action-item counts; `remediation_count` always equals the emitted array length.
@@ -2349,14 +2354,20 @@ stable host `tool_use_id`; the receipt identity is consumed once under the
 session lock. A changed policy generation, path identity, effect, or session
 state invalidates the receipt.
 
+Declared command writes are normalized once through the prospective repository
+path contract before matching. If those exact paths match no bound authority
+rule, any leftover approval envelope is rejected and the command continues
+through ordinary pre-write policy. Incomplete or undeclared mutating commands
+cannot skip that decision: hosts that cannot provide `reconc_write_paths` are
+blocked with an unsupported-capability message rather than a fake authority
+change or an impossible approval. Known read-only commands stay outside the
+native approval path.
+
 The authority registry and policy are private operator state selected with
 `RECONC_APPROVAL_AUTHORITIES`, `RECONC_APPROVAL_POLICY`, and
-`RECONC_APPROVAL_PRINCIPAL`; they must stay outside the repository. Command
-hooks additionally require exact top-level `reconc_write_paths`. A host that
-cannot provide a stable pre-action identity, exact command paths, or the
-operator channel is blocked with an unsupported-capability message. Existing
-claim-only configurations therefore remain readable for completion checks but
-cannot authorize a pre-write.
+`RECONC_APPROVAL_PRINCIPAL`; they must stay outside the repository. Existing
+claim-only configurations remain readable for completion checks but cannot
+authorize a pre-write.
 
 Format 6 is checkout-independent and byte-identical across equivalent clones
 and worktrees. Source records contain only portable logical paths, SHA-256

@@ -64,6 +64,52 @@ const (
 	ActionKindApproval   RemediationActionKind = "approval"
 )
 
+// ClaimRemediationMode selects the executable claim action for one FixPlan.
+type ClaimRemediationMode uint8
+
+const (
+	ClaimRemediationStandalone ClaimRemediationMode = iota
+	ClaimRemediationSession
+	ClaimRemediationUnavailable
+)
+
+// ClaimRemediationContext is the execution context used to build claim
+// actions. It is not serialized on CheckReport; callers attach it before
+// BuildFixPlan so saved reports can be rebound to the current session.
+type ClaimRemediationContext struct {
+	Mode      ClaimRemediationMode
+	RepoRoot  string
+	SessionID string
+}
+
+// StandaloneClaimRemediation emits `reconc check --claim` for one evaluation.
+func StandaloneClaimRemediation(repoRoot string) ClaimRemediationContext {
+	return ClaimRemediationContext{Mode: ClaimRemediationStandalone, RepoRoot: repoRoot}
+}
+
+// SessionClaimRemediation emits `reconc hook claim` bound to one session.
+// Missing repository or session identity becomes a non-executable action.
+func SessionClaimRemediation(repoRoot, sessionID string) ClaimRemediationContext {
+	if strings.TrimSpace(repoRoot) == "" || strings.TrimSpace(sessionID) == "" || strings.TrimSpace(sessionID) != sessionID {
+		return ClaimRemediationContext{Mode: ClaimRemediationUnavailable, RepoRoot: repoRoot}
+	}
+	return ClaimRemediationContext{Mode: ClaimRemediationSession, RepoRoot: repoRoot, SessionID: sessionID}
+}
+
+// UnavailableClaimRemediation emits a non-executable claim action.
+func UnavailableClaimRemediation(repoRoot string) ClaimRemediationContext {
+	return ClaimRemediationContext{Mode: ClaimRemediationUnavailable, RepoRoot: repoRoot}
+}
+
+// AttachClaimRemediation records how later FixPlan construction should assert
+// required claims. The context is not part of the report JSON schema.
+func AttachClaimRemediation(report *CheckReport, ctx ClaimRemediationContext) {
+	if report == nil {
+		return
+	}
+	report.claimRemediation = ctx
+}
+
 // RemediationAction is the executable or evidence-bearing part of a fix
 // recipe. Authorization and evidence requirements are explicit so agents do
 // not infer permission from RecommendedAction prose.
@@ -173,7 +219,7 @@ func buildFixPlan(report *CheckReport, includeActions bool, schemaURL, formatVer
 			omissions.Remediations++
 			continue
 		}
-		remediations = append(remediations, buildRemediation(v, report.RepoRoot, includeActions, omissions))
+		remediations = append(remediations, buildRemediation(v, report.RepoRoot, includeActions, omissions, report.claimRemediation))
 	}
 	if omissions.empty() {
 		omissions = nil
@@ -195,7 +241,7 @@ func buildFixPlan(report *CheckReport, includeActions bool, schemaURL, formatVer
 	}
 }
 
-func buildRemediation(v Violation, repoRoot string, includeActions bool, omissions *FixPlanOmissions) Remediation {
+func buildRemediation(v Violation, repoRoot string, includeActions bool, omissions *FixPlanOmissions, ctx ClaimRemediationContext) Remediation {
 	priority := "non-blocking"
 	if v.IsBlocking() {
 		priority = "blocking"
@@ -244,13 +290,17 @@ func buildRemediation(v Violation, repoRoot string, includeActions bool, omissio
 	rem.FilesToInspect = boundedFixPlanStrings(files, MaxFixPlanFieldItems, omittedItems)
 
 	rem.Steps = buildStepsForKind(v)
+	if v.Kind == policy.KindRequireClaim {
+		rem.RecommendedAction = claimRecommendedAction(ctx, repoRoot, v.RequiredClaims)
+		rem.Steps = buildClaimSteps(ctx, repoRoot, v.RequiredClaims)
+	}
 	if includeActions {
-		rem.Actions = buildActionsForViolation(v, repoRoot, omissions)
+		rem.Actions = buildActionsForViolation(v, repoRoot, omissions, ctx)
 	}
 	return rem
 }
 
-func buildActionsForViolation(v Violation, repoRoot string, omissions *FixPlanOmissions) []RemediationAction {
+func buildActionsForViolation(v Violation, repoRoot string, omissions *FixPlanOmissions, ctx ClaimRemediationContext) []RemediationAction {
 	actions := make([]RemediationAction, 0, 2)
 	appendAction := func(action RemediationAction) {
 		if len(actions) >= MaxFixPlanActions {
@@ -276,12 +326,7 @@ func buildActionsForViolation(v Violation, repoRoot string, omissions *FixPlanOm
 	case policy.KindRequireClaim:
 		claims := boundedFixPlanStrings(v.RequiredClaims, MaxFixPlanActions, &omissions.ActionItems)
 		for _, claim := range claims {
-			appendAction(RemediationAction{
-				Code: ActionAssertClaim, Kind: ActionKindArgv,
-				Argv: []string{"reconc", "check", "--claim", claim},
-				Cwd:  repoRoot, Authorization: "operator_approval",
-				RequiredClaims: []string{claim},
-			})
+			appendAction(claimRemediationAction(claim, repoRoot, ctx))
 		}
 	case policy.KindDenyWrite:
 		appendAction(RemediationAction{
@@ -310,6 +355,86 @@ func buildActionsForViolation(v Violation, repoRoot string, omissions *FixPlanOm
 		})
 	}
 	return actions
+}
+
+func claimRemediationAction(claim, repoRoot string, ctx ClaimRemediationContext) RemediationAction {
+	repo, mode := resolveClaimRemediation(ctx, repoRoot)
+	action := RemediationAction{
+		Code:           ActionAssertClaim,
+		Authorization:  "operator_approval",
+		RequiredClaims: []string{claim},
+	}
+	switch mode {
+	case ClaimRemediationSession:
+		action.Kind = ActionKindArgv
+		action.Argv = []string{"reconc", "hook", "claim", repo, claim, "--session", ctx.SessionID}
+		action.Cwd = repo
+		return action
+	case ClaimRemediationUnavailable:
+		action.Kind = ActionKindInspection
+		if repo != "" {
+			action.Cwd = repo
+		}
+		return action
+	default:
+		action.Kind = ActionKindArgv
+		action.Argv = []string{"reconc", "check", "--claim", claim}
+		action.Cwd = repo
+		return action
+	}
+}
+
+func claimRecommendedAction(ctx ClaimRemediationContext, repoRoot string, claims []string) string {
+	required := joinForHumans(claims)
+	_, mode := resolveClaimRemediation(ctx, repoRoot)
+	switch mode {
+	case ClaimRemediationSession:
+		return "Record one of the required claims in the bound agent session: " + required + "."
+	case ClaimRemediationUnavailable:
+		return "Identify the intended reconc session before recording one of the required claims: " + required + "."
+	default:
+		return "Assert one of the required claims with reconc check --claim: " + required + "."
+	}
+}
+
+func buildClaimSteps(ctx ClaimRemediationContext, repoRoot string, claims []string) []string {
+	required := joinForHumans(claims)
+	_, mode := resolveClaimRemediation(ctx, repoRoot)
+	switch mode {
+	case ClaimRemediationSession:
+		return []string{
+			"Record one of these claims with reconc hook claim bound to the current session: " + required,
+			"The claim persists in session state; reconc check --claim only satisfies one evaluation",
+		}
+	case ClaimRemediationUnavailable:
+		return []string{
+			"Session identity is unavailable; do not run a one-shot check --claim as a substitute",
+			"Once the intended session is identified, record one of: " + required,
+		}
+	default:
+		return []string{
+			"Assert one of these claims via --claim flag: " + required,
+			"Claims are typically asserted by CI / harness after a successful gate (e.g. ci-green)",
+		}
+	}
+}
+
+func resolveClaimRemediation(ctx ClaimRemediationContext, repoRoot string) (string, ClaimRemediationMode) {
+	repo := strings.TrimSpace(ctx.RepoRoot)
+	if repo == "" {
+		repo = strings.TrimSpace(repoRoot)
+	}
+	switch ctx.Mode {
+	case ClaimRemediationSession:
+		if repo == "" || strings.TrimSpace(ctx.SessionID) == "" || strings.TrimSpace(ctx.SessionID) != ctx.SessionID {
+			return repo, ClaimRemediationUnavailable
+		}
+		return repo, ClaimRemediationSession
+	case ClaimRemediationUnavailable:
+		return repo, ClaimRemediationUnavailable
+	default:
+		return repo, ClaimRemediationStandalone
+	}
 }
 
 func boundFixPlanInputs(inputs ExecutionInputs, omissions *FixPlanOmissions) ExecutionInputs {

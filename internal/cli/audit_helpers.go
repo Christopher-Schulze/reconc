@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"reconc.dev/reconc/internal/audit"
@@ -31,6 +32,24 @@ func capturePolicyDecisionCandidate(repo string) (agentsession.CompletionStateSn
 		return agentsession.CompletionStateSnapshot{}, fmt.Errorf("persisted evidence is uncertified at %s", detail)
 	}
 	return candidate, nil
+}
+
+func attachClaimRemediation(report *runtime.CheckReport, repo string) {
+	if report != nil && strings.TrimSpace(report.RepoRoot) != "" {
+		repo = report.RepoRoot
+	}
+	runtime.AttachClaimRemediation(report, claimRemediationContext(repo))
+}
+
+func claimRemediationContext(repo string) runtime.ClaimRemediationContext {
+	sessionID, _, err := agentsession.InspectActiveSessionState(repo)
+	if err != nil {
+		return runtime.UnavailableClaimRemediation(repo)
+	}
+	if sessionID == "" {
+		return runtime.StandaloneClaimRemediation(repo)
+	}
+	return runtime.SessionClaimRemediation(repo, sessionID)
 }
 
 func persistPolicyDecision(event string, before agentsession.CompletionStateSnapshot, report *runtime.CheckReport) error {

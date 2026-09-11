@@ -64,6 +64,14 @@ func commandWritePaths(payload *HookPayload) ([]string, bool, error) {
 	return dedupePaths(paths), true, nil
 }
 
+func declaredCommandWritePaths(payload *HookPayload) []string {
+	paths, declared, err := commandWritePaths(payload)
+	if !declared || err != nil {
+		return nil
+	}
+	return paths
+}
+
 func commandMayWriteRepository(command string) bool {
 	command = strings.TrimSpace(command)
 	if command == "" {
@@ -170,6 +178,8 @@ func nativeApprovalEnvelopeFromPayload(payload *HookPayload) (nativeApprovalEnve
 	return nativeApprovalEnvelope{request: requestBody, receipt: receiptBody}, true, nil
 }
 
+const undeclaredCommandWriteCapabilityMessage = "command-mediated repository writes require exact reconc_write_paths; this host did not provide exact command effects, so bound authority policy cannot be decided"
+
 func rejectStaleNativeApprovalEnvelope(payload *HookPayload, currentRuleIDs []string) error {
 	envelope, present, err := nativeApprovalEnvelopeFromPayload(payload)
 	if err != nil {
@@ -178,11 +188,10 @@ func rejectStaleNativeApprovalEnvelope(payload *HookPayload, currentRuleIDs []st
 	if !present {
 		return nil
 	}
-	candidate, err := actionapproval.DecodeRequest(envelope.request)
-	if err != nil {
+	if _, err := actionapproval.DecodeRequest(envelope.request); err != nil {
 		return fmt.Errorf("bound authority change is blocked: invalid approval request: %w", err)
 	}
-	if len(candidate.RuleIDs) > 0 && len(currentRuleIDs) == 0 {
+	if len(currentRuleIDs) == 0 {
 		return fmt.Errorf("bound authority change is blocked: supplied approval no longer matches the current authority policy")
 	}
 	return nil

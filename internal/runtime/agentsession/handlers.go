@@ -337,24 +337,19 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(
 				if staleErr := rejectStaleNativeApprovalEnvelope(payload, nil); staleErr != nil {
 					return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + staleErr.Error()}
 				}
-			}
-			if hasBoundRules {
-				if !declared {
-					return Result{ExitCode: 2, Stderr: "reconc hook (pre): bound authority change is blocked: command-mediated repository writes require exact reconc_write_paths and a signed pre-action receipt"}
-				}
+			} else if !declared {
+				return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + undeclaredCommandWriteCapabilityMessage}
+			} else {
 				normalizedWrites, normalizeErr := runtime.NormalizeReplayInputs(root, runtime.ExecutionInputs{WritePaths: declaredWrites})
 				if normalizeErr != nil {
 					return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): normalize command write paths: %s", normalizeErr)}
 				}
-				boundRuleIDs, boundErr := boundApprovalRuleIDs(evaluator, root, normalizedWrites.WritePaths)
+				boundRuleIDs, boundErr := compiled.BoundApprovalRuleIDs(root, normalizedWrites.WritePaths)
 				if boundErr != nil {
 					return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): resolve bound authority approval: %s", boundErr)}
 				}
 				if staleErr := rejectStaleNativeApprovalEnvelope(payload, boundRuleIDs); staleErr != nil {
 					return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + staleErr.Error()}
-				}
-				if len(boundRuleIDs) == 0 {
-					return Result{ExitCode: 2, Stderr: "reconc hook (pre): bound authority change is blocked: command write paths do not identify the protected authority boundary"}
 				}
 				trialWrites := append(append([]string(nil), state.WritePaths...), normalizedWrites.WritePaths...)
 				writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, root, state.ReadPaths, trialWrites, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
@@ -366,8 +361,10 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(
 				if len(writeViolations) > 0 {
 					return resultWithPolicyDecision(Result{ExitCode: 2, Stderr: firstLinesForViolations(writeViolations, "reconc blocked this command's repository write before execution.")}, policyReports...)
 				}
-				if err := verifyAndConsumeNativeApproval(root, payload, state, declaredWrites, boundRuleIDs, evaluator); err != nil {
-					return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + err.Error()}
+				if len(boundRuleIDs) > 0 {
+					if err := verifyAndConsumeNativeApproval(root, payload, state, declaredWrites, boundRuleIDs, evaluator); err != nil {
+						return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + err.Error()}
+					}
 				}
 			}
 		}

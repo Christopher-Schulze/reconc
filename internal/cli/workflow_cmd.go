@@ -432,13 +432,39 @@ func addActivePolicyBriefing(out map[string]interface{}, repoRoot string) {
 		}
 		out["required_evidence"] = cleanBriefingStrings(evidence)
 		out["required_evidence_display"] = displayBriefingStrings(evidence)
-		out["next_action"] = "resolve the listed gate(s), then rerun their exact command; full details are in the saved report"
+		runtime.AttachClaimRemediation(&report, runtime.SessionClaimRemediation(repoRoot, sessionID))
+		plan := runtime.BuildFixPlan(&report)
+		if next := firstExecutableFixPlanAction(plan); len(next) > 0 {
+			out["next_action"] = renderDirectCommand(next)
+		} else {
+			out["next_action"] = "resolve the listed gate(s), then rerun their exact command; full details are in the saved report"
+		}
 		return
 	}
 	out["historical_policy_blockers"] = blockers
 	if omittedBlockers > 0 {
 		out["omitted_historical_policy_blockers"] = omittedBlockers
 	}
+}
+
+func firstExecutableFixPlanAction(plan *runtime.FixPlan) []string {
+	if plan == nil {
+		return nil
+	}
+	for _, remediation := range plan.Remediations {
+		if remediation.Priority != "blocking" {
+			continue
+		}
+		for _, action := range remediation.Actions {
+			if action.Kind == runtime.ActionKindArgv && len(action.Argv) > 0 {
+				return append([]string(nil), action.Argv...)
+			}
+			if action.Kind == runtime.ActionKindShell && action.Shell != "" {
+				return []string{action.Shell}
+			}
+		}
+	}
+	return nil
 }
 
 func cleanBriefingStrings(values []string) []string {

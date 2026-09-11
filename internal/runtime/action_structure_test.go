@@ -77,6 +77,34 @@ func TestFixPlanClaimActionPreservesArgvBoundaries(t *testing.T) {
 	}
 }
 
+func TestFixPlanClaimActionBindsSessionIdentity(t *testing.T) {
+	claim := "ci-green"
+	report := &CheckReport{
+		Decision: DecisionBlock,
+		RepoRoot: "/repo with spaces",
+		Violations: []Violation{{
+			RuleID: "claim-gate", Kind: policy.KindRequireClaim, Mode: policy.ModeBlock,
+			RequiredClaims: []string{claim},
+		}},
+	}
+	AttachClaimRemediation(report, SessionClaimRemediation(report.RepoRoot, "session-1"))
+	action := BuildFixPlan(report).Remediations[0].Actions[0]
+	want := []string{"reconc", "hook", "claim", report.RepoRoot, claim, "--session", "session-1"}
+	if action.Kind != ActionKindArgv || len(action.Argv) != len(want) {
+		t.Fatalf("session claim action shape = %#v", action)
+	}
+	for index := range want {
+		if action.Argv[index] != want[index] {
+			t.Fatalf("argv[%d] = %q, want %q", index, action.Argv[index], want[index])
+		}
+	}
+	AttachClaimRemediation(report, UnavailableClaimRemediation(report.RepoRoot))
+	unavailable := BuildFixPlan(report).Remediations[0].Actions[0]
+	if unavailable.Kind != ActionKindInspection || len(unavailable.Argv) != 0 || unavailable.Code != ActionAssertClaim {
+		t.Fatalf("unavailable claim action should be non-executable: %#v", unavailable)
+	}
+}
+
 func TestFixPlanUsesStableNonExecutableActionCodes(t *testing.T) {
 	tests := []struct {
 		kind policy.Kind

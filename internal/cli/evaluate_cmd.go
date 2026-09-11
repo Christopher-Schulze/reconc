@@ -300,6 +300,7 @@ func runFixCommand(command string, args []string, nextOnly bool, reconcVersion s
 	if err := maybeAudit(command, report, reconcVersion, startFix); err != nil {
 		return &CLIError{ExitCode: 1, Message: prefix + "append audit evidence: " + err.Error()}
 	}
+	attachClaimRemediation(report, repo)
 	plan := runtime.BuildFixPlan(report)
 	out, closeOutput, err := teeToFile(stdout, outputPath)
 	if err != nil {
@@ -451,6 +452,7 @@ func runPersistedNext(args []string, stdout io.Writer) (resultErr error) {
 		return commitOutput(closeOutput, &CLIError{ExitCode: 1, Message: "reconc next: stored blocking decision is stale because repository, policy, or active-session evidence changed; rerun `" + replayCommand + "`, then `" + renderDirectCommand([]string{"reconc", "next", candidate.RepoRoot}) + "`"})
 	}
 
+	attachClaimRemediation(record.Report, candidate.RepoRoot)
 	plan := runtime.BuildFixPlan(record.Report)
 	next := nextRemediation(plan)
 	if next == nil {

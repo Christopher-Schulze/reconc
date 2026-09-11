@@ -1124,7 +1124,9 @@ inputs or a saved `CheckReport` JSON.
 
 ### `reconc fix [repo] [--read PATH] [--write PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--json] [--output PATH]`
 Structured remediation plan per violation, with per-kind steps,
-suggested commands / claims, and files-to-inspect.
+suggested commands / claims, and files-to-inspect. Claim actions are
+`reconc check --claim` for standalone evaluation and
+`reconc hook claim <repo> <name> --session <id>` when an agent session is active.
 
 ### `reconc next [repo] [--read PATH] [--write PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--json] [--output PATH]`
 With explicit evidence flags, runs a focused evaluation and emits only its
@@ -1212,9 +1214,13 @@ paths, tool input, session state, expiry, and stable pre-action tool identity.
 The operator registry and policy stay outside the repository and are selected
 with `RECONC_APPROVAL_AUTHORITIES`, `RECONC_APPROVAL_POLICY`, and
 `RECONC_APPROVAL_PRINCIPAL`. Command hooks must provide exact repository paths
-in top-level `reconc_write_paths`; an unclassified mutating command is blocked
+in top-level `reconc_write_paths` before bound authority can be decided. A
+declared write that matches no protected `when_paths` is not an authority
+change: leftover approval envelopes are rejected and ordinary pre-write policy
+runs. An unclassified mutating command is blocked as an unsupported capability
 because its effect cannot be bound safely. Hosts without a stable pre-action
 identity or this approval channel report a blocked unsupported capability.
+Known read-only commands never enter the approval path.
 
 ### `reconc hook generate <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|pi|zcode|kimi-code> [--json] [--output PATH]`
 Emit the hook artefact content without writing to disk.
@@ -1493,6 +1499,8 @@ scaffold updates.
 Assert a workflow claim (e.g. `ci-green`). Written to the session
 state consulted by later hook-runtime checks and `ci` calls. `--session`
 selects an exact existing session instead of resolving the active pointer.
+Session FixPlan `assert_claim` actions emit this command; standalone evaluation
+keeps `reconc check --claim <name>` for one-shot evidence.
 
 ### `reconc hook evidence-status [repo] [--json]`
 Read-only inspection of project evidence taint. Reports the exact overflow or
