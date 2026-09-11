@@ -35,6 +35,18 @@ func briefingFilesystemInventory(t *testing.T, roots ...string) map[string]brief
 			if err != nil {
 				return err
 			}
+			if info.IsDir() {
+				// NTFS directory enumeration can retain timestamps from before
+				// fixture mutations. Read current metadata through an open handle.
+				directory, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+				info, err = directory.Stat()
+				if err = errors.Join(err, directory.Close()); err != nil {
+					return err
+				}
+			}
 			observed := briefingFilesystemEntry{
 				Mode: info.Mode(), Size: info.Size(), ModTime: info.ModTime().UnixNano(), IsDir: info.IsDir(),
 			}
@@ -189,7 +201,15 @@ func TestSessionBriefingMissingReportReportsUnavailableReadOnly(t *testing.T) {
 			t.Fatalf("missing report briefing changed %s: before=%+v after=%+v", path, want, got)
 		}
 	}
-	for _, want := range []string{"policy_report_status", "unavailable", state.SessionID, "no such file"} {
+	_, reportErr := os.Stat(state.ReportPath)
+	if !errors.Is(reportErr, os.ErrNotExist) {
+		t.Fatalf("missing report fixture: %v", reportErr)
+	}
+	var reportPathError *os.PathError
+	if !errors.As(reportErr, &reportPathError) {
+		t.Fatalf("missing report error has no path context: %v", reportErr)
+	}
+	for _, want := range []string{"policy_report_status", "unavailable", state.SessionID, reportPathError.Err.Error()} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("missing report diagnostic lacks %q: %s", want, stdout.String())
 		}

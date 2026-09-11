@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 
@@ -206,6 +207,11 @@ func TestCollectGitWritePathsModifiedRenameIncludesBothPaths(t *testing.T) {
 func TestCollectGitWritePathsRenamePreservesSpecialNames(t *testing.T) {
 	repo := initGitRepo(t)
 	oldPath, newPath := "protected/old \tüber name.txt", "allowed/new \tüber name.txt"
+	if goruntime.GOOS == "windows" {
+		// Windows rejects control characters in filenames; preserve Unicode,
+		// whitespace, and literal Git pathspec punctuation in the native case.
+		oldPath, newPath = "protected/old [über] name.txt", "allowed/new [über] name.txt"
+	}
 	gitWrite(t, repo, oldPath, "original\n")
 	gitRun(t, repo, "add", "--", oldPath)
 	gitRun(t, repo, "commit", "-q", "-m", "initial")

@@ -15,6 +15,7 @@ import (
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/actionapproval"
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/privatefs"
 	productruntime "reconc.dev/reconc/internal/runtime"
 )
 
@@ -51,7 +52,7 @@ func newNativeApprovalFixture(t *testing.T) nativeApprovalFixture {
 
 	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x41}, ed25519.SeedSize))
 	registryDir := t.TempDir()
-	if err := os.Chmod(registryDir, 0o700); err != nil {
+	if err := privatefs.RepairDirectory(registryDir); err != nil {
 		t.Fatal(err)
 	}
 	registryPath := filepath.Join(registryDir, "authorities.json")
@@ -70,7 +71,7 @@ func newNativeApprovalFixture(t *testing.T) nativeApprovalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(registryPath, registryBody, 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(registryPath, registryBody, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv(nativeApprovalAuthoritiesEnv, registryPath)

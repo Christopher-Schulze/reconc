@@ -488,6 +488,10 @@ func assertTask499PreResponse(t *testing.T, contract task499HostContract, stdout
 }
 
 func TestGeneratedAdaptersExecuteTemplateDenial(t *testing.T) {
+	shell, err := hookVerificationShell()
+	if err != nil {
+		t.Fatalf("resolve generated adapter shell: %v", err)
+	}
 	for _, contract := range task499HostContracts() {
 		contract := contract
 		if !contract.executeGenerated {
@@ -513,7 +517,7 @@ func TestGeneratedAdaptersExecuteTemplateDenial(t *testing.T) {
 			if contract.kind == hooks.KindGrok {
 				t.Setenv("GROK_SESSION_ID", "task499-generated-grok")
 			}
-			cmd := exec.Command("/bin/sh", "-c", command)
+			cmd := exec.Command(shell, "-c", command)
 			cmd.Dir = repo
 			cmd.Stdin = strings.NewReader(contract.prePayload(repo, "task499-generated-"+contract.kind, "generated/blocked.go", "generated-pre"))
 			cmd.Env = append(os.Environ(),
@@ -525,7 +529,7 @@ func TestGeneratedAdaptersExecuteTemplateDenial(t *testing.T) {
 			cmd.Stdout = &stdout
 			cmd.Stderr = &stderr
 			err = cmd.Run()
-			code := task499CommandExitCode(err)
+			code := task499CommandExitCode(t, err)
 			assertTask499PreResponse(t, contract, stdout.String(), stderr.String(), code)
 			if after := readTask499File(t, repo, "generated/blocked.go"); after != "original\n" {
 				t.Fatalf("generated %s adapter allowed the side effect: %q", contract.kind, after)
@@ -566,13 +570,15 @@ exec "$RECONC_SCENARIO_TEST_BINARY" -test.run '^TestHookScenarioChild$' -test.v=
 	}
 }
 
-func task499CommandExitCode(err error) int {
+func task499CommandExitCode(t *testing.T, err error) int {
+	t.Helper()
 	if err == nil {
 		return 0
 	}
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		return exitErr.ExitCode()
 	}
+	t.Fatalf("execute generated adapter: %v", err)
 	return 1
 }
 

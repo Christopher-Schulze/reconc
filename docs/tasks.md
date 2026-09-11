@@ -1,9 +1,9 @@
 # TASK Control Plane
 
 ## Active
+- [~] 513 Repair existing Windows integration gate failures -> tasks/513-repair-windows-integration-gate-failures.md
 
 ## Queue
-- [ ] 513 Repair existing Windows integration gate failures -> tasks/513-repair-windows-integration-gate-failures.md
 
 ## Blocked
 
