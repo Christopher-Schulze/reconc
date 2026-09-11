@@ -20,7 +20,7 @@ Windows job and its later native installer step.
 
 - [x] Reproduce and attribute each recorded Windows failure against current source.
 - [x] Correct platform behavior or demonstrably invalid fixtures with focused tests.
-- [~] Run native Windows and cross-platform gates, document, archive, commit, and push.
+- [x] Run native Windows and cross-platform gates, document, archive, commit, and push.
 
 ## Notes
 
@@ -90,6 +90,20 @@ Windows job and its later native installer step.
   86-second real artifact build), `make vet`, `make lint`, and `git diff --check`.
   The native ledger failure remains unattributed; do not describe diagnostic
   coverage or local success as a verified Windows repair.
+
+### Native acceptance
+
+- CI https://github.com/Christopher-Schulze/reconc/actions/runs/34589910445
+  passes on 3aef4ab510440978086b818fff145714d735fbd4. Windows completes the full
+  root and portable-template suites, CLI build/smoke, and native installer.
+  Linux, macOS, release trust, and LangChain pass in the same run.
+- CodeQL https://github.com/Christopher-Schulze/reconc/actions/runs/34589910383
+  passes on the same commit. All 17 original failing Windows leaf cases are
+  covered by the now-passing full suite; no tests or security checks were
+  disabled and no timeout was extended.
+- The isolated legacy ledger failure does not recur in the acceptance run.
+  Its cause is not established; retain the improved failure diagnostics
+  without claiming that a production ledger defect was identified or fixed.
 
 ## Deviations
 
