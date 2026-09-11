@@ -210,7 +210,7 @@ func decodeCurrentLockfile(rawFields map[string]json.RawMessage) (*decodedLockfi
 	if err != nil {
 		return nil, err
 	}
-	rules, err := decodeRuntimeRulesTyped(envelope.Rules, false)
+	rules, err := decodeRuntimeRulesTyped(envelope.Rules, false, envelope.RuleCount)
 	if err != nil {
 		return nil, err
 	}

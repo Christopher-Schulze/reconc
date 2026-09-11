@@ -2393,7 +2393,11 @@ nesting, non-object roots, and trailing values. A strictly admitted current
 format is then decoded directly into one typed envelope. Its rules and actions
 remain raw JSON subtrees in the compatibility payload, are decoded once into
 typed plans, and rule/check/assurance field presence is collected with a token
-walk rather than maps of `json.RawMessage`. Typed envelope validation serializes
+walk rather than maps of `json.RawMessage`. Rule-array decoding uses the declared
+count only as a capacity hint, capped at 4,096 entries and by input bytes; it
+still validates the actual count and every existing JSON boundary. This avoids
+repeated growth and copying without trusting an unverified allocation size.
+Typed envelope validation serializes
 only bounded scalar, discovery, and source fields with constant rules/actions
 placeholders, then reattaches the already canonical subtrees. Current large
 arrays are therefore never boxed into `interface{}` or re-marshaled to recover

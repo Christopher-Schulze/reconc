@@ -32,9 +32,33 @@ workloads or be presented as isolated application memory regressions.
 - [x] Verify real subprocess behavior and local gates; commit and push the immutable source required by native recording.
 - [x] Verify native source-bound execution and inspect every retained artifact and residual budget failure.
 - [x] Separate RSS sampling with a fixed operation count; version its identity and preserve historical comparisons.
-- [~] Verify the revised method locally and natively, reconcile implementation commits, archive, commit, and push.
+- [x] Resolve the profiled rule-array allocation overhead; verify bounded preallocation and unchanged validation.
+- [~] Verify the final method locally and natively, reconcile implementation commits, archive, commit, and push.
 
 ## Notes
+
+- Native v6 run 34618412613 completed recording and all 30 profile artifacts.
+  The remaining flags are one unchanged frame timing measurement (+24.5%) and
+  a shared runtime-process RSS measurement (+21.1%). Frame source and benchmark
+  match the baseline exactly; its normalized time improved by 2.5%, so the
+  observed absolute difference is not yet attributable to a frame code change.
+- The retained lockfile-decode heap profile attributes 39.84% of cumulative
+  allocation to reflect.growslice. Decode the current typed rule array with
+  capacity hinted by envelope.RuleCount, capped at 4096 and by input bytes.
+  Keep JSON shape, trailing-value, field-presence, and actual-count validation.
+- CI 34621668770 passed Linux, macOS, LangChain, and release trust; Windows was
+  skipped under the explicit policy. CodeQL 34621668857 passed.
+- A three-pair alternating local control uses separately precompiled before/after
+  binaries, 250 ms timing samples, and separate 64-operation RSS samples. The
+  4096-rule median improves from 11,281,967 to 10,090,753 ns/op and 16,601,273 to
+  8,544,277 B/op. Maximum observed process RSS is 86,573,056 to 64,897,024 bytes;
+  retain all samples because process peaks vary. The 64-rule median improves
+  from 242,415 to 229,944 ns/op and 195,696 to 158,285 B/op. Evidence lives in
+  `.build/benchmarks/task520-final-control/measurements.json`, including binary
+  SHA-256 identities and raw outputs. These are local measurements, not CI claims.
+- The complete runtime race suite passed in 24.018 seconds, including existing
+  lockfile-integrity tests and the new bounded-hint/equivalence/order regressions.
+  Scoped vet and Staticcheck passed. The checked baseline SHA-256 is unchanged.
 
 - Native `34614589075` completed recording and all five profile workloads for
   `f37fc6dbe432de64d751b1edb8ff9e7ae3d18a19`. All 30 profile artifacts passed

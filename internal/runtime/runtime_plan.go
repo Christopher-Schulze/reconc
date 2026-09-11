@@ -631,11 +631,18 @@ func decodeRuntimeRules(raw interface{}) ([]policy.Rule, error) {
 }
 
 func decodeRuntimeRulesJSON(data []byte) ([]policy.Rule, error) {
-	return decodeRuntimeRulesTyped(data, true)
+	return decodeRuntimeRulesTyped(data, true, 0)
 }
 
-func decodeRuntimeRulesTyped(data []byte, validatePresence bool) ([]policy.Rule, error) {
+func decodeRuntimeRulesTyped(data []byte, validatePresence bool, ruleCount int) ([]policy.Rule, error) {
 	var rules []policy.Rule
+	// The count is only an allocation hint, never a validation shortcut. Bound
+	// speculative capacity by input size and the common 4096-rule workload;
+	// larger arrays still decode normally and callers verify the actual count.
+	const maxInitialRules = 4096
+	if ruleCount > 0 {
+		rules = make([]policy.Rule, 0, min(ruleCount, len(data)/2, maxInitialRules))
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	if validatePresence {
 		decoder.DisallowUnknownFields()
