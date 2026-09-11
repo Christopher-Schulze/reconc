@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTaskPathGuardRejectsReplacementAfterRead(t *testing.T) {
@@ -17,6 +18,12 @@ func TestTaskPathGuardRejectsReplacementAfterRead(t *testing.T) {
 	if err := os.WriteFile(path, []byte("before\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	stamp := time.Unix(1700000000, 0)
+	for _, target := range []string{path, detailDir} {
+		if err := os.Chtimes(target, stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+	}
 	guard := newTaskPathGuard(root, 8)
 	if err := guard.reject(path); err != nil {
 		t.Fatal(err)
@@ -27,6 +34,12 @@ func TestTaskPathGuardRejectsReplacementAfterRead(t *testing.T) {
 	}
 	if err := os.WriteFile(path, []byte("after!\n"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	// Equal metadata must not mask replacement, even on coarse timestamp clocks.
+	for _, target := range []string{path, detailDir} {
+		if err := os.Chtimes(target, stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := guard.revalidate(); err == nil || !strings.Contains(err.Error(), "identity changed") {
 		t.Fatalf("replacement was accepted: %v", err)

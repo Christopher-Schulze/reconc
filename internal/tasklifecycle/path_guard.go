@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -48,6 +49,14 @@ func (guard *taskPathGuard) reject(abs string) error {
 		}
 		if err := validateTaskPathComponent(current, info, index < len(components)-1); err != nil {
 			return err
+		}
+		if runtime.GOOS == "windows" {
+			// Lstat defers Windows file-ID lookup. Compare while the observed
+			// path still belongs to this capture, before retaining either snapshot.
+			after, err := os.Lstat(current)
+			if err != nil || !sameTaskPathIdentity(info, after) {
+				return fmt.Errorf("TASK path component identity changed while capturing %s: %w", current, errors.Join(err, errors.New("identity unavailable or changed")))
+			}
 		}
 		if previous, ok := guard.seen[current]; ok && !sameTaskPathIdentity(previous.info, info) {
 			return fmt.Errorf("TASK path component identity changed: %s", current)

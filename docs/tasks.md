@@ -1,11 +1,12 @@
 # TASK Control Plane
 
 ## Active
-- [~] 520 Isolate benchmark process measurements -> tasks/520-isolate-benchmark-process-measurements.md
+- [~] 521 Capture Windows TASK path identities before reuse -> tasks/521-capture-windows-task-path-identities-before-reuse.md
 
 ## Queue
 
 ## Blocked
+- [!] 520 Isolate benchmark process measurements (paused for TASK 521) -> tasks/520-isolate-benchmark-process-measurements.md
 
 ## Done
 - [x] 519 Resolve residual benchmark memory and hook timing -> tasks/done/519-resolve-residual-benchmark-memory-and-hook-timing.md
