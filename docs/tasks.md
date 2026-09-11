@@ -1,11 +1,12 @@
 # TASK Control Plane
 
 ## Active
-- [~] 517 Keep Git fixture maintenance within command lifetime -> tasks/517-keep-git-fixture-maintenance-within-command-lifetime.md
+- [~] 518 Pair baseline and candidate benchmark samples -> tasks/518-pair-baseline-and-candidate-benchmark-samples.md
 
 ## Queue
 
 ## Blocked
+- [!] 517 Keep Git fixture maintenance within command lifetime (paused for TASK 518) -> tasks/517-keep-git-fixture-maintenance-within-command-lifetime.md
 - [!] 516 Synchronize the shared-loader cancellation regression (paused for TASK 517) -> tasks/516-synchronize-shared-loader-cancellation-regression.md
 - [!] 515 Align required-ledger interoperability with the production call budget (paused for TASK 516) -> tasks/515-align-required-ledger-interoperability-budget.md
 - [!] 514 Bind CI benchmarks to the baseline source on the same runner (paused for TASK 515) -> tasks/514-bind-ci-benchmarks-to-baseline-source.md

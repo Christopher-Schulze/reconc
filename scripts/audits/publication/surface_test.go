@@ -517,12 +517,13 @@ func TestBenchmarkWorkflowRunsCompleteBoundedProfilePipeline(t *testing.T) {
 		if step.ID == "baseline" && !strings.Contains(step.Run, "baseline-commit --baseline scripts/benchmarks/baseline.json") {
 			t.Errorf("%s baseline output does not inspect the checked contract", path)
 		}
-		if strings.Contains(step.Run, "make benchmark-profile") {
+		if strings.Contains(step.Run, "record-pair") {
 			profileStep = true
 			if step.ContinueOnError {
 				t.Errorf("%s profile pipeline is allowed to fail", path)
 			}
-			if !strings.Contains(step.Run, "BENCHMARK_PROFILE_DIR=.build/benchmarks/profiles") {
+			if !strings.Contains(step.Run, "--profile-dir .build/benchmarks/profiles") ||
+				!strings.Contains(step.Run, "--profile-groups hook-worker-end-to-end,runtime-lockfile-decode,runtime-source-freshness,session-evidence-workloads") {
 				t.Errorf("%s profile pipeline does not keep profiles under the retained benchmark directory", path)
 			}
 		}
@@ -541,9 +542,8 @@ func TestBenchmarkWorkflowRunsCompleteBoundedProfilePipeline(t *testing.T) {
 		"baseline-commit --baseline scripts/benchmarks/baseline.json",
 		`printf 'commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"`,
 		"ref: ${{ steps.baseline.outputs.commit }}",
-		"go run ./scripts/benchmarks/history record --root .build/benchmark-baseline --output .build/benchmarks/runner-result.json",
+		"go run ./scripts/benchmarks/history record-pair --root . --baseline-root .build/benchmark-baseline --reference scripts/benchmarks/baseline.json --output .build/benchmarks/current.json --baseline-output .build/benchmarks/runner-result.json",
 		"baseline --reference scripts/benchmarks/baseline.json --result .build/benchmarks/runner-result.json --output .build/benchmarks/runner-baseline.json --refresh",
-		"make benchmark-profile",
 		"make benchmark-compare BENCHMARK_BASELINE=.build/benchmarks/runner-baseline.json",
 		"actions/upload-artifact@",
 	})

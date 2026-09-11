@@ -335,13 +335,17 @@ uses local `go test` processes only; it never starts a production profiling
 server. Override `BENCHMARK_PROFILE_GROUPS` or `BENCHMARK_PROFILE_DIR` when a
 different bounded workload set is needed.
 
-The `reconc-benchmarks` workflow runs this complete profile target on pull
+The `reconc-benchmarks` workflow runs this complete profile pipeline on pull
 requests, the weekly schedule, and manual dispatch on the pinned `macos-15`
 runner. It resolves the checked baseline's exact source commit and checks it
 out separately under the ignored build directory. The candidate's benchmark
-tool measures both source trees on that same runner and Go toolchain, then
-compares against a generated runner baseline with the unchanged checked
-tolerances. Source or parameter drift fails before comparison; hardware and
+tool's `record-pair` command measures both source trees in one process with the
+same inherited environment. For each package it alternates baseline/candidate
+order between samples, using the checked baseline's exact sample parameters;
+each source retains its existing CPU sentinel and statistics. Both clean source
+identities are rechecked after measurement. The workflow then compares against
+a generated runner baseline with the unchanged checked tolerances. Source or
+parameter drift fails before comparison; hardware and
 toolchain compatibility remain mandatory between the two new measurements.
 It keeps both results, the generated baseline, comparison, and profile directory
 under `.build/benchmarks/`, so the manifest, CPU, heap, blocking, mutex, and trace

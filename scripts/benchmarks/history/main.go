@@ -29,11 +29,13 @@ func main() {
 
 func run(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: history record|compare|baseline|baseline-commit [flags]")
+		return errors.New("usage: history record|record-pair|compare|baseline|baseline-commit [flags]")
 	}
 	switch args[0] {
 	case "record":
 		return runRecord(args[1:], stdout)
+	case "record-pair":
+		return runRecordPair(args[1:], stdout)
 	case "compare":
 		return runCompare(args[1:], stdout)
 	case "baseline":

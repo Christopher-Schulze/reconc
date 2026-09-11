@@ -81,7 +81,7 @@ func recordBenchmarksWithProfiles(root, goBinary string, parameters Parameters, 
 	return result, validateResult(result)
 }
 
-func runSuite(root, goBinary string, parameters Parameters) (map[string][]MetricSample, map[string][]MetricSample, error) {
+func benchmarkPackages() (map[string][]string, []string) {
 	byPackage := make(map[string][]string)
 	for _, group := range benchmarkSuite {
 		byPackage[group.Package] = append(byPackage[group.Package], group.Calibration)
@@ -89,14 +89,20 @@ func runSuite(root, goBinary string, parameters Parameters) (map[string][]Metric
 	}
 	packages := make([]string, 0, len(byPackage))
 	for packageName := range byPackage {
+		byPackage[packageName] = uniqueSorted(byPackage[packageName])
 		packages = append(packages, packageName)
 	}
 	sort.Strings(packages)
+	return byPackage, packages
+}
+
+func runSuite(root, goBinary string, parameters Parameters) (map[string][]MetricSample, map[string][]MetricSample, error) {
+	byPackage, packages := benchmarkPackages()
 	all := make(map[string][]MetricSample)
 	cpuCalibrations := make(map[string][]MetricSample, len(packages))
 	for _, packageName := range packages {
-		names := uniqueSorted(byPackage[packageName])
-		parsed, cpuSamples, err := runPackageBenchmarks(root, goBinary, packageName, names, parameters)
+		names := byPackage[packageName]
+		parsed, cpuSamples, err := runPackageBenchmarks(context.Background(), root, goBinary, packageName, names, parameters)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -111,9 +117,9 @@ func runSuite(root, goBinary string, parameters Parameters) (map[string][]Metric
 	return all, cpuCalibrations, nil
 }
 
-func runPackageBenchmarks(root, goBinary, packageName string, names []string, parameters Parameters) (map[string][]MetricSample, []MetricSample, error) {
+func runPackageBenchmarks(parent context.Context, root, goBinary, packageName string, names []string, parameters Parameters) (map[string][]MetricSample, []MetricSample, error) {
 	patterns := benchmarkPatterns(names)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	defer cancel()
 	all := make(map[string][]MetricSample, len(names))
 	cpuSamples := make([]MetricSample, 0, parameters.Count)
