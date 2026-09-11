@@ -455,7 +455,7 @@ func TestNativeAuthorityApprovalCannotUsePreDecisionCache(t *testing.T) {
 	if !cacheable {
 		t.Fatal("command payload was unexpectedly not cacheable before the guarded decision")
 	}
-	if err := writePreDecisionCacheForPayload(fixture.repo, payload, inputs.key, Result{ExitCode: 0}); err != nil {
+	if err := writePreDecisionCacheForPayload(fixture.repo, payload, inputs.key, Result{ExitCode: 0, decisionClass: preDecisionResultPass}); err != nil {
 		t.Fatal(err)
 	}
 	root, err := ResolveRepoRootRef(fixture.repo)

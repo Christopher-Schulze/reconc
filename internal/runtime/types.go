@@ -111,6 +111,14 @@ type CheckReport struct {
 	ViolationCount         int             `json:"violation_count"`
 	BlockingViolationCount int             `json:"blocking_violation_count"`
 	Violations             []Violation     `json:"violations"`
+	cacheableDecision      bool
+}
+
+// CacheableDecision reports whether the result came from a complete policy
+// evaluation without an operational failure being folded into a fail-closed
+// violation. Callers must still bind every external input before reuse.
+func (r *CheckReport) CacheableDecision() bool {
+	return r != nil && r.cacheableDecision
 }
 
 // NewEmptyReport returns a CheckReport pre-populated with the schema

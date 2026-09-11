@@ -8,31 +8,38 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
-	"reconc.dev/reconc/internal/compiler"
-	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/runtime"
 )
 
 const (
-	preDecisionCacheVersion       = "pre-decision-v3"
+	preDecisionCacheVersion       = "pre-decision-v4"
 	maxPreDecisionCacheBytes      = 16 * 1024
 	maxPreDecisionDiagnostic      = 8 * 1024
 	maxPreDecisionIdentityFile    = 8 * 1024 * 1024
-	maxPreDecisionDependencyPaths = 2048
 	maxPreDecisionDependencyBytes = 32 * 1024 * 1024
 	maxPreDecisionPathAncestors   = 256
 )
 
+type preDecisionResultClass string
+
+const (
+	preDecisionResultPass  preDecisionResultClass = "pass"
+	preDecisionResultBlock preDecisionResultClass = "block"
+)
+
 type preDecisionCache struct {
-	FormatVersion string `json:"format_version"`
-	Key           string `json:"key"`
-	ExitCode      int    `json:"exit_code"`
-	Stderr        string `json:"stderr,omitempty"`
+	FormatVersion string                 `json:"format_version"`
+	Key           string                 `json:"key"`
+	DecisionClass preDecisionResultClass `json:"decision_class"`
+	ExitCode      int                    `json:"exit_code"`
+	Stderr        string                 `json:"stderr,omitempty"`
 }
 
 // runPreDecisionResolvedWithEvaluatorAndStopCache reuses a decision only
@@ -85,23 +92,35 @@ func runPreDecisionResolvedWithEvaluatorAndStopCache(
 			}
 		}
 	}
-	cached, cachedOK := readPreDecisionCacheCandidate(root, payload)
 	evaluationInputs := inputs
-	if cacheable && cachedOK && cached.Key == inputs.key {
-		if current, ok := resamplePreDecisionInputsWithEvaluatorAndStopCache(root, payload, inputs, evaluator, stopCache); ok &&
-			inputs.identity.equal(current.identity) && cached.Key == current.key {
-			return adaptPreDecision(Result{ExitCode: cached.ExitCode, Stderr: cached.Stderr}, permission)
-		} else if ok {
-			evaluationInputs = current
+	if cacheable {
+		cached, cachedOK := readPreDecisionCacheCandidate(root, payload)
+		if cachedOK && cached.Key == inputs.key {
+			if current, ok := resamplePreDecisionInputsWithEvaluatorAndStopCache(root, payload, inputs, evaluator, stopCache); ok &&
+				inputs.identity.equal(current.identity) && cached.Key == current.key && current.cacheableAt(time.Now()) {
+				return adaptPreDecision(Result{
+					ExitCode: cached.ExitCode, Stderr: cached.Stderr, decisionClass: cached.DecisionClass,
+				}, permission)
+			} else if ok {
+				evaluationInputs = current
+			} else {
+				evaluationInputs.aliasSnapshot = gitAliasSnapshot{}
+			}
 		}
 	}
 
 	decision := runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(root, payload, evaluator, evaluationInputs.aliasSnapshot, stopCache)
-	if postInputs, ok := resamplePreDecisionInputsWithEvaluatorAndStopCache(root, payload, evaluationInputs, evaluator, stopCache); cacheable && ok &&
-		evaluationInputs.identity.equal(postInputs.identity) {
-		_ = writePreDecisionCacheForPayload(root, payload, postInputs.key, decision)
+	if cacheable && decision.decisionClass.cacheable() && evaluationInputs.cacheableAt(time.Now()) {
+		if postInputs, ok := resamplePreDecisionInputsWithEvaluatorAndStopCache(root, payload, evaluationInputs, evaluator, stopCache); ok &&
+			evaluationInputs.identity.equal(postInputs.identity) && postInputs.cacheableAt(time.Now()) {
+			_ = writePreDecisionCacheForPayload(root, payload, postInputs.key, decision)
+		}
 	}
 	return adaptPreDecision(decision, permission)
+}
+
+func (class preDecisionResultClass) cacheable() bool {
+	return class == preDecisionResultPass || class == preDecisionResultBlock
 }
 
 func preDecisionRequiresPolicy(payload *HookPayload) bool {
@@ -140,6 +159,18 @@ type preDecisionInputs struct {
 	identity      preDecisionIdentity
 	key           string
 	aliasSnapshot gitAliasSnapshot
+	validUntil    time.Time
+	metrics       preDecisionSampleMetrics
+}
+
+type preDecisionSampleMetrics struct {
+	DependencyPaths   int
+	ContentHashPasses int
+	ContentHashBytes  int64
+}
+
+func (inputs preDecisionInputs) cacheableAt(now time.Time) bool {
+	return inputs.validUntil.IsZero() || now.Before(inputs.validUntil)
 }
 
 type preDecisionIdentity struct {
@@ -156,8 +187,9 @@ type preDecisionIdentity struct {
 // view consumed by the pre-hook. The snapshot is reduced to a digest before it
 // enters the cache key so a large evidence history cannot enlarge cache files.
 type preDecisionDependencySnapshot struct {
-	Paths    []preDecisionPathIdentity `json:"paths"`
-	Evidence string                    `json:"evidence"`
+	Paths             []preDecisionPathIdentity `json:"paths"`
+	Evidence          string                    `json:"evidence"`
+	ScriptEnvironment string                    `json:"script_environment,omitempty"`
 }
 
 type preDecisionPathIdentity struct {
@@ -167,18 +199,24 @@ type preDecisionPathIdentity struct {
 }
 
 type preDecisionPathObservation struct {
-	Exists             bool                             `json:"exists"`
-	Mode               uint32                           `json:"mode"`
-	Size               int64                            `json:"size"`
-	ModTime            int64                            `json:"mod_time"`
-	Generation         string                           `json:"generation,omitempty"`
-	ResolvedMode       uint32                           `json:"resolved_mode,omitempty"`
-	ResolvedSize       int64                            `json:"resolved_size,omitempty"`
-	ResolvedModTime    int64                            `json:"resolved_mod_time,omitempty"`
-	ResolvedGeneration string                           `json:"resolved_generation,omitempty"`
-	Content            string                           `json:"content,omitempty"`
-	Missing            []string                         `json:"missing,omitempty"`
-	Ancestors          []preDecisionAncestorObservation `json:"ancestors,omitempty"`
+	Exists             bool                              `json:"exists"`
+	Mode               uint32                            `json:"mode"`
+	Size               int64                             `json:"size"`
+	ModTime            int64                             `json:"mod_time"`
+	Generation         string                            `json:"generation,omitempty"`
+	ResolvedMode       uint32                            `json:"resolved_mode,omitempty"`
+	ResolvedSize       int64                             `json:"resolved_size,omitempty"`
+	ResolvedModTime    int64                             `json:"resolved_mod_time,omitempty"`
+	ResolvedGeneration string                            `json:"resolved_generation,omitempty"`
+	Content            string                            `json:"content,omitempty"`
+	Missing            []string                          `json:"missing,omitempty"`
+	Ancestors          []preDecisionAncestorObservation  `json:"ancestors,omitempty"`
+	Freshness          []preDecisionFreshnessObservation `json:"freshness,omitempty"`
+}
+
+type preDecisionFreshnessObservation struct {
+	Hours   int  `json:"hours"`
+	Expired bool `json:"expired"`
 }
 
 type preDecisionAncestorObservation struct {
@@ -298,21 +336,23 @@ func capturePreDecisionObservedIdentityWithEvaluatorAndStopCache(
 	if !ok {
 		return false
 	}
-	policySourceIdentity := ""
 	if evaluator == nil {
-		policySourceIdentity, ok = preDecisionPolicySourceIdentity(root)
-		if !ok {
-			return false
-		}
-	} else {
-		var err error
-		_, policySourceIdentity, err = evaluator.CurrentCompiledPolicyEvaluator(root)
-		if err != nil || len(policySourceIdentity) != sha256.Size*2 {
-			return false
-		}
+		evaluator = runtime.NewEvaluator()
+	}
+	compiled, policySourceIdentity, err := evaluator.CurrentCompiledPolicyEvaluator(root)
+	if err != nil || len(policySourceIdentity) != sha256.Size*2 {
+		return false
 	}
 	stateIdentity, state, evidenceIdentity, ok := preDecisionSessionDependenciesWithStopCache(root, payload.SessionID, stopCache)
 	if !ok {
+		return false
+	}
+	evaluationInputs, route, ok := preDecisionEvaluationInputs(root, payload, state)
+	if !ok {
+		return false
+	}
+	dependencyPlan, err := compiled.PreDecisionDependencies(root, evaluationInputs, route)
+	if err != nil || !dependencyPlan.Cacheable {
 		return false
 	}
 	taintIdentity, ok := hashPreDecisionFile(evidenceTaintPath(root), true)
@@ -322,11 +362,13 @@ func capturePreDecisionObservedIdentityWithEvaluatorAndStopCache(
 	inputs.identity.policyLock = policyIdentity
 	inputs.identity.policySource = policySourceIdentity
 	inputs.identity.session = stateIdentity
-	dependencies, ok := capturePreDecisionDependencySnapshot(root, payload, state, evidenceIdentity)
+	dependencies, validUntil, metrics, ok := capturePreDecisionDependencySnapshot(root, payload, state, evidenceIdentity, dependencyPlan)
 	if !ok {
 		return false
 	}
 	inputs.identity.dependencies = dependencies.identity()
+	inputs.validUntil = validUntil
+	inputs.metrics = metrics
 	inputs.identity.taint = taintIdentity
 	inputs.identity.alias = "not-applicable"
 	if payload.IsCommandTool() {
@@ -338,6 +380,31 @@ func capturePreDecisionObservedIdentityWithEvaluatorAndStopCache(
 		inputs.identity.alias = aliasIdentity
 	}
 	return true
+}
+
+func preDecisionEvaluationInputs(
+	root string,
+	payload *HookPayload,
+	state SessionState,
+) (runtime.ExecutionInputs, runtime.PreDecisionRoute, bool) {
+	if payload == nil {
+		return runtime.Empty(), 0, false
+	}
+	readPaths := filterRepoScopedReadPaths(root, state.ReadPaths)
+	if payload.IsCommandTool() {
+		return executionInputs(readPaths, state.WritePaths, state.WriteEpochs, []string{payload.Command()}, state.CommandResults, state.Claims),
+			runtime.PreDecisionRouteCommand, true
+	}
+	if !payload.IsWriteTool() {
+		return runtime.Empty(), 0, false
+	}
+	pending := withoutAgentMemoryPaths(root, payload.FilePaths())
+	if len(pending) == 0 {
+		return runtime.Empty(), 0, false
+	}
+	trialWrites := append(append([]string(nil), state.WritePaths...), pending...)
+	return executionInputs(readPaths, trialWrites, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims),
+		runtime.PreDecisionRouteWrite, true
 }
 
 func preDecisionSessionDependenciesWithStopCache(root, sessionID string, stopCache *StopDecisionCache) (string, SessionState, string, bool) {
@@ -390,84 +457,169 @@ func capturePreDecisionDependencySnapshot(
 	payload *HookPayload,
 	state SessionState,
 	evidence string,
-) (preDecisionDependencySnapshot, bool) {
-	paths := make([]string, 0, len(state.ReadPaths)+len(state.WritePaths)+4)
-	paths = append(paths, filterRepoScopedReadPaths(root, state.ReadPaths)...)
-	paths = append(paths, state.WritePaths...)
+	plan runtime.PreDecisionDependencyPlan,
+) (preDecisionDependencySnapshot, time.Time, preDecisionSampleMetrics, bool) {
+	paths := make([]preDecisionDependencyRequest, 0, len(state.ReadPaths)+len(state.WritePaths)+len(plan.Dependencies)+4)
+	for _, path := range filterRepoScopedReadPaths(root, state.ReadPaths) {
+		paths = append(paths, preDecisionDependencyRequest{path: path})
+	}
+	for _, path := range state.WritePaths {
+		paths = append(paths, preDecisionDependencyRequest{path: path})
+	}
 	if payload != nil && payload.IsWriteTool() {
-		paths = append(paths, withoutAgentMemoryPaths(root, payload.FilePaths())...)
+		for _, path := range withoutAgentMemoryPaths(root, payload.FilePaths()) {
+			paths = append(paths, preDecisionDependencyRequest{path: path})
+		}
+	}
+	for _, dependency := range plan.Dependencies {
+		paths = append(paths, preDecisionDependencyRequest{
+			path: dependency.Path, freshnessHours: dependency.FreshnessHours, contentBound: dependency.ContentBound,
+		})
 	}
 	paths = dedupePreDecisionPaths(paths)
-	if len(paths) > maxPreDecisionDependencyPaths {
-		return preDecisionDependencySnapshot{}, false
+	if len(paths) > runtime.MaxPreDecisionDependencyPaths {
+		return preDecisionDependencySnapshot{}, time.Time{}, preDecisionSampleMetrics{}, false
 	}
 	snapshot := preDecisionDependencySnapshot{
 		Paths: make([]preDecisionPathIdentity, 0, len(paths)), Evidence: evidence,
+		ScriptEnvironment: plan.ScriptEnvironmentIdentity,
 	}
 	var totalBytes int64
-	for _, raw := range paths {
-		identity, bytesRead, ok := observePreDecisionPath(root, raw)
+	var validUntil time.Time
+	metrics := preDecisionSampleMetrics{DependencyPaths: len(paths)}
+	now := time.Now()
+	for _, dependency := range paths {
+		identity, bytesRead, contentHashPasses, dependencyValidUntil, ok := observePreDecisionPath(root, dependency, now)
 		if !ok || totalBytes > maxPreDecisionDependencyBytes-bytesRead {
-			return preDecisionDependencySnapshot{}, false
+			return preDecisionDependencySnapshot{}, time.Time{}, preDecisionSampleMetrics{}, false
 		}
 		totalBytes += bytesRead
+		metrics.ContentHashPasses += contentHashPasses
+		metrics.ContentHashBytes += bytesRead
 		snapshot.Paths = append(snapshot.Paths, identity)
+		if !dependencyValidUntil.IsZero() && (validUntil.IsZero() || dependencyValidUntil.Before(validUntil)) {
+			validUntil = dependencyValidUntil
+		}
 	}
 	if snapshot.identity() == "" {
-		return preDecisionDependencySnapshot{}, false
+		return preDecisionDependencySnapshot{}, time.Time{}, preDecisionSampleMetrics{}, false
 	}
-	return snapshot, true
+	return snapshot, validUntil, metrics, true
 }
 
-func dedupePreDecisionPaths(paths []string) []string {
-	seen := make(map[string]struct{}, len(paths))
-	result := make([]string, 0, len(paths))
-	for _, path := range paths {
-		if path == "" {
+type preDecisionDependencyRequest struct {
+	path           string
+	freshnessHours []int
+	contentBound   bool
+}
+
+func dedupePreDecisionPaths(paths []preDecisionDependencyRequest) []preDecisionDependencyRequest {
+	indexes := make(map[string]int, len(paths))
+	result := make([]preDecisionDependencyRequest, 0, len(paths))
+	for _, dependency := range paths {
+		if dependency.path == "" {
 			continue
 		}
-		if _, exists := seen[path]; exists {
+		index, exists := indexes[dependency.path]
+		if exists {
+			result[index].contentBound = result[index].contentBound || dependency.contentBound
+			result[index].freshnessHours = mergePreDecisionFreshness(result[index].freshnessHours, dependency.freshnessHours)
 			continue
 		}
-		seen[path] = struct{}{}
-		result = append(result, path)
+		indexes[dependency.path] = len(result)
+		dependency.freshnessHours = mergePreDecisionFreshness(nil, dependency.freshnessHours)
+		result = append(result, dependency)
 	}
 	return result
 }
 
-func observePreDecisionPath(root, raw string) (preDecisionPathIdentity, int64, bool) {
+func mergePreDecisionFreshness(current, added []int) []int {
+	seen := make(map[int]struct{}, len(current)+len(added))
+	for _, value := range current {
+		if value > 0 {
+			seen[value] = struct{}{}
+		}
+	}
+	for _, value := range added {
+		if value > 0 {
+			seen[value] = struct{}{}
+		}
+	}
+	merged := make([]int, 0, len(seen))
+	for value := range seen {
+		merged = append(merged, value)
+	}
+	sort.Ints(merged)
+	return merged
+}
+
+func observePreDecisionPath(
+	root string,
+	dependency preDecisionDependencyRequest,
+	now time.Time,
+) (preDecisionPathIdentity, int64, int, time.Time, bool) {
+	raw := dependency.path
 	candidate := preDecisionPathCandidate(root, raw)
 	resolved, err := pathidentity.ResolveProspective(candidate)
 	if err != nil {
-		return preDecisionPathIdentity{}, 0, false
+		return preDecisionPathIdentity{}, 0, 0, time.Time{}, false
 	}
 	ancestors, missing, ok := capturePreDecisionAncestors(root, candidate)
 	if !ok {
-		return preDecisionPathIdentity{}, 0, false
+		return preDecisionPathIdentity{}, 0, 0, time.Time{}, false
 	}
 	info, err := os.Lstat(candidate)
 	if errors.Is(err, os.ErrNotExist) {
-		return observePreDecisionMissingPath(root, raw, candidate, resolved, ancestors, missing)
+		identity, bytesRead, observed := observePreDecisionMissingPath(root, raw, candidate, resolved, ancestors, missing)
+		return identity, bytesRead, 0, time.Time{}, observed
 	}
 	if err != nil {
-		return preDecisionPathIdentity{}, 0, false
+		return preDecisionPathIdentity{}, 0, 0, time.Time{}, false
 	}
 	generation, reliable := platformFileGeneration(candidate, info)
 	if !reliable {
-		return preDecisionPathIdentity{}, 0, false
+		return preDecisionPathIdentity{}, 0, 0, time.Time{}, false
 	}
 	observation, bytesRead, ok := observePreDecisionExistingPath(candidate, resolved, info, generation, ancestors, missing)
-	if !ok {
-		return preDecisionPathIdentity{}, 0, false
+	if !ok || dependency.contentBound && observation.Exists && observation.ResolvedMode&uint32(os.ModeType) != 0 {
+		return preDecisionPathIdentity{}, 0, 0, time.Time{}, false
 	}
+	validUntil := applyPreDecisionFreshness(&observation, dependency.freshnessHours, now)
 	body, err := json.Marshal(observation)
 	if err != nil {
-		return preDecisionPathIdentity{}, 0, false
+		return preDecisionPathIdentity{}, 0, 0, time.Time{}, false
 	}
 	if !preDecisionPathStable(root, candidate, resolved, &observation, ancestors, missing) {
-		return preDecisionPathIdentity{}, 0, false
+		return preDecisionPathIdentity{}, 0, 0, time.Time{}, false
 	}
-	return preDecisionPathIdentity{Raw: raw, Resolved: resolved, Observation: hashBytes(body)}, bytesRead, true
+	contentHashPasses := 0
+	if observation.Content != "" {
+		contentHashPasses = 1
+	}
+	return preDecisionPathIdentity{Raw: raw, Resolved: resolved, Observation: hashBytes(body)}, bytesRead, contentHashPasses, validUntil, true
+}
+
+func applyPreDecisionFreshness(observation *preDecisionPathObservation, hours []int, now time.Time) time.Time {
+	if observation == nil {
+		return time.Time{}
+	}
+	if !observation.Exists || observation.ResolvedMode&uint32(os.ModeType) != 0 {
+		return time.Time{}
+	}
+	modified := time.Unix(0, observation.ResolvedModTime)
+	var earliest time.Time
+	for _, value := range hours {
+		if value <= 0 {
+			continue
+		}
+		deadline := modified.Add(time.Duration(value) * time.Hour)
+		expired := now.After(deadline)
+		observation.Freshness = append(observation.Freshness, preDecisionFreshnessObservation{Hours: value, Expired: expired})
+		if !expired && (earliest.IsZero() || deadline.Before(earliest)) {
+			earliest = deadline
+		}
+	}
+	return earliest
 }
 
 func preDecisionPathCandidate(root, raw string) string {
@@ -657,18 +809,6 @@ func resamplePreDecisionInputsWithEvaluatorAndStopCache(
 	return inputs, true
 }
 
-func preDecisionPolicySourceIdentity(root string) (string, bool) {
-	bundle, err := ingest.LoadPolicySources(root)
-	if err != nil {
-		return "", false
-	}
-	digest, err := compiler.ComputeSourceDigest(bundle)
-	if err != nil || len(digest) != sha256.Size*2 {
-		return "", false
-	}
-	return digest, true
-}
-
 func preDecisionSessionIdentity(root, sessionID string) (string, bool) {
 	path := sessionStatePath(root, sessionID)
 	identity, ok := hashPreDecisionFile(path, true)
@@ -734,10 +874,10 @@ func readPreDecisionCacheForInputs(
 		return Result{}, false
 	}
 	current, ok := resamplePreDecisionInputs(root, payload, expected)
-	if !ok || !expected.identity.equal(current.identity) {
+	if !ok || !expected.identity.equal(current.identity) || !current.cacheableAt(time.Now()) {
 		return Result{}, false
 	}
-	return Result{ExitCode: cached.ExitCode, Stderr: cached.Stderr}, true
+	return Result{ExitCode: cached.ExitCode, Stderr: cached.Stderr, decisionClass: cached.DecisionClass}, true
 }
 
 func readPreDecisionCacheCandidate(root string, payload *HookPayload) (preDecisionCache, bool) {
@@ -751,14 +891,17 @@ func readPreDecisionCacheCandidate(root string, payload *HookPayload) (preDecisi
 	}
 	var cached preDecisionCache
 	if json.Unmarshal(body, &cached) != nil || cached.FormatVersion != preDecisionCacheVersion || len(cached.Key) != sha256.Size*2 ||
-		(cached.ExitCode != 0 && cached.ExitCode != 2) || len(cached.Stderr) > maxPreDecisionDiagnostic {
+		!cached.DecisionClass.cacheable() || cached.DecisionClass == preDecisionResultPass && cached.ExitCode != 0 ||
+		cached.DecisionClass == preDecisionResultBlock && cached.ExitCode != 2 || len(cached.Stderr) > maxPreDecisionDiagnostic {
 		return preDecisionCache{}, false
 	}
 	return cached, true
 }
 
 func writePreDecisionCacheForPayload(root string, payload *HookPayload, key string, decision Result) error {
-	if decision.ExitCode != 0 && decision.ExitCode != 2 || decision.Stdout != "" || len(decision.Stderr) > maxPreDecisionDiagnostic {
+	if !decision.decisionClass.cacheable() || decision.decisionClass == preDecisionResultPass && decision.ExitCode != 0 ||
+		decision.decisionClass == preDecisionResultBlock && decision.ExitCode != 2 || decision.Stdout != "" ||
+		decision.Err != nil || len(decision.Stderr) > maxPreDecisionDiagnostic {
 		return nil
 	}
 	path := preDecisionCachePathForPayload(root, payload)
@@ -768,6 +911,7 @@ func writePreDecisionCacheForPayload(root string, payload *HookPayload, key stri
 	body, err := json.MarshalIndent(preDecisionCache{
 		FormatVersion: preDecisionCacheVersion,
 		Key:           key,
+		DecisionClass: decision.decisionClass,
 		ExitCode:      decision.ExitCode,
 		Stderr:        decision.Stderr,
 	}, "", "  ")

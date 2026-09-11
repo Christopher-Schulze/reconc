@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
+	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/runtime"
 )
 
@@ -400,13 +402,14 @@ func BenchmarkPreDecisionCacheHitIdentitySampling(b *testing.B) {
 	if !ok {
 		b.Fatal("pre-decision identity is not cacheable")
 	}
-	if err := writePreDecisionCacheForPayload(root, payload, initial.key, Result{ExitCode: 0}); err != nil {
+	if err := writePreDecisionCacheForPayload(root, payload, initial.key, Result{ExitCode: 0, decisionClass: preDecisionResultPass}); err != nil {
 		b.Fatal(err)
 	}
 	b.Run("post-cache-read-single-sample", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ReportMetric(1, "filesystem-identity-samples/op")
 		b.ReportMetric(1, "identity-hash-passes/op")
+		reportPreDecisionSampleMetrics(b, initial.metrics, 1)
 		for range b.N {
 			cached, ok := readPreDecisionCacheCandidate(root, payload)
 			if !ok {
@@ -422,6 +425,7 @@ func BenchmarkPreDecisionCacheHitIdentitySampling(b *testing.B) {
 		b.ReportAllocs()
 		b.ReportMetric(2, "filesystem-identity-samples/op")
 		b.ReportMetric(2, "identity-hash-passes/op")
+		reportPreDecisionSampleMetrics(b, initial.metrics, 2)
 		for range b.N {
 			baseline, ok := preDecisionInputsForPayload(root, payload)
 			if !ok {
@@ -454,12 +458,125 @@ func BenchmarkPreDecisionEvaluatorSnapshotReuse(b *testing.B) {
 	}
 	b.ReportAllocs()
 	b.ReportMetric(1, "validated-plan-samples/op")
+	reportPreDecisionSampleMetrics(b, initial.metrics, 1)
 	for range b.N {
 		resampled, ok := resamplePreDecisionInputsWithEvaluator(root, payload, initial, evaluator)
 		if !ok || !initial.identity.equal(resampled.identity) {
 			b.Fatal("evaluator-backed identity changed without an input mutation")
 		}
 	}
+}
+
+func BenchmarkPreDecisionDependencySetEndToEnd(b *testing.B) {
+	cases := []struct {
+		name         string
+		dependencies int
+	}{
+		{name: "small", dependencies: 1},
+		{name: "maximum-bounded", dependencies: runtime.MaxPreDecisionDependencyPaths - 1},
+	}
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			_, root, payload := setupPreDecisionDependencyBenchmark(b, tc.dependencies)
+			evaluator := runtime.NewEvaluator()
+			parsed, err := ParsePayload(payload)
+			if err != nil {
+				b.Fatal(err)
+			}
+			inputs, ok := preDecisionInputsForPayloadWithEvaluator(root.Path(), parsed, evaluator)
+			if !ok || inputs.metrics.DependencyPaths != tc.dependencies+1 {
+				b.Fatalf("dependency identity = %+v cacheable=%t, want %d total paths", inputs.metrics, ok, tc.dependencies+1)
+			}
+
+			b.Run("hit", func(b *testing.B) {
+				if result := RunHookRequestWithEvaluator(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload, evaluator); result.ExitCode != 0 {
+					b.Fatalf("warm pre-decision failed: %+v", result)
+				}
+				b.ReportAllocs()
+				b.ResetTimer()
+				for range b.N {
+					if result := RunHookRequestWithEvaluator(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload, evaluator); result.ExitCode != 0 {
+						b.Fatalf("cached pre-decision failed: %+v", result)
+					}
+				}
+				b.ReportMetric(2, "identity-samples/op")
+				reportPreDecisionSampleMetrics(b, inputs.metrics, 2)
+			})
+
+			b.Run("miss", func(b *testing.B) {
+				payloads := make([][]byte, b.N)
+				for index := range payloads {
+					payloads[index] = []byte(`{"session_id":"dependency-benchmark","tool_use_id":"miss-` + strconv.Itoa(index) + `","tool_name":"Bash","tool_input":{"command":"danger"}}`)
+				}
+				b.ReportAllocs()
+				b.ResetTimer()
+				for index := range b.N {
+					if result := RunHookRequestWithEvaluator(root, HookHandlerPreToolUse, "claude-pre-tool-use", payloads[index], evaluator); result.ExitCode != 0 {
+						b.Fatalf("uncached pre-decision failed: %+v", result)
+					}
+				}
+				b.ReportMetric(2, "identity-samples/op")
+				reportPreDecisionSampleMetrics(b, inputs.metrics, 2)
+			})
+		})
+	}
+}
+
+func reportPreDecisionSampleMetrics(b *testing.B, metrics preDecisionSampleMetrics, samples int) {
+	b.Helper()
+	b.ReportMetric(float64(metrics.DependencyPaths), "dependency-paths/sample")
+	b.ReportMetric(float64(metrics.ContentHashPasses*samples), "content-hash-passes/op")
+	b.ReportMetric(float64(metrics.ContentHashBytes*int64(samples)), "content-hash-bytes/op")
+}
+
+func setupPreDecisionDependencyBenchmark(b *testing.B, dependencyCount int) (string, ResolvedRepoRoot, []byte) {
+	b.Helper()
+	repo := setupStopBenchmarkRepo(b)
+	var policy strings.Builder
+	policy.WriteString("rules:\n")
+	for ruleIndex, dependencyIndex := 0, 0; dependencyIndex < dependencyCount; ruleIndex++ {
+		policy.WriteString("  - id: dependency-benchmark-")
+		policy.WriteString(strconv.Itoa(ruleIndex))
+		policy.WriteString("\n    kind: any_of\n    when_paths: ['src/**']\n    checks:\n      - kind: forbid_command\n        commands: ['danger']\n")
+		for ruleDependencyIndex := 0; ruleDependencyIndex < 255 && dependencyIndex < dependencyCount; ruleDependencyIndex++ {
+			path := fmt.Sprintf("proof/%04d.txt", dependencyIndex)
+			policy.WriteString("      - kind: require_evidence\n        file: '")
+			policy.WriteString(path)
+			policy.WriteString("'\n        must_exist: true\n")
+			fullPath := filepath.Join(repo, filepath.FromSlash(path))
+			if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+				b.Fatal(err)
+			}
+			if err := os.WriteFile(fullPath, []byte("x\n"), 0o644); err != nil {
+				b.Fatal(err)
+			}
+			dependencyIndex++
+		}
+		policy.WriteString("    mode: block\n    message: dependency benchmark\n")
+	}
+	if err := os.WriteFile(filepath.Join(repo, "policies", "rules.yml"), []byte(policy.String()), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "benchmark"); err != nil {
+		b.Fatalf("compile dependency benchmark policy: %v", err)
+	}
+	if _, err := InitializeSessionState(repo, "dependency-benchmark"); err != nil {
+		b.Fatal(err)
+	}
+	if _, err := MutateSessionState(repo, "dependency-benchmark", func(state SessionState) SessionState {
+		return AppendWritePath(state, "src/a.go")
+	}); err != nil {
+		b.Fatal(err)
+	}
+	if _, err := EnsureSessionState(repo, "dependency-benchmark"); err != nil {
+		b.Fatal(err)
+	}
+	root, err := ResolveRepoRootRef(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	payload := []byte(`{"session_id":"dependency-benchmark","tool_use_id":"hit","tool_name":"Bash","tool_input":{"command":"danger"}}`)
+	return repo, root, payload
 }
 
 func BenchmarkPreDecisionIrrelevantRoute(b *testing.B) {

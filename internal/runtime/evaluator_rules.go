@@ -62,6 +62,7 @@ func evaluateRuleUnbounded(ctx *evalContext, rule *policy.Rule, defaultMode poli
 	// A malformed scope_paths in the lockfile must NOT neutralise a rule.
 	matched, err := ruleScopeMatchesWithMatchers(ctx.matchers, rule, inputs)
 	if err != nil {
+		ctx.operationalFailure = true
 		return &Violation{
 			RuleID:            rule.ID,
 			Kind:              rule.Kind,
@@ -250,6 +251,7 @@ func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 		case scriptOutcomeBlock:
 			failures.add(fmt.Sprintf("[%s] script %s blocked: %s", mc.path, scriptPath, evaluation.detail))
 		case scriptOutcomeError:
+			ctx.operationalFailure = true
 			failures.add(fmt.Sprintf("[%s] script %s error: %s", mc.path, scriptPath, evaluation.detail))
 		}
 	}

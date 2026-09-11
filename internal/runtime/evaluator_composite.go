@@ -46,6 +46,7 @@ func evalAllOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inp
 				if !errors.As(err, &evalErr) {
 					return nil, err
 				}
+				ctx.operationalFailure = true
 				ok, reason = false, evalErr.reason
 			}
 			if !ok {
@@ -75,6 +76,7 @@ func evalAnyOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inp
 				if !errors.As(err, &evalErr) {
 					return nil, err
 				}
+				ctx.operationalFailure = true
 				ok, reason = false, evalErr.reason
 			}
 			if ok {
@@ -111,6 +113,7 @@ func evalNot(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, input
 			if !errors.As(err, &evalErr) {
 				return nil, err
 			}
+			ctx.operationalFailure = true
 			// An inner check that could not be evaluated (missing or
 			// crashing script) must fail closed: treating it as "did
 			// not pass" would make `not` succeed on broken tooling.
@@ -191,6 +194,7 @@ func evalCheck(ctx *evalContext, c policy.Check, captures map[string]string, inp
 	case policy.KindRequireScript:
 		return evalCheckRequireScript(ctx, c, captures, inputs)
 	}
+	ctx.operationalFailure = true
 	return false, "unsupported check kind: " + string(c.Kind), nil
 }
 
@@ -223,6 +227,7 @@ func evalCheckRequireScript(ctx *evalContext, c policy.Check, captures map[strin
 	case scriptOutcomeBlock:
 		return false, fmt.Sprintf("script %s blocked: %s", c.Script, evaluation.detail), nil
 	case scriptOutcomeError:
+		ctx.operationalFailure = true
 		return false, "", &checkEvalError{reason: fmt.Sprintf("script %s error: %s", c.Script, evaluation.detail)}
 	}
 	return false, "", &checkEvalError{reason: fmt.Sprintf("script %s returned an unclassified outcome", c.Script)}

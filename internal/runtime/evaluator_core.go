@@ -16,20 +16,21 @@ import (
 // evalContext owns the root-bound path state and evaluation-local matcher,
 // command, and evidence caches shared across one policy evaluation.
 type evalContext struct {
-	lifecycle        context.Context
-	repoRoot         string
-	paths            *evaluationPathState
-	rawCommands      []string
-	currentCommands  []string
-	preCommand       bool
-	preWrite         bool
-	matchers         *runtimePathMatchers
-	templateMatchers *runtimeTemplateMatchers
-	commandCache     *commandInvocationCache
-	commandEvidence  *commandEvidenceIndex
-	evidenceCache    *evidenceSnapshotCache
-	evidenceMemo     *evidenceMatchMemo
-	contextMemo      *matchContextMemo
+	lifecycle          context.Context
+	repoRoot           string
+	paths              *evaluationPathState
+	rawCommands        []string
+	currentCommands    []string
+	preCommand         bool
+	preWrite           bool
+	matchers           *runtimePathMatchers
+	templateMatchers   *runtimeTemplateMatchers
+	commandCache       *commandInvocationCache
+	commandEvidence    *commandEvidenceIndex
+	evidenceCache      *evidenceSnapshotCache
+	evidenceMemo       *evidenceMatchMemo
+	contextMemo        *matchContextMemo
+	operationalFailure bool
 }
 
 func (ctx *evalContext) lifecycleContext() context.Context {
@@ -345,6 +346,7 @@ func (e *Evaluator) AssertRuleByIDContext(lifecycle context.Context, startPath, 
 	}
 	report.Finalize()
 	report.NextAction = nextActionForViolations(report.Violations)
+	report.cacheableDecision = !ctx.operationalFailure
 	return &report, nil
 }
 
@@ -544,6 +546,7 @@ func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root 
 
 	report.Finalize()
 	report.NextAction = nextActionForViolations(report.Violations)
+	report.cacheableDecision = !ctx.operationalFailure
 	return &report, nil
 }
 

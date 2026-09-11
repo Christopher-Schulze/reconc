@@ -1,10 +1,14 @@
 package agentsession
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/runtime"
 )
 
@@ -262,5 +266,369 @@ func TestWorkerPreDecisionHooksReuseVerifiedEvidencePrefix(t *testing.T) {
 	}
 	if _, ok := cache.verifiedEvidencePrefix(root.Path(), otherSessionID); !ok {
 		t.Fatal("corrupting one session evicted another session's verified prefix")
+	}
+}
+
+func TestPreDecisionCacheBindsReachedEvidenceContentWithEqualMetadata(t *testing.T) {
+	repo, root, payload := setupPreDecisionCommandDependencyRepo(t, `rules:
+  - id: evidence-command
+    kind: any_of
+    when_paths: ['src/**']
+    checks:
+      - kind: forbid_command
+        commands: ['danger']
+      - kind: require_evidence
+        file: 'proof.txt'
+        must_contain: ['allow']
+    mode: block
+    message: evidence gate
+`)
+	path := filepath.Join(repo, "proof.txt")
+	writePreDecisionDependencyFile(t, path, []byte("allow\n"), 0o644)
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 0 || result.decisionClass != preDecisionResultPass {
+		t.Fatalf("initial evidence decision = %+v class=%q", result, result.decisionClass)
+	}
+	assertPreDecisionCacheExists(t, root.Path(), payload)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePreDecisionDependencyFile(t, path, []byte("block\n"), 0o644)
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "evidence-command") {
+		t.Fatalf("equal-metadata evidence mutation reused stale pass: %+v", result)
+	}
+}
+
+func TestPreDecisionCacheExpiresReachedFreshFile(t *testing.T) {
+	repo, root, payload := setupPreDecisionCommandDependencyRepo(t, `rules:
+  - id: freshness-command
+    kind: any_of
+    when_paths: ['src/**']
+    checks:
+      - kind: forbid_command
+        commands: ['danger']
+      - kind: require_fresh_file
+        path: 'status.txt'
+        max_age_hours: 1
+    mode: block
+    message: freshness gate
+`)
+	path := filepath.Join(repo, "status.txt")
+	writePreDecisionDependencyFile(t, path, []byte("current\n"), 0o644)
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 0 {
+		t.Fatalf("initial freshness decision = %+v", result)
+	}
+	assertPreDecisionCacheExists(t, root.Path(), payload)
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "freshness-command") {
+		t.Fatalf("expired fresh-file dependency reused stale pass: %+v", result)
+	}
+}
+
+func TestPreDecisionCacheBindsReachedScriptAndDeclaredInput(t *testing.T) {
+	repo, root, payload := setupPreDecisionCommandDependencyRepo(t, `rules:
+  - id: script-command
+    kind: any_of
+    when_paths: ['src/**']
+    checks:
+      - kind: forbid_command
+        commands: ['danger']
+      - kind: require_script
+        script: 'scripts/check.sh'
+        cache_inputs: ['build/gate.txt']
+    mode: block
+    message: script gate
+`)
+	writePreDecisionDependencyFile(t, filepath.Join(repo, "scripts", "check.sh"), []byte("#!/bin/sh\nif grep -qx allow build/gate.txt; then exit 0; fi\nexit 2\n"), 0o755)
+	input := filepath.Join(repo, "build", "gate.txt")
+	writePreDecisionDependencyFile(t, input, []byte("allow\n"), 0o644)
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 0 {
+		t.Fatalf("initial script decision = %+v", result)
+	}
+	assertPreDecisionCacheExists(t, root.Path(), payload)
+	info, err := os.Stat(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePreDecisionDependencyFile(t, input, []byte("block\n"), 0o644)
+	if err := os.Chtimes(input, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "script-command") {
+		t.Fatalf("declared script-input mutation reused stale pass: %+v", result)
+	}
+}
+
+func TestPreDecisionCacheBindsReachedScriptContent(t *testing.T) {
+	repo, root, payload := setupPreDecisionCommandDependencyRepo(t, `rules:
+  - id: script-content
+    kind: any_of
+    when_paths: ['src/**']
+    checks:
+      - kind: forbid_command
+        commands: ['danger']
+      - kind: require_script
+        script: 'scripts/check.sh'
+        cache_inputs: ['build/gate.txt']
+    mode: block
+    message: script content gate
+`)
+	script := filepath.Join(repo, "scripts", "check.sh")
+	writePreDecisionDependencyFile(t, filepath.Join(repo, "build", "gate.txt"), []byte("stable\n"), 0o644)
+	writePreDecisionDependencyFile(t, script, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 0 {
+		t.Fatalf("initial script decision = %+v", result)
+	}
+	assertPreDecisionCacheExists(t, root.Path(), payload)
+	writePreDecisionDependencyFile(t, script, []byte("#!/bin/sh\nexit 2\n"), 0o755)
+	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "script-content") {
+		t.Fatalf("changed script content reused stale pass: %+v", result)
+	}
+}
+
+func TestPreDecisionCacheBindsReachedScriptEnvironment(t *testing.T) {
+	t.Setenv("LANG", "reconc-pass")
+	repo, root, payload := setupPreDecisionCommandDependencyRepo(t, `rules:
+  - id: script-environment
+    kind: any_of
+    when_paths: ['src/**']
+    checks:
+      - kind: forbid_command
+        commands: ['danger']
+      - kind: require_script
+        script: 'scripts/check.sh'
+        cache_inputs: ['build/gate.txt']
+    mode: block
+    message: script environment gate
+`)
+	writePreDecisionDependencyFile(t, filepath.Join(repo, "scripts", "check.sh"), []byte("#!/bin/sh\nif [ \"$LANG\" = reconc-pass ]; then exit 0; fi\nexit 2\n"), 0o755)
+	writePreDecisionDependencyFile(t, filepath.Join(repo, "build", "gate.txt"), []byte("stable\n"), 0o644)
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 0 {
+		t.Fatalf("initial script environment decision = %+v", result)
+	}
+	assertPreDecisionCacheExists(t, root.Path(), payload)
+	t.Setenv("LANG", "reconc-block")
+	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "script-environment") {
+		t.Fatalf("changed script environment reused stale pass: %+v", result)
+	}
+}
+
+func TestPreDecisionOperationalCompositeFailureNeverWarmsPassingDecision(t *testing.T) {
+	repo, root, payload := setupPreDecisionCommandDependencyRepo(t, `rules:
+  - id: script-error-with-fallback
+    kind: any_of
+    when_paths: ['src/**']
+    checks:
+      - kind: forbid_command
+        commands: ['danger']
+      - kind: require_script
+        script: 'scripts/check.sh'
+        cache_inputs: ['build/gate.txt']
+      - kind: require_evidence
+        file: 'proof.txt'
+        must_exist: true
+    mode: block
+    message: script fallback gate
+`)
+	writePreDecisionDependencyFile(t, filepath.Join(repo, "scripts", "check.sh"), []byte("#!/bin/sh\nexit 1\n"), 0o755)
+	writePreDecisionDependencyFile(t, filepath.Join(repo, "build", "gate.txt"), []byte("stable\n"), 0o644)
+	writePreDecisionDependencyFile(t, filepath.Join(repo, "proof.txt"), []byte("present\n"), 0o644)
+	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	if result.ExitCode != 0 || result.decisionClass != "" {
+		t.Fatalf("fallback decision classification = %+v, want uncacheable pass", result)
+	}
+	if _, err := os.Stat(preDecisionCachePath(root.Path(), payload)); !os.IsNotExist(err) {
+		t.Fatalf("passing decision with an operational sub-check failure warmed cache: %v", err)
+	}
+}
+
+func TestPreDecisionWarningNeverWarmsPassCache(t *testing.T) {
+	_, root, payload := setupPreDecisionCommandDependencyRepo(t, `rules:
+  - id: warning-command
+    kind: forbid_command
+    commands: ['danger']
+    mode: warn
+    message: command warning
+`)
+	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	if result.ExitCode != 0 || result.decisionClass != "" {
+		t.Fatalf("warning decision classification = %+v, want uncacheable pass", result)
+	}
+	if _, err := os.Stat(preDecisionCachePath(root.Path(), payload)); !os.IsNotExist(err) {
+		t.Fatalf("warning decision warmed pass cache: %v", err)
+	}
+}
+
+func TestPreDecisionFreshnessStateChangesAtDeadline(t *testing.T) {
+	modified := time.Unix(1_000, 0)
+	before := preDecisionPathObservation{Exists: true, ResolvedModTime: modified.UnixNano()}
+	beforeDeadline := applyPreDecisionFreshness(&before, []int{1}, modified.Add(time.Hour-time.Nanosecond))
+	if len(before.Freshness) != 1 || before.Freshness[0].Expired || !beforeDeadline.Equal(modified.Add(time.Hour)) {
+		t.Fatalf("pre-deadline freshness = %+v deadline=%s", before.Freshness, beforeDeadline)
+	}
+	after := preDecisionPathObservation{Exists: true, ResolvedModTime: modified.UnixNano()}
+	afterDeadline := applyPreDecisionFreshness(&after, []int{1}, modified.Add(time.Hour+time.Nanosecond))
+	if len(after.Freshness) != 1 || !after.Freshness[0].Expired || !afterDeadline.IsZero() {
+		t.Fatalf("post-deadline freshness = %+v deadline=%s", after.Freshness, afterDeadline)
+	}
+}
+
+func TestPreDecisionOperationalScriptFailureNeverWarmsCache(t *testing.T) {
+	repo, root, payload := setupPreDecisionCommandDependencyRepo(t, `rules:
+  - id: script-error
+    kind: any_of
+    when_paths: ['src/**']
+    checks:
+      - kind: forbid_command
+        commands: ['danger']
+      - kind: require_script
+        script: 'scripts/check.sh'
+        cache_inputs: ['build/gate.txt']
+    mode: block
+    message: script gate
+`)
+	script := filepath.Join(repo, "scripts", "check.sh")
+	writePreDecisionDependencyFile(t, filepath.Join(repo, "build", "gate.txt"), []byte("stable\n"), 0o644)
+	writePreDecisionDependencyFile(t, script, []byte("#!/bin/sh\nexit 1\n"), 0o755)
+	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "script-error") {
+		t.Fatalf("operational script failure did not fail closed: %+v", result)
+	}
+	if _, err := os.Stat(preDecisionCachePath(root.Path(), payload)); !os.IsNotExist(err) {
+		t.Fatalf("operational script failure warmed cache: %v", err)
+	}
+	writePreDecisionDependencyFile(t, script, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+	if healthy := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); healthy.ExitCode != 0 {
+		t.Fatalf("healthy retry did not evaluate live: %+v", healthy)
+	}
+	assertPreDecisionCacheExists(t, root.Path(), payload)
+}
+
+func TestPreDecisionDependencyMutationDuringEvaluationPreventsPublication(t *testing.T) {
+	repo, root, payload := setupPreDecisionCommandDependencyRepo(t, `rules:
+  - id: script-mutates-input
+    kind: any_of
+    when_paths: ['src/**']
+    checks:
+      - kind: forbid_command
+        commands: ['danger']
+      - kind: require_script
+        script: 'scripts/check.sh'
+        cache_inputs: ['build/gate.txt']
+    mode: block
+    message: script mutation gate
+`)
+	writePreDecisionDependencyFile(t, filepath.Join(repo, "scripts", "check.sh"), []byte("#!/bin/sh\nprintf changed > build/gate.txt\nexit 0\n"), 0o755)
+	writePreDecisionDependencyFile(t, filepath.Join(repo, "build", "gate.txt"), []byte("initial\n"), 0o644)
+	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	if result.ExitCode != 0 {
+		t.Fatalf("live script decision = %+v", result)
+	}
+	if _, err := os.Stat(preDecisionCachePath(root.Path(), payload)); !os.IsNotExist(err) {
+		t.Fatalf("dependency mutation during evaluation warmed cache: %v", err)
+	}
+}
+
+func TestPreDecisionCacheWriterRequiresTypedPolicyDecision(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	payload := &HookPayload{SessionID: "typed", ToolUseID: "call", ToolName: "Write", ToolInput: map[string]interface{}{"file_path": "src/main.go"}}
+	if _, err := InitializeSessionState(repo, payload.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	inputs, ok := preDecisionInputsForPayload(repo, payload)
+	if !ok {
+		t.Fatal("pre-decision inputs are unexpectedly uncacheable")
+	}
+	for _, result := range []Result{
+		{ExitCode: 0},
+		{ExitCode: 2, Stderr: "operational failure"},
+		{ExitCode: 0, decisionClass: preDecisionResultBlock},
+		{ExitCode: 2, decisionClass: preDecisionResultPass},
+		{ExitCode: 0, Err: errors.New("internal failure"), decisionClass: preDecisionResultPass},
+	} {
+		if err := writePreDecisionCacheForPayload(repo, payload, inputs.key, result); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(preDecisionCachePathForPayload(repo, payload)); !os.IsNotExist(err) {
+			t.Fatalf("untyped or contradictory result was cached: %+v err=%v", result, err)
+		}
+	}
+}
+
+func TestPreDecisionCacheReaderRejectsInvalidDecisionClass(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	payload := &HookPayload{SessionID: "corrupt", ToolUseID: "call", ToolName: "Write", ToolInput: map[string]interface{}{"file_path": "src/main.go"}}
+	if _, err := InitializeSessionState(repo, payload.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	inputs, ok := preDecisionInputsForPayload(repo, payload)
+	if !ok {
+		t.Fatal("pre-decision inputs are unexpectedly uncacheable")
+	}
+	path := preDecisionCachePathForPayload(repo, payload)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"format_version":"` + preDecisionCacheVersion + `","key":"` + inputs.key + `","decision_class":"operational","exit_code":0}`)
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if cached, ok := readPreDecisionCacheCandidate(repo, payload); ok {
+		t.Fatalf("invalid decision class was accepted: %+v", cached)
+	}
+}
+
+func setupPreDecisionCommandDependencyRepo(t *testing.T, policy string) (string, ResolvedRepoRoot, []byte) {
+	t.Helper()
+	repo := setupPolicyRepo(t)
+	gitInitHelper(t, repo)
+	writePreDecisionDependencyFile(t, filepath.Join(repo, "policies", "rules.yml"), []byte(policy), 0o644)
+	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
+		t.Fatalf("compile dependency policy: %v", err)
+	}
+	if _, err := InitializeSessionState(repo, "dependency"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MutateSessionState(repo, "dependency", func(state SessionState) SessionState {
+		return AppendWritePath(state, "src/main.go")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureSessionState(repo, "dependency"); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ResolveRepoRootRef(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"session_id":"dependency","tool_use_id":"same-call","tool_name":"Bash","tool_input":{"command":"danger"}}`)
+	return repo, root, payload
+}
+
+func writePreDecisionDependencyFile(t *testing.T, path string, body []byte, mode os.FileMode) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertPreDecisionCacheExists(t *testing.T, root string, payload []byte) {
+	t.Helper()
+	if _, err := os.Stat(preDecisionCachePath(root, payload)); err != nil {
+		t.Fatalf("pre-decision cache was not written: %v", err)
 	}
 }

@@ -2970,23 +2970,42 @@ the existing per-alias inspection path. Dynamic alias definitions, excessive
 alias recursion, inspection failures, and unknown Git subcommands fail closed
 instead of bypassing the destructive-command guard.
 
-Pre-decision cache version 3 binds every reusable decision to a dependency
-snapshot in addition to the tool payload, policy lock/source provenance, session
-state, taint, and Git-alias state. Repository-scoped read/write evidence and
-pending write targets use prospective filesystem identities: existing targets
-include bounded metadata, generation, and regular-file content observations;
-missing targets include the nearest existing ancestor and missing suffix.
-This catches symlink or junction retargeting, ancestor creation/removal, target
-replacement, and relevant file-content changes. A verified evidence-prefix
-identity also binds every sealed segment digest, file identity, generation, and
-chain head. Missing, malformed, oversized, unstable, or otherwise unprovable
-dependencies disable reuse and force the normal pre-evaluation path, which
-fails closed when the dependency cannot be loaded. Cache lookup samples before
-reading the candidate and re-samples after that read; cache publication samples
-again after evaluation, so a concurrent dependency mutation cannot warm or serve
-a stale decision within the available hook boundary. The snapshot is bounded
-to 2,048 paths and 32 MiB of observed regular-file content; no cache hit is
-claimed when those bounds or platform identity guarantees are unavailable.
+Pre-decision cache version 4 derives one deterministic dependency plan from the
+exact immutable runtime-plan index, normalized inputs, scope, trigger, template
+captures, and pre-command or pre-write phase used by the live evaluation. A
+reached `all_of`, `any_of`, or `not` contributes every external sub-check that
+can affect that phase. `require_fresh_file` targets, `require_evidence` files,
+`require_script` executables and declared `cache_inputs` join the existing
+repository-scoped read/write evidence and pending write targets. Reached scripts
+also bind the SHA-256 identity of their complete sanitized environment. A
+script without declared cache inputs, a reached native-assurance rule, unsafe
+template expansion, an irregular content-bound target, or an incomplete or
+over-budget plan disables reuse rather than omitting an input.
+
+Every observed path uses a prospective filesystem identity: existing targets
+include bounded metadata, generation, resolved-target identity, and regular-file
+content; missing targets include the nearest existing ancestor and missing
+suffix. Fresh-file observations additionally bind the result at every declared
+age threshold and carry the earliest future transition as a hard cache expiry.
+This catches equal-size/equal-mtime content replacement, symlink or junction
+retargeting, ancestor creation/removal, target replacement, and expiry without a
+filesystem mutation. A verified evidence-prefix identity also binds every
+sealed segment digest, file identity, generation, and chain head. Missing,
+malformed, oversized, unstable, or otherwise unprovable dependencies disable
+reuse and force the normal pre-evaluation path, which fails closed when the
+dependency cannot be loaded.
+
+Cache lookup samples before reading the candidate and again after that read;
+cache publication samples again after evaluation, so a concurrent dependency
+mutation cannot warm or serve a stale decision within the available hook
+boundary. The complete snapshot is bounded to 2,048 paths and 32 MiB of
+observed regular-file content; no cache hit is claimed when those bounds or
+platform identity guarantees are unavailable. Version 4 records a typed `pass`
+or `block` decision class and accepts it only when the runtime report completed
+without a folded operational failure. Parse, IO, cancellation, lock/source,
+script-execution, approval, encoding, and unclassified failures cannot warm the
+cache. Once a route is known to be uncacheable, it performs no cache-only
+post-evaluation sample.
 PreToolUse and PermissionRequest classify the parsed payload before preparing
 cache identities, so read and other non-command, non-write tools preserve their
 normal bookkeeping without loading policy sources or creating a decision cache.

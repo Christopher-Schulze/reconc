@@ -33,7 +33,32 @@ type Result struct {
 	// Err records an internal failure that prevented a trustworthy hook
 	// response or identity from being produced. The CLI treats it as
 	// fail-closed even when the route is configured fail-open.
-	Err error
+	Err           error
+	decisionClass preDecisionResultClass
+}
+
+func resultWithPolicyDecision(result Result, reports ...*runtime.CheckReport) Result {
+	if len(reports) == 0 {
+		return result
+	}
+	hasBlock := false
+	for _, report := range reports {
+		if report == nil || !report.CacheableDecision() || report.Decision == runtime.DecisionWarn {
+			return result
+		}
+		hasBlock = hasBlock || report.Decision == runtime.DecisionBlock
+	}
+	switch result.ExitCode {
+	case 0:
+		if !hasBlock {
+			result.decisionClass = preDecisionResultPass
+		}
+	case 2:
+		if hasBlock {
+			result.decisionClass = preDecisionResultBlock
+		}
+	}
+	return result
 }
 
 func resultWithHookJSON(result Result, payload interface{}) Result {
@@ -262,11 +287,12 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(
 		return Result{ExitCode: 2, Stderr: "reconc hook (pre): parsed payload is unavailable"}
 	}
 	if payload.IsCommandTool() {
+		var policyReports []*runtime.CheckReport
 		if strings.TrimSpace(payload.Command()) == "" {
 			return Result{ExitCode: 2, Stderr: "reconc hook (pre): command tool payload has no parseable command; refusing to pass an unsupported write surface through the gate"}
 		}
 		if reason := forbiddenShellCommandReasonInRepoWithAliasSnapshot(root, payload.Command(), aliasSnapshot); reason != "" {
-			return Result{ExitCode: 2, Stderr: reason}
+			return Result{ExitCode: 2, Stderr: reason, decisionClass: preDecisionResultBlock}
 		}
 		state, err := ensureSessionStateResolved(root, payload.SessionID)
 		if err != nil {
@@ -293,8 +319,9 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): command check failed: %s", err)}
 		}
 		violations := blockingViolationsForKinds(report, preCommandBlockKinds)
+		policyReports = append(policyReports, report)
 		if len(violations) > 0 {
-			return Result{ExitCode: 2, Stderr: firstLinesForViolations(violations, "reconc blocked this command before execution.")}
+			return resultWithPolicyDecision(Result{ExitCode: 2, Stderr: firstLinesForViolations(violations, "reconc blocked this command before execution.")}, policyReports...)
 		}
 		if commandMayWriteRepository(payload.Command()) {
 			compiled, _, compiledErr := evaluator.CurrentCompiledPolicyEvaluator(root)
@@ -335,14 +362,16 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(
 					return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): command write check failed: %s", writeErr)}
 				}
 				writeViolations := preWriteBlockingViolations(writeReport)
+				policyReports = append(policyReports, writeReport)
 				if len(writeViolations) > 0 {
-					return Result{ExitCode: 2, Stderr: firstLinesForViolations(writeViolations, "reconc blocked this command's repository write before execution.")}
+					return resultWithPolicyDecision(Result{ExitCode: 2, Stderr: firstLinesForViolations(writeViolations, "reconc blocked this command's repository write before execution.")}, policyReports...)
 				}
 				if err := verifyAndConsumeNativeApproval(root, payload, state, declaredWrites, boundRuleIDs, evaluator); err != nil {
 					return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + err.Error()}
 				}
 			}
 		}
+		return resultWithPolicyDecision(Result{ExitCode: 0}, policyReports...)
 	}
 	if !payload.IsWriteTool() {
 		return Result{ExitCode: 0}
@@ -411,21 +440,21 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(
 				return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + err.Error()}
 			}
 		} else {
-			return Result{
+			return resultWithPolicyDecision(Result{
 				ExitCode: 2,
 				Stderr: firstLinesForViolations(violations,
 					"reconc blocked this file modification before execution."),
-			}
+			}, report)
 		}
 	}
 	if len(violations) == 0 {
-		return Result{ExitCode: 0}
+		return resultWithPolicyDecision(Result{ExitCode: 0}, report)
 	}
-	return Result{
+	return resultWithPolicyDecision(Result{
 		ExitCode: 2,
 		Stderr: firstLinesForViolations(violations,
 			"reconc blocked this file modification before execution."),
-	}
+	}, report)
 }
 
 // RunPermissionRequest denies approval prompts that would violate the
