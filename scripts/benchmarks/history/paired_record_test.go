@@ -39,14 +39,15 @@ func TestPairedPackageRecordsRealAlternatingSources(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertFileBytes(t, log, []byte("baseline\ncandidate\ncandidate\nbaseline\n"))
+			// Each source runs the timed pass, then the RSS warmup and 64-operation pass.
+			assertFileBytes(t, log, []byte("baseline\nbaseline\nbaseline\ncandidate\ncandidate\ncandidate\ncandidate\ncandidate\ncandidate\nbaseline\nbaseline\nbaseline\n"))
 			for index := range roots {
 				measurement := measurements[index]
 				if len(measurement.samples) != 1 || len(measurement.samples[benchmark]) != 2 || len(measurement.cpu) != 2 || !validBinarySHA256(measurement.binarySHA256) {
 					t.Fatalf("root %d measurements = %#v", index, measurement)
 				}
 				for _, sample := range measurement.samples[benchmark] {
-					if sample.Iterations != 1 || sample.NSPerOp <= 0 {
+					if sample.Iterations != 1 || sample.PeakRSSIterations != 64 || sample.NSPerOp <= 0 {
 						t.Fatalf("invalid real benchmark sample: %+v", sample)
 					}
 				}

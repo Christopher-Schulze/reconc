@@ -638,6 +638,9 @@ func syntheticStats(name string, values MetricValues) BenchmarkStats {
 	samples := make([]MetricSample, 5)
 	for index := range samples {
 		samples[index] = MetricSample{Iterations: 100, MetricValues: values}
+		if name != cpuSentinelName {
+			samples[index].PeakRSSIterations = memoryBenchmarkIterations
+		}
 	}
 	return BenchmarkStats{Name: name, Samples: samples, Median: values, P50: values, P95: values}
 }

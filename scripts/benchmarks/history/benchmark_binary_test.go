@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -28,7 +29,8 @@ func TestPackageBinariesAreReproducibleAcrossSourceRoots(t *testing.T) {
 			t.Fatalf("internal repetitions were not collapsed: %+v", measurement)
 		}
 	}
-	assertFileBytes(t, log, []byte("same\nsame\nsame\nsame\nsame\nsame\nsame\nsame\n"))
+	// Four source samples: two timed repetitions plus two RSS warmup/repetition pairs.
+	assertFileBytes(t, log, []byte(strings.Repeat("same\n", 24)))
 }
 
 func TestDirectBinaryUsesPackageDirectoryWithoutRecompiling(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 )
 
 func historicalResult() BenchmarkResult {
-	result := syntheticResult()
+	result := historicalCompiledResult()
 	result.FormatVersion = legacyResultFormat
 	for index := range result.Groups {
 		result.Groups[index].BinarySHA256 = ""
@@ -16,8 +16,25 @@ func historicalResult() BenchmarkResult {
 	return result
 }
 
+func historicalCompiledResult() BenchmarkResult {
+	result := syntheticResult()
+	result.FormatVersion = compiledResultFormat
+	for index := range result.Groups {
+		group := &result.Groups[index]
+		for sample := range group.Calibration.Samples {
+			group.Calibration.Samples[sample].PeakRSSIterations = 0
+		}
+		for target := range group.Targets {
+			for sample := range group.Targets[target].Benchmark.Samples {
+				group.Targets[target].Benchmark.Samples[sample].PeakRSSIterations = 0
+			}
+		}
+	}
+	return result
+}
+
 func TestMeasurementFormatsPreserveHistoricalComparisons(t *testing.T) {
-	for _, name := range []string{"historical", "precompiled", "mixed", "same binary regression"} {
+	for _, name := range []string{"historical", "historical compiled", "fixed-work", "mixed", "mixed compiled", "same binary regression"} {
 		t.Run(name, func(t *testing.T) {
 			baseline, err := refreshBaseline(syntheticResult())
 			if err != nil {
@@ -30,6 +47,12 @@ func TestMeasurementFormatsPreserveHistoricalComparisons(t *testing.T) {
 			if name == "historical" {
 				current = historicalResult()
 			}
+			if name == "historical compiled" || name == "mixed compiled" {
+				baseline.FormatVersion, baseline.Result = compiledBaselineFormat, historicalCompiledResult()
+			}
+			if name == "historical compiled" {
+				current = historicalCompiledResult()
+			}
 			if name == "same binary regression" {
 				setTargetNS(&current, 100)
 			}
@@ -38,7 +61,7 @@ func TestMeasurementFormatsPreserveHistoricalComparisons(t *testing.T) {
 				t.Fatalf("comparison lost measurement methods: %+v", report)
 			}
 			switch name {
-			case "mixed":
+			case "mixed", "mixed compiled":
 				if err == nil || report.Compatible || report.Passed || !strings.Contains(strings.Join(report.CompatibilityIssues, ";"), "measurement format") {
 					t.Fatalf("mixed measurement methods accepted: %+v, %v", report, err)
 				}

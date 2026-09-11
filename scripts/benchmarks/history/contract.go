@@ -17,20 +17,23 @@ import (
 )
 
 const (
-	legacyResultFormat   = "reconc.benchmark-result/v4"
-	legacyBaselineFormat = "reconc.benchmark-baseline/v4"
-	resultFormat         = "reconc.benchmark-result/v5"
-	baselineFormat       = "reconc.benchmark-baseline/v5"
-	comparisonFormat     = "reconc.benchmark-comparison/v7"
-	profileFormat        = "reconc.benchmark-profile/v1"
-	suiteVersion         = "reconc.performance-history/v10"
-	cpuSentinelName      = "BenchmarkReconcCPUSentinel"
-	maxContractBytes     = 4 << 20
-	maxProfileBytes      = 64 << 20
+	legacyResultFormat     = "reconc.benchmark-result/v4"
+	legacyBaselineFormat   = "reconc.benchmark-baseline/v4"
+	compiledResultFormat   = "reconc.benchmark-result/v5"
+	compiledBaselineFormat = "reconc.benchmark-baseline/v5"
+	resultFormat           = "reconc.benchmark-result/v6"
+	baselineFormat         = "reconc.benchmark-baseline/v6"
+	comparisonFormat       = "reconc.benchmark-comparison/v8"
+	profileFormat          = "reconc.benchmark-profile/v1"
+	suiteVersion           = "reconc.performance-history/v10"
+	cpuSentinelName        = "BenchmarkReconcCPUSentinel"
+	maxContractBytes       = 4 << 20
+	maxProfileBytes        = 64 << 20
 
 	defaultBenchmarkRepetitions = 3
 	minBenchmarkRepetitions     = 1
 	maxBenchmarkRepetitions     = 5
+	memoryBenchmarkIterations   = 64
 )
 
 type Environment struct {
@@ -56,8 +59,9 @@ type MetricValues struct {
 }
 
 type MetricSample struct {
-	Iterations   uint64 `json:"iterations"`
-	PeakRSSBytes uint64 `json:"peak_rss_bytes"`
+	Iterations        uint64 `json:"iterations"`
+	PeakRSSBytes      uint64 `json:"peak_rss_bytes"`
+	PeakRSSIterations uint64 `json:"peak_rss_iterations,omitempty"`
 	MetricValues
 }
 
@@ -244,10 +248,11 @@ func decodeStrict(body []byte, target any) error {
 }
 
 func validateBaseline(baseline BenchmarkBaseline) error {
-	if baseline.FormatVersion != baselineFormat && baseline.FormatVersion != legacyBaselineFormat {
+	if baseline.FormatVersion != baselineFormat && baseline.FormatVersion != legacyBaselineFormat && baseline.FormatVersion != compiledBaselineFormat {
 		return fmt.Errorf("unsupported benchmark baseline format %q", baseline.FormatVersion)
 	}
 	if baseline.FormatVersion == baselineFormat && baseline.Result.FormatVersion != resultFormat ||
+		baseline.FormatVersion == compiledBaselineFormat && baseline.Result.FormatVersion != compiledResultFormat ||
 		baseline.FormatVersion == legacyBaselineFormat && baseline.Result.FormatVersion != legacyResultFormat {
 		return errors.New("benchmark baseline and result measurement formats differ")
 	}
@@ -344,7 +349,7 @@ func validateProfileManifest(manifest ProfileManifest) error {
 }
 
 func validateResult(result BenchmarkResult) error {
-	if (result.FormatVersion != resultFormat && result.FormatVersion != legacyResultFormat) || result.SuiteVersion != suiteVersion {
+	if (result.FormatVersion != resultFormat && result.FormatVersion != legacyResultFormat && result.FormatVersion != compiledResultFormat) || result.SuiteVersion != suiteVersion {
 		return errors.New("benchmark result format or suite is unsupported")
 	}
 	if result.Environment.GoVersion == "" || result.Environment.GOOS == "" || result.Environment.GOARCH == "" ||
@@ -361,7 +366,7 @@ func validateResult(result BenchmarkResult) error {
 	binaries := make(map[string]string)
 	for index, spec := range benchmarkSuite {
 		group := result.Groups[index]
-		if result.FormatVersion == resultFormat {
+		if result.FormatVersion != legacyResultFormat {
 			if !validBinarySHA256(group.BinarySHA256) {
 				return fmt.Errorf("benchmark group %s has an invalid executable SHA-256", group.Name)
 			}
@@ -378,6 +383,16 @@ func validateResult(result BenchmarkResult) error {
 		if err := validateStats(group.Calibration, result.Parameters.Count); err != nil {
 			return fmt.Errorf("calibration %s: %w", spec.Calibration, err)
 		}
+		var memoryIterations uint64
+		if result.FormatVersion == resultFormat {
+			memoryIterations = memoryBenchmarkIterations
+		}
+		if err := validateMemoryIterations(group.Calibration, memoryIterations); err != nil {
+			return err
+		}
+		if err := validateMemoryIterations(group.CPUCalibration, 0); err != nil {
+			return err
+		}
 		if group.CPUCalibration.Name != cpuSentinelName {
 			return fmt.Errorf("group %s has CPU calibration %q, want %q", group.Name, group.CPUCalibration.Name, cpuSentinelName)
 		}
@@ -392,10 +407,22 @@ func validateResult(result BenchmarkResult) error {
 			if err := validateStats(target.Benchmark, result.Parameters.Count); err != nil {
 				return fmt.Errorf("target %s: %w", targetName, err)
 			}
+			if err := validateMemoryIterations(target.Benchmark, memoryIterations); err != nil {
+				return err
+			}
 			want, err := normalize(target.Benchmark.Median, group.Calibration.Median)
 			if err != nil || !metricValuesEqual(want, target.Normalized) {
 				return fmt.Errorf("target %s has invalid normalized metrics", targetName)
 			}
+		}
+	}
+	return nil
+}
+
+func validateMemoryIterations(stats BenchmarkStats, want uint64) error {
+	for _, sample := range stats.Samples {
+		if sample.PeakRSSIterations != want {
+			return fmt.Errorf("benchmark %s has RSS operation count %d, want %d", stats.Name, sample.PeakRSSIterations, want)
 		}
 	}
 	return nil

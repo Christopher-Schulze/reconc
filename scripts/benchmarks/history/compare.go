@@ -10,7 +10,7 @@ var errRegression = errors.New("benchmark regression detected")
 
 func refreshBaseline(result BenchmarkResult) (BenchmarkBaseline, error) {
 	if result.FormatVersion != resultFormat {
-		return BenchmarkBaseline{}, errors.New("baseline refresh requires precompiled benchmark measurements")
+		return BenchmarkBaseline{}, errors.New("baseline refresh requires fixed-work RSS benchmark measurements")
 	}
 	if err := validateResult(result); err != nil {
 		return BenchmarkBaseline{}, err

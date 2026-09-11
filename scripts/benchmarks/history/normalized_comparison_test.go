@@ -66,7 +66,7 @@ func comparisonWithImprovedCalibration(t *testing.T, targetValues MetricValues, 
 
 func assertNormalizedComparison(t *testing.T, report BenchmarkComparison, want []string) {
 	t.Helper()
-	if report.FormatVersion != "reconc.benchmark-comparison/v7" || !report.Compatible || report.Passed != (len(want) == 0) {
+	if report.FormatVersion != "reconc.benchmark-comparison/v8" || !report.Compatible || report.Passed != (len(want) == 0) {
 		t.Fatalf("comparison status = %s compatible=%t passed=%t", report.FormatVersion, report.Compatible, report.Passed)
 	}
 	group := report.Groups[0]
