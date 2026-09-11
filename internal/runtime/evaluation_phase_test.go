@@ -52,6 +52,27 @@ func TestWritePhaseRejectsMixedDisjunctionInCompiledLock(t *testing.T) {
 	}
 }
 
+func TestCommandPhaseRejectsNestedNotInCompiledLock(t *testing.T) {
+	repo := makeRepoWithFiles(t,
+		"rules:\n  - id: must-git\n    kind: not\n    when_paths: ['src/**']\n    checks:\n      - kind: forbid_command\n        commands: ['git']\n    mode: block\n    message: must run git\n",
+		nil)
+	warm := NewEvaluator()
+	if _, err := warm.CheckRepoPolicyForPreCommand(repo, Empty()); err != nil {
+		t.Fatal(err)
+	}
+	rewriteLockfileWithDigest(t, repo, func(payload map[string]interface{}) {
+		check := payload["rules"].([]interface{})[0].(map[string]interface{})["checks"].([]interface{})[0].(map[string]interface{})
+		check["kind"] = string(policy.KindNot)
+		delete(check, "commands")
+	})
+	for _, evaluator := range []*Evaluator{warm, NewEvaluator()} {
+		_, err := evaluator.CheckRepoPolicyForPreCommand(repo, Empty())
+		if err == nil || !(strings.Contains(err.Error(), "nested composite") || strings.Contains(err.Error(), "unsupported composite check kind")) {
+			t.Fatalf("compiled nested not admitted: %v", err)
+		}
+	}
+}
+
 func TestWritePhaseHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

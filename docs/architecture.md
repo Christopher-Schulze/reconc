@@ -1629,12 +1629,19 @@ basename of an absolute executable path, while explicitly path-qualified rules
 remain exact. PreToolUse command prevention additionally walks quote-
 aware executable shell segments including groups and process substitutions,
 folds unquoted backslash-newline continuations, skips leading redirections,
-resolves common wrappers and command launchers without treating ordinary
-arguments or comments as executable positions, and fails closed on dynamic
-executable names or exhausted bounded nested-shell analysis. During
-PreToolUse, a composite violation is blocking only when the current command
-itself hits a direct `forbid_command`; historical command evidence and other
-failing composite subchecks cannot poison a later safe command.
+resolves common wrappers (`env`, `sudo`, `taskset`, `bwrap`, `unshare`,
+`nsenter`, `pkexec`, `busybox`, `systemd-run`, and the older peelers) and
+command launchers (`find -exec`, `xargs`, `flock`, `watch`, GNU `parallel`)
+without treating ordinary arguments, option operands, or comments as
+executable positions, and fails closed on dynamic executable names, unknown
+dispatcher options, or exhausted bounded nested-shell analysis. During
+PreToolUse, a positive composite violation is blocking only when the current
+command itself hits a direct `forbid_command`; historical command evidence and
+other failing composite subchecks cannot poison a later safe command.
+`not { forbid_command }` evaluates from the parent path trigger when the inner
+check would pass, and incomplete analysis fails closed rather than inverting
+into an allow. Static parsing is not a sandbox against a hostile same-user
+process.
 The default destructive-command guard additionally resolves inline and
 configured Git aliases with bounded process output, timeout, and recursion.
 Unknown subcommands or aliases whose executable shape cannot be proven fail

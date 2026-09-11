@@ -678,6 +678,9 @@ func validateRuleItem(
 		if err := policy.ValidateCompositeWritePhase(kind, checks); err != nil {
 			return policy.Rule{}, &rerrors.RuleValidationError{Message: "rule '" + id + "': " + err.Error()}
 		}
+		if err := policy.ValidateCompositeCommandPhase(kind, checks); err != nil {
+			return policy.Rule{}, &rerrors.RuleValidationError{Message: "rule '" + id + "': " + err.Error()}
+		}
 	}
 
 	assurance, err := optionalAssuranceGateList(item, "assurance", id)

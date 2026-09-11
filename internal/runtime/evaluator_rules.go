@@ -748,8 +748,14 @@ func commandsForShellAnalysis(ctx *evalContext, fallback []string) []string {
 // compositeRuleTriggerMatches evaluates only the parent path trigger and the
 // current-command prevention trigger. It deliberately does not execute or
 // otherwise evaluate any composite sub-check.
+//
+// Positive forbid_command, all_of, and any_of keep the documented pre-command
+// relation: evaluate only when a direct forbid matcher hits, so historical
+// results and unrelated subchecks cannot poison a later safe command.
+// `not { forbid_command }` inverts that relation: the inner check passes on the
+// commands that are not forbidden, so the composite must still be reached.
 func compositeRuleTriggerMatches(ctx *evalContext, rule *policy.Rule, inputs ExecutionInputs) (bool, error) {
-	if runtimeRuleContainsForbidCommand(rule) && !compositeForbiddenCommandMatches(ctx, rule) {
+	if runtimeRuleContainsForbidCommand(rule) && !compositeNegatesForbidCommand(rule) && !compositeForbiddenCommandMatches(ctx, rule) {
 		return false, nil
 	}
 	contexts, err := ctx.collectMatchContexts(inputs.WritePaths, rule.WhenPaths)
@@ -757,6 +763,10 @@ func compositeRuleTriggerMatches(ctx *evalContext, rule *policy.Rule, inputs Exe
 		return false, err
 	}
 	return len(contexts) > 0, nil
+}
+
+func compositeNegatesForbidCommand(rule *policy.Rule) bool {
+	return rule != nil && rule.Kind == policy.KindNot && len(rule.Checks) == 1 && rule.Checks[0].Kind == policy.KindForbidCommand
 }
 
 func compositeForbiddenCommandMatches(ctx *evalContext, rule *policy.Rule) bool {

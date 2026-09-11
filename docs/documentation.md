@@ -1151,8 +1151,11 @@ capture covered and which were missing or redacted. Even a complete declared
 replay describes only its bounded corpus; an unmatched rule is never called
 dead or safe.
 Composite rules containing `forbid_command` contribute to match counts only
-when both the parent path trigger and the current command match. Historical
-command results do not satisfy that pre-command trigger.
+when both the parent path trigger and the current-command prevention trigger
+match. For positive `all_of` and `any_of` that trigger is a direct
+`forbid_command` hit. `not { forbid_command }` uses the opposite relation: it
+is reached when the inner check would pass. Historical command results do not
+satisfy that pre-command trigger.
 
 Format-2 corpora preserve format-1 repository replay through deterministic
 migration and add strict `action_pre` and `action_post` cases. An action case
@@ -1462,10 +1465,12 @@ service, or operating-system sandbox.
 Reconc protects honest and fallible agent workflows against missed reads,
 out-of-scope writes, stale tests, unsupported claims, skipped TASK work, and
 incorrect completion. It treats hook payloads as untrusted and fails closed on
-malformed policy, lockfile drift, unsafe paths, and ambiguous managed files. A
-hostile same-user process can still replace local policy, hooks, state, or the
-binary; use an external sandbox plus protected remote CI when that actor is in
-scope.
+malformed policy, lockfile drift, unsafe paths, and ambiguous managed files.
+Static command-policy analysis classifies the effective executable behind
+supported wrappers and launchers, then fails closed on incomplete grammar;
+it is not a sandbox. A hostile same-user process can still replace local
+policy, hooks, state, or the binary; use an external sandbox plus protected
+remote CI when that actor is in scope.
 
 ### Which stack-aware assurance packs ship with Reconc?
 
@@ -2957,18 +2962,31 @@ sequencing, boolean joins, or pipelines. Parsing is quote-aware: single-quoted
 text and shell comments stay literal, substitutions inside double quotes
 remain executable, leading redirections are skipped, and unquoted backslash-
 newline continuations are folded before matching. Common
-`env`/`sudo`/`command`, `flock`, and `watch` wrappers plus `find
--exec`/`-ok`/`-execdir`/`-okdir` and `xargs` command launchers are resolved,
-while ordinary literal arguments such as `echo git clean` never become
-executable-command matches. An unqualified rule executable matches the basename
-of an absolute executable path; explicitly path-qualified rules remain exact.
+`env`/`sudo`/`doas`/`command`/`exec`/`nohup`/`nice`/`timeout`/`setsid`/`stdbuf`/`time`/`chroot`/`taskset`/`bwrap`/`unshare`/`nsenter`/`pkexec`/`busybox`/`systemd-run`
+wrappers plus `find -exec`/`-ok`/`-execdir`/`-okdir`, `xargs`, `flock`,
+`watch`, and GNU `parallel` command launchers are resolved when their option
+grammar is statically known. Option operands, `--` terminators, assignments,
+absolute executable paths, and quoted static values are not treated as
+commands. Dispatcher modes whose executable cannot be identified, including
+`taskset -p`, `systemd-run --shell`, `busybox --list`, `parallel --pipe`,
+`parallel :::` before a command, unknown options, dynamic operands, and
+command strings evaluated by another shell, are incomplete. Ordinary literal
+arguments such as `echo git clean` never become executable-command matches.
+An unqualified rule executable matches the basename of an absolute executable
+path; explicitly path-qualified rules remain exact.
 Every dynamic `find` expression argument is treated as structurally unknown and
 fails closed, including dynamic paths or predicates before, inside, or after a
 command-running action.
-During shell PreToolUse, a composite violation blocks only when the current command
-itself hits a direct `forbid_command`, so historical results and unrelated
-failing subchecks cannot poison later safe commands. Recursion is bounded;
-unresolved dynamic executable names and exhausted nesting fail closed. The
+During shell PreToolUse, a positive composite violation blocks only when the
+current command itself hits a direct `forbid_command`, so historical results
+and unrelated failing subchecks cannot poison later safe commands.
+`not { forbid_command }` is the polarity exception: it evaluates from the parent
+path trigger on commands for which the inner check passes, and incomplete
+command analysis fails closed instead of being inverted into an allow.
+Nested composite checks remain rejected at authoring and compiled-lock
+admission. Mixed `all_of` command and non-command checks keep the positive-match
+pre-command trigger and retain non-command checks for completion. Recursion is
+bounded; unresolved dynamic executable names and exhausted nesting fail closed. The
 built-in destructive Git guard uses the same model for `git clean` and `git
 reset --hard`. It resolves literal inline, local, global, recursive, and
 same-command `git config alias.*` definitions before admission. Alias values

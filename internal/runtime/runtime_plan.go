@@ -1175,6 +1175,9 @@ func validateRuntimeRuleShape(rule *policy.Rule) error {
 		if err := policy.ValidateCompositeWritePhase(rule.Kind, rule.Checks); err != nil {
 			return err
 		}
+		if err := policy.ValidateCompositeCommandPhase(rule.Kind, rule.Checks); err != nil {
+			return err
+		}
 		return require("when_paths", rule.WhenPaths)
 	case policy.KindRequireAssurance:
 		if len(rule.Assurance) == 0 {

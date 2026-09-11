@@ -83,6 +83,9 @@ func TestForbiddenShellCommandReasonExpandsInlineGitAliases(t *testing.T) {
 		`git -c alias.rewind=reset rewind "$MODE"`,
 		`git -c alias.one=two -c 'alias.two=reset --hard' one`,
 		`git config alias.blast '!git clean -fd' && git blast`,
+		`taskset -c 0 git -c alias.wipe='!git clean -fd' wipe`,
+		`pkexec --user root git reset --hard`,
+		`busybox git clean -fd`,
 	}
 	for _, command := range blocked {
 		if reason := forbiddenShellCommandReason(command); reason == "" {
@@ -94,6 +97,7 @@ func TestForbiddenShellCommandReasonExpandsInlineGitAliases(t *testing.T) {
 		`git -c alias.st=status st --short`,
 		`git -c alias.foo="$VALUE" status --short`,
 		`git config --get alias.st`,
+		`taskset -c 0 git -c alias.st=status st --short`,
 	}
 	for _, command := range allowed {
 		if reason := forbiddenShellCommandReason(command); reason != "" {
@@ -114,7 +118,7 @@ func TestForbiddenShellCommandReasonExpandsConfiguredGitAliases(t *testing.T) {
 	runGitGuardTestCommand(t, "-C", repo, "config", "alias.rewind", "reset")
 	runGitGuardTestCommand(t, "-C", repo, "config", "alias.st", "status")
 
-	for _, command := range []string{"git wipe", "git rewind --hard"} {
+	for _, command := range []string{"git wipe", "git rewind --hard", "taskset -c 0 git wipe", "pkexec git rewind --hard"} {
 		if reason := forbiddenShellCommandReasonInRepo(repo, command); reason == "" {
 			t.Fatalf("configured destructive alias %q must be blocked", command)
 		}

@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 522 Harden command-policy dispatch and negation semantics -> tasks/522-harden-command-policy-dispatch-and-negation-semantics.md
+- [~] 527 Make runtime-plan load cancellation generation-safe -> tasks/527-make-runtime-plan-load-cancellation-generation-safe.md
 
 ## Queue
 
-- [ ] 527 Make runtime-plan load cancellation generation-safe -> tasks/527-make-runtime-plan-load-cancellation-generation-safe.md
 - [ ] 526 Normalize bounded session path state to a fixed point -> tasks/526-normalize-bounded-session-path-state-to-a-fixed-point.md
 - [ ] 529 Redact foreign absolute paths in proof bundles -> tasks/529-redact-foreign-absolute-paths-in-proof-bundles.md
 - [ ] 530 Detect dirty TASK ancestors and Gitlinks -> tasks/530-detect-dirty-task-ancestors-and-gitlinks.md
@@ -16,6 +15,7 @@
 ## Blocked
 
 ## Done
+- [x] 522 Harden command-policy dispatch and negation semantics -> tasks/done/522-harden-command-policy-dispatch-and-negation-semantics.md
 - [x] 523 Make bound approval routing and claim remediation effect-aware -> tasks/done/523-make-bound-approval-routing-and-claim-remediation-effect-aware.md
 - [x] 524 Finalize persisted shutdown approvals idempotently -> tasks/done/524-finalize-persisted-shutdown-approvals-idempotently.md
 - [x] 525 Make pre-decision caching sound and efficient -> tasks/done/525-make-pre-decision-caching-sound-and-efficient.md

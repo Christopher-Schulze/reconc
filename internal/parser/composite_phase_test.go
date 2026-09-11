@@ -8,6 +8,15 @@ import (
 	"reconc.dev/reconc/internal/policy"
 )
 
+func TestCompositeCommandPhaseRejectsNestedNot(t *testing.T) {
+	content := "rules:\n  - id: nested\n    kind: not\n    when_paths: ['**']\n    mode: block\n    message: nested\n    checks:\n      - kind: not\n"
+	bundle := &ingest.SourceBundle{Sources: []policy.PolicySource{{Kind: policy.SourcePolicyFile, Path: "rules.yml", Content: content}}}
+	_, err := ParseRuleDocuments(bundle)
+	if err == nil || !strings.Contains(err.Error(), "nested composite kinds are not supported") {
+		t.Fatalf("nested not admitted: %v", err)
+	}
+}
+
 func TestCompositeWritePhaseAuthoring(t *testing.T) {
 	const deny = "      - kind: deny_write\n        paths: ['protected/**']\n"
 	checks := []struct{ name, body string }{

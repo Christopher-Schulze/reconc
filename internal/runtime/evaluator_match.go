@@ -75,9 +75,15 @@ func matchingForbiddenCommands(commands, expected []string, repoRoot string, mat
 }
 
 func matchingForbiddenCommandsWithCache(cache *commandInvocationCache, commands, expected []string, repoRoot string, match policy.CommandMatch) []string {
+	hits, _ := analyzeForbiddenCommands(cache, commands, expected, repoRoot, match)
+	return hits
+}
+
+func analyzeForbiddenCommands(cache *commandInvocationCache, commands, expected []string, repoRoot string, match policy.CommandMatch) (hits []string, complete bool) {
+	complete = true
 	normalizedExpected := cache.normalizedExpectedCommands(expected, repoRoot)
 	if len(normalizedExpected) == 0 {
-		return nil
+		return nil, observedCommandsComplete(cache, commands)
 	}
 	compiledExpected := make([]shellcommand.CompiledExpectation, 0, len(normalizedExpected))
 	for _, expectedCommand := range normalizedExpected {
@@ -87,6 +93,7 @@ func matchingForbiddenCommandsWithCache(cache *commandInvocationCache, commands,
 	for _, command := range commands {
 		observed := cache.observedInvocations(command)
 		if !observed.complete {
+			complete = false
 			out = append(out, command)
 			continue
 		}
@@ -110,7 +117,16 @@ func matchingForbiddenCommandsWithCache(cache *commandInvocationCache, commands,
 			out = append(out, command)
 		}
 	}
-	return out
+	return out, complete
+}
+
+func observedCommandsComplete(cache *commandInvocationCache, commands []string) bool {
+	for _, command := range commands {
+		if !cache.observedInvocations(command).complete {
+			return false
+		}
+	}
+	return true
 }
 
 const maxCommandSubstitutionDepth = 16

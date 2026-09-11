@@ -36,6 +36,24 @@ func TestInvocationsResolvesSupportedWrapperOptionContracts(t *testing.T) {
 		{name: "chroot inline options", command: "chroot --userspec=root:wheel --groups=wheel --skip-chdir /srv git status", want: [][]string{{"git", "status"}}},
 		{name: "leading exact redirections", command: "2> errors.log < input.txt git status", want: [][]string{{"git", "status"}}},
 		{name: "leading inline redirections", command: "2>errors.log <input.txt git status", want: [][]string{{"git", "status"}}},
+		{name: "taskset cpu list", command: "taskset -c 0,5 git status", want: [][]string{{"git", "status"}}},
+		{name: "taskset mask and delimiter", command: "taskset --all-tasks -- 0x1 git status", want: [][]string{{"git", "status"}}},
+		{name: "bwrap binds and delimiter", command: "bwrap --ro-bind / / --proc /proc --dev /dev --chdir /tmp -- git status", want: [][]string{{"git", "status"}}},
+		{name: "bwrap setenv two operands", command: "bwrap --setenv MODE 1 --die-with-parent git status", want: [][]string{{"git", "status"}}},
+		{name: "unshare namespaces", command: "unshare --user --map-root-user --fork --pid --mount-proc git status", want: [][]string{{"git", "status"}}},
+		{name: "unshare root operand", command: "unshare --root /srv --wd /tmp git status", want: [][]string{{"git", "status"}}},
+		{name: "nsenter target and flags", command: "nsenter --target 1 --mount --wd=/tmp -- git status", want: [][]string{{"git", "status"}}},
+		{name: "pkexec user", command: "pkexec --user root --disable-internal-agent -- git status", want: [][]string{{"git", "status"}}},
+		{name: "busybox applet", command: "busybox wget https://example.invalid", want: [][]string{{"wget", "https://example.invalid"}}},
+		{name: "busybox nested wrapper", command: "busybox env MODE=1 git status", want: [][]string{{"git", "status"}}},
+		{name: "systemd-run properties", command: "systemd-run --uid=0 --nice 5 --same-dir --pipe -- git status", want: [][]string{{"git", "status"}}},
+		{name: "nested wrapper then dispatcher", command: "sudo -u root taskset -c 0 env MODE=1 git status", want: [][]string{{"git", "status"}}},
+		{name: "dispatcher then wrapper", command: "pkexec --user root env MODE=1 git status", want: [][]string{{"git", "status"}}},
+		{name: "absolute dispatcher path", command: "/usr/bin/taskset -c 0 /usr/bin/git status", want: [][]string{{"/usr/bin/git", "status"}}},
+		{name: "quoted static dispatcher operand", command: `unshare --map-user "root" git status`, want: [][]string{{"git", "status"}}},
+		{name: "bwrap bind operand is not a command", command: "bwrap --ro-bind /usr/bin/git /git -- echo hi", want: [][]string{{"echo", "hi"}}},
+		{name: "taskset cpu-list operand is not a command", command: "taskset -c git echo hi", want: [][]string{{"echo", "hi"}}},
+		{name: "echo dispatcher text stays literal", command: "echo taskset -c 0 git status", want: [][]string{{"echo", "taskset", "-c", "0", "git", "status"}}},
 	}
 
 	for _, test := range tests {
@@ -77,6 +95,23 @@ func TestInvocationsRejectsUnsupportedOrIncompleteWrapperOptions(t *testing.T) {
 		{name: "chroot missing root", command: "chroot --userspec=root"},
 		{name: "chroot root without command", command: "chroot /srv"},
 		{name: "chroot unknown option", command: "chroot --unknown /srv git status"},
+		{name: "taskset pid mode", command: "taskset -p 1"},
+		{name: "taskset missing mask", command: "taskset --all-tasks"},
+		{name: "taskset unknown option", command: "taskset --unknown 0x1 git status"},
+		{name: "bwrap missing bind dest", command: "bwrap --ro-bind /"},
+		{name: "bwrap missing setenv value", command: "bwrap --setenv MODE"},
+		{name: "bwrap unknown option", command: "bwrap --unknown git status"},
+		{name: "unshare missing command", command: "unshare --user --fork"},
+		{name: "unshare unknown option", command: "unshare --unknown git status"},
+		{name: "nsenter missing target value", command: "nsenter --target"},
+		{name: "nsenter unknown option", command: "nsenter --unknown git status"},
+		{name: "pkexec missing user", command: "pkexec --user"},
+		{name: "pkexec unknown option", command: "pkexec --unknown git status"},
+		{name: "busybox meta mode", command: "busybox --list"},
+		{name: "busybox missing applet", command: "busybox"},
+		{name: "systemd-run shell mode", command: "systemd-run --shell"},
+		{name: "systemd-run unknown option", command: "systemd-run --unknown git status"},
+		{name: "dynamic dispatcher operand", command: `taskset -c "$CPU" git status`},
 	}
 
 	for _, test := range tests {
@@ -135,6 +170,26 @@ func TestInvocationsDiscoversEverySupportedLauncherShape(t *testing.T) {
 			command: "watch --interval=2 --equexit=3 --shotsdir=shots --no-title git status",
 			want:    [][]string{{"watch", "--interval=2", "--equexit=3", "--shotsdir=shots", "--no-title", "git", "status"}, {"git", "status"}},
 		},
+		{
+			name:    "parallel jobs and arguments",
+			command: "parallel --jobs 4 --keep-order -- git status ::: a b",
+			want:    [][]string{{"parallel", "--jobs", "4", "--keep-order", "--", "git", "status", ":::", "a", "b"}, {"git", "status"}},
+		},
+		{
+			name:    "parallel joined jobs",
+			command: "parallel -j8 git grep ::: token",
+			want:    [][]string{{"parallel", "-j8", "git", "grep", ":::", "token"}, {"git", "grep"}},
+		},
+		{
+			name:    "nested wrapper then parallel",
+			command: "sudo --non-interactive parallel -q git status ::: a",
+			want:    [][]string{{"parallel", "-q", "git", "status", ":::", "a"}, {"git", "status"}},
+		},
+		{
+			name:    "parallel launches env wrapper",
+			command: "parallel env MODE=1 git status ::: a",
+			want:    [][]string{{"parallel", "env", "MODE=1", "git", "status", ":::", "a"}, {"git", "status"}},
+		},
 	}
 
 	for _, test := range tests {
@@ -165,6 +220,11 @@ func TestInvocationsRejectsIncompleteLauncherShapes(t *testing.T) {
 		"watch --interval",
 		"watch --unknown git status",
 		`watch "$COMMAND"`,
+		"parallel --pipe git status",
+		"parallel --unknown git status",
+		"parallel ::: git status",
+		`parallel "$COMMAND" ::: a`,
+		"parallel --jobs",
 	} {
 		t.Run(command, func(t *testing.T) {
 			_, reason := InvocationsWithReason(command, 16)

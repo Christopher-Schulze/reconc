@@ -55,7 +55,7 @@ Treat exit 2 as "stop writing and remediate first".
 | `require_read` | Reads required before writing | Read the required file(s), then re-check |
 | `require_command` | Command must be attempted | Run the command, assert via `--command` |
 | `require_command_success` | Command must succeed | Run it; use `reconc exec --staged` for commit evidence |
-| `forbid_command` | Command is banned | Do not run it; use the suggested alternative |
+| `forbid_command` | Command is banned | Do not run it, including through `taskset`, `bwrap`, `unshare`, `nsenter`, `pkexec`, `busybox`, `systemd-run`, or GNU `parallel`; use the suggested alternative |
 | `couple_change` | Writes must come in pairs | Edit the paired path(s) in the same change |
 | `require_claim` | Workflow sign-off required | In a session: `reconc hook claim . <name> --session <id>`. Standalone check: `reconc check --claim <name>`. |
 | `require_fresh_file` | Artifact must be recent | Regenerate / touch the referenced file |

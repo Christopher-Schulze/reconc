@@ -411,7 +411,8 @@ func (e *Evaluator) CheckRepoPolicyForKindsContext(ctx context.Context, startPat
 // CheckRepoPolicyForPreCommand evaluates prevention rules before a shell
 // command executes. Top-level forbid_command rules and composites containing a
 // forbid_command sub-check are included so composing a prevention rule never
-// silently demotes it to Stop-time detection.
+// silently demotes it to Stop-time detection. `not { forbid_command }` is
+// reached from the parent path trigger even when the inner matcher misses.
 func CheckRepoPolicyForPreCommand(startPath string, inputs ExecutionInputs) (*CheckReport, error) {
 	return CheckRepoPolicyForPreCommandContext(context.Background(), startPath, inputs)
 }

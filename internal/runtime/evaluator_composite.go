@@ -334,11 +334,15 @@ func evalCheckRequireCommand(ctx *evalContext, c policy.Check, inputs ExecutionI
 }
 
 func evalCheckForbidCommand(ctx *evalContext, c policy.Check, inputs ExecutionInputs) (bool, string, error) {
-	hit := matchingForbiddenCommandsWithCache(ctx.commandCache, commandsForShellAnalysis(ctx, inputs.Commands), c.Commands, ctxRepoRoot(ctx), c.CommandMatch)
-	if len(hit) == 0 {
+	observed := commandsForShellAnalysis(ctx, inputs.Commands)
+	hits, complete := analyzeForbiddenCommands(ctx.commandCache, observed, c.Commands, ctxRepoRoot(ctx), c.CommandMatch)
+	if !complete {
+		return false, "", &checkEvalError{reason: "command analysis is incomplete"}
+	}
+	if len(hits) == 0 {
 		return true, "", nil
 	}
-	return false, "forbidden command(s) ran: " + joinForHumans(hit), nil
+	return false, "forbidden command(s) ran: " + joinForHumans(hits), nil
 }
 
 func evalCheckDenyWrite(ctx *evalContext, c policy.Check, inputs ExecutionInputs) (bool, string, error) {

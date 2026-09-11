@@ -40,7 +40,8 @@ const (
 
 // Invocation is one executable command position. Source retains the command
 // text used for policy matching; Words starts with the effective executable
-// after supported wrappers such as env, sudo, command, and exec.
+// after supported wrappers such as env, sudo, command, exec, taskset,
+// bwrap, unshare, nsenter, pkexec, busybox, and systemd-run.
 type Invocation struct {
 	Source       string
 	Words        []string
@@ -680,6 +681,62 @@ func effectiveWords(words []commandWord) ([]commandWord, bool, bool) {
 			if !resolved {
 				return nil, wrapped, false
 			}
+		case "taskset":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipTasksetOptions(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
+		case "bwrap":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipBwrapOptions(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
+		case "unshare":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipUnshareOptions(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
+		case "nsenter":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipNsenterOptions(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
+		case "pkexec":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipPkexecOptions(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
+		case "busybox":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipBusyboxApplet(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
+		case "systemd-run":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipSystemdRunOptions(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
 		default:
 			return words[index:], wrapped, true
 		}
@@ -856,10 +913,6 @@ func skipTimeoutOptions(words []commandWord, index int) (int, bool) {
 }
 
 func skipNoArgumentOptions(words []commandWord, index int, allowed ...string) (int, bool) {
-	allowedSet := make(map[string]struct{}, len(allowed))
-	for _, option := range allowed {
-		allowedSet[option] = struct{}{}
-	}
 	for index < len(words) {
 		if words[index].dynamic {
 			return index, false
@@ -871,7 +924,14 @@ func skipNoArgumentOptions(words []commandWord, index int, allowed ...string) (i
 		if !strings.HasPrefix(word, "-") {
 			return index, true
 		}
-		if _, ok := allowedSet[word]; !ok {
+		recognized := false
+		for _, option := range allowed {
+			if word == option {
+				recognized = true
+				break
+			}
+		}
+		if !recognized {
 			return index, false
 		}
 		index++
@@ -1039,6 +1099,12 @@ func launcherCommands(words []commandWord) ([][]commandWord, bool) {
 		return nil, complete
 	case "watch":
 		command, complete := watchCommand(words[1:])
+		if len(command) > 0 {
+			return [][]commandWord{command}, complete
+		}
+		return nil, complete
+	case "parallel":
+		command, complete := parallelCommand(words[1:])
 		if len(command) > 0 {
 			return [][]commandWord{command}, complete
 		}
