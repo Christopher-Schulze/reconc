@@ -50,7 +50,9 @@ func gitWrite(t *testing.T, repo, rel, content string) {
 
 func gitRun(t *testing.T, repo string, args ...string) {
 	t.Helper()
-	c := exec.Command("git", args...)
+	// TempDir cleanup must not race maintenance detached from a completed commit.
+	commandArgs := append([]string{"-c", "maintenance.autoDetach=false", "-c", "gc.autoDetach=false"}, args...)
+	c := exec.Command("git", commandArgs...)
 	c.Dir = repo
 	if out, err := c.CombinedOutput(); err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, out)
