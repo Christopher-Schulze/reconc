@@ -2,7 +2,7 @@
 
 - Status: Frozen
 - Producer: `reconc fix`
-- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v2/policy-fix-plan.schema.json`
+- Schema: `urn:reconc:schema:policy-fix-plan:v2:sha256:851c5fee27f7392b2129084d59788e0c844233d3b7f73bb7023945672b47c14f`
 - Format version: `2` (the v1 shape remains available through `BuildLegacyFixPlan`)
 
 ## Purpose

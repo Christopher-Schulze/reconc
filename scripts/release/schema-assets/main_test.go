@@ -154,7 +154,8 @@ func TestVerifyPublishedRequiresExactBoundedBytes(t *testing.T) {
 	digest := sha256.Sum256(local)
 	contract := schema.Contract{
 		LocalPath: localPath, DefaultURL: server.URL + "/schema.json",
-		SHA256: fmt.Sprintf("%x", digest),
+		IntroductionTag: "reconc-v1.2.3",
+		SHA256:          fmt.Sprintf("%x", digest),
 	}
 	client := server.Client()
 	client.CheckRedirect = publicationClient().CheckRedirect
@@ -199,7 +200,7 @@ func TestVerifyPublishedRejectsHTTPFailureRedirectAndOversize(t *testing.T) {
 				t.Fatal(err)
 			}
 			digest := sha256.Sum256(local)
-			contract := schema.Contract{LocalPath: localPath, DefaultURL: server.URL, SHA256: fmt.Sprintf("%x", digest)}
+			contract := schema.Contract{LocalPath: localPath, DefaultURL: server.URL, SHA256: fmt.Sprintf("%x", digest), IntroductionTag: "reconc-v1.2.3"}
 			client := server.Client()
 			client.CheckRedirect = publicationClient().CheckRedirect
 			err := verifyPublished(context.Background(), client, root, []schema.Contract{contract})

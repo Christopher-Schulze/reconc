@@ -219,6 +219,17 @@ func Load(manifestBody []byte, source fs.FS, targetPrefix, productVersion string
 }
 
 func LoadArchive(body []byte, productVersion string) (*Pack, error) {
+	return loadArchive(body, productVersion, false)
+}
+
+// LoadBundledArchive verifies a pack compiled into the same source build.
+// Its compatibility is established by that build's integration gates, without
+// assigning development source a product version. External packs use LoadArchive.
+func LoadBundledArchive(body []byte) (*Pack, error) {
+	return loadArchive(body, "", true)
+}
+
+func loadArchive(body []byte, productVersion string, bundled bool) (*Pack, error) {
 	if len(body) == 0 || len(body) > MaxArchiveBytes {
 		return nil, fmt.Errorf("harness pack archive must contain 1..%d bytes", MaxArchiveBytes)
 	}
@@ -241,8 +252,10 @@ func LoadArchive(body []byte, productVersion string) (*Pack, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := ValidateProductCompatibility(manifest, productVersion); err != nil {
-		return nil, err
+	if !bundled {
+		if err := ValidateProductCompatibility(manifest, productVersion); err != nil {
+			return nil, err
+		}
 	}
 	if len(reader.File) != len(manifest.Files)+1 {
 		return nil, fmt.Errorf("harness pack archive contains %d files, manifest contains %d", len(reader.File)-1, len(manifest.Files))

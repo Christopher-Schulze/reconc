@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v1/ci-verification.schema.json",
+  "$id": "urn:reconc:schema:ci-verification:v1:sha256:82a55a94302df2678d2b145ca9cb0b370e92a04ba0591d3f2186658213b3c57e",
   "title": "Reconc CI Verification Result",
   "type": "object",
   "additionalProperties": false,
@@ -17,7 +17,7 @@
   "then": {
     "required": ["candidate", "evidence_identity"],
     "properties": {
-      "candidate": {"$ref": "ci-statement.schema.json#/$defs/candidate"},
+      "candidate": {"$ref": "urn:reconc:schema:ci-statement:v1:sha256:0bafe23b80bb194315766f0a9612f780a6b31e24c1b9b0a0d58e18e568ded7d9#/$defs/candidate"},
       "evidence_identity": {"$ref": "#/$defs/evidenceIdentity"}
     }
   },

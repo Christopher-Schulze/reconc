@@ -63,9 +63,16 @@ test oracle. Production schema validation uses
 - Work directly on `main`. Never create, publish, or switch to another branch
   unless Christopher explicitly requests that exact branch. Push repository
   commits only to `origin/main` unless he explicitly directs otherwise.
-- Never change the product version without Christopher's explicit approval for
-  the exact target version. Always ask for approval before every version bump;
-  never infer, select, recommend as a substitute, or perform one autonomously.
+- Never assign, bump, or predeclare a product release version during development.
+  Source code, tests, build defaults, and current documentation must not pin a
+  current or future product release number. Development builds identify their
+  source commit and development state without claiming a product release.
+- Christopher alone decides when a chosen commit becomes a version. Only his
+  explicit instruction authorizes creating that product tag or publishing that
+  release. Never infer authorization from implementation, tests, commits,
+  pushes, task completion, release preparation, or an earlier release. No
+  exceptions. Release builds obtain the product version from the exact
+  explicitly selected Git tag, never from a version literal in the source.
 - If Christopher explicitly says to keep the current version and replace or
   republish that version's release, follow that instruction exactly. Never
   substitute a different version number or refuse solely because another
@@ -76,14 +83,19 @@ test oracle. Production schema validation uses
   repository-targeted Reconc commands against this product repository. Use the
   isolated temporary repositories created by `make self-host`.
 
-## Current Release State
+## Version And Release Authority
 
-The current source line is `v0.9.x`; the source version is `v0.9.9`.
-This approved development cycle spans multiple sessions. Do not create its
-tag or publish a release until Christopher explicitly requests that action.
-The latest published release is `reconc-v0.9.8`.
-The changed policy-lock schema targets `reconc-v0.9.9`; unchanged schemas
-retain their published identities. Core tests, race tests, vet, static analysis, CodeQL, and independent
-release-artifact verification must pass before publication. Version text alone
-is not release identity. Coverage is measured across each complete Go module,
-not inferred from package-local percentages.
+The working source has no assigned product release version. Git commits
+identify development state; an explicitly authorized product tag assigns a
+release version to one selected commit. Never reserve or target the next
+product release number in source, tests, documentation, or build configuration.
+
+Dependency pins, protocol and format revisions, immutable published schema
+identities, and historical release records describe separate technical facts.
+Preserve their compatibility meaning; never change them merely to match a
+product release number or use them to infer release authorization.
+
+Core tests, race tests, vet, static analysis, CodeQL, and independent artifact
+verification must pass before an explicitly authorized publication. Passing
+those checks does not authorize a tag or release. Coverage is measured across
+each complete Go module, not inferred from package-local percentages.

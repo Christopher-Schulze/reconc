@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v6/policy-lock.schema.json",
+  "$id": "urn:reconc:schema:policy-lock:v6:sha256:c2634f6083726b5563de867e4d4ffee325f9336f5dd99bbb6f705223e014cec7",
   "title": "Reconc compiled policy lock v6",
   "type": "object",
   "additionalProperties": false,
@@ -21,7 +21,7 @@
     "actions"
   ],
   "properties": {
-    "$schema": { "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v6/policy-lock.schema.json" },
+    "$schema": { "const": "urn:reconc:schema:policy-lock:v6:sha256:c2634f6083726b5563de867e4d4ffee325f9336f5dd99bbb6f705223e014cec7" },
     "compiler_version": { "type": "string", "minLength": 1 },
     "format_version": { "const": "6" },
     "repo_root": { "const": "." },

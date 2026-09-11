@@ -92,16 +92,13 @@ func TestActionLedgerRevisionPreservesPublishedV1(t *testing.T) {
 	}
 }
 
-func TestV6PublicationAdvancesWithoutRewritingUnchangedContracts(t *testing.T) {
-	if schema.CurrentSchemaTag == schema.PreviousSchemaTag {
-		t.Fatal("current and previous schema publication tags must differ")
-	}
+func TestCurrentSchemasUseReleaseIndependentIdentitiesAndRetainPublishedAliases(t *testing.T) {
 	v6, ok := schema.ContractVersion(schema.PolicyLock, "6")
 	if !ok {
 		t.Fatal("current policy-lock v6 contract is absent")
 	}
-	if v6.IntroductionTag != schema.CurrentSchemaTag || v6.DefaultURL != schema.PolicyLockURL {
-		t.Fatalf("v6 publication identity = %#v, want current tag and URL", v6)
+	if v6.IntroductionTag != "" || v6.DefaultURL != schema.PolicyLockURL {
+		t.Fatalf("v6 identity = %#v, want release-independent identity", v6)
 	}
 	previousFound := false
 	for _, alias := range v6.Aliases {
@@ -123,8 +120,8 @@ func TestV6PublicationAdvancesWithoutRewritingUnchangedContracts(t *testing.T) {
 	if !ok {
 		t.Fatal("current policy-config v4 contract is absent")
 	}
-	if config.IntroductionTag != schema.CurrentSchemaTag || config.DefaultURL != schema.PolicyConfigURL {
-		t.Fatalf("policy-config v4 publication identity = %#v, want current tag and URL", config)
+	if config.IntroductionTag != "" || config.DefaultURL != schema.PolicyConfigURL {
+		t.Fatalf("policy-config v4 identity = %#v, want release-independent identity", config)
 	}
 	if !schema.Accepts(schema.PolicyConfig, schema.PreviousPolicyConfigV4URL) {
 		t.Fatalf("policy-config v4 does not retain previous publication alias: %#v", config.Aliases)
@@ -288,13 +285,13 @@ func assertRegistryContract(t *testing.T, contract schema.Contract) {
 	t.Helper()
 	if contract.Artifact == "" || contract.SchemaVersion == "" || contract.LocalPath == "" ||
 		contract.ReleaseAsset == "" || contract.DefaultURL == "" || contract.EnterprisePath == "" ||
-		contract.IntroductionTag == "" || contract.SHA256 == "" {
+		contract.SHA256 == "" {
 		t.Fatalf("incomplete registry contract: %+v", contract)
 	}
 	if contract.State != schema.StateCurrent && contract.State != schema.StateLegacy {
 		t.Errorf("invalid state for %s: %q", contract.LocalPath, contract.State)
 	}
-	if !strings.HasPrefix(contract.DefaultURL, "https://") || !strings.HasPrefix(contract.IntroductionTag, "reconc-v") {
+	if contract.IntroductionTag != "" && (!strings.HasPrefix(contract.DefaultURL, "https://") || !strings.HasPrefix(contract.IntroductionTag, "reconc-v")) {
 		t.Errorf("invalid publication identity for %s", contract.LocalPath)
 	}
 	if got, want := contract.EnterprisePath, "/schemas/"+string(contract.Artifact)+"/v"+contract.SchemaVersion; got != want {
@@ -303,6 +300,12 @@ func assertRegistryContract(t *testing.T, contract schema.Contract) {
 	body, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(contract.LocalPath)))
 	if err != nil {
 		t.Fatalf("read %s: %v", contract.LocalPath, err)
+	}
+	if contract.IntroductionTag == "" {
+		identity, err := schema.ContentIdentity(contract.Artifact, contract.SchemaVersion, body)
+		if err != nil || identity != contract.DefaultURL {
+			t.Fatalf("content identity for %s = %q (%v), want %q", contract.LocalPath, identity, err, contract.DefaultURL)
+		}
 	}
 	digest := sha256.Sum256(body)
 	if got := hex.EncodeToString(digest[:]); got != contract.SHA256 {

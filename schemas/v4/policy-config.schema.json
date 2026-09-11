@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v4/policy-config.schema.json",
+  "$id": "urn:reconc:schema:policy-config:v4:sha256:7ee24299b5a1b9d270aa2b5bd75603c25a91711b01a88224a14c664df817d0db",
   "title": "Reconc policy authoring config v4",
   "type": "object",
   "additionalProperties": false,

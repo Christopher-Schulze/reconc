@@ -231,9 +231,9 @@ Generated from the hook registry. Capability describes registry evidence, not ob
 <!-- BEGIN RECONC GENERATED SCHEMA REFERENCE -->
 ## Canonical schema contracts
 
-Generated from `internal/schema`. Canonical URLs are immutable publication identities; aliases remain input-only.
+Generated from `internal/schema`. Canonical identities bind content hashes or immutable historical publications; aliases remain input-only.
 
-| Artifact | Schema | Formats | State | Canonical URL | Local source |
+| Artifact | Schema | Formats | State | Canonical identity | Local source |
 |---|---|---|---|---|---|
 | `action-control-map` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/action-control-map.schema.json> | `schemas/v1/action-control-map.schema.json` |
 | `action-control-map-authorities` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/action-control-map-authorities.schema.json> | `schemas/v1/action-control-map-authorities.schema.json` |
@@ -241,10 +241,10 @@ Generated from `internal/schema`. Canonical URLs are immutable publication ident
 | `action-evidence` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/action-evidence.schema.json> | `schemas/v1/action-evidence.schema.json` |
 | `action-ledger` | `v1` | 1 | `legacy` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/action-ledger.schema.json> | `schemas/v1/action-ledger.schema.json` |
 | `action-ledger` | `v2` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/action-ledger.schema.json> | `schemas/v2/action-ledger.schema.json` |
-| `ci-evidence` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v1/ci-evidence.schema.json> | `schemas/v1/ci-evidence.schema.json` |
-| `ci-requirement` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v1/ci-requirement.schema.json> | `schemas/v1/ci-requirement.schema.json` |
-| `ci-statement` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v1/ci-statement.schema.json> | `schemas/v1/ci-statement.schema.json` |
-| `ci-verification` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v1/ci-verification.schema.json> | `schemas/v1/ci-verification.schema.json` |
+| `ci-evidence` | `v1` | 1 | `current` | <urn:reconc:schema:ci-evidence:v1:sha256:fbad8b6936a64d2839151cbe44d6fbadacaf3dadf51bac9d686f09ec911a85b3> | `schemas/v1/ci-evidence.schema.json` |
+| `ci-requirement` | `v1` | 1 | `current` | <urn:reconc:schema:ci-requirement:v1:sha256:9331a35a551a2bc4ab76758c173f57e6fffbb67368d5edb1c7e106c0ae2edfa8> | `schemas/v1/ci-requirement.schema.json` |
+| `ci-statement` | `v1` | 1 | `current` | <urn:reconc:schema:ci-statement:v1:sha256:0bafe23b80bb194315766f0a9612f780a6b31e24c1b9b0a0d58e18e568ded7d9> | `schemas/v1/ci-statement.schema.json` |
+| `ci-verification` | `v1` | 1 | `current` | <urn:reconc:schema:ci-verification:v1:sha256:82a55a94302df2678d2b145ca9cb0b370e92a04ba0591d3f2186658213b3c57e> | `schemas/v1/ci-verification.schema.json` |
 | `completion-report` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/completion-report.schema.json> | `schemas/v1/completion-report.schema.json` |
 | `custom-runtime-conformance` | `v1` | reconc-custom-runtime-conformance/v1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/custom-runtime-conformance.schema.json> | `schemas/v1/custom-runtime-conformance.schema.json` |
 | `custom-runtime-liveness` | `v1` | reconc-custom-runtime-liveness/v1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/custom-runtime-liveness.schema.json> | `schemas/v1/custom-runtime-liveness.schema.json` |
@@ -259,15 +259,15 @@ Generated from `internal/schema`. Canonical URLs are immutable publication ident
 | `policy-config` | `v1` | - | `legacy` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/policy-config.schema.json> | `schemas/v1/policy-config.schema.json` |
 | `policy-config` | `v2` | - | `legacy` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json> | `schemas/v2/policy-config.schema.json` |
 | `policy-config` | `v3` | - | `legacy` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json> | `schemas/v3/policy-config.schema.json` |
-| `policy-config` | `v4` | - | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v4/policy-config.schema.json> | `schemas/v4/policy-config.schema.json` |
+| `policy-config` | `v4` | - | `current` | <urn:reconc:schema:policy-config:v4:sha256:7ee24299b5a1b9d270aa2b5bd75603c25a91711b01a88224a14c664df817d0db> | `schemas/v4/policy-config.schema.json` |
 | `policy-fix-plan` | `v1` | 1 | `legacy` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/policy-fix-plan.schema.json> | `schemas/v1/policy-fix-plan.schema.json` |
-| `policy-fix-plan` | `v2` | 2 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v2/policy-fix-plan.schema.json> | `schemas/v2/policy-fix-plan.schema.json` |
+| `policy-fix-plan` | `v2` | 2 | `current` | <urn:reconc:schema:policy-fix-plan:v2:sha256:851c5fee27f7392b2129084d59788e0c844233d3b7f73bb7023945672b47c14f> | `schemas/v2/policy-fix-plan.schema.json` |
 | `policy-lock` | `v1` | 1 | `legacy` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/policy-lock.schema.json> | `schemas/v1/policy-lock.schema.json` |
 | `policy-lock` | `v2` | 2 | `legacy` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-lock.schema.json> | `schemas/v2/policy-lock.schema.json` |
 | `policy-lock` | `v3` | 3 | `legacy` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-lock.schema.json> | `schemas/v3/policy-lock.schema.json` |
 | `policy-lock` | `v4` | 4 | `legacy` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json> | `schemas/v4/policy-lock.schema.json` |
 | `policy-lock` | `v5` | 5 | `legacy` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v5/policy-lock.schema.json> | `schemas/v5/policy-lock.schema.json` |
-| `policy-lock` | `v6` | 6 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v6/policy-lock.schema.json> | `schemas/v6/policy-lock.schema.json` |
+| `policy-lock` | `v6` | 6 | `current` | <urn:reconc:schema:policy-lock:v6:sha256:c2634f6083726b5563de867e4d4ffee325f9336f5dd99bbb6f705223e014cec7> | `schemas/v6/policy-lock.schema.json` |
 | `policy-report` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/policy-report.schema.json> | `schemas/v1/policy-report.schema.json` |
 | `proof-bundle` | `v1` | 1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/proof-bundle.schema.json> | `schemas/v1/proof-bundle.schema.json` |
 | `release-manifest` | `v1` | reconc.release/v1 | `current` | <https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/release-manifest.schema.json> | `schemas/v1/release-manifest.schema.json` |
@@ -388,7 +388,7 @@ candidate insertion and digest ordering.
 
 ## Go-Only Action Plane (Draft)
 
-RECONC-0008 remains Draft. v0.9.8 implements strict action
+RECONC-0008 remains Draft. Reconc implements strict action
 authoring, deterministic legacy MCP lowering, one canonical format-6 action
 plan, immutable typed matcher programs, a derived MCP compatibility view, and
 `reconc why action`. The transport-neutral pure evaluator now implements strict
@@ -519,7 +519,7 @@ authority modes, resource limits, failure matrix, approval and budget state
 machines, privacy-bounded ledger, conformance vectors, and package ownership are
 in [RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md).
 
-The interoperability matrix is Reconc `0.9.8`, Go MCP SDK `v1.7.0`, current
+The interoperability matrix uses Reconc built from the checked source, Go MCP SDK `v1.7.0`, current
 protocol `2026-07-28`, legacy protocol `2025-11-25`, official
 `langchain-mcp-adapters==0.3.2`, `langchain-core==1.5.4`, MCP Python SDK
 `1.29.0`, Python CI `3.13.14`, and Go fixture format `1`. The external adapter

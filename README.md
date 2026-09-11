@@ -49,7 +49,7 @@ verifies one-time approvals, inspects progress and results, and records a
 payload-free lifecycle. Reconc remains one Go binary; Python belongs only to
 the external LangChain client and the pinned interoperability test.
 
-The exact proven matrix is Reconc `0.9.8`, MCP Go SDK `v1.7.0`,
+The exact proven matrix uses Reconc built from the checked source, MCP Go SDK `v1.7.0`,
 `langchain-mcp-adapters==0.3.2`, `langchain-core==1.5.4`, MCP Python SDK
 `1.29.0`, Python `3.13.14`, legacy MCP `2025-11-25`, and current MCP
 `2026-07-28`. Start with the
@@ -149,7 +149,7 @@ Core invariants are deliberately strict:
 | Control surface | What Reconc provides |
 | --- | --- |
 | Policy compiler | Compiles repository instructions, YAML policy, packs, templates, and provenance into a portable lockfile. Unknown fields, stale sources, schema drift, invalid globs, unsupported rule kinds, and non-portable current roots fail closed. |
-| Action policy, trusted context, and budgets | v0.9.8 strictly compiles `actions` and compatible legacy `mcp` authoring into one canonical format-6 action plan, explains and simulates it offline, and routes explicitly configured tools through `reconc mcp gateway` with private keyed identities, crash-safe cumulative budgets, approvals, result inspection, and a decision ledger. |
+| Action policy, trusted context, and budgets | Reconc strictly compiles `actions` and compatible legacy `mcp` authoring into one canonical format-6 action plan, explains and simulates it offline, and routes explicitly configured tools through `reconc mcp gateway` with private keyed identities, crash-safe cumulative budgets, approvals, result inspection, and a decision ledger. |
 | Action decision ledger | `reconc action log tail|stats|verify|export` reads a separate private, tamper-evident, privacy-bounded ledger with exact retained-chain verification and explicit lifecycle gaps. Export produces only verified synthetic minimized Impact Lab cases and never reconstructs raw arguments or results. |
 | Action control evidence | `reconc action evidence export|verify` derives deterministic local JSON or Markdown from current policy, verified retained history, read-only state, reverified approval receipts, and exact scenarios. Built-in SOC 2, GDPR, HIPAA Security Rule, and EU AI Act mappings describe bounded technical evidence only; organizational assessment, legal determination, and external assurance remain outside Reconc. |
 | Scope and change control | Records and evaluates reads, writes, commands, claims, protected paths, coupled changes, generated files, secret state, destructive commands, and out-of-scope edits or deletions. |
@@ -1212,11 +1212,13 @@ through the private route in
 
 ## Status
 
-The source line is `v0.9.x`, and the current source version is `v0.9.9`.
+Development source has no assigned product release version.
 The latest published release is `reconc-v0.9.8`.
-Development does not create a tag or publish a release. The changed policy-lock
-schema targets `reconc-v0.9.9`; unchanged contracts retain their published
-identities. Version text alone is not release identity; use the exact tag
+Only Christopher's explicit instruction assigns a release tag to a chosen
+commit. Development builds report `dev` with available VCS metadata; managed
+builds include the commit and dirty state. Changed schemas use content-addressed
+identities; unchanged contracts retain their published identities.
+Version text alone is not release identity; use the exact tag
 commit, artifact checksum, and build provenance. An explicitly authorized
 same-version replacement remains an update when its verified artifact digest
 changes. Any later source commit remains unreleased until the protected tag and

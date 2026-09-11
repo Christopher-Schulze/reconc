@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v1/ci-statement.schema.json",
+  "$id": "urn:reconc:schema:ci-statement:v1:sha256:0bafe23b80bb194315766f0a9612f780a6b31e24c1b9b0a0d58e18e568ded7d9",
   "title": "Reconc CI Statement",
   "$comment": "Runtime verification additionally checks UTF-8 byte bounds, trimmed printable text, sorted unique check IDs, timestamp ranges and ordering, authenticity, freshness and the independently supplied candidate and requirements.",
   "type": "object",

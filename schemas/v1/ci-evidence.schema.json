@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.9/schemas/v1/ci-evidence.schema.json",
+  "$id": "urn:reconc:schema:ci-evidence:v1:sha256:fbad8b6936a64d2839151cbe44d6fbadacaf3dadf51bac9d686f09ec911a85b3",
   "title": "Reconc Signed CI Evidence",
   "$comment": "Schema validation does not authenticate the signature. The offline runtime requires exact canonical JSON and verifies Ed25519 against an independently pinned authority.",
   "type": "object",
@@ -10,7 +10,7 @@
     "schema": {"const": "reconc.ci-signed-evidence/v1"},
     "format_version": {"const": "1"},
     "authority_key_id": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"},
-    "statement": {"$ref": "ci-statement.schema.json"},
+    "statement": {"$ref": "urn:reconc:schema:ci-statement:v1:sha256:0bafe23b80bb194315766f0a9612f780a6b31e24c1b9b0a0d58e18e568ded7d9"},
     "signature": {"type": "string", "pattern": "^[A-Za-z0-9_-]{86}$"}
   }
 }

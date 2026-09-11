@@ -281,8 +281,8 @@ func renderSchemaReference() ([]byte, error) {
 	}
 	var output bytes.Buffer
 	output.WriteString("## Canonical schema contracts\n\n")
-	output.WriteString("Generated from `internal/schema`. Canonical URLs are immutable publication identities; aliases remain input-only.\n\n")
-	output.WriteString("| Artifact | Schema | Formats | State | Canonical URL | Local source |\n")
+	output.WriteString("Generated from `internal/schema`. Canonical identities bind content hashes or immutable historical publications; aliases remain input-only.\n\n")
+	output.WriteString("| Artifact | Schema | Formats | State | Canonical identity | Local source |\n")
 	output.WriteString("|---|---|---|---|---|---|\n")
 	seen := make(map[string]bool, len(contracts))
 	for _, contract := range contracts {

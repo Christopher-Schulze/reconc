@@ -1298,7 +1298,7 @@ func TestRepositorySyncRejectsHistoricalAdvancedPlanWithoutEmbeddedPackBinding(t
 	}
 
 	if _, err := LoadPlan(filepath.Join(repo, filepath.FromSlash(legacyPlanPath))); err == nil ||
-		!strings.Contains(err.Error(), "supports Reconc >=0.9.0 and <1.0.0, not 0.8.8") {
+		!strings.Contains(err.Error(), "advanced bootstrap selection must contain the exact embedded harness pack") {
 		t.Fatalf("historical bootstrap plan load error = %v", err)
 	}
 	if _, err := BuildSyncPlan(repo, syncTestVersion); err == nil {

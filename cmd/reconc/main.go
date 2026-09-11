@@ -12,14 +12,18 @@ import (
 	"io"
 	"os"
 
+	"reconc.dev/reconc/buildprovenance"
 	"reconc.dev/reconc/internal/cli"
 )
 
-// Version is the reconc build version. Overridden at build time via
-// -ldflags "-X main.Version=<semver>" for release builds.
-var Version = "0.9.9"
+// Version is injected by managed builds; releases derive it from an explicit tag.
+// Direct builds use VCS metadata without assigning a product release version.
+var Version = "dev"
 
 func main() {
+	if Version == "dev" {
+		Version = buildprovenance.DevelopmentVersion()
+	}
 	if err := cli.Run(os.Args[1:], Version, os.Stdout, os.Stderr); err != nil {
 		writeError(os.Stderr, err)
 		os.Exit(cli.ExitCode(err))

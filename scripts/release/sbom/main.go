@@ -58,9 +58,9 @@ func parseOptions(command string, args []string) (commandOptions, error) {
 	options := commandOptions{}
 	flags.StringVar(&options.root, "root", ".", "repository root")
 	flags.StringVar(&options.outputDir, "output-dir", "dist", "release output directory")
-	flags.StringVar(&options.version, "version", "", "release version")
-	flags.StringVar(&options.commit, "commit", "", "release commit")
-	flags.StringVar(&options.epoch, "source-date-epoch", "", "release commit timestamp")
+	flags.StringVar(&options.version, "version", "", "source build identity")
+	flags.StringVar(&options.commit, "commit", "", "source commit")
+	flags.StringVar(&options.epoch, "source-date-epoch", "", "source commit timestamp")
 	if err := flags.Parse(args); err != nil {
 		return commandOptions{}, err
 	}

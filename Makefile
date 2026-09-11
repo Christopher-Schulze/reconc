@@ -37,7 +37,7 @@ BIN       := reconc
 PKG       := ./...
 BINDIR    := .build/bin
 DISTDIR   := dist
-VERSION   ?= 0.9.9
+export RELEASE_TAG
 PROVENANCE_PKG := reconc.dev/reconc/buildprovenance
 STATICCHECK_VERSION := v0.8.1
 TEST_PARALLELISM ?= 2
@@ -65,15 +65,24 @@ RELEASE_TARGETS := \
 
 .PHONY: build test-fast test test-langchain test-release-trust self-host publication-audit harness-pack-check reference-docs reference-docs-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices checksums verify-release bench benchmark-record benchmark-profile benchmark-pgo benchmark-compare benchmark-baseline check-test-parallelism
 
-build:
+build: check-build-identity
 	@mkdir -p $(BINDIR)
-	@goos=$$($(GO) env GOOS); \
+	@version=$$(./scripts/build/resolve-version.sh) || exit $$?; \
+	 goos=$$($(GO) env GOOS); \
 	 goarch=$$($(GO) env GOARCH); \
-	 marker=$$($(GO) run ./cmd/reconc-build-provenance --root . --goos "$$goos" --goarch "$$goarch" --version "$(VERSION)") || exit $$?; \
+	 marker=$$($(GO) run ./cmd/reconc-build-provenance --root . --goos "$$goos" --goarch "$$goarch" --version "$$version") || exit $$?; \
 	 CGO_ENABLED=0 $(GO) build -trimpath \
-	   -ldflags "-X main.Version=$(VERSION) -X $(PROVENANCE_PKG).BuildMarker=$$marker -s -w" \
-	   -o $(BINDIR)/$(BIN) ./cmd/reconc; \
-	 $(GO) run ./cmd/reconc-build-provenance --root . --goos "$$goos" --goarch "$$goarch" --version "$(VERSION)" --verify-binary $(BINDIR)/$(BIN)
+	   -ldflags "-X main.Version=$$version -X $(PROVENANCE_PKG).BuildMarker=$$marker -s -w" \
+	   -o $(BINDIR)/$(BIN) ./cmd/reconc || exit $$?; \
+	 $(GO) run ./cmd/reconc-build-provenance --root . --goos "$$goos" --goarch "$$goarch" --version "$$version" --verify-binary $(BINDIR)/$(BIN)
+
+.PHONY: check-build-identity
+check-build-identity:
+	@./scripts/build/resolve-version.sh >/dev/null
+
+.PHONY: check-release-identity
+check-release-identity: check-build-identity
+	@test -n "$${RELEASE_TAG:-}" || { printf 'release artifacts require an explicitly selected RELEASE_TAG.\n' >&2; exit 64; }
 
 check-test-parallelism:
 	@case "$(TEST_PARALLELISM)" in \
@@ -154,7 +163,7 @@ benchmark-profile:
 	$(GO) run ./scripts/benchmarks/history record --root . --count $(BENCHMARK_COUNT) --repetitions $(BENCHMARK_REPETITIONS) --benchtime $(BENCHMARK_BENCHTIME) --output $(BENCHMARK_RESULT) --profile-dir $(BENCHMARK_PROFILE_DIR) --profile-groups "$(BENCHMARK_PROFILE_GROUPS)"
 
 benchmark-pgo:
-	GO="$(GO)" VERSION="$(VERSION)" ./scripts/benchmarks/pgo.sh --root . --profile "$(BENCHMARK_PGO_PROFILE)" --output-dir "$(BENCHMARK_PGO_DIR)"
+	GO="$(GO)" ./scripts/benchmarks/pgo.sh --root . --profile "$(BENCHMARK_PGO_PROFILE)" --output-dir "$(BENCHMARK_PGO_DIR)"
 
 benchmark-compare:
 	$(GO) run ./scripts/benchmarks/history compare --baseline $(BENCHMARK_BASELINE) --result $(BENCHMARK_RESULT) --output $(BENCHMARK_COMPARISON)
@@ -176,20 +185,23 @@ tidy:
 # Cross-compile one target from RELEASE_TARGETS. Invoked by `release`.
 # Usage: make release-one TARGET=darwin/arm64
 .PHONY: release-one
-release-one:
+release-one: check-build-identity
 	@mkdir -p $(DISTDIR)
-	@os=$${TARGET%/*}; arch=$${TARGET##*/}; \
+	@version=$$(./scripts/build/resolve-version.sh) || exit $$?; \
+	 os=$${TARGET%/*}; arch=$${TARGET##*/}; \
 	 ext=$$( [ "$$os" = "windows" ] && echo ".exe" || echo "" ); \
-	 out=$(DISTDIR)/$(BIN)-$(VERSION)-$$os-$$arch$$ext; \
-	 marker=$$($(GO) run ./cmd/reconc-build-provenance --root . --goos "$$os" --goarch "$$arch" --version "$(VERSION)") || exit $$?; \
+	 out=$(DISTDIR)/$(BIN)-$$version-$$os-$$arch$$ext; \
+	 marker=$$($(GO) run ./cmd/reconc-build-provenance --root . --goos "$$os" --goarch "$$arch" --version "$$version") || exit $$?; \
 	 echo "building $$out"; \
 	 GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 \
 	   $(GO) build -trimpath \
-	     -ldflags "-X main.Version=$(VERSION) -X $(PROVENANCE_PKG).BuildMarker=$$marker -s -w" \
-	     -o $$out ./cmd/reconc; \
-	 $(GO) run ./cmd/reconc-build-provenance --root . --goos "$$os" --goarch "$$arch" --version "$(VERSION)" --verify-binary $$out
+	     -ldflags "-X main.Version=$$version -X $(PROVENANCE_PKG).BuildMarker=$$marker -s -w" \
+	     -o $$out ./cmd/reconc || exit $$?; \
+	 $(GO) run ./cmd/reconc-build-provenance --root . --goos "$$os" --goarch "$$arch" --version "$$version" --verify-binary $$out
 
-release: publication-audit clean
+release: check-release-identity
+	@$(MAKE) --no-print-directory publication-audit
+	@$(MAKE) --no-print-directory clean
 	@mkdir -p $(DISTDIR)
 	@set -eu; for t in $(RELEASE_TARGETS); do \
 	  $(MAKE) --no-print-directory release-one TARGET=$$t; \
@@ -198,27 +210,31 @@ release: publication-audit clean
 	@$(MAKE) --no-print-directory manpage
 	@$(MAKE) --no-print-directory checksums
 	@echo
-	@echo "Release $(VERSION) ready in $(DISTDIR)/:"
+	@version=$$(./scripts/build/resolve-version.sh) || exit $$?; printf 'Release %s ready in %s/:\n' "$$version" "$(DISTDIR)"
 	@ls -1 $(DISTDIR)
 
-completion:
+completion: check-build-identity
 	@mkdir -p $(DISTDIR)
-	@GO="$(GO)" ./scripts/release/generated-assets.sh generate completion "$(DISTDIR)" "$(VERSION)" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)"
+	@version=$$(./scripts/build/resolve-version.sh) || exit $$?; \
+	 GO="$(GO)" ./scripts/release/generated-assets.sh generate completion "$(DISTDIR)" "$$version" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)"
 	@echo "completion scripts -> $(DISTDIR)/"
 
-manpage:
+manpage: check-build-identity
 	@mkdir -p $(DISTDIR)
-	@GO="$(GO)" ./scripts/release/generated-assets.sh generate manpage "$(DISTDIR)" "$(VERSION)" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)"
+	@version=$$(./scripts/build/resolve-version.sh) || exit $$?; \
+	 GO="$(GO)" ./scripts/release/generated-assets.sh generate manpage "$(DISTDIR)" "$$version" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)"
 	@echo "man page -> $(DISTDIR)/reconc.1"
 
-sbom:
+sbom: check-build-identity
 	@mkdir -p $(DISTDIR)
-	@GO="$(GO)" ./scripts/release/generated-assets.sh generate sbom "$(DISTDIR)" "$(VERSION)" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)"
+	@version=$$(./scripts/build/resolve-version.sh) || exit $$?; \
+	 GO="$(GO)" ./scripts/release/generated-assets.sh generate sbom "$(DISTDIR)" "$$version" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)"
 	@echo "SBOMs -> $(DISTDIR)/"
 
-notices:
+notices: check-build-identity
 	@mkdir -p $(DISTDIR)
-	@GO="$(GO)" ./scripts/release/generated-assets.sh generate notices "$(DISTDIR)" "$(VERSION)" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)" $(RELEASE_TARGETS)
+	@version=$$(./scripts/build/resolve-version.sh) || exit $$?; \
+	 GO="$(GO)" ./scripts/release/generated-assets.sh generate notices "$(DISTDIR)" "$$version" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)" $(RELEASE_TARGETS)
 	@echo "license notices -> $(DISTDIR)/"
 
 checksums: sbom notices
@@ -228,5 +244,6 @@ checksums: sbom notices
 	@$(MAKE) --no-print-directory verify-release
 	@echo "checksums -> $(DISTDIR)/SHA256SUMS"
 
-verify-release:
-	@GO="$(GO)" ./scripts/release/verify-artifacts.sh $(DISTDIR) $(BIN) $(VERSION) $(RELEASE_TARGETS)
+verify-release: check-release-identity
+	@version=$$(./scripts/build/resolve-version.sh) || exit $$?; \
+	 GO="$(GO)" ./scripts/release/verify-artifacts.sh $(DISTDIR) $(BIN) "$$version" $(RELEASE_TARGETS)

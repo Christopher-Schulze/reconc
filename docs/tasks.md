@@ -3,10 +3,12 @@
 ## Active
 
 ## Queue
+- [ ] 513 Repair existing Windows integration gate failures -> tasks/513-repair-windows-integration-gate-failures.md
 
 ## Blocked
 
 ## Done
+- [x] 512 Remove hardcoded product release versions -> tasks/done/512-remove-hardcoded-product-release-versions.md
 - [x] 511 Enforce semantic evidence contracts for built-in recipes -> tasks/done/511-enforce-semantic-evidence-recipe-contracts.md
 - [x] 510 Run the complete bounded profile pipeline in CI -> tasks/done/510-run-complete-bounded-profile-pipeline-in-ci.md
 - [x] 509 Correct stale current-version documentation claims -> tasks/done/509-correct-stale-current-version-documentation-claims.md
@@ -16,4 +18,3 @@
 - [x] 505 Make shared runtime-plan loading cancellation-safe -> tasks/done/505-make-shared-plan-loading-cancellation-safe.md
 - [x] 504 Retry MCP shutdown finalization without losing pending state -> tasks/done/504-retry-mcp-shutdown-finalization.md
 - [x] 503 Reject overflowed session reports as current briefing evidence -> tasks/done/503-reject-overflowed-session-reports.md
-- [x] 502 Stabilize benchmark samples with internal repetitions -> tasks/done/502-stabilize-benchmark-samples-with-internal-repetitions.md

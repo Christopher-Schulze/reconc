@@ -38,9 +38,43 @@ func TestAdvancedPackMatchesCanonicalManifest(t *testing.T) {
 	}
 }
 
-func TestAdvancedPackRejectsIncompatibleProduct(t *testing.T) {
-	if _, err := Advanced("1.0.0"); err == nil {
-		t.Fatal("incompatible product loaded the advanced pack")
+func TestAdvancedPackUsesBuildIdentityWithoutProductRange(t *testing.T) {
+	for _, identity := range []string{"dev", "dev+0123456789ab", "dev+0123456789ab-dirty", "12.34.56"} {
+		t.Run(identity, func(t *testing.T) {
+			pack, err := Advanced(identity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, file := range pack.Files {
+				if err := harnesspack.VerifyFile(file.File, file.Body); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+	for _, identity := range []string{"", "unavailable", "dev+invalid", "1.0.0-01"} {
+		if _, err := Advanced(identity); err == nil {
+			t.Fatalf("invalid build identity %q loaded the advanced pack", identity)
+		}
+	}
+}
+
+func TestBundledPackRejectsDamagedArchive(t *testing.T) {
+	corrupted := bytes.Clone(advancedArchive)
+	corrupted[len(corrupted)/2] ^= 1
+	for _, test := range []struct {
+		name string
+		body []byte
+	}{
+		{name: "empty"},
+		{name: "truncated", body: advancedArchive[:len(advancedArchive)-8]},
+		{name: "corrupted", body: corrupted},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := harnesspack.LoadBundledArchive(test.body); err == nil {
+				t.Fatal("damaged bundled archive was accepted")
+			}
+		})
 	}
 }
 

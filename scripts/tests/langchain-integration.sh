@@ -4,7 +4,6 @@ set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 python=${PYTHON:-python3}
-reconc_version=0.9.8
 go_mcp_sdk_version=v1.7.0
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/reconc-langchain.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT INT HUP TERM
@@ -13,6 +12,8 @@ fail() {
   printf 'langchain-integration: %s\n' "$1" >&2
   exit 1
 }
+
+reconc_version=$("$root/scripts/build/resolve-version.sh" "$root")
 
 "$python" - <<'PY'
 import importlib.metadata
@@ -43,7 +44,7 @@ actual_go_mcp_sdk_version=$(go list -m -f '{{.Version}}' github.com/modelcontext
 
 mkdir -p "$tmp/bin" "$tmp/operator" "$tmp/repository" "$tmp/reconc-home"
 chmod 700 "$tmp/operator" "$tmp/reconc-home"
-go build -trimpath -o "$tmp/bin/reconc" ./cmd/reconc
+go build -trimpath -ldflags "-X main.Version=$reconc_version" -o "$tmp/bin/reconc" ./cmd/reconc
 go build -trimpath -o "$tmp/bin/langchain-fixture" ./scripts/tests/langchain-fixture
 go build -trimpath -o "$tmp/bin/approval-fixture" ./scripts/tests/approval-fixture
 [ "$("$tmp/bin/reconc" --version)" = "reconc $reconc_version" ] ||

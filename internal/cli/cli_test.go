@@ -1244,10 +1244,10 @@ func TestRunWhyShowsDeprecationStatus(t *testing.T) {
 
 func TestRunVersionSubcommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"version"}, "0.9.9-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"version"}, "dev+test", &stdout, &stderr); err != nil {
 		t.Fatalf("version: %v", err)
 	}
-	if !strings.Contains(stdout.String(), "reconc 0.9.9-test") {
+	if !strings.Contains(stdout.String(), "reconc dev+test") {
 		t.Errorf("expected version line, got: %s", stdout.String())
 	}
 }

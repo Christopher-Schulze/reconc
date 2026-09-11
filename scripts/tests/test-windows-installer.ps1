@@ -44,12 +44,35 @@ function Assert-ReconcFailure {
 
 $resolvedInstaller = (Resolve-Path -LiteralPath $InstallerPath).Path
 $resolvedBinary = (Resolve-Path -LiteralPath $BinaryPath).Path
-. $resolvedInstaller -Version $ExpectedVersion
 
 $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) "reconc-windows-installer-test-$([Guid]::NewGuid().ToString('N'))"
 [void](New-Item -ItemType Directory -Path $temporaryDirectory)
 
 try {
+    $buildVersion = (& $resolvedBinary --version | Out-String).Trim()
+    Assert-ReconcTest ($LASTEXITCODE -eq 0 -and $buildVersion -ceq "reconc $ExpectedVersion") "input binary does not match the selected build identity"
+    if ($ExpectedVersion.StartsWith("dev", [StringComparison]::Ordinal)) {
+        # Installer version parsing needs a synthetic release binary; it never
+        # assigns a release to the product checkout or creates a product tag.
+        $ExpectedVersion = "12.34.56-fixture"
+        $sourceRoot = Split-Path -Parent $resolvedInstaller
+        $resolvedBinary = Join-Path $temporaryDirectory "installer-fixture.exe"
+        $marker = (& go -C $sourceRoot run ./cmd/reconc-build-provenance --root $sourceRoot --goos windows --goarch amd64 --version $ExpectedVersion | Out-String).Trim()
+        Assert-ReconcTest ($LASTEXITCODE -eq 0 -and $marker.Length -gt 0) "fixture provenance generation failed"
+        $savedCGO = $env:CGO_ENABLED
+        try {
+            $env:CGO_ENABLED = "0"
+            & go -C $sourceRoot build -trimpath -ldflags "-X main.Version=$ExpectedVersion -X reconc.dev/reconc/buildprovenance.BuildMarker=$marker -s -w" -o $resolvedBinary ./cmd/reconc
+            Assert-ReconcTest ($LASTEXITCODE -eq 0) "fixture binary build failed"
+        }
+        finally {
+            $env:CGO_ENABLED = $savedCGO
+        }
+        & go -C $sourceRoot run ./cmd/reconc-build-provenance --root $sourceRoot --goos windows --goarch amd64 --version $ExpectedVersion --verify-binary $resolvedBinary
+        Assert-ReconcTest ($LASTEXITCODE -eq 0) "fixture binary provenance verification failed"
+    }
+    . $resolvedInstaller -Version $ExpectedVersion
+
     foreach ($version in @("0.9.0", "0.9.0-preview.1", "10.20.30-rc.7")) {
         Assert-ReconcSemanticVersion -Value $version
     }
@@ -315,7 +338,8 @@ try {
             [Environment]::SetEnvironmentVariable("RECONC_INSTALL_DIR", $liveInstallDirectory)
             [Environment]::SetEnvironmentVariable("RECONC_RELEASE_BASE", $null)
             $env:Path = "$liveInstallDirectory;$savedLiveProcessPath"
-            & $resolvedInstaller $ExpectedVersion
+            $selection = Resolve-ReconcReleaseSelection -RequestedChannel Stable -TemporaryDirectory $temporaryDirectory
+            & $resolvedInstaller $selection.Version
         }
         finally {
             [Environment]::SetEnvironmentVariable("RECONC_INSTALL_DIR", $savedInstallDirectory)
@@ -326,7 +350,7 @@ try {
         $liveBinary = Join-Path $liveInstallDirectory "reconc.exe"
         Assert-ReconcTest (Test-Path -LiteralPath $liveBinary -PathType Leaf) "live HTTPS install did not publish reconc.exe"
         $liveVersion = & $liveBinary --version
-        Assert-ReconcTest (($liveVersion | Out-String) -match [Regex]::Escape($ExpectedVersion)) "live HTTPS install returned the wrong version"
+        Assert-ReconcTest (($liveVersion | Out-String).Trim() -ceq "reconc $($selection.Version)") "live HTTPS install returned the wrong published version"
     }
 }
 finally {

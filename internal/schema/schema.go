@@ -2,11 +2,6 @@
 // contracts and the enterprise base-URL override.
 package schema
 
-// CurrentSchemaTag identifies the approved publication target for changed
-// current contracts. It may remain untagged during development; publication
-// must bind the final schema bytes to this exact tag.
-const CurrentSchemaTag = "reconc-v0.9.9"
-
 // PreviousSchemaTag identifies the last published source release whose
 // unchanged schema contracts remain canonical compatibility inputs and
 // outputs.
@@ -21,12 +16,6 @@ const Version3BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/r
 const Version4BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + PreviousSchemaTag + "/schemas/v4"
 
 const Version5BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + PreviousSchemaTag + "/schemas/v5"
-
-const Version6BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v6"
-
-const PolicyLockBaseURL = Version6BaseURL
-
-const CISchemaBaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v1"
 
 // Artifact identifies one stable JSON contract emitted by Reconc.
 type Artifact string
@@ -66,19 +55,19 @@ const (
 	ActionControlMapSignatureURL   = DefaultBaseURL + "/action-control-map-signature.schema.json"
 	ActionControlMapAuthoritiesURL = DefaultBaseURL + "/action-control-map-authorities.schema.json"
 	ActionEvidenceURL              = DefaultBaseURL + "/action-evidence.schema.json"
-	CIEvidenceURL                  = CISchemaBaseURL + "/ci-evidence.schema.json"
-	CIRequirementURL               = CISchemaBaseURL + "/ci-requirement.schema.json"
-	CIStatementURL                 = CISchemaBaseURL + "/ci-statement.schema.json"
-	CIVerificationURL              = CISchemaBaseURL + "/ci-verification.schema.json"
+	CIEvidenceURL                  = "urn:reconc:schema:ci-evidence:v1:sha256:fbad8b6936a64d2839151cbe44d6fbadacaf3dadf51bac9d686f09ec911a85b3"
+	CIRequirementURL               = "urn:reconc:schema:ci-requirement:v1:sha256:9331a35a551a2bc4ab76758c173f57e6fffbb67368d5edb1c7e106c0ae2edfa8"
+	CIStatementURL                 = "urn:reconc:schema:ci-statement:v1:sha256:0bafe23b80bb194315766f0a9612f780a6b31e24c1b9b0a0d58e18e568ded7d9"
+	CIVerificationURL              = "urn:reconc:schema:ci-verification:v1:sha256:82a55a94302df2678d2b145ca9cb0b370e92a04ba0591d3f2186658213b3c57e"
 	LegacyPolicyLockURL            = DefaultBaseURL + "/policy-lock.schema.json"
-	PolicyLockURL                  = PolicyLockBaseURL + "/policy-lock.schema.json"
+	PolicyLockURL                  = "urn:reconc:schema:policy-lock:v6:sha256:c2634f6083726b5563de867e4d4ffee325f9336f5dd99bbb6f705223e014cec7"
 	PreviousPolicyLockV6URL        = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + PreviousSchemaTag + "/schemas/v6/policy-lock.schema.json"
 	PolicyLockV6URLV097            = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.7/schemas/v6/policy-lock.schema.json"
-	PolicyConfigURL                = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v4/policy-config.schema.json"
+	PolicyConfigURL                = "urn:reconc:schema:policy-config:v4:sha256:7ee24299b5a1b9d270aa2b5bd75603c25a91711b01a88224a14c664df817d0db"
 	PreviousPolicyConfigV4URL      = Version4BaseURL + "/policy-config.schema.json"
 	PolicyReportURL                = DefaultBaseURL + "/policy-report.schema.json"
 	PolicyFixPlanV1URL             = DefaultBaseURL + "/policy-fix-plan.schema.json"
-	PolicyFixPlanURL               = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v2/policy-fix-plan.schema.json"
+	PolicyFixPlanURL               = "urn:reconc:schema:policy-fix-plan:v2:sha256:851c5fee27f7392b2129084d59788e0c844233d3b7f73bb7023945672b47c14f"
 	CompletionReportURL            = DefaultBaseURL + "/completion-report.schema.json"
 	ProofBundleURL                 = DefaultBaseURL + "/proof-bundle.schema.json"
 	InstallationReceiptURL         = DefaultBaseURL + "/installation-receipt.schema.json"
@@ -108,7 +97,7 @@ const (
 	LegacyPolicyLockV3URLV091 = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v3/policy-lock.schema.json"
 )
 
-// DefaultURL returns the repository-hosted, format-versioned schema URL.
+// DefaultURL returns the registered, format-versioned schema identity.
 func DefaultURL(artifact Artifact) string {
 	contract, ok := CurrentContract(artifact)
 	if !ok {

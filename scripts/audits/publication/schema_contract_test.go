@@ -12,12 +12,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"strings"
 	"testing"
 
 	"reconc.dev/reconc/internal/schema"
-	"reconc.dev/reconc/internal/semver"
 )
 
 func TestPolicyLockRFCReportsCurrentFormat(t *testing.T) {
@@ -33,40 +31,39 @@ func TestPolicyLockRFCReportsCurrentFormat(t *testing.T) {
 	}
 }
 
-func TestCurrentSchemaPublicationTagDoesNotExceedSourceVersion(t *testing.T) {
+func TestChangedSchemaIdentitiesBindContentWithoutProductVersions(t *testing.T) {
 	root := publicSurfaceRoot(t)
-	source := readPublicSurfaceFile(t, root, "cmd/reconc/main.go")
-	match := regexp.MustCompile(`(?m)^var Version = "([0-9]+\.[0-9]+\.[0-9]+)"$`).FindStringSubmatch(source)
-	if len(match) != 2 {
-		t.Fatal("cmd/reconc/main.go does not declare one canonical source version")
-	}
-	sourceVersion, err := semver.Parse(match[1])
-	if err != nil {
-		t.Fatalf("parse source version: %v", err)
-	}
-	const tagPrefix = "reconc-v"
-	if !strings.HasPrefix(schema.CurrentSchemaTag, tagPrefix) {
-		t.Fatalf("current schema publication tag = %q, want %q prefix", schema.CurrentSchemaTag, tagPrefix)
-	}
-	schemaVersion, err := semver.Parse(strings.TrimPrefix(schema.CurrentSchemaTag, tagPrefix))
-	if err != nil {
-		t.Fatalf("parse current schema publication tag: %v", err)
-	}
-	if semver.Compare(schemaVersion, sourceVersion) > 0 {
-		t.Fatalf("current schema publication tag %q follows source version %q", schema.CurrentSchemaTag, match[1])
+	for _, artifact := range []schema.Artifact{
+		schema.CIEvidence, schema.CIRequirement, schema.CIStatement, schema.CIVerification,
+		schema.PolicyConfig, schema.PolicyFixPlan, schema.PolicyLock,
+	} {
+		contract, ok := schema.CurrentContract(artifact)
+		if !ok || contract.IntroductionTag != "" {
+			t.Fatalf("%s preassigns a product release: %+v", artifact, contract)
+		}
+		body := []byte(readPublicSurfaceFile(t, root, contract.LocalPath))
+		identity, err := schema.ContentIdentity(artifact, contract.SchemaVersion, body)
+		if err != nil || identity != contract.DefaultURL {
+			t.Fatalf("%s content identity mismatch: %q (%v)", artifact, identity, err)
+		}
+		changed, err := schema.ContentIdentity(artifact, contract.SchemaVersion, append(body, '\n'))
+		if err != nil || changed == identity {
+			t.Fatalf("%s content identity did not detect changed bytes: %q (%v)", artifact, changed, err)
+		}
 	}
 }
 
-func TestSchemaRegistryPublicationTagsOwnExactBytesOrAuthorizedPlan(t *testing.T) {
+func TestSchemaRegistryIdentitiesOwnExactBytes(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	for _, contract := range schema.Contracts() {
 		local, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(contract.LocalPath)))
 		if err != nil {
 			t.Fatalf("read %s: %v", contract.LocalPath, err)
 		}
-		if !gitObjectExists(root, contract.IntroductionTag+"^{commit}") {
-			if contract.IntroductionTag != schema.CurrentSchemaTag {
-				t.Errorf("publication tag %s is absent for %s", contract.IntroductionTag, contract.LocalPath)
+		if contract.IntroductionTag == "" {
+			identity, err := schema.ContentIdentity(contract.Artifact, contract.SchemaVersion, local)
+			if err != nil || identity != contract.DefaultURL {
+				t.Errorf("content identity mismatch for %s: %q (%v)", contract.LocalPath, identity, err)
 			}
 			continue
 		}
@@ -203,7 +200,9 @@ func stripSchemaPublicationIdentity(value any) {
 	}
 }
 
-func TestPlannedSchemaPublicationSurvivesPostTagSourceDrift(t *testing.T) {
+func TestContentSchemaPublicationSurvivesPostTagSourceDrift(t *testing.T) {
+	// This tag exists only in the isolated fixture, never in the product repository.
+	const publicationTag = "reconc-v12.34.56"
 	root := publicSurfaceRoot(t)
 	repository := t.TempDir()
 	runGit(t, repository, "init", "--quiet")
@@ -211,7 +210,7 @@ func TestPlannedSchemaPublicationSurvivesPostTagSourceDrift(t *testing.T) {
 	runGit(t, repository, "config", "user.email", "reconc-test@example.invalid")
 	planned := make([]schema.Contract, 0)
 	for _, contract := range schema.Contracts() {
-		if contract.IntroductionTag != schema.CurrentSchemaTag {
+		if contract.IntroductionTag != "" {
 			continue
 		}
 		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(contract.LocalPath)))
@@ -232,16 +231,16 @@ func TestPlannedSchemaPublicationSurvivesPostTagSourceDrift(t *testing.T) {
 	}
 	runGit(t, repository, "add", "schemas")
 	runGit(t, repository, "commit", "--quiet", "-m", "planned schemas")
-	if gitObjectExists(repository, schema.CurrentSchemaTag+"^{commit}") {
+	if gitObjectExists(repository, publicationTag+"^{commit}") {
 		t.Fatal("temporary publication tag exists before tag creation")
 	}
-	runGit(t, repository, "tag", "-a", schema.CurrentSchemaTag, "-m", "schema publication")
+	runGit(t, repository, "tag", "-a", publicationTag, "-m", "schema publication")
 	for _, contract := range planned {
 		local, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(contract.LocalPath)))
 		if err != nil {
 			t.Fatal(err)
 		}
-		tagged, err := exec.Command("git", "-C", repository, "show", schema.CurrentSchemaTag+":"+contract.LocalPath).Output()
+		tagged, err := exec.Command("git", "-C", repository, "show", publicationTag+":"+contract.LocalPath).Output()
 		if err != nil {
 			t.Fatalf("read tagged %s: %v", contract.LocalPath, err)
 		}
@@ -261,7 +260,7 @@ func TestPlannedSchemaPublicationSurvivesPostTagSourceDrift(t *testing.T) {
 	}
 	runGit(t, repository, "add", changed.LocalPath)
 	runGit(t, repository, "commit", "--quiet", "-m", "post-tag drift")
-	tagged, err := exec.Command("git", "-C", repository, "show", schema.CurrentSchemaTag+":"+changed.LocalPath).Output()
+	tagged, err := exec.Command("git", "-C", repository, "show", publicationTag+":"+changed.LocalPath).Output()
 	if err != nil {
 		t.Fatal(err)
 	}

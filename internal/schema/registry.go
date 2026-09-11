@@ -317,12 +317,18 @@ func validateContractShape(contract Contract) error {
 	if !validLocalSchemaPath(contract.LocalPath, contract.SchemaVersion) || !validReleaseAsset(contract.ReleaseAsset) {
 		return fmt.Errorf("local path or release asset is invalid")
 	}
-	if !validReleaseTag(contract.IntroductionTag) {
-		return fmt.Errorf("introduction tag is invalid")
-	}
-	if !validSchemaURL(contract.DefaultURL) || strings.Contains(contract.DefaultURL, "/main/") ||
-		contract.DefaultURL != taggedSchemaURL(contract.IntroductionTag, contract.LocalPath) {
-		return fmt.Errorf("default URL is not immutable HTTPS")
+	if contract.IntroductionTag == "" {
+		if !validContentIdentity(contract) {
+			return fmt.Errorf("release-independent schema identity is invalid")
+		}
+	} else {
+		if !validReleaseTag(contract.IntroductionTag) {
+			return fmt.Errorf("introduction tag is invalid")
+		}
+		if !validSchemaURL(contract.DefaultURL) || strings.Contains(contract.DefaultURL, "/main/") ||
+			contract.DefaultURL != taggedSchemaURL(contract.IntroductionTag, contract.LocalPath) {
+			return fmt.Errorf("default URL is not immutable HTTPS")
+		}
 	}
 	if contract.EnterprisePath != "/schemas/"+string(contract.Artifact)+"/v"+contract.SchemaVersion {
 		return fmt.Errorf("enterprise path is invalid")
@@ -492,10 +498,10 @@ func contracts() []Contract {
 		contract(ActionEvidence, "1", []string{"1"}, "schemas/v1/action-evidence.schema.json", "action-evidence.schema.json", ActionEvidenceURL, PreviousSchemaTag, "19a5687a3032cce72a0db66e14dc739e811ed80ba6b1f583c59d4a742582c558", StateCurrent),
 		contract(ActionLedger, "1", []string{"1"}, "schemas/v1/action-ledger.schema.json", "action-ledger-v1.schema.json", DefaultBaseURL+"/action-ledger.schema.json", PreviousSchemaTag, "c8d85f2bdc82c51de468cbe7a62cce5251c2e724ec4dd29dd3c9d1535614c1cb", StateLegacy),
 		contract(ActionLedger, "2", []string{"1"}, "schemas/v2/action-ledger.schema.json", "action-ledger.schema.json", ActionLedgerURL, PreviousSchemaTag, "02a2e2c5ac76d77709ab3f33f600a99a0119288dfbb8a4166ffacf0aeed916a8", StateCurrent),
-		contract(CIEvidence, "1", []string{"1"}, "schemas/v1/ci-evidence.schema.json", "ci-evidence.schema.json", CIEvidenceURL, CurrentSchemaTag, "4343c705ea79610cbf6b8bf5a6d280ad17960d4b7a3fc3057b7e718f0ef7a198", StateCurrent),
-		contract(CIRequirement, "1", []string{"1"}, "schemas/v1/ci-requirement.schema.json", "ci-requirement.schema.json", CIRequirementURL, CurrentSchemaTag, "fa3479834c99ba88f4078ff348cdf10b945b54e712b74228181ecd45b0a43a95", StateCurrent),
-		contract(CIStatement, "1", []string{"1"}, "schemas/v1/ci-statement.schema.json", "ci-statement.schema.json", CIStatementURL, CurrentSchemaTag, "93450b723ad16077ae9cedc9e50cfc1616cce088b5eecb1f8591169b3d0bcea6", StateCurrent),
-		contract(CIVerification, "1", []string{"1"}, "schemas/v1/ci-verification.schema.json", "ci-verification.schema.json", CIVerificationURL, CurrentSchemaTag, "671206136c287bbe045635343a8e265c9fff0bc18e24fd4c374f94f21981c2d0", StateCurrent),
+		contract(CIEvidence, "1", []string{"1"}, "schemas/v1/ci-evidence.schema.json", "ci-evidence.schema.json", CIEvidenceURL, "", "71db696b4066a2def391a79845580f6e7ef9df471aaa162b642c584d36aff05d", StateCurrent),
+		contract(CIRequirement, "1", []string{"1"}, "schemas/v1/ci-requirement.schema.json", "ci-requirement.schema.json", CIRequirementURL, "", "b60ce839cf71943d8236c586f1bdbaec828453812f3a06f83b66564e5efbee1b", StateCurrent),
+		contract(CIStatement, "1", []string{"1"}, "schemas/v1/ci-statement.schema.json", "ci-statement.schema.json", CIStatementURL, "", "2206df8a59956f8b6fbb2fb6119b20d431d21a05cb4352c4bd4b342de73c6046", StateCurrent),
+		contract(CIVerification, "1", []string{"1"}, "schemas/v1/ci-verification.schema.json", "ci-verification.schema.json", CIVerificationURL, "", "f2579779249a9af4ae852005c9febc4702bb73705812bcfb921cff3321a4f559", StateCurrent),
 		contract(CompletionReport, "1", []string{"1"}, "schemas/v1/completion-report.schema.json", "completion-report.schema.json", CompletionReportURL, PreviousSchemaTag, "811f87716131ce2561b55917805ce0c84146521778a30c316389e401e03843c1", StateCurrent, misbound("schemas/v1/completion-report.schema.json"), unpinned("schemas/v1/completion-report.schema.json")),
 		contract(CustomRuntimeConformance, "1", []string{"reconc-custom-runtime-conformance/v1"}, "schemas/v1/custom-runtime-conformance.schema.json", "custom-runtime-conformance.schema.json", CustomRuntimeConformanceURL, PreviousSchemaTag, "3931edb9a5c61ea3f423a933cb40cae435b1f3dab09295dd37db101c511c919b", StateCurrent, unreachable("https://reconc.dev/schemas/custom-runtime-conformance/v1")),
 		contract(CustomRuntimeLiveness, "1", []string{"reconc-custom-runtime-liveness/v1"}, "schemas/v1/custom-runtime-liveness.schema.json", "custom-runtime-liveness.schema.json", CustomRuntimeLivenessURL, PreviousSchemaTag, "321e760512ea5332bc6830d297968a5fb6f238e2f4e70035d54b1e545a1358c4", StateCurrent, unreachable("https://reconc.dev/schemas/custom-runtime-liveness/v1")),
@@ -510,15 +516,15 @@ func contracts() []Contract {
 		contract(PolicyConfig, "1", nil, "schemas/v1/policy-config.schema.json", "policy-config-v1.schema.json", DefaultBaseURL+"/policy-config.schema.json", PreviousSchemaTag, "7904398abf27b06418a51048926526786755a89132268ec25f7ecf398e6f68b1", StateLegacy, unpinned("schemas/v1/policy-config.schema.json")),
 		contract(PolicyConfig, "2", nil, "schemas/v2/policy-config.schema.json", "policy-config-v2.schema.json", Version2BaseURL+"/policy-config.schema.json", PreviousSchemaTag, "e5856413af32bea5f8b0fc108b3e5dcdfc84faf9d5e7e09bada79e7bdb5cad03", StateLegacy, misbound("schemas/v1/policy-config.schema.json")),
 		contract(PolicyConfig, "3", nil, "schemas/v3/policy-config.schema.json", "policy-config-v3.schema.json", Version3BaseURL+"/policy-config.schema.json", PreviousSchemaTag, "194e00de2e112680f3cf683e18b679a6bd926ef6fad8cdebb49b38379784fef8", StateLegacy),
-		contract(PolicyConfig, "4", nil, "schemas/v4/policy-config.schema.json", "policy-config.schema.json", PolicyConfigURL, CurrentSchemaTag, "777b156164fa7b1b7dae91b17182818a49e09d92f4338e7656bb037db1e27f68", StateCurrent, Alias{URL: PreviousPolicyConfigV4URL, Reason: AliasPriorPublication}),
+		contract(PolicyConfig, "4", nil, "schemas/v4/policy-config.schema.json", "policy-config.schema.json", PolicyConfigURL, "", "b6f9f2df0b1a88cdbee23953d8c4afc026ecc15e4dc84f1d4259d92afd5cb3d1", StateCurrent, Alias{URL: PreviousPolicyConfigV4URL, Reason: AliasPriorPublication}),
 		contract(PolicyFixPlan, "1", []string{"1"}, "schemas/v1/policy-fix-plan.schema.json", "policy-fix-plan-v1.schema.json", PolicyFixPlanV1URL, PreviousSchemaTag, "79e352562cadcf1fc84dbd438dfc9e884c3eb3d3a5b2db6aeb581bda1c9e99c1", StateLegacy, misbound("schemas/v1/policy-fix-plan.schema.json"), unpinned("schemas/v1/policy-fix-plan.schema.json")),
-		contract(PolicyFixPlan, "2", []string{"2"}, "schemas/v2/policy-fix-plan.schema.json", "policy-fix-plan.schema.json", PolicyFixPlanURL, CurrentSchemaTag, "a5768cd1a35dd8046fc6b60b9f161b256517ed0096d154993fba98b22efb53c5", StateCurrent),
+		contract(PolicyFixPlan, "2", []string{"2"}, "schemas/v2/policy-fix-plan.schema.json", "policy-fix-plan.schema.json", PolicyFixPlanURL, "", "e65f6fa10706fa72f5be8d07b747cd4b4ee80283afa1f13d03f2a85b8cb78f2f", StateCurrent),
 		contract(PolicyLock, "1", []string{"1"}, "schemas/v1/policy-lock.schema.json", "policy-lock-v1.schema.json", LegacyPolicyLockURL, PreviousSchemaTag, "58215033576329d41d2d80fd3c8f8d7c43a54571f9b14f18ec7040225667e325", StateLegacy, Alias{URL: LegacyPolicyLockURLV091, Reason: AliasMisboundReleaseTag}, Alias{URL: LegacyPolicyLockURLUnpinned, Reason: AliasUnpinnedLegacy}),
 		contract(PolicyLock, "2", []string{"2"}, "schemas/v2/policy-lock.schema.json", "policy-lock-v2.schema.json", LegacyPolicyLockV2URL, PreviousSchemaTag, "b1bcbd2c7b1ae25a6e8e26aaa40ea39ce83cfe23daea5b62007c34e55ea355c7", StateLegacy, Alias{URL: LegacyPolicyLockV2URLV091, Reason: AliasMisboundReleaseTag}, Alias{URL: LegacyPolicyLockV2URLUnpinned, Reason: AliasUnpinnedLegacy}),
 		contract(PolicyLock, "3", []string{"3"}, "schemas/v3/policy-lock.schema.json", "policy-lock-v3.schema.json", LegacyPolicyLockV3URL, PreviousSchemaTag, "71f098011740601759e93193217e875bae5861859e8bf25102530e37b833d099", StateLegacy, Alias{URL: LegacyPolicyLockV3URLV091, Reason: AliasMisboundReleaseTag}, Alias{URL: LegacyPolicyLockV3URLUnpinned, Reason: AliasUnpinnedLegacy}),
 		contract(PolicyLock, "4", []string{"4"}, "schemas/v4/policy-lock.schema.json", "policy-lock-v4.schema.json", LegacyPolicyLockV4URL, "reconc-v0.9.4", "32f16bde36b7e8e5d0671c1e3f8bcbf35f810ad7699d93291d1ebb29831b3450", StateLegacy),
 		contract(PolicyLock, "5", []string{"5"}, "schemas/v5/policy-lock.schema.json", "policy-lock-v5.schema.json", LegacyPolicyLockV5URL, PreviousSchemaTag, "86838b49f01d254f0d6fc652105304fbd653c12b8f51a32674013d6bfa87c8f9", StateLegacy),
-		contract(PolicyLock, "6", []string{"6"}, "schemas/v6/policy-lock.schema.json", "policy-lock.schema.json", PolicyLockURL, CurrentSchemaTag, "9b032b265319fce5addef9ad930a244ca1c238476532e352ccc7e0d35d8b32ca", StateCurrent, Alias{URL: PreviousPolicyLockV6URL, Reason: AliasPriorPublication}, Alias{URL: PolicyLockV6URLV097, Reason: AliasPriorPublication}),
+		contract(PolicyLock, "6", []string{"6"}, "schemas/v6/policy-lock.schema.json", "policy-lock.schema.json", PolicyLockURL, "", "2fdee03c15aefff4e4cd162e5f829ac0bceac57a78e9e56a74f0af2ff877e71c", StateCurrent, Alias{URL: PreviousPolicyLockV6URL, Reason: AliasPriorPublication}, Alias{URL: PolicyLockV6URLV097, Reason: AliasPriorPublication}),
 		contract(PolicyReport, "1", []string{"1"}, "schemas/v1/policy-report.schema.json", "policy-report.schema.json", PolicyReportURL, PreviousSchemaTag, "96cb3ebd87dfd06c904daece64ed40178d5c826c211f3bf101065701e090918a", StateCurrent, misbound("schemas/v1/policy-report.schema.json"), unpinned("schemas/v1/policy-report.schema.json")),
 		portableContract(contract(ProofBundle, "1", []string{"1"}, "schemas/v1/proof-bundle.schema.json", "proof-bundle.schema.json", ProofBundleURL, PreviousSchemaTag, "83abb361727ec94993b840b7d6cb1f9a7935692c4282244f2de33b67a6d2fbac", StateCurrent, misbound("schemas/v1/proof-bundle.schema.json"), unpinned("schemas/v1/proof-bundle.schema.json"))),
 		contract(ReleaseManifest, "1", []string{"reconc.release/v1"}, "schemas/v1/release-manifest.schema.json", "release-manifest.schema.json", ReleaseManifestURL, PreviousSchemaTag, "dad8261a8464ebfb8b6011a53ac5c6c55afeb65e494565a04ea3d0c13f5831e2", StateCurrent, misbound("schemas/v1/release-manifest.schema.json"), unpinned("schemas/v1/release-manifest.schema.json")),

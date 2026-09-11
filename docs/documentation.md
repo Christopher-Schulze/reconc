@@ -407,9 +407,9 @@ make benchmark-compare
 make benchmark-baseline
 make self-host
 make publication-audit
-make sbom VERSION=0.9.8
-make notices VERSION=0.9.8
-make release VERSION=0.9.8
+make sbom
+make notices
+make release RELEASE_TAG=reconc-vX.Y.Z
 ```
 
 `make coverage` runs both Go modules with atomic whole-module instrumentation
@@ -421,7 +421,15 @@ bounded `TEST_PARALLELISM` setting as the test targets. Meaningful tests must
 exercise changed behavior, while OS-specific files and process entry points
 still require their matching platform jobs or integration boundaries.
 
-`make release` cross-compiles five binaries into `dist/`, copies the native
+Development has no assigned product release version. `make build` resolves
+`dev+<commit>` and appends `-dirty` for tracked or untracked changes. Direct
+`go build` uses embedded VCS metadata when available; `go run` or source without
+VCS metadata reports `dev`. No build discovers a release version from tags
+automatically. Only Christopher's explicit instruction selects a commit and
+release tag. `RELEASE_TAG=reconc-vX.Y.Z` must name an existing stable tag whose
+commit equals clean HEAD; the build derives its version from that tag.
+
+`make release` requires that explicit tag and cross-compiles five binaries into `dist/`, copies the native
 POSIX and Windows installers, generates three flat shell-completion artifacts,
 generates a man page, copies all 40 independently versioned schemas from the
 typed registry under unique current or legacy release names, and generates
@@ -433,11 +441,31 @@ generates a strict `release-manifest.json`, and writes `dist/SHA256SUMS`. The
 target stops on the first build, license, SBOM, manifest, or checksum failure.
 
 Each copied artifact has one owner. `internal/schema` owns schema source paths,
-release names, immutable URLs, and digests; `scripts/release/copied-assets.tsv`
+release names, immutable schema identities, and digests; `scripts/release/copied-assets.tsv`
 owns the four non-schema source copies. The build and verifier consume both
 inventories directly. Generated surfaces and target-derived binary names are
 owned once by `scripts/release/generated-assets.sh`; the Makefile generates
 from that executable inventory and the verifier lists from it.
+
+Changed schema identities use `urn:reconc:schema:<artifact>:v<schema>:sha256:<digest>`.
+The digest hashes the exact JSON bytes after replacing exact JSON string
+occurrences of the root `$id` with an empty string, including a self-identifying
+`$schema` constant. All other bytes and dependency references remain bound.
+The registry additionally binds the complete file SHA-256. These identities
+remain independent of release numbers and are resolved entirely offline.
+The release publication verifier locates their bytes under the explicitly
+selected tag and compares them with local registered bytes; historical schema
+URLs retain their original publication locations and compatibility meaning.
+
+Installer tests use synthetic versions only in disposable fixture binaries and
+repositories. Windows CI also builds and smokes the actual development binary;
+the optional live installer check selects an existing published stable release.
+
+The advanced harness pack embedded in the binary belongs to the same source
+build. Its manifest, inventory, sizes, and hashes are verified independently of
+the build's product-version label; integration gates establish bundled
+compatibility. External pack loading continues to enforce its declared product
+range. Historical range metadata in the bundled archive remains unchanged.
 
 The release verifier requires exactly those fifty-seven checksummed artifacts,
 rejects missing, extra, duplicate, unsafe, mutable, or corrupted entries, and
@@ -1211,7 +1239,7 @@ reconc ci . --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --head "$CI_COMMIT_SHA" --f
 reconc ci . --base origin/main --head HEAD --format junit --output reconc-junit.xml
 ```
 
-The current v0.9.9 source can export the same completion candidate for external
+Reconc can export the same completion candidate for external
 review:
 
 ```bash
@@ -1422,11 +1450,11 @@ is live.
 
 ### How do I install and test it?
 
-Use the protected v0.9.7 POSIX installer for macOS or Linux and the protected
-v0.9.7 PowerShell installer for Windows x64. Put the installed
+For a published binary, use its protected POSIX installer for macOS or Linux
+or PowerShell installer for Windows x64. Put the installed
 binary on `PATH`, verify it with `reconc doctor --global`, and initialize the
 target repository with `reconc init .`. Contributors building current source can use
-`go build -o .build/bin/reconc ./cmd/reconc` followed by
+`go build -o .build/bin/reconc ./cmd/reconc` for an unversioned development build, followed by
 `.build/bin/reconc install-cli`; copied repo-local binaries use the same
 one-time `install-cli` call.
 
@@ -3250,7 +3278,7 @@ and repository checks.
 
 ## Go-Only Action Plane
 
-RECONC-0008 remains Draft. The `v0.9.9` implementation provides strict
+RECONC-0008 remains Draft. The implementation provides strict
 `actions` authoring, canonical format-6 compilation, deterministic lowering of
 legacy `mcp` declarations, immutable typed matcher programs, a derived MCP
 compatibility view, `reconc why action`, and the transport-neutral deterministic
@@ -3281,7 +3309,7 @@ request-local JSON-RPC errors, without forwarding those calls or terminating
 later valid traffic. Framing corruption, transport failure, and exhausted
 internal correlation identity remain connection-fatal.
 
-The same v0.9.9 implementation provides trusted operator and host context
+The implementation also provides trusted operator and host context
 bindings, domain-separated HMAC identities, explicit key leases and rotation
 blocking, compiled cumulative budgets, evaluator budget snapshots, and a
 private bounded multi-process action-state store. Budget reservations are
@@ -3506,7 +3534,7 @@ The supported and continuously tested matrix is exact:
 
 | Component | Proven version or protocol | Proof boundary |
 | --- | --- | --- |
-| Reconc source binary | `0.9.9` | Built from current source and version-smoked before the test |
+| Reconc source binary | Checked source identity | Built from the checked source; its development or explicit-tag identity is verified before the test |
 | MCP Go SDK | `v1.7.0` | Pinned product dependency |
 | Current MCP protocol | `2026-07-28` | Pure-Go raw protocol suite |
 | Legacy MCP protocol | `2025-11-25` | Pure-Go raw suite and external LangChain consumer |
@@ -5131,7 +5159,7 @@ Release:
   requires the same tag-bound dispatch plus
   `-f replace_published=true`; requesting replacement when no release exists
   also fails. Existing drafts remain resumable without expanding authority.
-- The tag version must be stable semantic versioning, match the source version, and have committed release notes.
+- The explicitly selected tag must use stable semantic versioning, identify clean HEAD, and have committed release notes. Source code contains no assigned release version.
 - Release workflow first runs root and portable-template tests, a binary smoke
   test, and the installer gate natively on Windows 2025 against the exact tag.
   In parallel, an isolated Ubuntu prerequisite checks out the same tag and runs
@@ -5142,7 +5170,7 @@ Release:
   tidy, vet, pinned
   Govulncheck, pinned Staticcheck, race, publication, trust, and clean-repository
   self-hosting checks before building.
-- `make release VERSION=<tag-version>` builds the exact flat release inventory.
+- `make release RELEASE_TAG=reconc-vX.Y.Z` builds the exact flat release inventory from the selected existing tag.
 - `release-manifest.json` binds the exact repository, tag, version, prerelease
   class, asset names, sizes, SHA-256 digests, and format version consumed by
   offline update discovery.
@@ -5490,13 +5518,13 @@ current-state documentation.
 
 ## Release State
 
-The current source line is `v0.9.x`; the source version is `v0.9.9`.
-This approved development cycle may span multiple sessions. Creating a tag
-and publishing a release require separate explicit authorization.
+Development source has no assigned product release version.
+Only Christopher's explicit instruction assigns a release tag to a chosen
+commit. Creating a tag and publishing a release require explicit authorization.
 The latest published release is `reconc-v0.9.8`.
-The changed format-6 policy-lock schema targets `reconc-v0.9.9`; its previously
-published identities remain accepted inputs, and unchanged schema contracts
-retain their existing publication identities. Schema identities, tag commit,
+Changed schemas use content-addressed identities independent of product releases;
+previously published identities remain accepted inputs, and unchanged schema
+contracts retain their existing publication identities. Schema identities, tag commit,
 artifact checksums, and build provenance jointly define release identity;
 development version text alone does not establish publication.
 Release artifacts are produced only through an explicit manual Release

@@ -3,7 +3,6 @@ set -euo pipefail
 
 root="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 go_cmd="${GO:-go}"
-version="${VERSION:-0.9.9}"
 profile=''
 output_dir=''
 
@@ -34,13 +33,8 @@ while (( $# > 0 )); do
       output_dir="$2"
       shift 2
       ;;
-    --version)
-      (( $# >= 2 )) || fail "--version requires a value"
-      version="$2"
-      shift 2
-      ;;
     *)
-      fail "usage: ${0##*/} --profile PATH --output-dir PATH [--root PATH] [--go COMMAND] [--version VERSION]"
+      fail "usage: ${0##*/} --profile PATH --output-dir PATH [--root PATH] [--go COMMAND]"
       ;;
   esac
 done
@@ -48,6 +42,7 @@ done
 [ -n "$profile" ] || fail "--profile is required"
 [ -n "$output_dir" ] || fail "--output-dir is required"
 root="$(CDPATH='' cd -- "$root" && pwd -P)"
+version="$("$root/scripts/build/resolve-version.sh" "$root")"
 if [[ "$profile" != /* ]]; then
   profile="$root/$profile"
 fi

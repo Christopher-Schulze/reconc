@@ -4,15 +4,20 @@ package harness
 import (
 	_ "embed"
 	"fmt"
+	"regexp"
+	"strings"
 	"sync"
 
 	"reconc.dev/reconc/internal/harnesspack"
+	"reconc.dev/reconc/internal/semver"
 )
 
 const AdvancedTargetPrefix = "tools/reconc/harness/template"
 
 //go:embed advanced-pack.zip
 var advancedArchive []byte
+
+var developmentIdentity = regexp.MustCompile(`^dev(?:\+[0-9a-f]{12})?(?:-dirty)?$`)
 
 var advancedCache struct {
 	sync.Mutex
@@ -21,13 +26,19 @@ var advancedCache struct {
 }
 
 func Advanced(productVersion string) (*harnesspack.Pack, error) {
+	if !developmentIdentity.MatchString(productVersion) {
+		identity := strings.TrimPrefix(strings.TrimPrefix(productVersion, "reconc-v"), "v")
+		if _, err := semver.Parse(identity); err != nil {
+			return nil, fmt.Errorf("invalid Reconc build identity %q: %w", productVersion, err)
+		}
+	}
 	advancedCache.Lock()
 	if advancedCache.pack != nil && advancedCache.productVersion == productVersion {
 		pack := advancedCache.pack
 		advancedCache.Unlock()
 		return clonePack(pack), nil
 	}
-	pack, err := harnesspack.LoadArchive(advancedArchive, productVersion)
+	pack, err := harnesspack.LoadBundledArchive(advancedArchive)
 	if err != nil {
 		advancedCache.Unlock()
 		return nil, fmt.Errorf("load embedded advanced harness pack: %w", err)

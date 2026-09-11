@@ -1,6 +1,6 @@
-# reconc v0.9.9
+# Development notes
 
-Unreleased development version. Tag creation and release publication require
+Unversioned development source. Tag creation and release publication require
 separate explicit authorization. These notes describe the implemented changes
 in this development cycle and do not establish a published release.
 
@@ -26,8 +26,8 @@ an authoring diagnostic instead of silently permitting a protected write.
 
 ## Compatibility
 
-The format-6 policy-lock schema adds optional `template_dependencies` and targets
-the future `reconc-v0.9.9/schemas/v6/policy-lock.schema.json` publication identity.
+The format-6 policy-lock schema adds optional `template_dependencies` and uses
+a content-addressed identity independent of any product release tag.
 Previously published format-6 identities remain accepted inputs. Older locks
 that reference named templates require `reconc refresh .`; older locks without
 named templates retain their source-digest representation. Unchanged schema

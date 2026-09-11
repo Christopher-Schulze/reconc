@@ -123,27 +123,22 @@ verify_manual_dispatch_only() {
 }
 
 (cd "$root" && go test ./scripts/audits/publication \
-  -run 'TestGitHubCommunitySurfaceIsSubstantive|TestCodeQLWorkflowHasBoundedAdvancedSetup|TestCIWorkflowRunsOnCandidateRefs|TestDependabotCoversBoundedDependencySurfaces') \
+  -run 'TestGitHubCommunitySurfaceIsSubstantive|TestCodeQLWorkflowHasBoundedAdvancedSetup|TestCIWorkflowRunsOnCandidateRefs|TestDependabotCoversBoundedDependencySurfaces|TestBuildIdentityRequiresExplicitExistingTagAtCleanHEAD') \
   || fail "GitHub trust-surface contract failed"
 
-version_source="$root/cmd/reconc/main.go"
-project_version=$(sed -n 's/^var Version = "\([^"]*\)"/\1/p' "$version_source")
-[[ "$project_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-  || fail "$version_source does not define exactly one stable semantic version"
-release_line="v${project_version%.*}.x"
-require_text "$root/Makefile" "VERSION   ?= $project_version"
+require_text "$root/cmd/reconc/main.go" 'var Version = "dev"'
+require_text "$root/Makefile" './scripts/build/resolve-version.sh'
 require_text "$root/install.sh" "sh install.sh --channel preview"
-require_text "$root/install.sh" "sh install.sh --version $project_version"
+require_text "$root/install.sh" "sh install.sh --version X.Y.Z"
 # shellcheck disable=SC2016 # Match the installer expression literally.
 require_text "$root/install.sh" 'LC_ALL=C awk -v left="$1" -v right="$2"'
 require_text "$root/install.ps1" '[ValidateSet("Stable", "Preview")]'
 # shellcheck disable=SC2016 # Match the PowerShell declaration literally.
 require_text "$root/install.ps1" '[switch]$AllowDowngrade'
-require_text "$root/README.md" "The source line is \`$release_line\`, and the current source version is \`v$project_version\`."
+require_text "$root/README.md" "has no assigned product release version."
 require_text "$root/SECURITY.md" "only to the latest GitHub Release when one exists"
-require_text "$root/AGENTS.md" "The current source line is \`$release_line\`; the source version is \`v$project_version\`."
-require_text "$root/docs/documentation.md" "The current source line is \`$release_line\`; the source version is \`v$project_version\`."
-require_text "$root/.github/releases/reconc-v$project_version.md" "# reconc v$project_version"
+require_text "$root/AGENTS.md" "has no assigned product release version."
+require_text "$root/docs/documentation.md" "has no assigned product release version."
 require_text "$root/Makefile" "publication-audit:"
 require_text "$root/Makefile" "reference-docs-check:"
 # shellcheck disable=SC2016 # Match the Make expression literally.
@@ -301,7 +296,7 @@ require_text "$release_workflow" 'ref: ${{ inputs.tag }}'
 verify_manual_dispatch_only "$release_workflow" \
   || fail "$release_workflow must be manual-dispatch only"
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
-require_text "$release_workflow" 'test "$tag_version" = "$source_version"'
+require_text "$release_workflow" './scripts/build/resolve-version.sh'
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" 'test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"'
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
@@ -320,7 +315,7 @@ for workflow in "$ci_workflow" "$release_workflow"; do
   require_text "$workflow" "run: ./scripts/tests/windows-runtime-preflight.sh"
 done
 # shellcheck disable=SC2016 # Match the workflow shell expression literally.
-require_text "$release_workflow" 'make verify-release VERSION="$version"'
+require_text "$release_workflow" 'make verify-release'
 if grep -Fq './scripts/release/verify-artifacts.sh dist reconc' "$release_workflow"; then
   fail "$release_workflow duplicates the canonical Makefile release matrix"
 fi
@@ -401,6 +396,29 @@ bash -n "$root/scripts/tests/windows-runtime-preflight.sh" \
 "$root/scripts/tests/release-publication.sh" \
   || fail "release publication transition tests failed"
 
+# Build the real release target from an isolated snapshot of all current source
+# changes. The synthetic tag never touches or assigns a release to the product
+# checkout. All subsequent artifact and installer checks use this same snapshot.
+fixture_root="$tmp/source"
+git clone --quiet --no-hardlinks "$root" "$fixture_root"
+git -C "$root" diff --binary HEAD > "$tmp/source.patch"
+if [ -s "$tmp/source.patch" ]; then
+  git -C "$fixture_root" apply --index --binary "$tmp/source.patch"
+fi
+while IFS= read -r -d '' source_file; do
+  mkdir -p "$fixture_root/$(dirname "$source_file")"
+  cp -p "$root/$source_file" "$fixture_root/$source_file"
+done < <(git -C "$root" ls-files --others --exclude-standard -z)
+git -C "$fixture_root" add -A
+if ! git -C "$fixture_root" diff --cached --quiet; then
+  git -C "$fixture_root" -c user.name='Reconc Test' -c user.email='reconc-test@example.invalid' \
+    commit --quiet -m 'isolated release trust source'
+fi
+export RELEASE_TAG=reconc-v12.34.56
+git -C "$fixture_root" tag "$RELEASE_TAG"
+root="$fixture_root"
+project_version=$("$root/scripts/build/resolve-version.sh" "$root")
+
 copy_collision_dir="$tmp/copy-collision"
 mkdir -p "$copy_collision_dir"
 printf 'sentinel\n' > "$copy_collision_dir/install.sh"
@@ -437,7 +455,7 @@ release_commit=$(git -C "$root" rev-parse HEAD)
 release_epoch=$(git -C "$root" show -s --format=%ct "$release_commit")
 release_target="$(go env GOOS)/$(go env GOARCH)"
 release_started=$SECONDS
-(cd "$root" && make --no-print-directory release \
+(cd "$root" && RELEASE_TAG= make --no-print-directory release RELEASE_TAG="$RELEASE_TAG" \
   DISTDIR="$release_dir" \
   RELEASE_TARGETS="$release_target") \
   || fail "the shipped release target failed while building the trust fixture"
@@ -585,14 +603,13 @@ expect_failure env PATH="$tmp/broken-hash-bin:$PATH" "$root/scripts/release/writ
 
 make_dir="$tmp/make-release"
 mkdir -p "$make_dir"
-cp "$root/Makefile" "$make_dir/Makefile"
 cat > "$make_dir/fail-go" <<'SCRIPT'
 #!/usr/bin/env sh
 printf '%s\n' "$*" >> "$GO_CALL_LOG"
 exit 23
 SCRIPT
 chmod +x "$make_dir/fail-go"
-if (cd "$make_dir" && GO_CALL_LOG="$make_dir/go-calls" make release GO="$make_dir/fail-go" VERSION=9.9.9) >/dev/null 2>&1; then
+if (cd "$root" && GO_CALL_LOG="$make_dir/go-calls" make release GO="$make_dir/fail-go" DISTDIR="$make_dir/dist") >/dev/null 2>&1; then
   fail "release target hid a failed build"
 fi
 [ "$(wc -l < "$make_dir/go-calls" | tr -d ' ')" -eq 1 ] \

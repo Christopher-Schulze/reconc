@@ -20,7 +20,7 @@ import (
 const maxSBOMCommandOutput = 16 << 20
 
 var (
-	versionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+	versionPattern = regexp.MustCompile(`^(?:[0-9]+\.[0-9]+\.[0-9]+|dev(?:\+[0-9a-f]{12})?(?:-dirty)?)$`)
 	commitPattern  = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 )
 
@@ -85,7 +85,7 @@ func collectInventory(ctx context.Context, options commandOptions) (inventory, e
 
 func validateIdentity(version, commit, epoch string) (time.Time, error) {
 	if !versionPattern.MatchString(version) {
-		return time.Time{}, fmt.Errorf("version must be stable semantic versioning: %q", version)
+		return time.Time{}, fmt.Errorf("version must be a stable release or development build identity: %q", version)
 	}
 	if !commitPattern.MatchString(commit) {
 		return time.Time{}, fmt.Errorf("commit must be a lowercase Git object ID: %q", commit)
@@ -148,6 +148,9 @@ func normalizeModule(module listedModule, releaseVersion string) moduleRecord {
 	version := module.Version
 	if module.Main {
 		version = "v" + releaseVersion
+		if strings.HasPrefix(releaseVersion, "dev") {
+			version = releaseVersion
+		}
 	}
 	sum := module.Sum
 	if module.Replace != nil && module.Replace.Sum != "" {

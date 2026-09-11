@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-func TestEmbeddedPolicyConfigSchemasMatchPublishedBytes(t *testing.T) {
+func TestEmbeddedPolicyConfigSchemasMatchContractBytes(t *testing.T) {
 	want := map[string]string{
 		"2": "e5856413af32bea5f8b0fc108b3e5dcdfc84faf9d5e7e09bada79e7bdb5cad03",
-		"4": "777b156164fa7b1b7dae91b17182818a49e09d92f4338e7656bb037db1e27f68",
+		"4": "b6f9f2df0b1a88cdbee23953d8c4afc026ecc15e4dc84f1d4259d92afd5cb3d1",
 	}
 	for version, digest := range want {
 		body, err := PolicyConfig(version)

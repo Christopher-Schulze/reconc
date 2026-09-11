@@ -25,7 +25,7 @@ func TestAdvancedPlanConsumersRejectUnboundHarnessPackState(t *testing.T) {
 		{name: "pack name", mutate: func(plan *Plan) { plan.Selection.HarnessPacks[0].Name = "forged" }},
 		{name: "pack version", mutate: func(plan *Plan) { plan.Selection.HarnessPacks[0].Version = "9.9.9" }},
 		{name: "pack digest", mutate: func(plan *Plan) { plan.Selection.HarnessPacks[0].Digest = strings.Repeat("0", 64) }},
-		{name: "incompatible product version", mutate: func(plan *Plan) { plan.ProductVersion = "1.0.0" }},
+		{name: "malformed development identity", mutate: func(plan *Plan) { plan.ProductVersion = "dev+invalid" }},
 		{name: "invalid product version", mutate: func(plan *Plan) { plan.ProductVersion = "unavailable" }},
 		{name: "artifact digest", mutate: func(plan *Plan) {
 			for index := range plan.Actions {
@@ -112,19 +112,19 @@ func loadMutatedPlan(t *testing.T, plan *Plan) error {
 	return err
 }
 
-func TestAdvancedPlanProductCompatibilityErrorIsExplicit(t *testing.T) {
+func TestAdvancedPlanBuildIdentityErrorIsExplicit(t *testing.T) {
 	bootstrapTestHome(t)
 	plan, err := BuildPlan(Request{RepoRoot: t.TempDir(), Profile: ProfileAdvanced}, harnessBindingTestVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan.ProductVersion = "1.0.0"
+	plan.ProductVersion = "dev+invalid"
 	plan.PlanDigest, err = computePlanDigest(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
 	err = ValidatePlan(plan)
-	if err == nil || !strings.Contains(err.Error(), "supports Reconc >=0.9.0 and <1.0.0, not 1.0.0") {
-		t.Fatalf("compatibility error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "invalid Reconc build identity") {
+		t.Fatalf("build identity error = %v", err)
 	}
 }

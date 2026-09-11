@@ -123,8 +123,12 @@ func TestLangChainProofPinsVersionsAndUnenforcedBoundary(t *testing.T) {
 		"RFC":           readPublicSurfaceFile(t, root, "docs/rfcs/RECONC-0008-go-only-action-plane.md"),
 	}
 	for name, body := range surfaces {
+		versionText := "Reconc built from the checked source"
+		if name == "documentation" {
+			versionText = "| Reconc source binary | Checked source identity |"
+		}
 		assertContainsAll(t, name, body,
-			"0.9.8",
+			versionText,
 			"v1.7.0",
 			"0.3.2",
 			"1.5.4",
@@ -154,7 +158,7 @@ func TestLangChainProofPinsVersionsAndUnenforcedBoundary(t *testing.T) {
 	doctor := readPublicSurfaceFile(t, root, "internal/cli/doctor_deep.go")
 	status := readPublicSurfaceFile(t, root, "internal/cli/inspect_cmd.go")
 
-	assertContainsAll(t, "source version", mainSource, `var Version = "0.9.9"`)
+	assertContainsAll(t, "development identity", mainSource, `var Version = "dev"`, "buildprovenance.DevelopmentVersion()")
 	assertContainsAll(t, "Go SDK pin", goModule, "github.com/modelcontextprotocol/go-sdk v1.7.0")
 	assertContainsAll(t, "external direct pins", requirements,
 		"langchain-core==1.5.4",
@@ -163,7 +167,9 @@ func TestLangChainProofPinsVersionsAndUnenforcedBoundary(t *testing.T) {
 		"typing-extensions==4.16.0",
 	)
 	assertContainsAll(t, "integration script", integration,
-		"reconc_version=0.9.8",
+		`reconc_version=$("$root/scripts/build/resolve-version.sh" "$root")`,
+		`-ldflags "-X main.Version=$reconc_version"`,
+		`[ "$("$tmp/bin/reconc" --version)" = "reconc $reconc_version" ]`,
 		"go_mcp_sdk_version=v1.7.0",
 		`platform.python_version() != "3.13.14"`,
 		`LATEST_PROTOCOL_VERSION != "2025-11-25"`,

@@ -117,6 +117,12 @@ func readRegisteredSchema(root string, contract schema.Contract) ([]byte, error)
 	if document.ID != contract.DefaultURL {
 		return nil, fmt.Errorf("local schema %s $id %q does not match registry %q", contract.LocalPath, document.ID, contract.DefaultURL)
 	}
+	if contract.IntroductionTag == "" {
+		identity, err := schema.ContentIdentity(contract.Artifact, contract.SchemaVersion, local)
+		if err != nil || identity != contract.DefaultURL {
+			return nil, fmt.Errorf("local schema %s content identity mismatch: got %q (%v)", contract.LocalPath, identity, err)
+		}
+	}
 	return local, nil
 }
 
@@ -208,7 +214,11 @@ func verifyPublished(ctx context.Context, client *http.Client, root string, cont
 		if err != nil {
 			return err
 		}
-		request, err := http.NewRequestWithContext(ctx, http.MethodGet, contract.DefaultURL, nil)
+		publicationURL, err := schema.PublicationURL(contract, os.Getenv("RELEASE_TAG"))
+		if err != nil {
+			return fmt.Errorf("locate published schema %s: %w", contract.LocalPath, err)
+		}
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, publicationURL, nil)
 		if err != nil {
 			return fmt.Errorf("prepare published schema %s: %w", contract.DefaultURL, err)
 		}
