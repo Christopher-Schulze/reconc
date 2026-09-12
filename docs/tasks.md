@@ -5,7 +5,6 @@
 
 ## Queue
 
-- [ ] 533 Propagate declared writes through command prevention -> tasks/533-propagate-declared-writes-through-command-prevention.md
 - [ ] 534 Preserve typed briefing remediation actions -> tasks/534-preserve-typed-briefing-remediation-actions.md
 - [ ] 535 Redact complete quoted path spans -> tasks/535-redact-complete-quoted-path-spans.md
 - [ ] 536 Retain approval budget diagnostics through recovery -> tasks/536-retain-approval-budget-diagnostics-through-recovery.md
@@ -15,6 +14,7 @@
 ## Blocked
 
 ## Done
+- [x] 533 Propagate declared writes through command prevention -> tasks/done/533-propagate-declared-writes-through-command-prevention.md
 - [x] 532 Close GNU Parallel command-policy bypasses -> tasks/done/532-close-gnu-parallel-command-policy-bypasses.md
 - [x] 531 Harden benchmark percentile and output contracts -> tasks/done/531-harden-benchmark-percentile-and-output-contracts.md
 - [x] 528 Align assurance manifest admission with stack detection -> tasks/done/528-align-assurance-manifest-admission-with-stack-detection.md

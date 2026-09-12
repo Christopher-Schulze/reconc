@@ -305,7 +305,21 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(
 		if err != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): load evidence chain: %s", err)}
 		}
-		report, err := runPreCommandPolicyCheckWithEvaluator(evaluator, root, state, payload.Command())
+		declaredWrites, declared, declaredErr := commandWritePaths(payload)
+		if declaredErr != nil {
+			return Result{ExitCode: 2, Stderr: "reconc hook (pre): command write declaration: " + declaredErr.Error()}
+		}
+		trialState := state
+		var normalizedWrites runtime.ExecutionInputs
+		if declared {
+			var normalizeErr error
+			normalizedWrites, normalizeErr = runtime.NormalizeReplayInputs(root, runtime.ExecutionInputs{WritePaths: declaredWrites})
+			if normalizeErr != nil {
+				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): normalize command write paths: %s", normalizeErr)}
+			}
+			trialState.WritePaths = append(append([]string(nil), state.WritePaths...), normalizedWrites.WritePaths...)
+		}
+		report, err := runPreCommandPolicyCheckWithEvaluator(evaluator, root, trialState, payload.Command())
 		if err != nil {
 			if isLockfileError(err) {
 				// A stale lockfile blocks every gated command, including the
@@ -323,36 +337,24 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(
 		if len(violations) > 0 {
 			return resultWithPolicyDecision(Result{ExitCode: 2, Stderr: firstLinesForViolations(violations, "reconc blocked this command before execution.")}, policyReports...)
 		}
-		if commandMayWriteRepository(payload.Command()) {
+		if declared || commandMayWriteRepository(payload.Command()) {
 			compiled, _, compiledErr := evaluator.CurrentCompiledPolicyEvaluator(root)
 			if compiledErr != nil {
 				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): resolve authority policy for command write: %s", compiledErr)}
 			}
 			hasBoundRules := compiled.HasBoundApprovalRules()
-			declaredWrites, declared, declaredErr := commandWritePaths(payload)
-			if declaredErr != nil {
-				return Result{ExitCode: 2, Stderr: "reconc hook (pre): command write declaration: " + declaredErr.Error()}
-			}
-			if !hasBoundRules {
-				if staleErr := rejectStaleNativeApprovalEnvelope(payload, nil); staleErr != nil {
-					return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + staleErr.Error()}
-				}
-			} else if !declared {
+			if hasBoundRules && !declared {
 				return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + undeclaredCommandWriteCapabilityMessage}
-			} else {
-				normalizedWrites, normalizeErr := runtime.NormalizeReplayInputs(root, runtime.ExecutionInputs{WritePaths: declaredWrites})
-				if normalizeErr != nil {
-					return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): normalize command write paths: %s", normalizeErr)}
-				}
-				boundRuleIDs, boundErr := compiled.BoundApprovalRuleIDs(root, normalizedWrites.WritePaths)
-				if boundErr != nil {
-					return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): resolve bound authority approval: %s", boundErr)}
-				}
-				if staleErr := rejectStaleNativeApprovalEnvelope(payload, boundRuleIDs); staleErr != nil {
-					return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + staleErr.Error()}
-				}
-				trialWrites := append(append([]string(nil), state.WritePaths...), normalizedWrites.WritePaths...)
-				writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, root, state.ReadPaths, trialWrites, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
+			}
+			boundRuleIDs, boundErr := compiled.BoundApprovalRuleIDs(root, normalizedWrites.WritePaths)
+			if boundErr != nil {
+				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): resolve bound authority approval: %s", boundErr)}
+			}
+			if staleErr := rejectStaleNativeApprovalEnvelope(payload, boundRuleIDs); staleErr != nil {
+				return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + staleErr.Error()}
+			}
+			if declared {
+				writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, root, state.ReadPaths, trialState.WritePaths, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
 				if writeErr != nil {
 					return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): command write check failed: %s", writeErr)}
 				}

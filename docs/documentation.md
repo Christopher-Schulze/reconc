@@ -2375,14 +2375,18 @@ stable host `tool_use_id`; the receipt identity is consumed once under the
 session lock. A changed policy generation, path identity, effect, or session
 state invalidates the receipt.
 
-Declared command writes are normalized once through the prospective repository
-path contract before matching. If those exact paths match no bound authority
-rule, any leftover approval envelope is rejected and the command continues
-through ordinary pre-write policy. Incomplete or undeclared mutating commands
+Declared command writes are normalized through the prospective repository
+path contract before command prevention. Both command prevention and ordinary
+pre-write policy evaluate the combined historical and declared write paths,
+including when no authority rule exists. Declarations remain prospective and
+never create completed-write evidence. Malformed declarations are rejected even
+for otherwise read-only commands. If the exact paths match no bound authority
+rule, any leftover approval envelope is rejected. Incomplete or undeclared
+mutating commands
 cannot skip that decision: hosts that cannot provide `reconc_write_paths` are
 blocked with an unsupported-capability message rather than a fake authority
-change or an impossible approval. Known read-only commands stay outside the
-native approval path.
+change or an impossible approval. Known read-only commands without declared
+writes stay outside the native approval path.
 
 The authority registry and policy are private operator state selected with
 `RECONC_APPROVAL_AUTHORITIES`, `RECONC_APPROVAL_POLICY`, and
@@ -3022,14 +3026,16 @@ the existing per-alias inspection path. Dynamic alias definitions, excessive
 alias recursion, inspection failures, and unknown Git subcommands fail closed
 instead of bypassing the destructive-command guard.
 
-Pre-decision cache version 4 derives one deterministic dependency plan from the
+Pre-decision cache version 5 derives one deterministic dependency plan from the
 exact immutable runtime-plan index, normalized inputs, scope, trigger, template
 captures, and pre-command or pre-write phase used by the live evaluation. A
 reached `all_of`, `any_of`, or `not` contributes every external sub-check that
 can affect that phase. `require_fresh_file` targets, `require_evidence` files,
 `require_script` executables and declared `cache_inputs` join the existing
-repository-scoped read/write evidence and pending write targets. Reached scripts
-also bind the SHA-256 identity of their complete sanitized environment. A
+repository-scoped read/write evidence and pending write targets. Declared
+command effects participate in command-rule reachability, and their original
+path identities join the snapshot so retargeting cannot reuse a stale pass.
+Reached scripts also bind the SHA-256 identity of their complete sanitized environment. A
 script without declared cache inputs, a reached native-assurance rule, unsafe
 template expansion, an irregular content-bound target, or an incomplete or
 over-budget plan disables reuse rather than omitting an input.

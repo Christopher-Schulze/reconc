@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	preDecisionCacheVersion       = "pre-decision-v4"
+	preDecisionCacheVersion       = "pre-decision-v5"
 	maxPreDecisionCacheBytes      = 16 * 1024
 	maxPreDecisionDiagnostic      = 8 * 1024
 	maxPreDecisionIdentityFile    = 8 * 1024 * 1024
@@ -90,7 +90,7 @@ func runPreDecisionResolvedWithEvaluatorAndStopCache(
 		}
 		if payload.IsCommandTool() {
 			compiled, _, compiledErr := evaluator.CurrentCompiledPolicyEvaluator(root)
-			if compiledErr != nil || (compiled.HasBoundApprovalRules() && commandMayWriteRepository(payload.Command())) {
+			if compiledErr != nil || (compiled.HasBoundApprovalRules() && (len(declaredCommandWritePaths(payload)) > 0 || commandMayWriteRepository(payload.Command()))) {
 				cacheable = false
 			}
 		}
@@ -397,7 +397,19 @@ func preDecisionEvaluationInputs(
 	}
 	readPaths := filterRepoScopedReadPaths(root, state.ReadPaths)
 	if payload.IsCommandTool() {
-		return executionInputs(readPaths, state.WritePaths, state.WriteEpochs, []string{payload.Command()}, state.CommandResults, state.Claims),
+		declaredWrites, _, err := commandWritePaths(payload)
+		if err != nil {
+			return runtime.Empty(), 0, false
+		}
+		trialWrites := state.WritePaths
+		if len(declaredWrites) > 0 {
+			normalized, err := runtime.NormalizeReplayInputs(root, runtime.ExecutionInputs{WritePaths: declaredWrites})
+			if err != nil {
+				return runtime.Empty(), 0, false
+			}
+			trialWrites = append(append([]string(nil), state.WritePaths...), normalized.WritePaths...)
+		}
+		return executionInputs(readPaths, trialWrites, state.WriteEpochs, []string{payload.Command()}, state.CommandResults, state.Claims),
 			runtime.PreDecisionRouteCommand, true
 	}
 	if !payload.IsWriteTool() {
@@ -473,6 +485,11 @@ func capturePreDecisionDependencySnapshot(
 	}
 	if payload != nil && payload.IsWriteTool() {
 		for _, path := range withoutAgentMemoryPaths(root, payload.FilePaths()) {
+			paths = append(paths, preDecisionDependencyRequest{path: path})
+		}
+	}
+	if payload != nil && payload.IsCommandTool() {
+		for _, path := range declaredCommandWritePaths(payload) {
 			paths = append(paths, preDecisionDependencyRequest{path: path})
 		}
 	}
