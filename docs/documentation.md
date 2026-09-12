@@ -2987,7 +2987,13 @@ absolute executable paths, and quoted static values are not treated as
 commands. Dispatcher modes whose executable cannot be identified, including
 `taskset -p`, `systemd-run --shell`, `busybox --list`, `parallel --pipe`,
 `parallel :::` before a command, unknown options, dynamic operands, and
-command strings evaluated by another shell, are incomplete. Ordinary literal
+unsupported command strings evaluated by another shell, are incomplete. GNU
+Parallel's static command template is reparsed through the bounded shell
+analyzer after outer quote removal; `--quote` preserves literal argument
+boundaries. Input appended by Parallel remains unknown command arguments,
+including when consumed by another shell or `eval`. Replacement expressions,
+custom replacement markers, and unsupported replacement modes fail closed.
+Ordinary literal
 arguments such as `echo git clean` never become executable-command matches.
 An unqualified rule executable matches the basename of an absolute executable
 path; explicitly path-qualified rules remain exact.

@@ -173,22 +173,22 @@ func TestInvocationsDiscoversEverySupportedLauncherShape(t *testing.T) {
 		{
 			name:    "parallel jobs and arguments",
 			command: "parallel --jobs 4 --keep-order -- git status ::: a b",
-			want:    [][]string{{"parallel", "--jobs", "4", "--keep-order", "--", "git", "status", ":::", "a", "b"}, {"git", "status"}},
+			want:    [][]string{{"parallel", "--jobs", "4", "--keep-order", "--", "git", "status", ":::", "a", "b"}, {"sh", "-c", `git status "$@"`}, {"git", "status", `"$@"`}},
 		},
 		{
 			name:    "parallel joined jobs",
 			command: "parallel -j8 git grep ::: token",
-			want:    [][]string{{"parallel", "-j8", "git", "grep", ":::", "token"}, {"git", "grep"}},
+			want:    [][]string{{"parallel", "-j8", "git", "grep", ":::", "token"}, {"sh", "-c", `git grep "$@"`}, {"git", "grep", `"$@"`}},
 		},
 		{
 			name:    "nested wrapper then parallel",
 			command: "sudo --non-interactive parallel -q git status ::: a",
-			want:    [][]string{{"parallel", "-q", "git", "status", ":::", "a"}, {"git", "status"}},
+			want:    [][]string{{"parallel", "-q", "git", "status", ":::", "a"}, {"sh", "-c", `'git' 'status' "$@"`}, {"git", "status", `"$@"`}},
 		},
 		{
 			name:    "parallel launches env wrapper",
 			command: "parallel env MODE=1 git status ::: a",
-			want:    [][]string{{"parallel", "env", "MODE=1", "git", "status", ":::", "a"}, {"git", "status"}},
+			want:    [][]string{{"parallel", "env", "MODE=1", "git", "status", ":::", "a"}, {"sh", "-c", `env MODE=1 git status "$@"`}, {"git", "status", `"$@"`}},
 		},
 	}
 

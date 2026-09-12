@@ -217,16 +217,21 @@ func classifySystemdRunOption(word string) (int, bool) {
 }
 
 func parallelCommand(words []commandWord) ([]commandWord, bool) {
+	quote := false
 	for index := 0; index < len(words); index++ {
 		if words[index].dynamic {
 			return nil, false
 		}
 		word := words[index].value
+		if word == "-q" || word == "--quote" {
+			quote = true
+			continue
+		}
 		if parallelArgSeparator(word) {
 			return nil, false
 		}
 		if word == "--" {
-			return commandUntilParallelArgs(words[index+1:])
+			return commandUntilParallelArgs(words[index+1:], quote)
 		}
 		if parallelIncompleteMode(word) {
 			return nil, false
@@ -243,13 +248,14 @@ func parallelCommand(words []commandWord) ([]commandWord, bool) {
 			index = next - 1
 			continue
 		}
-		return commandUntilParallelArgs(words[index:])
+		return commandUntilParallelArgs(words[index:], quote)
 	}
 	return nil, false
 }
 
-func commandUntilParallelArgs(words []commandWord) ([]commandWord, bool) {
+func commandUntilParallelArgs(words []commandWord, quote bool) ([]commandWord, bool) {
 	end := 0
+	var body strings.Builder
 	for end < len(words) {
 		if words[end].dynamic {
 			return nil, false
@@ -257,12 +263,29 @@ func commandUntilParallelArgs(words []commandWord) ([]commandWord, bool) {
 		if parallelArgSeparator(words[end].value) {
 			break
 		}
+		// Replacement syntax can change executable positions or shell structure.
+		// Do not claim a complete command without evaluating that language.
+		if strings.ContainsAny(words[end].value, "{}") {
+			return nil, false
+		}
+		if end > 0 {
+			body.WriteByte(' ')
+		}
+		if quote {
+			body.WriteString("'" + strings.ReplaceAll(words[end].value, "'", "'\"'\"'") + "'")
+		} else {
+			body.WriteString(words[end].value)
+		}
 		end++
 	}
 	if end == 0 {
 		return nil, false
 	}
-	return words[:end], true
+	// Parallel reparses the joined command in a shell, including nested
+	// launchers. Model appended input as unknown positional arguments so exact
+	// matching and shell/eval consumers cannot mistake it for absent input.
+	body.WriteString(` "$@"`)
+	return []commandWord{{value: "sh"}, {value: "-c"}, {value: body.String()}}, true
 }
 
 func parallelArgSeparator(word string) bool {
@@ -270,7 +293,13 @@ func parallelArgSeparator(word string) bool {
 }
 
 func parallelIncompleteMode(word string) bool {
-	return word == "--pipe" || word == "--pipepart" || word == "--pipe-part" || word == "--fifo" || word == "--cat" || word == "--tee"
+	name, _, _ := strings.Cut(word, "=")
+	switch name {
+	case "--pipe", "--pipepart", "--pipe-part", "--fifo", "--cat", "--tee", "-I", "--replace", "--plus", "-m", "-X":
+		return true
+	default:
+		return false
+	}
 }
 
 func classifyParallelOption(word string) (int, bool) {
