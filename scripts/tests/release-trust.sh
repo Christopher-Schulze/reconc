@@ -156,25 +156,51 @@ require_text "$root/scripts/tests/coverage.sh" '-p="$test_parallelism"'
 
 verify_coverage_review_only() {
   local target="$1"
-  local coverage_word='cover''age'
-  local floor_word='flo''or'
-  local threshold_word='thresh''old'
-  local gate_word='ga''te'
-  local percent_pattern="${coverage_word}.{0,80}[0-9]+([.][0-9]+)?[[:space:]]*(%|percent)|[0-9]+([.][0-9]+)?[[:space:]]*(%|percent).{0,80}${coverage_word}"
-  local policy_pattern="${coverage_word}[- _-]*(${floor_word}|${threshold_word}|${gate_word})|(${floor_word}|${threshold_word}|${gate_word})[- _-]*${coverage_word}|COVERAGE[_-]MIN"
-  if grep -Eiq "$percent_pattern|$policy_pattern" "$target"; then
+  local number='[0-9]+([.][0-9]+)?'
+  local percent="${number}[[:space:]]*(%|percent)"
+  local requirement='must|shall|should|require[ds]?|minimum|at least|no less than|enforce[ds]?|fail(s|ed)?|reject(s|ed)?'
+  local threshold='min(imum)?|floor|threshold|gate'
+  local normative="coverage.{0,80}(${requirement}|${threshold}).{0,40}${percent}|(${requirement}|${threshold}).{0,80}coverage.{0,40}${percent}|(${requirement}).{0,40}${percent}.{0,40}coverage"
+  local configuration="(coverage[-_ ]*(${threshold})|(${threshold})[-_ ]*coverage)[\"'[:space:]]*[:=]|coverage.{0,24}(${threshold})[\"'[:space:]]*[:=]"
+  local comparison="coverage[\"'[:space:]_[:alnum:].()-]{0,24}([<>]=?|-(lt|le|gt|ge))[[:space:]]*${number}"
+  local status
+  if grep -Eiq "$normative|$configuration|$comparison" "$target"; then
     printf '%s\n' "$target contains a numeric coverage pass/fail contract" >&2
     return 1
+  else
+    status=$?
+    [ "$status" -eq 1 ] || return "$status"
   fi
 }
 
 coverage_fixture="$tmp/coverage-policy.md"
-printf '%s\n' 'Coverage is measured as review evidence.' > "$coverage_fixture"
-verify_coverage_review_only "$coverage_fixture" || fail "review-only coverage fixture failed"
-coverage_label='Cover''age'
-coverage_value=$((4 + 5))
-printf '%s must stay above %s%%.\n' "$coverage_label" "$coverage_value" > "$coverage_fixture"
-expect_failure verify_coverage_review_only "$coverage_fixture"
+for measurement in \
+  'Coverage is measured as review evidence.' \
+  'Historical whole-module coverage: 82.3484% root and 84.0628% template.' \
+  'The run measured 82.3484 percent whole-module coverage.' \
+  'Coverage increased from 81% to 83%, above the previous measurement.' \
+  'Coverage was 83%; no numeric coverage gate is imposed.' \
+  'No minimum coverage is required.' \
+  'The coverage threshold is descriptive, not an enforced target.'; do
+  printf '%s\n' "$measurement" > "$coverage_fixture"
+  verify_coverage_review_only "$coverage_fixture" || fail "factual coverage fixture failed: $measurement"
+done
+for requirement in \
+  'Coverage must stay above 9%.' \
+  'Coverage shall be at least 80 percent.' \
+  'Minimum coverage: 80%.' \
+  'Require at least 80% coverage.' \
+  'CI fails when coverage drops below 80%.' \
+  'Coverage floor: 80%.' \
+  'COVERAGE_MIN=80' \
+  'MIN_COVERAGE=80' \
+  '"coverage_threshold": 80' \
+  'coverage: {minimum: 80}' \
+  'coverage >= 80' \
+  'if coverage -lt 80; then exit 1; fi'; do
+  printf '%s\n' "$requirement" > "$coverage_fixture"
+  expect_failure_reason 'contains a numeric coverage pass/fail contract' verify_coverage_review_only "$coverage_fixture"
+done
 
 while IFS= read -r -d '' policy_file; do
   verify_coverage_review_only "$policy_file" \

@@ -477,6 +477,9 @@ also writes separate HTML reports beside those profiles. Coverage uses the same
 bounded `TEST_PARALLELISM` setting as the test targets. Meaningful tests must
 exercise changed behavior, while OS-specific files and process entry points
 still require their matching platform jobs or integration boundaries.
+Release trust permits factual numerical coverage measurements and historical
+reports. It rejects explicit coverage requirements, threshold assignments, and
+numeric comparison contracts; descriptive mentions alone do not define a gate.
 
 Development has no assigned product release version. `make build` resolves
 `dev+<commit>` and appends `-dirty` for tracked or untracked changes. Direct

@@ -159,6 +159,10 @@ candidates C221, C222, C224, and C225.
 - `make test-fast`, `make test`, `make vet`, `make lint`, `make coverage`,
   `make build`, `make self-host`, and `make publication-audit` passed. Coverage
   remains whole-module review evidence, not a numeric pass/fail contract.
+- Historical TASK 525 measurements recorded in
+  `cb71a3b7a33bd651da95875632dfbdb422ef4aff`: whole-module coverage was
+  82.3484% for the root module and 84.0628% for the portable template module.
+  These values describe that task's verification run, not the current checkout.
 - The final Go sources are `gofmt`-clean, `git diff --check` passes, and every
   modified file and task acceptance item was re-read before archival.
 
