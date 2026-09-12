@@ -44,8 +44,6 @@ var (
 	knownToken       = regexp.MustCompile(`(?i)\b(?:github_pat_|gh[pousr]_|glpat-|xox[baprs]-|xapp-|sk-(?:live_|test_|proj_)?|AIza|npm_|pypi-)[A-Za-z0-9_.-]{8,}\b`)
 	jwtToken         = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`)
 	awsAccessKey     = regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`)
-	unixAbsolutePath = regexp.MustCompile(`(^|[\s(\[\{"'=,:])/(?:[^\s:;,)\]}"']+)`)
-	windowsPath      = regexp.MustCompile(`(?i)(^|[\s(\[\{"'=,:])[A-Z]:\\(?:[^\s:;,)\]}"']+)`)
 )
 
 type Build struct {
@@ -479,21 +477,15 @@ func sanitizePaths(root string, values []string) []string {
 		if len(result) == maxItems {
 			break
 		}
-		value = strings.TrimSpace(value)
-		if filepath.IsAbs(value) {
-			relative, err := filepath.Rel(root, value)
-			if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-				value = "<external>"
-			} else {
-				value = relative
-			}
-		} else {
-			value = path.Clean(strings.ReplaceAll(value, "\\", "/"))
-			if value == ".." || strings.HasPrefix(value, "../") {
-				value = "<external>"
-			}
+		value = sanitizeProofPath(root, value)
+		if value == "" {
+			continue
 		}
-		result = append(result, filepath.ToSlash(sanitizeText(root, value)))
+		value = filepath.ToSlash(sanitizeText(root, value))
+		if !portableProofPath(value) {
+			value = proofExternalPath
+		}
+		result = append(result, value)
 	}
 	return stableUnique(result)
 }
@@ -531,8 +523,7 @@ func sanitizeText(root, value string) string {
 	value = knownToken.ReplaceAllString(value, "<redacted>")
 	value = jwtToken.ReplaceAllString(value, "<redacted>")
 	value = awsAccessKey.ReplaceAllString(value, "<redacted>")
-	value = unixAbsolutePath.ReplaceAllString(value, "$1<external>")
-	value = windowsPath.ReplaceAllString(value, "$1<external>")
+	value = redactAbsolutePathSpans(value)
 	return boundText(value)
 }
 

@@ -799,7 +799,11 @@ JSON is the default; Markdown is rendered from the same verified typed data.
 and atomically publishes them only after rendering completes. Final symlinks and
 non-regular targets are rejected without changing the existing path. Absolute paths,
 home/user identity, session IDs, prompts, transcripts, environment data, and raw
-command arguments are excluded or redacted. Root redaction matches the
+command arguments are excluded or redacted. POSIX, Windows drive, UNC,
+extended, device, and drive-relative paths are classified independently of the
+host OS; only a path proven to sit under this repository's canonical root is
+exported as a slash-separated relative identity, and every other absolute form
+becomes `<external>`. Root redaction matches the
 canonical absolute repository path only; it never globally replaces a common
 repository basename such as `go` or `docs` inside evidence text. The public
 `command_hash` is a
@@ -817,7 +821,9 @@ object with no duplicate keys, unknown fields, missing required fields, null
 required collections, or trailing values. It verifies the v1 schema and
 format identity, bounded and canonical collections, decision/check
 consistency, command-proof invariants, candidate and completion identities,
-and the bundle self-digest. Object-key order and platform-independent JSON
+and the bundle self-digest. Path collections must be portable: slash-separated
+repository-relative names or `<external>`, never a residual absolute, drive,
+UNC, device, or backslash form. Object-key order and platform-independent JSON
 whitespace do not affect validity.
 
 `--repo REPO` additionally runs one fresh read-only completion evaluation and

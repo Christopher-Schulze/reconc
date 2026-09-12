@@ -55,7 +55,13 @@ public bundles do not provide an offline argument-guessing oracle. Paths,
 home/user identity, known token forms, and assignment values are redacted with
 boundary-aware replacement, bounded UTF-8 output, and a maintained adversarial
 test corpus; regex recognition is defense in depth rather than secret
-discovery.
+discovery. Path fields classify POSIX, Windows drive, UNC, extended, device,
+and drive-relative forms independently of GOOS before separator normalization.
+A path is exported as a slash-separated repository-relative identity only when
+the current host can prove it sits under the canonical repository root.
+Foreign-platform absolute paths cannot be guessed into that root and become
+`<external>`. Portable verification rejects residual absolute, drive-prefixed,
+UNC, device, backslash, parent-escaping, dot, empty, and non-canonical forms.
 
 `refresh` stops at the lockfile. `check` / `ci` / `assert` / `can`
 load the lockfile and run the runtime evaluator. `fix` / `explain`

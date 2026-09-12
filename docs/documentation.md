@@ -168,7 +168,9 @@ Received portable proof bundles can be checked without trusting repository
 scripts by running `reconc proof verify FILE`. Strict decoding rejects
 oversize, non-regular, symlinked, malformed, duplicate-key, unknown-field,
 missing-field, null-collection, and trailing-value inputs before semantic
-verification. Optional `--repo REPO` binding compares the proof with a fresh
+verification. Path fields must be slash-separated repository-relative names or
+`<external>`; POSIX, Windows drive, UNC, device, and drive-relative absolute
+forms are rejected even when they were produced on another OS. Optional `--repo REPO` binding compares the proof with a fresh
 read-only local completion snapshot. A valid unsigned self-digest proves
 integrity only; it does not identify the author or establish trusted release
 provenance. For a fully parsed single invocation, command-proof `command_hash`

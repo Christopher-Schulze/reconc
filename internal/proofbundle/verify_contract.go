@@ -2,7 +2,6 @@ package proofbundle
 
 import (
 	"fmt"
-	"path"
 	"slices"
 	"strings"
 
@@ -244,17 +243,6 @@ func verifyStringCollection(name string, values []string, paths bool) error {
 
 func boundedProofText(value string) bool {
 	return len(value) <= maxTextBytes+len("...[bounded]")
-}
-
-func portableProofPath(value string) bool {
-	if value == "<external>" {
-		return true
-	}
-	if strings.Contains(value, "\\") || strings.HasPrefix(value, "/") {
-		return false
-	}
-	cleaned := path.Clean(value)
-	return cleaned == value && cleaned != ".." && !strings.HasPrefix(cleaned, "../")
 }
 
 func invalidProof(message string) error {
