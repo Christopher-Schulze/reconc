@@ -3103,7 +3103,10 @@ Shell, C/C++, Java, PHP, C#, Next.js, Svelte/SvelteKit, Zig, Elixir, and
 PowerShell. Detection uses conventional
 manifests and source extensions through six repository levels, skips
 dependency/build trees and symlinks, and may propose the matching
-`*-assurance` pack. Next.js and Svelte detection additionally requires their
+`*-assurance` pack. Assurance reuses that same path-only admission before
+validating a changed Go, Rust, or Python manifest, so a changed or deleted
+file under an ignored tree or beyond the depth bound cannot impersonate a
+module root. Next.js and Svelte detection additionally requires their
 declared package dependency in a bounded, valid `package.json`; generic React
 or package metadata alone does not create a framework recommendation. A
 proposal is review-only.
@@ -3259,7 +3262,9 @@ working directory or a literal `cd <module> && ...`/runner directory prefix;
 root-scoped command strings cannot satisfy another module. If changed Go,
 Rust, or Python source has no detected applicable module root, evaluation fails
 closed instead of silently skipping the gate. Missing, symlinked, or unreadable
-applicable manifests are likewise errors.
+applicable manifests are likewise errors. Changed manifests that stack detection
+would never visit, including ignored dependency/build trees and paths deeper
+than six levels, are not treated as module roots.
 
 | Gate type | Contract | Authority surface |
 |---|---|---|

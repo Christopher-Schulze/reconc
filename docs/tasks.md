@@ -2,15 +2,14 @@
 
 ## Active
 
-- [~] 528 Align assurance manifest admission with stack detection -> tasks/528-align-assurance-manifest-admission-with-stack-detection.md
+- [~] 531 Harden benchmark percentile and output contracts -> tasks/531-harden-benchmark-percentile-and-output-contracts.md
 
 ## Queue
-
-- [ ] 531 Harden benchmark percentile and output contracts -> tasks/531-harden-benchmark-percentile-and-output-contracts.md
 
 ## Blocked
 
 ## Done
+- [x] 528 Align assurance manifest admission with stack detection -> tasks/done/528-align-assurance-manifest-admission-with-stack-detection.md
 - [x] 530 Detect dirty TASK ancestors and Gitlinks -> tasks/done/530-detect-dirty-task-ancestors-and-gitlinks.md
 - [x] 529 Redact foreign absolute paths in proof bundles -> tasks/done/529-redact-foreign-absolute-paths-in-proof-bundles.md
 - [x] 526 Normalize bounded session path state to a fixed point -> tasks/done/526-normalize-bounded-session-path-state-to-a-fixed-point.md

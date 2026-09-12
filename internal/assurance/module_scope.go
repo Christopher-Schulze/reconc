@@ -141,8 +141,8 @@ func selectModuleScopes(root string, detection stackdetect.Result, gate policy.A
 
 func verifyChangedModuleManifests(root string, changed, patterns []string) error {
 	for _, raw := range changed {
-		manifest := filepath.ToSlash(filepath.Clean(raw))
-		if !isAssuranceModuleManifest(manifest) {
+		manifest, ok := stackdetect.CanonicalDiscoveryPath(raw)
+		if !ok || !isAssuranceModuleManifest(manifest) {
 			continue
 		}
 		matched, err := moduleManifestMatches(manifest, patterns)

@@ -101,12 +101,12 @@ func Detect(root string) (Result, error) {
 			repositoryMarkers = append(repositoryMarkers, relative)
 		}
 		if entry.IsDir() {
-			if ignoredDirectories[strings.ToLower(entry.Name())] || depth >= maxDepth {
+			if ignoredDiscoveryDirectory(entry.Name()) || depth >= maxDepth {
 				return fs.SkipDir
 			}
 			return nil
 		}
-		if depth > maxDepth || entry.Type()&os.ModeSymlink != 0 {
+		if !admitsNormalizedDiscoveryFile(relative) || entry.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
 		if stack, ok := moduleManifestStack(entry.Name()); ok {

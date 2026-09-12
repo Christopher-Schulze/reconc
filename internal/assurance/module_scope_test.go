@@ -164,6 +164,62 @@ func TestAssuranceReportsDeletedApplicableModuleManifest(t *testing.T) {
 	}
 }
 
+func TestAssuranceIgnoresUndetectableChangedModuleManifests(t *testing.T) {
+	root := t.TempDir()
+	writeAssuranceFile(t, root, "services/api/go.mod", "module example/api\n")
+	writeAssuranceFile(t, root, "services/api/main.go", "package api\n")
+	writeAssuranceFile(t, root, "vendor/go.mod", "module example/vendor\n")
+	writeAssuranceFile(t, root, "a/b/c/d/e/f/go.mod", "module example/deep\n")
+	gate := policy.AssuranceGate{
+		ID: "go-live", Type: policy.AssuranceLiveVerification,
+		ApplicableIf: []string{"go.mod"}, Commands: []string{"go test ./..."}, CommandPolicy: "all",
+	}
+
+	if _, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{
+		ChangedPaths: []string{"vendor/go.mod", `VENDOR\pkg\go.mod`, "a/b/c/d/e/f/go.mod"},
+	}); err != nil {
+		t.Fatalf("ignored changed manifests blocked assurance: %v", err)
+	}
+
+	if err := os.Remove(filepath.Join(root, "vendor", "go.mod")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{ChangedPaths: []string{"vendor/go.mod"}}); err != nil {
+		t.Fatalf("deleted ignored manifest blocked assurance: %v", err)
+	}
+
+	if _, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{
+		ChangedPaths:              []string{"services/api/main.go", "vendor/go.mod"},
+		SuccessfulCommandEvidence: []CommandEvidence{{Command: "go test ./...", WorkingDirectory: filepath.Join(root, "services/api")}},
+	}); err != nil {
+		t.Fatalf("ignored vendor manifest impersonated the nested module: %v", err)
+	}
+}
+
+func TestAssuranceStillRejectsSymlinkedAdmissibleManifest(t *testing.T) {
+	root := t.TempDir()
+	writeAssuranceFile(t, root, "services/api/main.go", "package api\n")
+	outside := filepath.Join(t.TempDir(), "go.mod")
+	if err := os.WriteFile(outside, []byte("module example/api\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(root, "services", "api", "go.mod")
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, manifest); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	gate := policy.AssuranceGate{
+		ID: "go-live", Type: policy.AssuranceLiveVerification,
+		ApplicableIf: []string{"go.mod"}, Commands: []string{"go test ./..."}, CommandPolicy: "all",
+	}
+	_, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{ChangedPaths: []string{"services/api/go.mod"}})
+	if err == nil || !strings.Contains(err.Error(), "services/api/go.mod") || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("symlinked admissible manifest error = %v", err)
+	}
+}
+
 func TestAssurancePackageScriptEvidenceBindsQuotedModuleDirectory(t *testing.T) {
 	root := t.TempDir()
 	module := "packages/api service"

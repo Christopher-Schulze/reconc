@@ -163,7 +163,7 @@ internal/
   schema/         canonical public JSON contract URLs + enterprise override
   semver/         strict Semantic Versioning parsing and precedence comparison
   shellcommand/   bounded shell parsing and executable-command discovery
-  stackdetect/    shared bounded manifest/source stack discovery
+  stackdetect/    shared bounded manifest/source stack discovery; path-only admission for assurance module manifests
   tasklifecycle/  typed TASK profiles + recoverable state transactions
   templates/      bundled rule-shape templates (embed.FS) + user overlays
   tui/            dependency-free terminal dashboard
