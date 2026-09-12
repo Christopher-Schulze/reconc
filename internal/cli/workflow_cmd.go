@@ -192,7 +192,7 @@ func compactSessionBriefing(full map[string]interface{}) map[string]interface{} 
 	if nextAction, exists := full["next_action"]; exists && nextAction != nil {
 		out["remediation"] = nextAction
 	}
-	for _, key := range []string{"task", "task_error", "run", "run_error", "policy_report_error", "policy_report_status", "policy_report_reason", "policy_report_hash", "policy_report_evidence_hash", "policy_report_candidate_fingerprint", "policy_report_session_id", "session_evidence_status", "policy_blockers", "omitted_policy_blockers", "historical_policy_blockers", "omitted_historical_policy_blockers", "required_evidence", "required_evidence_display", "report_path"} {
+	for _, key := range []string{"remediation_action", "task", "task_error", "run", "run_error", "policy_report_error", "policy_report_status", "policy_report_reason", "policy_report_hash", "policy_report_evidence_hash", "policy_report_candidate_fingerprint", "policy_report_session_id", "session_evidence_status", "policy_blockers", "omitted_policy_blockers", "historical_policy_blockers", "omitted_historical_policy_blockers", "required_evidence", "required_evidence_display", "report_path"} {
 		if value, exists := full[key]; exists && value != nil {
 			out[key] = value
 		}
@@ -434,8 +434,9 @@ func addActivePolicyBriefing(out map[string]interface{}, repoRoot string) {
 		out["required_evidence_display"] = displayBriefingStrings(evidence)
 		runtime.AttachClaimRemediation(&report, runtime.SessionClaimRemediation(repoRoot, sessionID))
 		plan := runtime.BuildFixPlan(&report)
-		if next := firstExecutableFixPlanAction(plan); len(next) > 0 {
-			out["next_action"] = renderDirectCommand(next)
+		if next, ok := firstExecutableFixPlanAction(plan); ok {
+			out["next_action"] = renderBriefingRemediationAction(next)
+			out["remediation_action"] = next
 		} else {
 			out["next_action"] = "resolve the listed gate(s), then rerun their exact command; full details are in the saved report"
 		}
@@ -447,24 +448,43 @@ func addActivePolicyBriefing(out map[string]interface{}, repoRoot string) {
 	}
 }
 
-func firstExecutableFixPlanAction(plan *runtime.FixPlan) []string {
+func firstExecutableFixPlanAction(plan *runtime.FixPlan) (runtime.RemediationAction, bool) {
 	if plan == nil {
-		return nil
+		return runtime.RemediationAction{}, false
 	}
 	for _, remediation := range plan.Remediations {
 		if remediation.Priority != "blocking" {
 			continue
 		}
 		for _, action := range remediation.Actions {
-			if action.Kind == runtime.ActionKindArgv && len(action.Argv) > 0 {
-				return append([]string(nil), action.Argv...)
+			if action.Kind == runtime.ActionKindArgv && len(action.Argv) > 0 && action.Argv[0] != "" && action.Shell == "" {
+				return action, true
 			}
-			if action.Kind == runtime.ActionKindShell && action.Shell != "" {
-				return []string{action.Shell}
+			if action.Kind == runtime.ActionKindShell && strings.TrimSpace(action.Shell) != "" && len(action.Argv) == 0 {
+				return action, true
 			}
 		}
 	}
-	return nil
+	return runtime.RemediationAction{}, false
+}
+
+func renderBriefingRemediationAction(action runtime.RemediationAction) string {
+	var parts []string
+	if action.Authorization != "" {
+		parts = append(parts, "Authorization: "+action.Authorization)
+	}
+	if action.Cwd != "" {
+		parts = append(parts, "Cwd: "+quoteCommandArgument(action.Cwd))
+	}
+	switch action.Kind {
+	case runtime.ActionKindArgv:
+		parts = append(parts, "Argv: "+renderDirectCommand(action.Argv))
+	case runtime.ActionKindShell:
+		parts = append(parts, "Shell: "+action.Shell)
+	default:
+		return ""
+	}
+	return strings.Join(parts, "; ")
 }
 
 func cleanBriefingStrings(values []string) []string {

@@ -1070,7 +1070,12 @@ as `current`, `historical`, or `unavailable`. Only a report bound to the exact
 saved report hash, non-overflowed active-session evidence hash, and current
 Stop-policy candidate can populate `policy_blockers` or replace the executable
 remediation. An evidence-overflow marker keeps the report historical until a
-new bounded evidence set is established.
+new bounded evidence set is established. A selected executable policy action is
+also exposed as `remediation_action`, using the existing FixPlan action type:
+`kind`, exact `shell` or `argv`, `cwd`, `authorization`, and required evidence or
+claims remain intact. Text guidance identifies authorization and working
+directory, quotes argv arguments individually, and preserves literal shell
+syntax. Selecting or displaying an action never authorizes its execution.
 Older or unbound reports remain under `historical_policy_blockers` with their
 exact report path and binding identities; malformed, missing, inaccessible, or
 wrong-root reports stay structured diagnostics and never become current gates.
