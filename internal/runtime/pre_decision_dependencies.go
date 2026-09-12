@@ -57,9 +57,21 @@ func (e *CompiledPolicyEvaluator) PreDecisionDependencies(
 		return PreDecisionDependencyPlan{}, err
 	}
 	plan := e.planForRoot(repoRoot)
+	ruleIndexes := plan.indexesFor(nil, phase)
+	if len(ruleIndexes) == 0 {
+		// No rule can consume command or claim evidence on this route. Keep
+		// every path input so empty policies still reject invalid boundaries.
+		inputs = ExecutionInputs{ReadPaths: inputs.ReadPaths, WritePaths: inputs.WritePaths, WriteEpochs: inputs.WriteEpochs}
+	}
 	normalized, err := normalizeEvaluationInput(repoRoot, inputs)
 	if err != nil {
 		return PreDecisionDependencyPlan{}, err
+	}
+	if len(ruleIndexes) == 0 {
+		if err := normalized.paths.revalidateRoot(); err != nil {
+			return PreDecisionDependencyPlan{}, err
+		}
+		return PreDecisionDependencyPlan{Dependencies: []PreDecisionDependency{}, Cacheable: true}, nil
 	}
 	ctx := &evalContext{
 		repoRoot:         repoRoot,
@@ -74,7 +86,7 @@ func (e *CompiledPolicyEvaluator) PreDecisionDependencies(
 		contextMemo:      newMatchContextMemo(normalized.inputs.WritePaths),
 	}
 	collector := newPreDecisionDependencyCollector()
-	for _, ruleIndex := range plan.indexesFor(nil, phase) {
+	for _, ruleIndex := range ruleIndexes {
 		rule := &plan.rules[ruleIndex]
 		scopeMatched, scopeErr := ruleScopeMatchesWithMatchers(ctx.matchers, rule, normalized.inputs)
 		if scopeErr != nil {

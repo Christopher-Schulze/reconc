@@ -3043,7 +3043,10 @@ instead of bypassing the destructive-command guard.
 Pre-decision cache version 5 derives one deterministic dependency plan from the
 exact immutable runtime-plan index, normalized inputs, scope, trigger, template
 captures, and pre-command or pre-write phase used by the live evaluation. A
-reached `all_of`, `any_of`, or `not` contributes every external sub-check that
+route with no indexed rules still validates all read/write paths, write epochs,
+and repository-root identity, but does not normalize unused command, result,
+or claim evidence or allocate rule-evaluation contexts. A reached `all_of`,
+`any_of`, or `not` contributes every external sub-check that
 can affect that phase. `require_fresh_file` targets, `require_evidence` files,
 `require_script` executables and declared `cache_inputs` join the existing
 repository-scoped read/write evidence and pending write targets. Declared
