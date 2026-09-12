@@ -1319,8 +1319,8 @@ Reconc can export the same completion candidate for external
 review:
 
 ```bash
-reconc proof . --output proof.json
-reconc proof . --format markdown --output proof.md
+reconc proof .
+reconc proof . --format markdown
 ```
 
 `proof` runs the non-persisting completion evaluation and emits a deterministic
@@ -1331,8 +1331,13 @@ remediation, and an older unresolved block only when the current candidate
 supersedes it. JSON is canonical; Markdown is rendered from the same verified
 typed data. A blocked candidate still emits a valid bundle and exits 2.
 
-The exporter never refreshes policy, runs a missing command, writes repository
-state, persists a policy decision, or treats absent evidence as success. It
+The evaluator never refreshes policy, runs a missing command, writes repository
+state, persists a policy decision, or treats absent evidence as success. An
+explicit `--output` writes the requested artifact. Choose a destination outside
+the evaluated repository: a new unignored in-repository artifact changes the
+candidate after the snapshot. `proof verify FILE --repo REPO --json` checks
+both bundle integrity and current candidate binding; a valid self-digest alone
+does not establish that binding. The exporter
 emits `repo_root: "."`, repository-relative slash paths, normalized timestamps
 by omission, bounded arrays/text, and no prompts, transcripts, session IDs,
 environment values, usernames, home paths, or raw command arguments. Command
@@ -4048,6 +4053,32 @@ the same core workflow through `reconc agent-intro`. Both default entries are
 bounded and progressively disclose specialized material through stable
 `agent-intro --section` IDs and skill-owned `references/` files.
 
+The skill is useful guidance, not a runtime requirement. Make the complete
+`skills/reconc/` directory available through the host's supported skill-discovery
+mechanism, preserving its relative references. A file in a clone does not prove
+the host loaded it. `reconc agent-intro` provides the core workflow without a
+skill installation; `agent-intro --section integration-surfaces` explains the
+integration choices without loading the entire host reference.
+
+| Surface | Role | Required proof |
+|---|---|---|
+| CLI | Agent briefing, policy decisions, command receipts, and completion gates | Actual command results for the intended repository and candidate |
+| Skill | Teach the workflow and evidence interpretation | Host discovery or explicit loading; no enforcement guarantee |
+| Native hooks | Intercept supported actions and collect live outcomes | Exact route activation, observation, and negative enforcement probes |
+| Git / CI | Validate the staged or selected Git candidate | Passing checks bound to that candidate or commit |
+| MCP gateway | Govern downstream MCP calls with policy, approvals, budgets, inspection, and ledger evidence | Explicit routing through `reconc mcp gateway`; direct and host-native tools remain outside |
+
+For shell-capable coding agents, CLI and supported hooks are the normal entry.
+The existing MCP gateway adds value when downstream MCP tools need governed
+routing. It is not a general MCP facade over every Reconc CLI command, and
+ordinary CLI work does not require an additional server.
+
+For read-only review, use inspection only. Missing or stale policy is a finding,
+not authorization to initialize, refresh, change run control, or record a
+completion transition. Apply existing user authorization within its scope. Build
+the Reconc product from its source root with `make build`; do not bootstrap that
+source repository. `make self-host` validates integration in temporary consumers.
+
 The core workflow for Codex, OpenCode, Claude Code, Oh My Pi, Pi, ZCode, and
 other coding agents is:
 
@@ -5302,12 +5333,13 @@ Routine version-update pull requests remain disabled on all four surfaces,
 and the repository does not enable auto-merge.
 
 The public source repository protects its default branch with the active
-`Protect main` ruleset. It blocks branch deletion and non-fast-forward updates,
-and requires successful Ubuntu, macOS, LangChain MCP,
-release-trust, and Go CodeQL checks for the exact candidate commit before
-`main` can advance. A pull request is not mandatory, but an unchecked direct
-push is rejected; maintainer fast-forwards must first obtain the same checks on
-a candidate branch.
+`Protect main` ruleset. It configures branch deletion and non-fast-forward
+protection plus required Ubuntu, macOS, LangChain MCP, release-trust, and Go
+CodeQL checks. A pull request is not mandatory. The configured repository-role
+bypass permits an authorized maintainer push before candidate checks finish.
+Product work follows the repository's main-only contract; verify completed
+checks for the exact remote commit after pushing. Push success is transport
+evidence, not a passing CI result. The bypass does not authorize a release.
 Effective rules are read back with
 `gh api repos/Christopher-Schulze/reconc/rulesets/18998289`.
 Repository Actions settings allow only GitHub-owned actions and require full
@@ -5678,8 +5710,12 @@ Allowed supporting docs:
 - `SECURITY.md` as security policy
 
 Local source-planning and release-note files such as `docs/tasks.md`,
-`docs/tasks/**`, `todo.md`, `docs/todo/**`, and `CHANGELOG.md` are ignored in
-this repository. These source-root ignores do not apply to TASK control planes
+`docs/tasks/**`, `todo.md`, `docs/todo/**`, and `CHANGELOG.md` are ignored by
+default in this repository. The tracked task board and explicitly published
+task details are exceptions; ignored private historical files remain
+unpublished. Ignore rules do not remove already tracked files, and an explicit
+publication requires reviewing the exact staged paths. These source-root
+ignores do not apply to TASK control planes
 that governed bootstrap creates in target repositories. When behavior changes,
 update `docs/documentation.md` first. Generic Reconc behavior is ported into
 this standalone repository before project-specific forks claim parity;

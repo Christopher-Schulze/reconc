@@ -275,7 +275,9 @@ state exactly what remains outside the boundary.
 
 ## Install and Bootstrap
 
-Install the checksummed, provenance-attested v0.9.8 release once.
+The following immutable installation example selects the published v0.9.8
+release. Later changes on `main` remain unreleased; use the source-build path
+below when those development changes are required.
 
 ### Native release installation
 
@@ -332,7 +334,7 @@ supplies it. Native `.exe` and `.com` policy scripts execute directly.
 For a source build or copied binary:
 
 ```bash
-go build -o .build/bin/reconc ./cmd/reconc
+make build
 .build/bin/reconc install-cli
 reconc --version
 ```
@@ -348,11 +350,11 @@ diagnostics instead of being reduced to misleading stale or missing status.
 
 The shipped CLI has no Bun, Node, Python, Docker, or service dependency. Bun
 `1.3.14` is required only by contributors running the executable OpenCode,
-Kilo Code, Oh My Pi, and Pi adapter contract tests. The Go test graph also uses
-`jsonschema/v6` with an ECMAScript-compatible regular-expression engine to
-compile every public Draft 2020-12 schema and validate representative current
-and legacy artifacts entirely offline; neither package is linked into release
-binaries.
+Kilo Code, Oh My Pi, and Pi adapter contract tests. Policy authoring and runtime
+validation use `jsonschema/v6`; bounded ECMAScript matching uses `regexp2`.
+Both are linked into the Go CLI and operate offline. Tests also compile every
+public Draft 2020-12 schema and validate representative current and legacy
+artifacts without network access.
 Python `3.13.14` is used only by the separately pinned disposable LangChain
 consumer job; it is not required by `make test` or the release binary.
 
@@ -575,10 +577,10 @@ review remain explicit:
 ```bash
 reconc exec . --staged -- go test ./...
 reconc ci . --staged
-reconc ci . --base origin/main --head HEAD --format sarif --output reconc.sarif
-reconc ci . --base origin/main --head HEAD --format junit --output reconc-junit.xml
+reconc ci . --base origin/main --head HEAD --format sarif
+reconc ci . --base origin/main --head HEAD --format junit
 reconc done .
-reconc proof . --output proof.json
+reconc proof .
 ```
 
 `reconc exec . --staged -- COMMAND` records the real exit status and publishes
@@ -596,6 +598,11 @@ into a versioned report. `reconc proof .` renders the same candidate as
 deterministic JSON or Markdown. A blocked candidate still produces a valid
 bundle and exits 2; the exporter never runs missing tests or turns absent
 evidence into a pass.
+
+For saved CI reports and `proof --output`, use a destination outside the
+evaluated repository. A new unignored
+report inside it changes the candidate after the snapshot; `proof verify FILE
+--repo REPO --json` will distinguish that mismatch from bundle integrity.
 
 Portable proofs exclude absolute paths, user and home identity, session IDs,
 prompts, transcripts, environment data, and raw command arguments. Command
@@ -997,6 +1004,13 @@ Exit codes are stable for humans, agents, and CI:
 
 The repo ships an agent-facing skill at `skills/reconc/SKILL.md`.
 
+The skill is optional guidance and must be loaded through the host's skill
+discovery, including its `references/` directory. Without it, use
+`reconc agent-intro`. CLI plus supported hooks is the normal coding-agent
+integration; CI checks the Git candidate separately. The existing MCP gateway
+is useful for governing explicitly routed downstream tools and is not required
+for ordinary CLI work. See the [integration role map](docs/documentation.md#agent-skill).
+
 Use it as the reconc operating guide for Codex, OpenCode, Claude Code, Oh My
 Pi, and other coding agents. The skill gives every agent the same operating loop:
 
@@ -1151,13 +1165,15 @@ and git-ignore policy.
   remains the exact flag reference.
 - `docs/rfcs/` contains frozen contracts for the lockfile, reports, rule
   kinds, presets, templates, and hooks.
-- local source-planning files such as `docs/tasks.md`, `docs/tasks/`,
-  `docs/todo.md`, `docs/todo/`, and `CHANGELOG.md` are ignored and are not part
-  of the published repo state.
+- source-planning files such as `docs/tasks.md`, `docs/tasks/`,
+  `docs/todo.md`, `docs/todo/`, and `CHANGELOG.md` are ignored by default.
+  The tracked task board and explicitly published task details are exceptions;
+  ignored private historical files remain unpublished.
 
 This source-repository ignore policy does not change the product contract:
 governed target repositories still receive and commit their own TASK control
-plane, while Reconc's own implementation queue remains local.
+plane. A path matching an ignore rule can still be tracked; Git's actual index
+determines the published source inventory.
 
 Security policy lives in `SECURITY.md`.
 
@@ -1255,10 +1271,11 @@ secret-shaped values, sensitive filenames, and placeholder residue. CI and
 release gates run it with full Git history; it does not rewrite or claim to
 erase older public history.
 
-The protected `main` ruleset rejects deletion, non-fast-forward updates, and
-unchecked candidates. A pull request is not mandatory, but the same required
-Ubuntu, macOS, LangChain MCP, release-trust, and CodeQL checks must succeed for the
-exact commit before the branch can advance.
+The active `main` ruleset configures deletion and non-fast-forward protection
+plus required Ubuntu, macOS, LangChain MCP, release-trust, and CodeQL checks.
+A pull request is not mandatory. Its configured repository-role bypass can
+advance `main` before those checks finish, so a successful push alone is not
+validation: inspect completed checks for the exact remote commit.
 
 ## License
 

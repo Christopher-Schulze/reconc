@@ -2,7 +2,8 @@
 
 ## When Policy Is Stale
 
-If `status`, `doctor`, or `check` reports a stale or missing lockfile:
+If `status`, `doctor`, or `check` reports a stale or missing lockfile during
+authorized maintenance:
 
 ```bash
 reconc refresh .
@@ -11,6 +12,9 @@ reconc status .
 
 Read-only commands never refresh implicitly. Do not hand-edit
 `.reconc/policy.lock.json`; it is generated output.
+For read-only review, report the state and continue permitted inspection;
+do not refresh, initialize, or run completion-state transitions merely because
+remediation suggests them. Existing authorization remains valid within scope.
 
 ## Agent Behavior
 

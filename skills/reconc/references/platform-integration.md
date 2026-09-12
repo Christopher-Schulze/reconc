@@ -1,5 +1,23 @@
 # Platform integration
 
+## Choosing An Integration
+
+Use CLI plus supported native hooks for coding agents with shell access. The
+skill teaches that workflow and CI validates the selected Git candidate;
+neither proves that a host intercepted a live tool call.
+
+The existing `reconc mcp gateway` is optional: route a downstream MCP server
+through it when its tool calls need policy, approval, budget, inspection, and
+ledger controls. It does not expose every Reconc CLI command as an MCP tool.
+Direct downstream connections and host-native tools bypass this gateway.
+Use `reconc agent-intro --section integration-surfaces` for the compact role
+map, then `reconc mcp gateway --help` when configuring an authorized route.
+
+Make the complete `skills/reconc/` directory available through the host's
+supported skill-discovery mechanism, preserving `references/`. A checked-in
+skill is not automatically loaded by every host. `reconc agent-intro` works
+without skill installation; copying a skill does not install or activate hooks.
+
 ## Platform Model
 
 The typed registry owns native event coverage, fallback routes, failure and

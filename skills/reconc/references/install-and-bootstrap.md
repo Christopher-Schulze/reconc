@@ -8,22 +8,25 @@ Prefer an installed `reconc` binary:
 reconc --help
 ```
 
-If the binary is not installed and the current repo is the `reconc` source
-tree, build an owned, pruneable session binary:
+If the binary is unavailable and a source build is requested, build from the
+`reconc` product source root using its verified development target:
 
 ```bash
-mkdir -p .reconc/cache
-go build -o .reconc/cache/reconc-session ./cmd/reconc
-.reconc/cache/reconc-session install-cli
-reconc --version
+make build
+.build/bin/reconc --version
 ```
 
-The path-qualified binary is needed only for that one installation call.
+Use `.build/bin/reconc install-cli` only when installation is authorized.
+Do not initialize Reconc policy, create `.reconc` build state, or install
+repository hooks in the product source tree. Product integration tests use
+`make self-host` with disposable repositories. Switch to the intended consumer
+repository before following bootstrap or the repository decision loop.
+
 `install-cli` atomically publishes the exact running build and proves bare
 `reconc` resolves to it. If PATH activation needs a new terminal, apply the
-exact emitted remediation before bootstrap. In any other repo, use the
-portable binary shipped with its Reconc toolkit for the same one-time command;
-never keep navigating versioned artifact paths.
+exact emitted remediation before bootstrap. For authorized installation from
+another repo, use its toolkit's portable binary for that one-time command.
+After successful installation, use bare `reconc` instead of versioned paths.
 
 ## Bootstrap A Repo
 
@@ -60,13 +63,6 @@ assuming canonical init copies a complete toolkit.
 The advanced pack's `tools/reconc/harness/template/` remains the immutable,
 receipt-owned source; the runbook copies it to the project-specific harness
 path and never renames or overwrites that source.
-
-For a lighter/manual start:
-
-```bash
-reconc init .
-reconc refresh .
-```
 
 Default new repos should normally use the bundled `default` + `agent` presets.
 Only add stronger presets when the repo is ready for them:

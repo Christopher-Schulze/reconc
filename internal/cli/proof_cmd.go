@@ -85,7 +85,8 @@ func writeProofExportHelp(output io.Writer) {
 	fmt.Fprintln(output, "       reconc proof verify FILE [--repo REPO] [--json]")
 	fmt.Fprintln(output, "")
 	fmt.Fprintln(output, "Export a deterministic, portable completion proof for the current candidate.")
-	fmt.Fprintln(output, "The command is read-only. Exit 0 = pass, 2 = blocked, 1 = error.")
+	fmt.Fprintln(output, "Evaluation is read-only. Exit 0 = pass, 2 = blocked, 1 = error.")
+	fmt.Fprintln(output, "--output writes an artifact; use a destination outside the evaluated repository to preserve its candidate.")
 }
 
 func renderProofExport(bundle *proofbundle.Bundle, format string) ([]byte, error) {

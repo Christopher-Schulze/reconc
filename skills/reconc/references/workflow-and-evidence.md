@@ -38,8 +38,13 @@ The running build can export that same candidate as portable reviewer evidence
 without running missing commands or persisting a new policy decision:
 
 ```bash
-reconc proof . --format markdown --output proof.md
+reconc proof . --format markdown
 ```
+
+If a file is needed, choose an `--output` destination outside the evaluated
+repository. A new unignored in-repository report changes the candidate after
+the snapshot. A JSON artifact can be checked with `reconc proof verify FILE
+--repo REPO --json`: distinguish bundle integrity from current candidate match.
 
 For autonomous repository execution:
 
@@ -103,6 +108,9 @@ reconc ci . --staged \
 `exec --staged` publishes command success only when the real exit code is zero
 and HEAD plus the staged index remain unchanged. Do not substitute mutable
 agent-hook outcomes or `ci --command-success` for a staged proof.
+Stage the intended candidate before recording this proof. A later relevant
+write, restage, or commit requires evidence for the new candidate. Manual
+`check` flags are inputs to that evaluation, not command execution receipts.
 
 ## Evidence Rules
 

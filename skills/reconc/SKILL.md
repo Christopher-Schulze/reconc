@@ -1,6 +1,6 @@
 ---
 name: reconc
-description: Use when a coding agent should bootstrap, maintain, or obey reconc repository policy. Covers the Repository Control Compiler, install/build choice, minimal daily loop, truthful evidence collection, policy checks, remediation, task-finish gates, CI/release use, and registry-backed platform enforcement limits without adding heavy process or option sprawl.
+description: Operate Reconc policy and evidence in a repository that uses it, or when the user requests Reconc setup, diagnosis, or completion verification. Provides the CLI workflow and precise hook, CI, and MCP boundaries.
 ---
 
 # reconc
@@ -18,7 +18,7 @@ priorities, approvals, or test results.
 4. **Handle** a block with the emitted remediation before writing or retrying.
 5. **Prove** the completed candidate with the final gate and report the evidence.
 
-Use this loop around every repository change:
+For authorized repository changes, use this loop:
 
 ```bash
 reconc session-briefing . --json
@@ -35,9 +35,18 @@ Exit `0` is pass or warn, `1` is a runtime/input error, and `2` is a block.
 
 ## Trigger and contract
 
-Use this skill when a repository has Reconc policy or the user asks for
-guardrails, deterministic evidence, bootstrap, or task completion. It applies
-to any host. Never fake evidence, bypass a block, or claim native enforcement
+For a read-only review, use the briefing and needed inspection commands only.
+Missing or stale policy is a finding, not permission to initialize or refresh.
+Follow existing user authorization for mutations; a suggested action does not
+grant it. Do not bootstrap the Reconc product source repository itself.
+
+The CLI is sufficient without this skill or an MCP connection. The skill
+teaches the workflow; native hooks enforce supported live boundaries; CI checks
+the selected Git candidate. The optional `reconc mcp gateway` gates explicitly
+routed downstream tools, not every action of the host. Read the platform
+reference before choosing or configuring that integration.
+
+Never fake evidence, bypass a block, or claim native enforcement
 without live `reconc hook status . --json` proof. When autonomous TASK work is
 requested, operate the repository run switch yourself; do not ask the user to
 type Reconc commands.

@@ -29,6 +29,13 @@ Use `reconc agent-intro --list-sections` followed by
 `reconc agent-intro --section <section-id>` for verified detail. Use
 `reconc hook status . --json` before claiming host enforcement.
 
+For read-only work, stop at inspection. Missing or stale policy does not
+authorize init, refresh, hooks, run control, or completion-state mutation.
+Use existing user authorization for changes. Do not bootstrap this product's
+source repository; use isolated consumer repositories for integration work.
+The skill is optional guidance. CLI, hooks, CI, and the opt-in MCP gateway have
+different roles: fetch `reconc agent-intro --section integration-surfaces`.
+
 <!-- RECONC LAZY REFERENCES -->
 
 ## Reference: Fundamentals
@@ -211,8 +218,13 @@ The running build can export the same candidate as portable JSON or Markdown
 reviewer evidence without executing missing commands or persisting a new
 policy decision:
 ```bash
-reconc proof . --format markdown --output proof.md
+reconc proof . --format markdown
 ```
+
+For a saved artifact, choose an `--output` path outside the evaluated
+repository. Creating an unignored proof inside it changes the candidate after
+the snapshot. Verify a saved JSON bundle with `reconc proof verify FILE --repo
+REPO --json`; integrity alone does not prove a match to the current candidate.
 
 Or explicit multi-path check:
 ```bash
@@ -273,6 +285,29 @@ reported token with a bounded reason:
 ```bash
 reconc hook evidence-resolve . --token <sha256> --reason "<reviewed reason>"
 ```
+
+## Integration Surfaces
+
+| Surface | Purpose | Boundary |
+|---|---|---|
+| CLI | Briefing, policy evaluation, exact next actions, command receipts, and completion proof | Works without a skill or MCP; run the requested checks against the intended repository |
+| Skill / agent-intro | Teach an agent how to use the CLI and interpret evidence | Guidance only; cannot enforce a hook or authorize a mutation |
+| Native hooks | Check supported actions before execution and collect actual outcomes | Requires exact host-route activation and live proof |
+| Git / CI | Validate staged or selected Git candidates at commit and remote boundaries | A green commit does not establish live host-hook coverage |
+| MCP gateway | Apply policy, approvals, budgets, inspection, and ledger recording to downstream tools | Only calls explicitly routed through the local stdio gateway are covered |
+
+For a coding agent with shell access, start with the CLI and supported hooks.
+Use `reconc mcp gateway` when existing downstream MCP tools need governed
+routing. It proxies their tools; it is not a general MCP facade for every
+Reconc CLI command. Direct server connections and host-native tools remain
+outside that gateway. A second server is not needed for ordinary CLI work.
+
+The portable `skills/reconc/` directory must be available through the host's
+skill-discovery mechanism, including its relative `references/` files. Its
+presence in a clone alone does not prove the host loaded it. Without skill
+discovery, `reconc agent-intro` and lazy section IDs provide the same core
+workflow directly from the installed binary. Installation, hook activation,
+and live execution are separate facts.
 
 ## Platform Integration
 
