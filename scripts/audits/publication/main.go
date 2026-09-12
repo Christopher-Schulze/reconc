@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -12,7 +13,7 @@ import (
 func main() {
 	if err := runCLI(os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "publication-audit:", err)
-		os.Exit(1)
+		os.Exit(auditExitCode(err))
 	}
 }
 
@@ -24,16 +25,20 @@ func runCLIWithOptions(args []string, stdout, stderr io.Writer, options auditOpt
 	flags := flag.NewFlagSet("publication-audit", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&options.Root, "root", options.Root, "repository root")
+	coverageOnly := flags.Bool("coverage-review-only", false, "scan current project text for numeric coverage requirements")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 {
+	if flags.NArg() != 0 && !*coverageOnly {
 		return fmt.Errorf("usage: publication-audit [--root PATH]")
 	}
 	// The audit scans every post-boundary blob. Keep a hard deadline, but leave
 	// enough headroom for race-instrumented and resource-constrained CI runners.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	if *coverageOnly {
+		return runCoverageAudit(ctx, options.Root, flags.Args(), stdout)
+	}
 	report, err := auditRepository(ctx, options)
 	if err != nil {
 		return err
@@ -56,4 +61,12 @@ func runCLIWithOptions(args []string, stdout, stderr io.Writer, options auditOpt
 		report.AuditedHistoricalBlobs,
 	)
 	return nil
+}
+
+func auditExitCode(err error) int {
+	var scanError *coverageScanError
+	if errors.As(err, &scanError) {
+		return 2
+	}
+	return 1
 }

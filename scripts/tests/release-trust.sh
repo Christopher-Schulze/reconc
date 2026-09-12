@@ -154,51 +154,13 @@ require_text "$root/scripts/tests/coverage.sh" "root module coverage: %s%%"
 # shellcheck disable=SC2016 # Match the shell expression literally.
 require_text "$root/scripts/tests/coverage.sh" '-p="$test_parallelism"'
 
+# Build once: the same portable classifier checks controls and the entire tree.
+coverage_auditor="$tmp/publication-audit"
+(cd "$root" && "${GO:-go}" build -o "$coverage_auditor" ./scripts/audits/publication) \
+  || fail "coverage auditor build failed"
+
 verify_coverage_review_only() {
-  local target="$1"
-  local number='[0-9]+([.][0-9]+)?'
-  local percent="${number}[[:space:]]*(%|percent)"
-  local threshold='min(imum)?|floor|threshold|gate'
-  local requirement='must|shall|should|require[ds]?|enforce[ds]?|fails?|rejects?'
-  local normative="coverage[[:space:]]+((${threshold})[[:space:]]+)?(is[[:space:]]+)?(${requirement}|at least|no less than).{0,80}${percent}|(^|[^[:alnum:]_])(${requirement}).{0,80}coverage.{0,40}${percent}|(^|[^[:alnum:]_])(${requirement}|at least|no less than).{0,40}${percent}.{0,40}coverage"
-  local nominal="((${threshold})[-_ ]+coverage|coverage[-_ ]+(${threshold}))[[:space:]]*(:|=|is|of|at)?[[:space:]]*${percent}|${percent}[[:space:]]+coverage[[:space:]]+(is[[:space:]]+)?required"
-  local configuration="(coverage[-_ ]*(${threshold})|(${threshold})[-_ ]*coverage)[\"'[:space:]]*[:=]|coverage[\"'[:space:]]*[:=][[:space:]]*[{][\"'[:space:]]*(${threshold})[\"'[:space:]]*[:=]"
-  local comparison="coverage[\"'[:space:]_[:alnum:].()-]{0,24}([<>]=?|-(lt|le|gt|ge))[[:space:]]*${number}"
-  local status
-  # Assignments and comparisons remain contracts even beside a prose negation.
-  # Prose is checked per sentence/clause without splitting decimal measurements.
-  # Remove only explicit negated requirement phrases, never a whole clause: a
-  # later positive requirement must still be visible. "Must not fall below" is
-  # a requirement and is deliberately not treated as a negation here.
-  if LC_ALL=C awk -v syntax="$configuration|$comparison" -v policy="$normative|$nominal" -v percent="$percent" '
-    BEGIN {
-      subject = "((numeric|minimum)[[:space:]]+)?coverage([[:space:]]+(minimum|floor|threshold|gate))?"
-      amount = "([[:space:]]+(of|at)[[:space:]]+" percent ")?"
-      negated_prefix = "(^|[[:space:]])no[[:space:]]+" subject amount "([[:space:]]+is)?[[:space:]]+(required|enforced|imposed)"
-      negated_suffix = subject amount "[[:space:]]+(is[[:space:]]+)?not[[:space:]]+(required|enforced)"
-    }
-    {
-      text = tolower($0)
-      if (text ~ syntax) exit 42
-      count = split(text, clauses, /[.][[:space:]]+|[;!?]/)
-      for (clause_index = 1; clause_index <= count; clause_index++) {
-        clause = clauses[clause_index]
-        gsub(negated_prefix, " ", clause)
-        gsub(negated_suffix, " ", clause)
-        gsub(/do(es)?[[:space:]]+not[[:space:]]+(require|enforce)/, "", clause)
-        if (clause ~ policy) exit 42
-      }
-    }
-  ' "$target"; then
-    return 0
-  else
-    status=$?
-    if [ "$status" -eq 42 ]; then
-      printf '%s\n' "$target contains a numeric coverage pass/fail contract" >&2
-      return 1
-    fi
-    return "$status"
-  fi
+  "$coverage_auditor" --coverage-review-only -- "$1" >/dev/null
 }
 
 coverage_fixture="$tmp/coverage-policy.md"
@@ -269,21 +231,7 @@ if grep -Fq 'contains a numeric coverage pass/fail contract' "$tmp/coverage-read
   fail "coverage read error was mislabeled as a policy rejection"
 fi
 
-while IFS= read -r -d '' policy_file; do
-  verify_coverage_review_only "$policy_file" \
-    || fail "numeric coverage policy must remain absent from project text"
-done < <(
-  find "$root" \
-    -path "$root/.git" -prune -o \
-    -path "$root/.build" -prune -o \
-    -path "$root/.reconc" -prune -o \
-    -path "$root/dist" -prune -o \
-    -path "$root/scripts/tests/release-trust.sh" -prune -o \
-    -type f \( \
-      -name '*.go' -o -name '*.md' -o -name '*.sh' -o -name '*.yml' -o \
-      -name '*.yaml' -o -name '*.toml' -o -name '*.json' -o -name 'Makefile' \
-    \) -print0
-)
+"$coverage_auditor" --coverage-review-only --root "$root"
 
 ci_workflow="$root/.github/workflows/reconc-ci.yml"
 release_workflow="$root/.github/workflows/reconc-release.yml"

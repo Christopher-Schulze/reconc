@@ -483,6 +483,11 @@ numeric comparison contracts; descriptive mentions alone do not define a gate.
 Prose requirements are evaluated within their sentence or clause. Explicitly
 negated requirements and reports after an integration gate remain descriptive;
 an adjacent positive requirement, assignment, or comparison still fails the check.
+The coverage-policy scan uses the publication auditor's portable Go classifier,
+including for ignored project text and non-UTF-8 cache files. A detected policy
+returns status 1; a scan/read failure returns status 2 with its own diagnostic.
+Release trust builds that auditor once for the controls and full-tree scan;
+it does not retry failed classification or suppress traversal errors.
 
 Development has no assigned product release version. `make build` resolves
 `dev+<commit>` and appends `-dirty` for tracked or untracked changes. Direct
