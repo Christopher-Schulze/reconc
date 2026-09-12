@@ -1344,6 +1344,9 @@ an unmatched opening quote causes conservative redaction through the remaining
 span. Ordinary web URLs and repository-relative paths remain readable. File
 URIs never qualify as portable structured path identities. Sanitization is
 idempotent, including after repository and home prefix replacement.
+Backslash-encoded quote delimiters retain their encoding and delimit the whole
+path, including nested encoding and trailing encoded path backslashes. An
+escaped quote inside that span does not expose the remaining private suffix.
 The public schema is `schemas/v1/proof-bundle.schema.json`.
 
 Exit codes:

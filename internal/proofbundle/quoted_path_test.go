@@ -2,9 +2,35 @@ package proofbundle
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestSanitizeEncodedQuotedPaths(t *testing.T) {
+	for _, test := range []struct{ path, want string }{
+		{`/srv/Private Client/report.txt`, proofExternalPath},
+		{`/srv/Private "Quoted" Client/report.txt`, proofExternalPath},
+		{`C:\Private Client\`, proofExternalPath},
+		{`\\server\Private Share\report.txt`, proofExternalPath},
+		{`file://private-host/Private Client/report.txt`, proofExternalPath},
+		{`/srv/Grüße 客户/report.txt`, proofExternalPath},
+		{`./docs/Private Client/report.txt`, `./docs/Private Client/report.txt`},
+		{`https://example.com/docs?q=one`, `https://example.com/docs?q=one`},
+	} {
+		input, want := strconv.Quote(test.path), strconv.Quote(test.want)
+		for depth := 0; depth < 4; depth++ {
+			t.Run(input, func(t *testing.T) {
+				got := sanitizeText("", "error: "+input+"; retry")
+				if got != "error: "+want+"; retry" || sanitizeText("", got) != got {
+					t.Fatalf("encoded path: %q, want stable %q", got, "error: "+want+"; retry")
+				}
+			})
+			input, want = strconv.Quote(input), strconv.Quote(want)
+			input, want = input[1:len(input)-1], want[1:len(want)-1]
+		}
+	}
+}
 
 func TestSanitizeTextRedactsCompleteQuotedPaths(t *testing.T) {
 	tests := []struct{ name, input, want string }{
@@ -27,6 +53,9 @@ func TestSanitizeTextRedactsCompleteQuotedPaths(t *testing.T) {
 		{"web-url", `see "https://example.com/docs?q=one" and 'http://example.com/a'`, `see "https://example.com/docs?q=one" and 'http://example.com/a'`},
 		{"relative", `read "./docs/Private Client/report.txt"`, `read "./docs/Private Client/report.txt"`},
 		{"narrative", `it's missing: "/srv/Private Client/report.txt"; retry`, `it's missing: "<external>"; retry`},
+		{"encoded-unterminated", `error: \"/srv/Private Client/report.txt`, `error: \"<external>`},
+		{"encoded-object", `{\"path\":\"/srv/Private Client/report.txt\",\"status\":\"missing\"}`, `{\"path\":\"<external>\",\"status\":\"missing\"}`},
+		{"encoded-multiple", `\"/srv/Private Client/one\" and \"/srv/Other Client/two\"`, `\"<external>\" and \"<external>\"`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -56,17 +56,28 @@ func portableProofPath(value string) bool {
 	return cleaned == value && cleaned != "." && cleaned != ".." && !strings.HasPrefix(cleaned, "../")
 }
 
+type proofTextQuote struct {
+	character   byte
+	backslashes int
+}
+
 func redactAbsolutePathSpans(value string) string {
 	var output strings.Builder
 	output.Grow(len(value))
-	var quote byte
+	var quote proofTextQuote
 	for index := 0; index < len(value); {
-		if strings.ContainsRune("'\"`", rune(value[index])) && !proofQuoteEscaped(value, index) {
-			if quote == value[index] {
-				quote = 0
-			} else if quote == 0 && tokenBoundaryBefore(value, index) {
-				quote = value[index]
+		if delimiter, end := proofQuoteToken(value, index); end > index {
+			if quote.character == delimiter.character && quote.matches(delimiter.backslashes) {
+				quote = proofTextQuote{}
+			} else if quote.character == 0 && tokenBoundaryBefore(value, index) {
+				quote = delimiter
+				if quote.backslashes%2 == 0 {
+					quote.backslashes = 0
+				}
 			}
+			output.WriteString(value[index:end])
+			index = end
+			continue
 		}
 		end, ok := proofAbsoluteSpan(value, index, quote)
 		if ok && end > index {
@@ -80,7 +91,7 @@ func redactAbsolutePathSpans(value string) string {
 	return output.String()
 }
 
-func proofAbsoluteSpan(value string, index int, quote byte) (int, bool) {
+func proofAbsoluteSpan(value string, index int, quote proofTextQuote) (int, bool) {
 	if !tokenBoundaryBefore(value, index) {
 		return 0, false
 	}
@@ -110,12 +121,12 @@ func proofAbsoluteSpan(value string, index int, quote byte) (int, bool) {
 	}
 }
 
-func proofAbsoluteSpanEnd(value string, start int, quote byte) int {
+func proofAbsoluteSpanEnd(value string, start int, quote proofTextQuote) int {
 	for index := start; index < len(value); {
 		character, size := utf8.DecodeRuneInString(value[index:])
-		if quote != 0 {
-			if character == rune(quote) && !proofQuoteEscaped(value, index) {
-				return index
+		if quote.character != 0 {
+			if character == rune(quote.character) && quote.matches(proofQuoteBackslashes(value, index)) {
+				return index - quote.backslashes
 			}
 			index += size
 			continue
@@ -131,13 +142,34 @@ func proofAbsoluteSpanEnd(value string, start int, quote byte) int {
 	return len(value)
 }
 
-func proofQuoteEscaped(value string, index int) bool {
+// Consume encoded delimiters before UNC recognition can mistake their leading
+// backslashes for a path. Preserve the encoding instead of unescaping the text.
+func proofQuoteToken(value string, index int) (proofTextQuote, int) {
+	end := index
+	for end < len(value) && value[end] == '\\' {
+		end++
+	}
+	if end == len(value) || !strings.ContainsRune("'\"`", rune(value[end])) {
+		return proofTextQuote{}, index
+	}
+	return proofTextQuote{character: value[end], backslashes: end - index}, end + 1
+}
+
+func (q proofTextQuote) matches(backslashes int) bool {
+	// At encoding depth one, delimiters have 1, 5, 9, ... backslashes;
+	// embedded quotes have 3, 7, 11, ... . Each additional depth doubles
+	// that width. Trailing encoded path backslashes must not hide the end.
+	width := q.backslashes + 1
+	return backslashes >= q.backslashes && (backslashes+1)%width == 0 && (backslashes+1)/width%2 == 1
+}
+
+func proofQuoteBackslashes(value string, index int) int {
 	backslashes := 0
 	for index > 0 && value[index-1] == '\\' {
 		backslashes++
 		index--
 	}
-	return backslashes%2 != 0
+	return backslashes
 }
 
 func isASCIILetter(value byte) bool {
