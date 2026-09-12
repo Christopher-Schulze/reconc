@@ -393,6 +393,9 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 	report.State = StateConfigured
 	if report.TargetPath == platform.TargetPath {
 		report.Detail = "configuration is complete and host-discoverable; live execution is reported separately"
+		if platform.Kind == KindCodex {
+			report.Detail = "repository configuration is complete; Codex project trust, exact hook-definition trust, and managed-only restrictions are unverified; inspect /hooks before claiming hooks are loaded"
+		}
 		report.remediation = noRemediation()
 	}
 	return report

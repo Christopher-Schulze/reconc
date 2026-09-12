@@ -26,7 +26,7 @@ timeout policy, output budgets, artifact paths, and activation probes:
 | Platform | Artifact | Integration model |
 |---|---|---|
 | Claude Code | `.claude/settings.json` | Native session, tool, permission, Stop, cleanup, and compact-session recovery hooks |
-| Codex | `.codex/hooks.json` | Native session start/end, tool, permission, evidence, and Stop hooks |
+| Codex | `.codex/hooks.json` | Native session start/end, tool, permission, evidence, Stop, advisory Interrupt, and compact-session context recovery hooks |
 | GitHub Copilot | `.github/hooks/reconc.json` | Repository hooks for Copilot CLI and coding agent; host timeouts remain fail-open |
 | Cursor | `.cursor/hooks.json` | Registry-driven Agent/Cmd+K, Tab, CLI, and eligible cloud routes; `surface_events`, workspace liveness, decisions, outcomes, and guarantees are event-specific |
 | OpenCode | `.opencode/plugins/reconc.js` | Thin project plugin with strict shell exits and inferred bounded async idle continuation; decisions and state stay in Go |
@@ -46,6 +46,19 @@ host surface scans its path; `loaded` requires a current session/init route;
 probe that stopped the side effect; `inferred` is weaker host lifecycle;
 `degraded` is missing or unproven required behavior; `unsupported` means no
 sound host boundary. Never promote one state into another.
+
+Codex local-function hooks and namespaced MCP hooks have disjoint matchers.
+After installation, review the project and exact hook definitions in Codex
+`/hooks`. Reconc's static `configured` state does not verify host trust or
+managed-only filtering; use native host evidence before claiming loaded hooks.
+MCP permission requests apply the same classified effect policy as the pre-hook.
+Codex CLI 0.154.0 shell post-hooks contain output text without an authoritative
+exit code; use `reconc exec --staged` for command-success evidence. Hosted tools
+and opted-out transports remain outside native hook coverage.
+Native child `agent_id` separates evidence from Codex's shared root session.
+SubagentStop checks child policy with one remediation attempt, records an
+unresolved repeated turn as uncertified, and never controls the parent's TASK
+continuation. Child evidence survives turn stops; SessionEnd is root-only.
 
 Cursor uses one project file, but desktop Agent, Cmd+K, Tab, interactive CLI,
 print CLI, and cloud agents do not promise identical event delivery. Use the

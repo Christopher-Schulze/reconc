@@ -375,8 +375,8 @@
     {
       "path": "tools/reconc/harness/template/audits/workflow-audit.go",
       "mode": 420,
-      "size": 84327,
-      "sha256": "9efaa093d83c393cc08ee43b378769daa47aeaffc2549f62e262049cbadce09c",
+      "size": 84381,
+      "sha256": "18a79b252beaba3c12148be6819267b7b811bc4b46c8ea392524c830e0028d10",
       "ownership": "pack-file"
     },
     {
@@ -501,8 +501,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.codex/hooks.json",
       "mode": 420,
-      "size": 6829,
-      "sha256": "8aa57a365747e63efcf470738397158d5d95fdd87b41b5b59c4bd5fef3c349f2",
+      "size": 7836,
+      "sha256": "f42a108e4c9704a44a95af1fcb49f3bf38ab107be6b2a894bcc09ef9c56b3626",
       "ownership": "pack-file"
     },
     {
@@ -849,6 +849,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 868338,
-  "digest": "a4f36232e1044d6d9d93d3b06f8c77390dade6279f222797591b55e8bfb35a6a"
+  "total_bytes": 869399,
+  "digest": "e35bc5c31c0a658a426e5d123d691ff9c3ad71016e9de7b4e4ee5e7a5a230ab0"
 }

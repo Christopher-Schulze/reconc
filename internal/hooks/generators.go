@@ -197,12 +197,18 @@ func generateClaudeCode() (*Artifact, error) {
 	}, template)
 }
 
+// Codex uses Rust regex without look-around. Match every nonempty local name
+// by the first character that differs from the reserved mcp__ prefix, including
+// shorter prefix names. This partitions generic and MCP routes without running
+// two hook processes for one tool call or maintaining a stale tool allowlist.
+const codexLocalToolMatcher = `^(?:[^m]|m(?:[^c]|$)|mc(?:[^p]|$)|mcp(?:[^_]|$)|mcp_(?:[^_]|$))`
+
 func generateCodex() (*Artifact, error) {
 	timeouts, err := requiredTimeouts(KindCodex,
 		EventSessionStart, EventUserPromptSubmit, EventPreToolUse,
 		EventPermissionRequest, EventPostToolUse, EventPreCompaction,
 		EventPostCompaction, EventSubagentStart, EventSubagentStop, EventStop,
-		EventSessionEnd, EventMCPBefore, EventMCPAfter,
+		EventSessionEnd, EventInterrupt, EventMCPBefore, EventMCPAfter,
 	)
 	if err != nil {
 		return nil, err
@@ -222,9 +228,15 @@ func generateCodex() (*Artifact, error) {
 		"hooks": map[string]interface{}{
 			"SessionStart": []interface{}{
 				map[string]interface{}{
-					"matcher": "startup|resume|clear|compact",
+					"matcher": "startup|resume|clear",
 					"hooks": []interface{}{
 						command("codex-session-start", EventSessionStart, "reconc: initializing policy session"),
+					},
+				},
+				map[string]interface{}{
+					"matcher": "compact",
+					"hooks": []interface{}{
+						command("codex-compaction-recovery", EventPostCompaction, ""),
 					},
 				},
 			},
@@ -235,15 +247,14 @@ func generateCodex() (*Artifact, error) {
 			},
 			"PreToolUse": []interface{}{
 				map[string]interface{}{
-					"matcher": "Write|Edit|MultiEdit|Bash|apply_patch",
+					"matcher": codexLocalToolMatcher,
 					"hooks": []interface{}{
 						command("codex-pre-tool-use", EventPreToolUse, ""),
 					},
 				},
-				// Codex compares a matcher without regular-expression characters
-				// literally, so the MCP namespace needs its own group.
+				// Keep the reserved MCP prefix disjoint from local tool names.
 				map[string]interface{}{
-					"matcher": "mcp__.*",
+					"matcher": "^mcp__",
 					"hooks": []interface{}{
 						command("codex-mcp-before", EventMCPBefore, ""),
 					},
@@ -251,7 +262,7 @@ func generateCodex() (*Artifact, error) {
 			},
 			"PermissionRequest": []interface{}{
 				map[string]interface{}{
-					"matcher": "Write|Edit|MultiEdit|Bash|apply_patch",
+					"matcher": "*",
 					"hooks": []interface{}{
 						command("codex-permission-request", EventPermissionRequest, ""),
 					},
@@ -259,13 +270,13 @@ func generateCodex() (*Artifact, error) {
 			},
 			"PostToolUse": []interface{}{
 				map[string]interface{}{
-					"matcher": "Read|Edit|Write|MultiEdit|Bash|apply_patch",
+					"matcher": codexLocalToolMatcher,
 					"hooks": []interface{}{
 						command("codex-post-tool-use", EventPostToolUse, ""),
 					},
 				},
 				map[string]interface{}{
-					"matcher": "mcp__.*",
+					"matcher": "^mcp__",
 					"hooks": []interface{}{
 						command("codex-mcp-after", EventMCPAfter, ""),
 					},
@@ -273,6 +284,7 @@ func generateCodex() (*Artifact, error) {
 			},
 			"PreCompact":    []interface{}{map[string]interface{}{"hooks": []interface{}{command("codex-pre-compaction", EventPreCompaction, "")}}},
 			"PostCompact":   []interface{}{map[string]interface{}{"hooks": []interface{}{command("codex-post-compaction", EventPostCompaction, "")}}},
+			"Interrupt":     []interface{}{map[string]interface{}{"hooks": []interface{}{command("codex-interrupt", EventInterrupt, "")}}},
 			"SubagentStart": []interface{}{map[string]interface{}{"hooks": []interface{}{command("codex-subagent-start", EventSubagentStart, "")}}},
 			"SubagentStop":  []interface{}{map[string]interface{}{"hooks": []interface{}{command("codex-subagent-stop", EventSubagentStop, "")}}},
 			"Stop": []interface{}{

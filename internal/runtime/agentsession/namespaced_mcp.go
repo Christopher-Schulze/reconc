@@ -3,6 +3,7 @@ package agentsession
 import (
 	"bytes"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strings"
 
@@ -42,7 +43,7 @@ func NormalizeNamespacedMCPPayload(platform policy.MCPPlatform, before bool, pay
 		return nil, err
 	}
 	var raw map[string]interface{}
-	if err := json.Unmarshal(payloadBytes, &raw); err != nil {
+	if err := jsonv2.Unmarshal(payloadBytes, &raw); err != nil {
 		return nil, fmt.Errorf("%s MCP payload is not valid JSON: %w", platform, err)
 	}
 	if raw == nil {
@@ -78,6 +79,13 @@ func NormalizeNamespacedMCPPayload(platform policy.MCPPlatform, before bool, pay
 		"session_id": sessionID,
 		"reconc_mcp": mcpEnvelopeToMap(envelope),
 		"tool_input": input,
+	}
+	if rawID, present := raw["tool_use_id"]; present {
+		id, ok := rawID.(string)
+		if !ok || id == "" || strings.TrimSpace(id) != id {
+			return nil, fmt.Errorf("%s MCP payload has an invalid tool-use identity", platform)
+		}
+		out["tool_use_id"] = id
 	}
 	encoded, err := json.Marshal(out)
 	if err != nil {

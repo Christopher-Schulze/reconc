@@ -198,6 +198,13 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 			return nil
 		}
 	}
+	if route.PlatformKind == hooks.KindCodex {
+		payload, err = agentsession.NormalizeCodexPayload(event, payload)
+		if err != nil {
+			exitCode, err = emitHookRuntimeFailure(adaptHookRuntimeFailure(route, hookRuntimeFailurePayloadValidate, err), stdout, stderr)
+			return err
+		}
+	}
 	if platform, namespaced := namespacedMCPPlatform(route); namespaced {
 		// Claude Code and Codex route their `mcp__<server>__<tool>` namespace
 		// into the MCP path on generic tool events. Every other event on those
@@ -292,7 +299,11 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 		}
 	case hooks.KindCodex:
 		if route.Event == hooks.EventPostCompaction {
-			result = agentsession.AdaptCodexCompactionResult(result)
+			if event == "codex-compaction-recovery" {
+				result = agentsession.AdaptPostCompactionResult(result, "SessionStart")
+			} else {
+				result = agentsession.AdaptCodexCompactionResult(result)
+			}
 			timing.mark("codex_compaction_adapt")
 		}
 	case hooks.KindCursor:
@@ -483,6 +494,9 @@ func hookHandlerForRoute(event string, route hooks.RuntimeRoute) (agentsession.H
 	case hooks.EventWorkspaceOpen:
 		return agentsession.HookHandlerWorkspaceOpen, true
 	case hooks.EventSubagentStop:
+		if route.PlatformKind == hooks.KindCodex {
+			return agentsession.HookHandlerCodexSubagentStop, true
+		}
 		if route.PlatformKind == hooks.KindGitHubCopilot || route.PlatformKind == hooks.KindCursor {
 			return agentsession.HookHandlerStop, true
 		}
@@ -501,12 +515,18 @@ func hookHandlerForRoute(event string, route hooks.RuntimeRoute) (agentsession.H
 		if route.PlatformKind == hooks.KindOMP {
 			return agentsession.HookHandlerPassive, true
 		}
+		if route.PlatformKind == hooks.KindCodex {
+			return agentsession.HookHandlerCodexPermission, true
+		}
 		return agentsession.HookHandlerPermissionRequest, true
 	case hooks.EventPostToolUse:
 		if event == "opencode-post-tool-use" || event == "kilo-post-tool-use" || event == "omp-post-tool-use" || event == "pi-post-tool-use" || event == "zcode-post-tool-use" {
 			return agentsession.HookHandlerMCPAwarePostToolUse, true
 		}
-		if event == "codex-post-tool-use" || event == "devin-post-tool-use" {
+		if event == "codex-post-tool-use" {
+			return agentsession.HookHandlerCodexPostToolUse, true
+		}
+		if event == "devin-post-tool-use" {
 			return agentsession.HookHandlerPostToolUseComplete, true
 		}
 		return agentsession.HookHandlerPostToolUse, true

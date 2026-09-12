@@ -1028,6 +1028,8 @@ func auditAgentHooks(root string) []string {
 			"tools/reconc/bin/hook",
 			"RECONC_HOOK_REPO_RESOLVED=1",
 			"codex-session-start",
+			"codex-compaction-recovery",
+			"codex-interrupt",
 			"codex-session-end",
 			"codex-mcp-before",
 			"codex-mcp-after",

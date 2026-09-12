@@ -223,11 +223,12 @@ var platformRegistry = []platformDefinition{
 			capability(EventMCPAfter, "PostToolUse", SupportAdapted, FailureAllow, FailureAllow, 5, "codex-mcp-after"),
 			adaptedFallback(EventPostToolUseFailure, EventPostToolUse, FailureAllow, FailureAllow, 5),
 			capability(EventStop, "Stop", SupportNative, FailureBlock, FailureBlock, 30, "codex-stop"),
+			capability(EventInterrupt, "Interrupt", SupportNative, FailureAllow, FailureAllow, 3, "codex-interrupt"),
 			capability(EventSessionEnd, "SessionEnd", SupportNative, FailureAllow, FailureAllow, 3, "codex-session-end"),
 			capability(EventSubagentStart, "SubagentStart", SupportNative, FailureAllow, FailureAllow, 5, "codex-subagent-start"),
-			capability(EventSubagentStop, "SubagentStop", SupportNative, FailureAllow, FailureAllow, 5, "codex-subagent-stop"),
+			capability(EventSubagentStop, "SubagentStop", SupportNative, FailureBlock, FailureAllow, 30, "codex-subagent-stop"),
 			capability(EventPreCompaction, "PreCompact", SupportNative, FailureAllow, FailureAllow, 5, "codex-pre-compaction"),
-			capability(EventPostCompaction, "PostCompact", SupportNative, FailureAllow, FailureAllow, 5, "codex-post-compaction"),
+			codexPostCompactionCapability(),
 		}},
 		generator: generatorCodex,
 	},
@@ -573,6 +574,18 @@ func claudePostCompactionCapability() Capability {
 		Bindings: []NativeBinding{
 			{NativeEvent: "PostCompact", RuntimeEvent: "claude-post-compaction"},
 			{NativeEvent: "SessionStart", RuntimeEvent: "claude-compaction-recovery", Compatibility: true},
+		},
+		Support: SupportNative, ErrorPolicy: FailureAllow, TimeoutPolicy: FailureAllow,
+		TimeoutSeconds: 5, MaxOutputBytes: defaultHookOutputBytes,
+	}
+}
+
+func codexPostCompactionCapability() Capability {
+	return Capability{
+		Event: EventPostCompaction,
+		Bindings: []NativeBinding{
+			{NativeEvent: "PostCompact", RuntimeEvent: "codex-post-compaction"},
+			{NativeEvent: "SessionStart", RuntimeEvent: "codex-compaction-recovery", Compatibility: true},
 		},
 		Support: SupportNative, ErrorPolicy: FailureAllow, TimeoutPolicy: FailureAllow,
 		TimeoutSeconds: 5, MaxOutputBytes: defaultHookOutputBytes,

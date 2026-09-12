@@ -261,8 +261,7 @@ func TestGenerateCodexIsValidJSON(t *testing.T) {
 	if !strings.Contains(a.Content, "codex-pre-tool-use") {
 		t.Errorf("expected codex routes in template")
 	}
-	// Codex accepts SessionEnd in its hook config: codex-rs/config/src/hook_config.rs
-	// carries it among the eleven matcher groups, so the route is native.
+	// SessionEnd remains native in the pinned Codex contract.
 	if !strings.Contains(a.Content, "codex-session-end") || !strings.Contains(a.Content, `"SessionEnd"`) {
 		t.Errorf("Codex template misses the native SessionEnd route")
 	}
@@ -275,22 +274,13 @@ func TestGenerateCodexIsValidJSON(t *testing.T) {
 	if !strings.Contains(a.Content, "codex-permission-request") {
 		t.Errorf("expected codex permission-request route in template")
 	}
-	if !strings.Contains(a.Content, "Write|Edit|MultiEdit|Bash|apply_patch") {
-		t.Errorf("expected codex pre-execution hooks to cover write/shell/apply_patch matchers")
-	}
-	if !strings.Contains(a.Content, "Read|Edit|Write|MultiEdit|Bash|apply_patch") {
-		t.Errorf("expected codex post hook to keep read/write/shell evidence matchers")
-	}
-	if strings.Contains(a.Content, `"matcher": "Read|Write|Edit|MultiEdit|Bash|apply_patch"`) {
-		t.Errorf("codex pre-execution hooks should not spawn for read-only tools")
-	}
-	if got := matchersForEvent(t, a.Content, "hooks", "PreToolUse"); strings.Join(got, " ") != "Write|Edit|MultiEdit|Bash|apply_patch mcp__.*" {
+	if got := matchersForEvent(t, a.Content, "hooks", "PreToolUse"); strings.Join(got, " ") != codexLocalToolMatcher+" ^mcp__" {
 		t.Errorf("Codex PreToolUse matcher = %v", got)
 	}
-	if got := matchersForEvent(t, a.Content, "hooks", "PermissionRequest"); strings.Join(got, "|") != "Write|Edit|MultiEdit|Bash|apply_patch" {
+	if got := matchersForEvent(t, a.Content, "hooks", "PermissionRequest"); strings.Join(got, "|") != "*" {
 		t.Errorf("Codex PermissionRequest matcher = %v", got)
 	}
-	if got := matchersForEvent(t, a.Content, "hooks", "PostToolUse"); strings.Join(got, " ") != "Read|Edit|Write|MultiEdit|Bash|apply_patch mcp__.*" {
+	if got := matchersForEvent(t, a.Content, "hooks", "PostToolUse"); strings.Join(got, " ") != codexLocalToolMatcher+" ^mcp__" {
 		t.Errorf("Codex PostToolUse matcher = %v", got)
 	}
 	if !strings.Contains(a.Content, "codex-mcp-before") || !strings.Contains(a.Content, "codex-mcp-after") {

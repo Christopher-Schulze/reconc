@@ -1,5 +1,16 @@
 {
   "hooks": {
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-interrupt \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-interrupt \"$repo\"",
+            "timeout": 3,
+            "type": "command"
+          }
+        ]
+      }
+    ],
     "PermissionRequest": [
       {
         "hooks": [
@@ -9,7 +20,7 @@
             "type": "command"
           }
         ],
-        "matcher": "Write|Edit|MultiEdit|Bash|apply_patch"
+        "matcher": "*"
       }
     ],
     "PostCompact": [
@@ -32,7 +43,7 @@
             "type": "command"
           }
         ],
-        "matcher": "Read|Edit|Write|MultiEdit|Bash|apply_patch"
+        "matcher": "^(?:[^m]|m(?:[^c]|$)|mc(?:[^p]|$)|mcp(?:[^_]|$)|mcp_(?:[^_]|$))"
       },
       {
         "hooks": [
@@ -42,7 +53,7 @@
             "type": "command"
           }
         ],
-        "matcher": "mcp__.*"
+        "matcher": "^mcp__"
       }
     ],
     "PreCompact": [
@@ -65,7 +76,7 @@
             "type": "command"
           }
         ],
-        "matcher": "Write|Edit|MultiEdit|Bash|apply_patch"
+        "matcher": "^(?:[^m]|m(?:[^c]|$)|mc(?:[^p]|$)|mcp(?:[^_]|$)|mcp_(?:[^_]|$))"
       },
       {
         "hooks": [
@@ -75,7 +86,7 @@
             "type": "command"
           }
         ],
-        "matcher": "mcp__.*"
+        "matcher": "^mcp__"
       }
     ],
     "SessionEnd": [
@@ -99,7 +110,17 @@
             "type": "command"
           }
         ],
-        "matcher": "startup|resume|clear|compact"
+        "matcher": "startup|resume|clear"
+      },
+      {
+        "hooks": [
+          {
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-compaction-recovery \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-compaction-recovery \"$repo\"",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "compact"
       }
     ],
     "Stop": [
@@ -129,7 +150,7 @@
         "hooks": [
           {
             "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-subagent-stop \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-subagent-stop \"$repo\"",
-            "timeout": 5,
+            "timeout": 30,
             "type": "command"
           }
         ]

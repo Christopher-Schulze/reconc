@@ -18,6 +18,9 @@ const (
 	HookHandlerPostToolUseFailure    HookHandler = "post-tool-use-failure"
 	HookHandlerPostToolUseComplete   HookHandler = "post-tool-use-complete"
 	HookHandlerPostToolUseStrict     HookHandler = "post-tool-use-strict"
+	HookHandlerCodexPostToolUse      HookHandler = "codex-post-tool-use"
+	HookHandlerCodexPermission       HookHandler = "codex-permission"
+	HookHandlerCodexSubagentStop     HookHandler = "codex-subagent-stop"
 	HookHandlerMCPBefore             HookHandler = "mcp-before"
 	HookHandlerMCPAfter              HookHandler = "mcp-after"
 	HookHandlerMCPAwarePreToolUse    HookHandler = "mcp-aware-pre-tool-use"
@@ -81,6 +84,12 @@ func RunHookRequestWithEvaluatorAndStopCache(
 		return runPostToolUseCompleteResolved(root.path, payload)
 	case HookHandlerPostToolUseStrict:
 		return runPostToolUseCompleteStrictResolved(root.path, payload)
+	case HookHandlerCodexPostToolUse:
+		return runCodexPostToolUseResolved(root.path, payload)
+	case HookHandlerCodexPermission:
+		return runCodexPermissionResolved(root.path, payload, evaluator, stopCache)
+	case HookHandlerCodexSubagentStop:
+		return runCodexSubagentStopResolved(root.path, payload, evaluator, stopCache)
 	case HookHandlerMCPBefore:
 		return runMCPBeforeResolvedWithEvaluatorAndStopCache(root.path, payload, true, evaluator, stopCache)
 	case HookHandlerMCPAfter:

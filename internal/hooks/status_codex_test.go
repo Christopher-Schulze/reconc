@@ -38,6 +38,22 @@ func TestCodexActivationStatusAcceptsQuotedHashesAndDottedKey(t *testing.T) {
 	}
 }
 
+func TestCodexConfiguredStatusDoesNotCertifyHostTrust(t *testing.T) {
+	repo := t.TempDir()
+	writeExecutableWrapper(t, repo)
+	if _, err := Install(KindCodex, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	status := statusForKind(t, repo, KindCodex)
+	if status.State != StateConfigured || !status.Configured || status.Live ||
+		!strings.Contains(status.Detail, "project trust") ||
+		!strings.Contains(status.Detail, "hook-definition trust") ||
+		!strings.Contains(status.Detail, "managed-only") ||
+		!strings.Contains(status.Detail, "/hooks") {
+		t.Fatalf("static Codex status certified unverified host trust: %+v", status)
+	}
+}
+
 func TestCodexActivationStatusIgnoresMultilinePseudoConfiguration(t *testing.T) {
 	repo := t.TempDir()
 	writeExecutableWrapper(t, repo)

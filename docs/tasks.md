@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 546 Qualify current Codex hook contract -> tasks/546-qualify-current-codex-hook-contract.md
 - [ ] 547 Close Devin tool and session gaps -> tasks/547-close-devin-tool-and-session-gaps.md
 - [ ] 548 Qualify Cursor CLI event surfaces -> tasks/548-qualify-cursor-cli-event-surfaces.md
 - [ ] 549 Harden OMP hook order and outcomes -> tasks/549-harden-omp-hook-order-and-outcomes.md
@@ -18,6 +17,7 @@
 ## Blocked
 
 ## Done
+- [x] 546 Qualify current Codex hook contract -> tasks/done/546-qualify-current-codex-hook-contract.md
 - [x] 545 Bind live hook proof to host execution -> tasks/done/545-bind-live-hook-proof-to-host-execution.md
 - [x] 544 Replace unstable coverage policy classifier -> tasks/done/544-replace-unstable-coverage-policy-classifier.md
 - [x] 543 Clarify agent integration and verify portable guidance -> tasks/done/543-clarify-agent-integration-and-verify-portable-guidance.md

@@ -55,7 +55,7 @@ func TestToolMatchersSelectTheIntendedRoutes(t *testing.T) {
 		{name: "Write", guarded: map[string]bool{KindClaudeCode: true, KindCodex: true}},
 		{name: "Edit", guarded: map[string]bool{KindClaudeCode: true, KindCodex: true}},
 		{name: "Bash", guarded: map[string]bool{KindClaudeCode: true, KindCodex: true}},
-		{name: "NotebookEdit", guarded: map[string]bool{KindClaudeCode: true}},
+		{name: "NotebookEdit", guarded: map[string]bool{KindClaudeCode: true, KindCodex: true}},
 		{name: "apply_patch", guarded: map[string]bool{KindCodex: true}},
 		{name: "mcp__filesystem__write_file", mcp: true},
 		{name: "mcp__memory__query", mcp: true},

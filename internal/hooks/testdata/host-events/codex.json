@@ -1,10 +1,11 @@
 {
   "host": "codex",
   "display_name": "Codex",
-  "source_url": "https://github.com/openai/codex/tree/45f8cafa4e2ec20f9b189d5aa9409e424b6d3d09/codex-rs",
-  "source_revision": "45f8cafa4e2ec20f9b189d5aa9409e424b6d3d09",
-  "capture_date": "2026-08-07",
-  "scope": "The eleven matcher groups codex-rs/config/src/hook_config.rs accepts in a hook configuration.",
+  "host_version": "codex-cli 0.154.0",
+  "source_url": "https://github.com/openai/codex/tree/6b9826e3aa83b1a5947db50f4332cb9c65f1b340/codex-rs/hooks",
+  "source_revision": "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
+  "capture_date": "2026-09-12",
+  "scope": "The twelve native event groups in the installed Codex source contract, including advisory Interrupt; compact SessionStart supplies model-visible recovery. Child agent_id separates evidence from the shared session_id; SubagentStop checks child policy and SessionEnd is root-only.",
   "events": [
     {
       "name": "SessionStart",
@@ -32,6 +33,10 @@
     },
     {
       "name": "SessionEnd",
+      "bound": true
+    },
+    {
+      "name": "Interrupt",
       "bound": true
     },
     {

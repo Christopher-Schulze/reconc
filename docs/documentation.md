@@ -1931,7 +1931,7 @@ variables, escaping paths, and duplicate entries are refused at compile time,
 because binding them would require a search on the Stop path.
 
 Hook routes were added after verifying the hosts' own configuration surfaces.
-Codex accepts `SessionEnd` among its eleven matcher groups, and Claude Code
+Codex accepts `SessionEnd` and `Interrupt`, and Claude Code
 accepts `Notification`; both are now generated. Claude Code and Codex also gain
 a matcher group for the `mcp__<server>__<tool>` namespace, which makes MCP
 policy enforceable on both hosts, and Codex's `SessionEnd` timeout is declared
@@ -4268,9 +4268,10 @@ per host. Generated route presence or compilation alone never upgrades a host
 to `enforced`.
 
 The explicit `--live --host KIND --surface SURFACE --allow-authenticated` mode
-prepares one disposable host exercise. Qualified Codex CLI on macOS/Linux runs
-four native allowed/denied write/shell controls using existing authentication,
-an ephemeral session, and invocation-local trust for the generated hooks.
+prepares one disposable host exercise. The installed Codex CLI on macOS/Linux
+runs four native allowed/denied write/shell controls using existing authentication,
+an ephemeral session, and an explicit one-off hook-trust bypass for that probe.
+These controls do not establish ordinary persisted trust or the remaining routes.
 It does not change saved host configuration or resume an existing conversation.
 Other surfaces currently require an operator-assisted exercise: text mode waits
 within a five-minute execution deadline, while JSON mode returns incomplete
@@ -4778,15 +4779,36 @@ Transactional bootstrap reports the change as managed drift and requires the
 explicit marker-only acceptance path. Forced or accepted activation records
 the exact original expression inside the managed block; hook uninstall and
 bootstrap removal restore that expression byte-for-byte without reformatting
-unrelated TOML. A root-level `hooks=true` lookalike is invalid. Codex accepts
-`SessionEnd` among the eleven matcher groups its hook
-configuration defines, so Reconc routes it like every other host that publishes
-the event. Reconc generates only supported routes and gives each route its
-exact 5, 10, or 30 second host timeout. Codex also has no
-separate failed-tool event: Reconc classifies non-successful Bash outcomes from
-the released `PostToolUse` payload and records them through the failure path.
+unrelated TOML. A root-level `hooks=true` lookalike is invalid. The verified
+Codex CLI 0.154.0 contract includes twelve native event groups, including
+root-only `SessionEnd` cleanup and advisory `Interrupt`. Interruption never approves
+completion or disables durable run mode. Reconc generates supported routes
+with bounded 3, 5, 10, or 30 second timeouts. `SessionStart` with `source=compact`
+restores model-visible context while retaining session evidence; `PostCompact`
+can only emit a host warning and is not proof of context reinjection. Codex has no
+separate failed-tool event. Its unified-exec `PostToolUse` response contains
+command output without authoritative exit metadata, including for nonzero
+exits. Reconc records no command-success evidence from that text. Explicit
+compatible exit metadata is checked for consistency, and interrupted commands
+never count as successful. Use `reconc exec` for authoritative command outcomes.
+Pre/post tool matchers cover all nonempty local function names and route the
+reserved `mcp__` prefix separately, with no duplicate delivery. Permission
+requests cover both paths; namespaced MCP requests use the same classified
+effect policy as the MCP pre-hook and never auto-allow host approval. A wider
+matcher cannot create hooks for hosted tools or transports that Codex excludes.
+Codex descendants share the root's native `session_id`; Reconc uses the supplied
+`agent_id` to isolate child lifecycle, local-tool, permission, and MCP evidence.
+After installation, Codex must trust the project and review each exact hook
+definition in `/hooks`. `reconc hook status` verifies repository configuration
+but does not certify the host's per-definition trust or managed-only policy.
+`SubagentStop` checks that child's policy without running the parent's TASK
+continuation or changing durable run mode. An unresolved policy gets one native
+remediation attempt; `stop_hook_active` releases the repeated turn as explicitly
+uncertified. A later child turn checks policy again. Child turn stops preserve
+evidence because Codex does not send children a terminal `SessionEnd` event.
+Internal and synthetic subagents expose no user lifecycle hooks.
 User prompts, pre/post compaction, subagent start/stop, permission, tool, and
-Stop lifecycles are all routed. `apply_patch` is routed through Reconc by
+Stop lifecycles are routed. `apply_patch` is routed through Reconc by
 parsing patch headers from `tool_input.command`; a non-empty patch with zero
 parseable file operations fails closed instead of silently bypassing the write
 gate. The same rule covers every registered write tool: a payload that names a

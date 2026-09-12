@@ -27,7 +27,8 @@ func TestNormalizedHandlerPreservesEventSpecificRouting(t *testing.T) {
 	}{
 		{event: "omp-permission-request", want: agentsession.HookHandlerPassive},
 		{event: "opencode-post-tool-use", want: agentsession.HookHandlerMCPAwarePostToolUse},
-		{event: "codex-post-tool-use", want: agentsession.HookHandlerPostToolUseComplete},
+		{event: "codex-post-tool-use", want: agentsession.HookHandlerCodexPostToolUse},
+		{event: "codex-subagent-stop", want: agentsession.HookHandlerCodexSubagentStop},
 		{event: "cursor-subagent-stop", want: agentsession.HookHandlerStop},
 		{event: "antigravity-stop", want: agentsession.HookHandlerAntigravityStop},
 	}
