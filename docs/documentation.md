@@ -480,6 +480,9 @@ still require their matching platform jobs or integration boundaries.
 Release trust permits factual numerical coverage measurements and historical
 reports. It rejects explicit coverage requirements, threshold assignments, and
 numeric comparison contracts; descriptive mentions alone do not define a gate.
+Prose requirements are evaluated within their sentence or clause. Explicitly
+negated requirements and reports after an integration gate remain descriptive;
+an adjacent positive requirement, assignment, or comparison still fails the check.
 
 Development has no assigned product release version. `make build` resolves
 `dev+<commit>` and appends `-dirty` for tracked or untracked changes. Direct

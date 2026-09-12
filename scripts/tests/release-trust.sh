@@ -158,18 +158,46 @@ verify_coverage_review_only() {
   local target="$1"
   local number='[0-9]+([.][0-9]+)?'
   local percent="${number}[[:space:]]*(%|percent)"
-  local requirement='must|shall|should|require[ds]?|minimum|at least|no less than|enforce[ds]?|fail(s|ed)?|reject(s|ed)?'
   local threshold='min(imum)?|floor|threshold|gate'
-  local normative="coverage.{0,80}(${requirement}|${threshold}).{0,40}${percent}|(${requirement}|${threshold}).{0,80}coverage.{0,40}${percent}|(${requirement}).{0,40}${percent}.{0,40}coverage"
-  local configuration="(coverage[-_ ]*(${threshold})|(${threshold})[-_ ]*coverage)[\"'[:space:]]*[:=]|coverage.{0,24}(${threshold})[\"'[:space:]]*[:=]"
+  local requirement='must|shall|should|require[ds]?|enforce[ds]?|fails?|rejects?'
+  local normative="coverage[[:space:]]+((${threshold})[[:space:]]+)?(is[[:space:]]+)?(${requirement}|at least|no less than).{0,80}${percent}|(^|[^[:alnum:]_])(${requirement}).{0,80}coverage.{0,40}${percent}|(^|[^[:alnum:]_])(${requirement}|at least|no less than).{0,40}${percent}.{0,40}coverage"
+  local nominal="((${threshold})[-_ ]+coverage|coverage[-_ ]+(${threshold}))[[:space:]]*(:|=|is|of|at)?[[:space:]]*${percent}|${percent}[[:space:]]+coverage[[:space:]]+(is[[:space:]]+)?required"
+  local configuration="(coverage[-_ ]*(${threshold})|(${threshold})[-_ ]*coverage)[\"'[:space:]]*[:=]|coverage[\"'[:space:]]*[:=][[:space:]]*[{][\"'[:space:]]*(${threshold})[\"'[:space:]]*[:=]"
   local comparison="coverage[\"'[:space:]_[:alnum:].()-]{0,24}([<>]=?|-(lt|le|gt|ge))[[:space:]]*${number}"
   local status
-  if grep -Eiq "$normative|$configuration|$comparison" "$target"; then
-    printf '%s\n' "$target contains a numeric coverage pass/fail contract" >&2
-    return 1
+  # Assignments and comparisons remain contracts even beside a prose negation.
+  # Prose is checked per sentence/clause without splitting decimal measurements.
+  # Remove only explicit negated requirement phrases, never a whole clause: a
+  # later positive requirement must still be visible. "Must not fall below" is
+  # a requirement and is deliberately not treated as a negation here.
+  if LC_ALL=C awk -v syntax="$configuration|$comparison" -v policy="$normative|$nominal" -v percent="$percent" '
+    BEGIN {
+      subject = "((numeric|minimum)[[:space:]]+)?coverage([[:space:]]+(minimum|floor|threshold|gate))?"
+      amount = "([[:space:]]+(of|at)[[:space:]]+" percent ")?"
+      negated_prefix = "(^|[[:space:]])no[[:space:]]+" subject amount "([[:space:]]+is)?[[:space:]]+(required|enforced|imposed)"
+      negated_suffix = subject amount "[[:space:]]+(is[[:space:]]+)?not[[:space:]]+(required|enforced)"
+    }
+    {
+      text = tolower($0)
+      if (text ~ syntax) exit 42
+      count = split(text, clauses, /[.][[:space:]]+|[;!?]/)
+      for (clause_index = 1; clause_index <= count; clause_index++) {
+        clause = clauses[clause_index]
+        gsub(negated_prefix, " ", clause)
+        gsub(negated_suffix, " ", clause)
+        gsub(/do(es)?[[:space:]]+not[[:space:]]+(require|enforce)/, "", clause)
+        if (clause ~ policy) exit 42
+      }
+    }
+  ' "$target"; then
+    return 0
   else
     status=$?
-    [ "$status" -eq 1 ] || return "$status"
+    if [ "$status" -eq 42 ]; then
+      printf '%s\n' "$target contains a numeric coverage pass/fail contract" >&2
+      return 1
+    fi
+    return "$status"
   fi
 }
 
@@ -181,6 +209,15 @@ for measurement in \
   'Coverage increased from 81% to 83%, above the previous measurement.' \
   'Coverage was 83%; no numeric coverage gate is imposed.' \
   'No minimum coverage is required.' \
+  'Coverage after the integration gate: 82.3484%.' \
+  'No minimum coverage is required; measured coverage was 82.3484%.' \
+  'No minimum coverage is required and measured coverage was 82.3484%.' \
+  'No minimum coverage is required. Coverage was 82.3484%.' \
+  'Coverage is not required to reach 80%; the measurement was 82.3484%.' \
+  'No minimum coverage of 80% is required; measured coverage was 82.3484%.' \
+  'Minimum coverage of 80% is not required; measured coverage was 82.3484%.' \
+  'The integration gate failed; measured coverage was 82.3484%.' \
+  'COVERAGE AFTER THE INTEGRATION GATE: 82.3484 PERCENT.' \
   'The coverage threshold is descriptive, not an enforced target.'; do
   printf '%s\n' "$measurement" > "$coverage_fixture"
   verify_coverage_review_only "$coverage_fixture" || fail "factual coverage fixture failed: $measurement"
@@ -191,6 +228,19 @@ for requirement in \
   'Minimum coverage: 80%.' \
   'Require at least 80% coverage.' \
   'CI fails when coverage drops below 80%.' \
+  'Coverage must not fall below 80%.' \
+  'Coverage threshold must be 80%.' \
+  'Coverage floor should be 80%.' \
+  'At least 80% coverage.' \
+  'Coverage at least 80%.' \
+  '80% coverage is required.' \
+  'No minimum coverage is required; however, coverage must reach 80%.' \
+  'No minimum coverage is required and coverage must reach 80%.' \
+  'No minimum coverage of 80% is required but coverage must reach 85%.' \
+  'Minimum coverage of 80% is not required and coverage must reach 85%.' \
+  'Coverage was 82.3484%. Coverage must reach 85%.' \
+  'No minimum coverage is required; COVERAGE_MIN=80' \
+  'No minimum coverage is required; coverage >= 80' \
   'Coverage floor: 80%.' \
   'COVERAGE_MIN=80' \
   'MIN_COVERAGE=80' \
@@ -201,6 +251,23 @@ for requirement in \
   printf '%s\n' "$requirement" > "$coverage_fixture"
   expect_failure_reason 'contains a numeric coverage pass/fail contract' verify_coverage_review_only "$coverage_fixture"
 done
+
+# Repository caches can use a text extension for non-UTF-8 content. Scan bytes
+# consistently across hosts without suppressing either contracts or read errors.
+printf '\340\001 Coverage after the integration gate: 82.3484%%.\n' > "$coverage_fixture"
+verify_coverage_review_only "$coverage_fixture" || fail "non-UTF-8 measurement fixture failed"
+printf '\340\001 Coverage must reach 80%%.\n' > "$coverage_fixture"
+expect_failure_reason 'contains a numeric coverage pass/fail contract' verify_coverage_review_only "$coverage_fixture"
+
+if verify_coverage_review_only "$tmp/missing-coverage-policy.md" > "$tmp/coverage-read-error.log" 2>&1; then
+  fail "missing coverage policy file was accepted"
+else
+  coverage_read_status=$?
+  [ "$coverage_read_status" -ne 1 ] || fail "coverage read error became a policy rejection"
+fi
+if grep -Fq 'contains a numeric coverage pass/fail contract' "$tmp/coverage-read-error.log"; then
+  fail "coverage read error was mislabeled as a policy rejection"
+fi
 
 while IFS= read -r -d '' policy_file; do
   verify_coverage_review_only "$policy_file" \
