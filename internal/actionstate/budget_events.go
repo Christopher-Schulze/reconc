@@ -14,7 +14,7 @@ func (s *Store) RecordDenied(
 	ctx context.Context,
 	reservationIdentity string,
 	expectedVersion string,
-) (version string, resultErr error) {
+) (version string, accounting DenialAccounting, resultErr error) {
 	resultErr = s.withLock(ctx, func() error {
 		previous, next, persisted, clock, err := s.transitionState(expectedVersion)
 		if err != nil {
@@ -27,7 +27,7 @@ func (s *Store) RecordDenied(
 		if err := requireCurrentReservationContract(next, next.Reservations[index], clock.Time); err != nil {
 			return s.persistClockObservationOnFailure(previous, persisted, clock, err)
 		}
-		exhausted, err := recordDenialCharges(&next, index)
+		charged, err := recordDenialCharges(&next, index)
 		if err != nil {
 			return err
 		}
@@ -43,12 +43,13 @@ func (s *Store) RecordDenied(
 		if err := s.writeStateMustAdvance(previous, next, persisted, &version); err != nil {
 			return err
 		}
-		if exhausted {
+		accounting = charged
+		if accounting.CapacityExhausted {
 			return stateError(action.ReasonBudgetExhausted, "denial-count capacity is exhausted", nil)
 		}
 		return nil
 	})
-	return version, resultErr
+	return version, accounting, resultErr
 }
 
 func reserveApprovalCharges(state *State, reservationIndex int) (bool, error) {
@@ -163,17 +164,17 @@ func releaseApprovalCharges(state *State, reservationIndex int) (bool, error) {
 	return released, nil
 }
 
-func recordDenialCharges(state *State, reservationIndex int) (bool, error) {
+func recordDenialCharges(state *State, reservationIndex int) (DenialAccounting, error) {
 	reservation := &state.Reservations[reservationIndex]
 	reservedByLineage, err := reservedUsageByLineage(*state)
 	if err != nil {
-		return false, err
+		return DenialAccounting{}, err
 	}
-	exhausted := false
+	var accounting DenialAccounting
 	for _, charge := range reservation.Charges {
 		record := budgetRecordForLineage(state.Budgets, charge.LineageIdentity)
 		if record == nil {
-			return false, stateError(action.ReasonStateCorrupt, "denial budget record is absent", nil)
+			return DenialAccounting{}, stateError(action.ReasonStateCorrupt, "denial budget record is absent", nil)
 		}
 		if record.Limits.DeniedCount == 0 {
 			continue
@@ -182,15 +183,16 @@ func recordDenialCharges(state *State, reservationIndex int) (bool, error) {
 		if !action.BudgetCapacityAvailable(
 			record.Limits, record.Consumed, reservedByLineage[charge.LineageIdentity], required, false,
 		) {
-			exhausted = true
+			accounting.CapacityExhausted = true
 			continue
 		}
 		consumed, overflow := checkedUsageAdd(record.Consumed, required)
 		if overflow {
-			exhausted = true
+			accounting.CapacityExhausted = true
 			continue
 		}
 		record.Consumed = consumed
+		accounting.ConsumedCount++
 	}
-	return exhausted, nil
+	return accounting, nil
 }

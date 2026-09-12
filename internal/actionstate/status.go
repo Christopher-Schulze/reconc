@@ -81,7 +81,8 @@ func fillApprovalStatus(status *StateStatus, state State) {
 			AuthorityKeyID: record.AuthorityKeyID, ReceiptID: record.ReceiptID,
 			ReceiptSignedAt: record.ReceiptSignedAt,
 			IssuedAt:        record.Request.IssuedAt, ExpiresAt: record.Request.ExpiresAt,
-			UpdatedAtUnix: record.UpdatedAtUnix,
+			UpdatedAtUnix:    record.UpdatedAtUnix,
+			DenialAccounting: record.DenialAccounting,
 		}
 		if record.Status == actionapproval.StatusPending {
 			status.PendingApprovals++

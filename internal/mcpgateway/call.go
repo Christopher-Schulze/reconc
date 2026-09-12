@@ -253,6 +253,7 @@ func (g *Gateway) prepareCall(
 		if err := ledger.budget(
 			ctx, decision, actionledger.BudgetReserved, budget,
 			reserve.Snapshot.StateVersion, 0, false, false,
+			nil,
 		); err != nil {
 			g.releaseReservation(ctx, reserve.Reservation, reserve.Snapshot.StateVersion)
 			return nil, blockedGatewayResultValue(callID, action.ReasonLedgerUnavailable)
@@ -304,6 +305,7 @@ func (g *Gateway) requestApproval(
 		if err := call.ledger.budget(
 			ctx, call.decision, actionledger.BudgetReserved, call.budget,
 			issued.StateVersion, 0, call.approvalReserved, false,
+			nil,
 		); err != nil {
 			g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusUnavailable)
 			return nil, blockedGatewayResultValue(call.callID, action.ReasonLedgerUnavailable)
@@ -317,7 +319,7 @@ func (g *Gateway) requestApproval(
 	if err != nil {
 		finalized := g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusMalformed)
 		g.recordTerminalizedApproval(
-			ctx, call, finalized, action.ReasonProtocolError, false,
+			ctx, call, finalized, false,
 		)
 		return nil, blockedGatewayResultValue(call.callID, action.ReasonProtocolError)
 	}
@@ -337,7 +339,7 @@ func (g *Gateway) requestApproval(
 	if err := g.storePending(issued.RequestState, pending); err != nil {
 		finalized := g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusUnavailable)
 		g.recordTerminalizedApproval(
-			ctx, call, finalized, action.ReasonStateUnavailable, false,
+			ctx, call, finalized, false,
 		)
 		return nil, blockedGatewayResultValue(call.callID, action.ReasonStateUnavailable)
 	}
@@ -350,7 +352,7 @@ func (g *Gateway) requestApproval(
 		g.removePending(issued.RequestState)
 		finalized := g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusUnavailable)
 		g.recordTerminalizedApproval(
-			ctx, call, finalized, action.ReasonAuthorityUnavailable, false,
+			ctx, call, finalized, false,
 		)
 		return nil, blockedGatewayResultValue(call.callID, action.ReasonApprovalRequired)
 	}
@@ -359,7 +361,7 @@ func (g *Gateway) requestApproval(
 		g.removePending(issued.RequestState)
 		finalized := g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusMalformed)
 		g.recordTerminalizedApproval(
-			ctx, call, finalized, action.ReasonApprovalInvalid, false,
+			ctx, call, finalized, false,
 		)
 		return nil, blockedGatewayResultValue(call.callID, action.ReasonApprovalInvalid)
 	}
@@ -368,7 +370,7 @@ func (g *Gateway) requestApproval(
 		g.removePending(issued.RequestState)
 		finalized := g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusUnavailable)
 		g.recordTerminalizedApproval(
-			ctx, call, finalized, action.ReasonProtocolError, false,
+			ctx, call, finalized, false,
 		)
 		return nil, blockedGatewayResultValue(call.callID, action.ReasonProtocolError)
 	}
@@ -404,6 +406,7 @@ func (g *Gateway) commitDispatch(ctx context.Context, call *gatewayCall) error {
 		if err := call.ledger.budget(
 			ctx, dispatchDecision, actionledger.BudgetDispatched, call.budget,
 			version, 0, call.approvalReserved, call.approvalCommitted,
+			nil,
 		); err != nil {
 			if _, transitionErr := g.markIndeterminateAfterFailure(ctx, call, err); transitionErr != nil {
 				return transitionErr
@@ -533,11 +536,11 @@ func (g *Gateway) denyCall(ctx context.Context, call *gatewayCall, approvalCommi
 	}
 	terminalCtx, cancel := terminalContext(ctx)
 	defer cancel()
-	version, err := g.state.RecordDenied(terminalCtx, call.reservation.Identity, call.stateVersion)
+	version, accounting, err := g.state.RecordDenied(terminalCtx, call.reservation.Identity, call.stateVersion)
 	if err != nil && version == "" {
 		current, currentErr := g.state.CurrentStateVersion(terminalCtx)
 		if currentErr == nil {
-			version, err = g.state.RecordDenied(terminalCtx, call.reservation.Identity, current)
+			version, accounting, err = g.state.RecordDenied(terminalCtx, call.reservation.Identity, current)
 		}
 	}
 	if version == "" {
@@ -550,6 +553,7 @@ func (g *Gateway) denyCall(ctx context.Context, call *gatewayCall, approvalCommi
 	_ = call.ledger.budget(
 		terminalCtx, blockDecision(call.decision, call.decision.Reason), actionledger.BudgetDenied,
 		call.budget, version, 0, call.approvalReserved, approvalCommitted,
+		&accounting,
 	)
 }
 
@@ -569,6 +573,7 @@ func (g *Gateway) releaseCall(
 	_ = call.ledger.budget(
 		terminalCtx, blockDecision(call.decision, reason), actionledger.BudgetReleased,
 		call.budget, version, 0, call.approvalReserved, approvalCommitted,
+		nil,
 	)
 }
 
@@ -584,7 +589,6 @@ func (g *Gateway) recordTerminalizedApproval(
 	ctx context.Context,
 	call *gatewayCall,
 	result actionstate.ApprovalConsumeResult,
-	reason action.ReasonCode,
 	approvalCommitted bool,
 ) error {
 	terminalCtx, cancel := terminalContext(ctx)
@@ -605,7 +609,8 @@ func (g *Gateway) recordTerminalizedApproval(
 		return nil
 	}
 	return call.ledger.budget(
-		terminalCtx, blockDecision(call.decision, reason), actionledger.BudgetDenied,
+		terminalCtx, blockDecision(call.decision, approvalLedgerReason(result.Status)), actionledger.BudgetDenied,
 		call.budget, result.StateVersion, 0, call.approvalReserved, approvalCommitted,
+		result.DenialAccounting,
 	)
 }

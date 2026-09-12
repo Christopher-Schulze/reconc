@@ -724,6 +724,7 @@ func (g *Gateway) finishTerminalizedApproval(
 	if cleanup == nil {
 		return fmt.Errorf("terminalized approval cleanup is unavailable")
 	}
+	cleanup.reason = approvalLedgerReason(cleanup.result.Status)
 	call := callFromPending(cleanup.pending)
 	call.stateVersion = cleanup.result.StateVersion
 	if call.ledger == nil {
@@ -745,6 +746,7 @@ func (g *Gateway) finishTerminalizedApproval(
 		ctx, blockDecision(call.decision, cleanup.reason),
 		actionledger.BudgetDenied, call.budget, cleanup.result.StateVersion, 0,
 		cleanup.pending.approvalReserved, false,
+		cleanup.result.DenialAccounting,
 	); err != nil {
 		return err
 	}
@@ -811,6 +813,7 @@ func (g *Gateway) finishTerminalizedPostApproval(
 		if err := call.ledger.budget(
 			ctx, budgetDecision, budgetKind, call.budget, call.stateVersion,
 			actualResultBytes, approvalReserved, approvalCommitted,
+			nil,
 		); err != nil {
 			return err
 		}

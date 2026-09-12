@@ -364,6 +364,14 @@ func validateApprovalRecordTransition(
 	reservations map[string]Reservation,
 	terminals map[string]TerminalCall,
 ) error {
+	if record.DenialAccounting != nil {
+		terminal, completed := terminals[record.ReservationIdentity]
+		if record.Status == actionapproval.StatusPending || record.Status == actionapproval.StatusApproved ||
+			record.Request.Phase != action.PhasePreCall || !completed || terminal.Outcome != OutcomeBlocked ||
+			record.DenialAccounting.ConsumedCount > MaxBudgetRecords {
+			return stateError(action.ReasonStateCorrupt, "approval denial accounting is invalid", nil)
+		}
+	}
 	if record.ReservationIdentity == "absent" {
 		return nil
 	}

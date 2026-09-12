@@ -4,9 +4,58 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
+
+	"reconc.dev/reconc/internal/action"
 )
+
+func TestCheckpointBudgetContinuationPreservesTerminalBoundaries(t *testing.T) {
+	for _, cold := range []bool{false, true} {
+		t.Run(fmt.Sprint(cold), func(t *testing.T) {
+			fixture := newLedgerStoreFixture(t)
+			fixture.append(t, EventRequestAccepted)
+			decision := testLedgerRecord(EventPreDecision)
+			decision.Decision.Decision = action.DecisionBlock
+			decision.Decision.Reason = action.ReasonRuleMatched
+			decision.PreDecision.Outcome = action.OutcomeDispatchBlocked
+			fixture.appendRecord(t, decision)
+			appendTerminalBenchmarkCall(t, fixture, 7)
+			if cold {
+				var err error
+				fixture.store, err = OpenStore(fixture.storage)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			reserved := budgetLifecycleTransition(BudgetReserved)
+			reserved.Decision = decision.Decision
+			fixture.appendRecord(t, reserved)
+			denied := budgetLifecycleTransition(BudgetDenied)
+			fixture.appendRecord(t, denied)
+			before, err := fixture.store.Verify(context.Background())
+			if err != nil || !before.CallsComplete {
+				t.Fatalf("completed denial: %+v, %v", before, err)
+			}
+			for _, invalid := range []Record{reserved, denied} {
+				invalid.Timestamp = "2026-08-11T12:00:01Z"
+				if _, err := fixture.store.Append(context.Background(), fixture.bindRecord(invalid)); err == nil {
+					t.Fatal("completed denial accepted another budget transition")
+				}
+			}
+			failureBudget := fixture.bindRecord(reserved)
+			bindBenchmarkCall(fixture, &failureBudget, 7)
+			if _, err := fixture.store.Append(context.Background(), failureBudget); err == nil {
+				t.Fatal("terminal failure accepted a budget continuation")
+			}
+			after, err := fixture.store.Verify(context.Background())
+			if err != nil || after.RecordCount != before.RecordCount || !after.CallsComplete {
+				t.Fatalf("rejected continuation changed ledger: %+v, %v", after, err)
+			}
+		})
+	}
+}
 
 func TestIncrementalCheckpointRejectsHistoricalTamperWithRestoredMtime(t *testing.T) {
 	fixture := newLedgerStoreFixture(t)

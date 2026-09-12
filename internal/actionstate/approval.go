@@ -52,6 +52,7 @@ type ApprovalConsumeResult struct {
 	ReceiptSignedAt  string                  `json:"receipt_signed_at,omitempty"`
 	RegistryIdentity string                  `json:"registry_identity,omitempty"`
 	Evidence         ApprovalEvidence        `json:"evidence"`
+	DenialAccounting *DenialAccounting       `json:"denial_accounting,omitempty"`
 }
 
 const ApprovalEvidenceSchema = "reconc.action-approval-evidence/v1"
@@ -647,7 +648,11 @@ func (s *Store) finalizeApprovalLocked(input ApprovalFinalizeRequest) (ApprovalF
 	}
 	record := state.Approvals[index]
 	if terminalApprovalStatus(record.Status) {
-		return ApprovalFinalizeOutcome{Persisted: true, Result: approvalResult(state.Digest, record)}, nil
+		outcome := ApprovalFinalizeOutcome{Persisted: true, Result: approvalResult(state.Digest, record)}
+		if record.DenialAccounting != nil {
+			outcome.DenialCapacityExhausted = record.DenialAccounting.CapacityExhausted
+		}
+		return outcome, nil
 	}
 	if input.Status == actionapproval.StatusExpired {
 		expires, parseErr := time.Parse(time.RFC3339Nano, record.Request.ExpiresAt)
@@ -716,7 +721,7 @@ func (s *Store) reconcileExpiredApprovalsLocked(
 		}
 		record.Status = actionapproval.StatusExpired
 		record.UpdatedAtUnix = clock.Time.Unix()
-		exhausted, err := terminalizeApprovalReservation(&next, *record, clock.Time)
+		exhausted, err := terminalizeApprovalReservation(&next, record, clock.Time)
 		if err != nil {
 			return ApprovalReconcileResult{}, err
 		}
@@ -788,7 +793,7 @@ func (s *Store) finishPendingApproval(
 	if verified != nil {
 		setVerifiedApprovalMetadata(record, status, *verified, registry)
 	}
-	denialCapacityExhausted, err := terminalizeApprovalReservation(&next, *record, clock.Time)
+	denialCapacityExhausted, err := terminalizeApprovalReservation(&next, record, clock.Time)
 	if err != nil {
 		return ApprovalConsumeResult{}, err
 	}
@@ -804,7 +809,7 @@ func (s *Store) finishPendingApproval(
 	return result, nil
 }
 
-func terminalizeApprovalReservation(state *State, record ApprovalRecord, now time.Time) (bool, error) {
+func terminalizeApprovalReservation(state *State, record *ApprovalRecord, now time.Time) (bool, error) {
 	if record.ReservationIdentity == "absent" {
 		return false, nil
 	}
@@ -826,15 +831,16 @@ func terminalizeApprovalReservation(state *State, record ApprovalRecord, now tim
 	if reservation.Status != ReservationReserved {
 		return false, stateError(action.ReasonStateCorrupt, "pending approval budget reservation passed dispatch", nil)
 	}
-	exhausted, err := recordDenialCharges(state, index)
+	accounting, err := recordDenialCharges(state, index)
 	if err != nil {
 		return false, err
 	}
+	record.DenialAccounting = &accounting
 	err = removeReservationAndRecord(state, index, TerminalCall{
 		CallID: reservation.CallID, ReservationIdentity: reservation.Identity,
 		Outcome: OutcomeBlocked, CompletedAtUnix: now.Unix(),
 	})
-	return exhausted, err
+	return accounting.CapacityExhausted, err
 }
 
 func terminalizeAbandonedPendingApprovals(state *State, ownerID string, now time.Time) error {
@@ -890,6 +896,7 @@ func approvalResult(version string, record ApprovalRecord) ApprovalConsumeResult
 		ReceiptIdentity: record.ReceiptIdentity, ReceiptSignedAt: record.ReceiptSignedAt,
 		RegistryIdentity: record.RegistryIdentity,
 		Evidence:         approvalEvidence(record),
+		DenialAccounting: record.DenialAccounting,
 	}
 }
 

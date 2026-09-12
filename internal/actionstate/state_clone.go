@@ -36,6 +36,10 @@ func cloneState(input State) State {
 	}
 	for index := range out.Approvals {
 		out.Approvals[index].Request = cloneApprovalRequest(input.Approvals[index].Request)
+		if input.Approvals[index].DenialAccounting != nil {
+			accounting := *input.Approvals[index].DenialAccounting
+			out.Approvals[index].DenialAccounting = &accounting
+		}
 	}
 	return out
 }

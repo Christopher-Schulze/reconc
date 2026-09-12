@@ -252,6 +252,8 @@ func (s *Store) Append(ctx context.Context, record Record) (Record, error) {
 		if checkpoint.Schema == "" {
 			head := newChainHead(sealed)
 			nextCheckpoint, statuses, terminalCallIDs, err = s.checkpointFromRecords([]Record{sealed}, &head)
+		} else if _, terminal := terminalCallIDs[sealed.Call.CallID]; terminal && sealed.Event == EventBudgetTransition {
+			nextCheckpoint, statuses, terminalCallIDs, err = s.checkpointWithTerminalBudget(sealed)
 		} else {
 			nextCheckpoint, statuses, completedCallID, err = s.advanceCheckpoint(checkpoint, terminalCallIDs, sealed)
 		}

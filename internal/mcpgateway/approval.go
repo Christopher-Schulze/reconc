@@ -285,14 +285,14 @@ func (g *Gateway) consumeApproval(
 		ctx, pending.snapshot, pending.contract, pending.generation, pending.repositoryPaths,
 	); err != nil {
 		result := g.finalizePendingApproval(ctx, pending, actionapproval.StatusUnavailable)
-		g.recordTerminalizedApproval(ctx, call, result, action.ReasonPolicyStale, false)
+		g.recordTerminalizedApproval(ctx, call, result, false)
 		return nil, blockedGatewayResultValue(pending.callID, action.ReasonPolicyStale)
 	}
 	freshInput, freshDecision, reason := g.refreshPreApprovalEvaluation(ctx, pending)
 	if reason != "" {
 		result := g.finalizePendingApproval(ctx, pending, actionapproval.StatusMalformed)
 		call.decision = freshDecision
-		g.recordTerminalizedApproval(ctx, call, result, reason, false)
+		g.recordTerminalizedApproval(ctx, call, result, false)
 		return nil, blockedGatewayResultValue(pending.callID, reason)
 	}
 	pending.evaluation = freshInput
@@ -313,7 +313,7 @@ func (g *Gateway) consumeApproval(
 			consumed = g.finalizePendingApproval(ctx, pending, approvalFailureFinalizeStatus(err))
 		}
 		reason := gatewayReason(err, approvalLedgerReason(consumed.Status))
-		g.recordTerminalizedApproval(ctx, call, consumed, reason, false)
+		g.recordTerminalizedApproval(ctx, call, consumed, false)
 		return nil, blockedGatewayResultValue(pending.callID, reason)
 	}
 	if err := call.ledger.approval(ctx, call.decision, consumed.Evidence); err != nil {
@@ -614,7 +614,7 @@ func (g *Gateway) failPendingApproval(
 	if pending.phase == action.PhasePostResult {
 		return g.finalizePostApproval(ctx, call, result, reason)
 	}
-	g.recordTerminalizedApproval(ctx, call, result, approvalLedgerReason(status), false)
+	g.recordTerminalizedApproval(ctx, call, result, false)
 	return blockedGatewayResult(pending.callID, reason)
 }
 

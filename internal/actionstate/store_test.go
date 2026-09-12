@@ -431,16 +431,19 @@ func TestBudgetStoreRecordsDenialsAndExhaustsApprovalAtomically(t *testing.T) {
 	limits := action.BudgetLimits{CallCount: 10, DeniedCount: 1, ApprovalCount: 1}
 	fixture := newStoreFixture(t, []action.Budget{storeBudget("events", limits, action.BudgetResetNever)})
 	_, first := fixture.reserve(t, callID("b"))
-	if _, err := fixture.store.RecordDenied(
+	if _, accounting, err := fixture.store.RecordDenied(
 		context.Background(), first.Reservation.Identity, first.Snapshot.StateVersion,
-	); err != nil {
-		t.Fatal(err)
+	); err != nil || accounting.ConsumedCount != 1 || accounting.CapacityExhausted {
+		t.Fatalf("first denial accounting = %+v, %v", accounting, err)
 	}
 	_, second := fixture.reserve(t, callID("c"))
-	version, err := fixture.store.RecordDenied(
+	version, accounting, err := fixture.store.RecordDenied(
 		context.Background(), second.Reservation.Identity, second.Snapshot.StateVersion,
 	)
 	requireStateCode(t, err, action.ReasonBudgetExhausted)
+	if accounting.ConsumedCount != 0 || !accounting.CapacityExhausted {
+		t.Fatalf("exhausted denial accounting = %+v", accounting)
+	}
 	if version == "" {
 		t.Fatal("exhausted denial did not persist terminal cleanup")
 	}

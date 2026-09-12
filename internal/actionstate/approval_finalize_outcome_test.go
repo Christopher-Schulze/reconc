@@ -44,7 +44,14 @@ func TestFinalizeApprovalPersistsThroughDenialCapacityExhaustion(t *testing.T) {
 		t.Fatalf("exhausted cancellation = %#v", second)
 	}
 
-	recovered, err := fixture.store.FinalizeApproval(context.Background(), ApprovalFinalizeRequest{
+	reopened, err := OpenStore(StoreOptions{
+		Home: fixture.home, Repository: fixture.repository, KeyLease: fixture.lease,
+		Clock: fixture.clock, OwnerID: fixture.store.ownerID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := reopened.FinalizeApproval(context.Background(), ApprovalFinalizeRequest{
 		RequestState: secondIssued.issue.RequestState, ExpectedStateVersion: secondIssued.issue.StateVersion,
 		Status: actionapproval.StatusCancelled,
 	})
@@ -52,9 +59,13 @@ func TestFinalizeApprovalPersistsThroughDenialCapacityExhaustion(t *testing.T) {
 		t.Fatal(err)
 	}
 	recoveredResult, ok := recovered.TerminalResult()
-	if !ok || recovered.DenialCapacityExhausted || recoveredResult.StateVersion != result.StateVersion ||
+	if !ok || !recovered.DenialCapacityExhausted || recoveredResult.StateVersion != result.StateVersion ||
 		recoveredResult.Status != actionapproval.StatusCancelled {
 		t.Fatalf("recovered terminal approval = %#v", recovered)
+	}
+	if recoveredResult.DenialAccounting == nil || recoveredResult.DenialAccounting.ConsumedCount != 0 ||
+		!recoveredResult.DenialAccounting.CapacityExhausted {
+		t.Fatalf("recovered denial accounting = %+v", recoveredResult.DenialAccounting)
 	}
 
 	status, err := fixture.store.Status(context.Background())
@@ -165,6 +176,7 @@ func TestFinalizeApprovalConcurrentTerminalizersHaveOneWinner(t *testing.T) {
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	outcomes := make([]ApprovalFinalizeOutcome, 8)
 	errs := make([]error, 8)
+	statuses := []actionapproval.Status{actionapproval.StatusCancelled, actionapproval.StatusUnavailable, actionapproval.StatusMalformed}
 	var wait sync.WaitGroup
 	wait.Add(len(outcomes))
 	for index := range outcomes {
@@ -172,7 +184,7 @@ func TestFinalizeApprovalConcurrentTerminalizersHaveOneWinner(t *testing.T) {
 			defer wait.Done()
 			outcomes[index], errs[index] = fixture.store.FinalizeApproval(context.Background(), ApprovalFinalizeRequest{
 				RequestState: issued.issue.RequestState, ExpectedStateVersion: issued.issue.StateVersion,
-				Status: actionapproval.StatusCancelled,
+				Status: statuses[index%len(statuses)],
 			})
 		}(index)
 	}
@@ -184,8 +196,11 @@ func TestFinalizeApprovalConcurrentTerminalizersHaveOneWinner(t *testing.T) {
 		if !ok || errs[index] != nil {
 			t.Fatalf("concurrent finalizer %d = %#v, err %v", index, outcome, errs[index])
 		}
-		if result.Status != actionapproval.StatusCancelled {
+		if result.Status != outcomes[0].Result.Status {
 			t.Fatalf("concurrent finalizer %d status = %q", index, result.Status)
+		}
+		if result.DenialAccounting == nil || result.DenialAccounting.ConsumedCount != 1 || result.DenialAccounting.CapacityExhausted {
+			t.Fatalf("concurrent finalizer %d accounting = %+v", index, result.DenialAccounting)
 		}
 		if winner == "" {
 			winner = result.StateVersion

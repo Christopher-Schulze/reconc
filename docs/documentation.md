@@ -3520,6 +3520,18 @@ and withheld-delivery transitions complete; cleanup errors remain surfaced and
 retriable. Transition evidence contains only safe labels, timestamps, counters,
 and bound identities, never raw selected values, receipts, credentials, or
 private keys.
+Terminal pre-call approvals persist the actual denial-budget consumption and
+capacity-exhaustion diagnostic in the same transaction as cancellation or other
+blocked finalization. Recovery returns that accounting without charging again;
+ledger retries use the persisted terminal reason and actual consumed count,
+including partial consumption across matching budgets. Legacy terminal records
+without this optional accounting remain readable, but their historical count
+and diagnostic are unavailable; an enabled ledger refuses to invent a missing
+denial delta. Post-result cancellation does not charge a pre-call denial.
+An ordinary blocked pre-decision may still be followed by its reservation and
+denial evidence. If a checkpoint already summarized that call as terminal, the
+ledger revalidates the retained chain and complete request history before
+accepting those transitions; genuinely terminal calls cannot be reopened.
 When a reservation owner is explicitly reconciled as abandoned, every pending
 approval bound to that owner's transitioned reservations becomes terminal
 `unavailable`, the persisted approval-budget reservation is released, and the

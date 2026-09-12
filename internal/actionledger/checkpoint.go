@@ -133,6 +133,31 @@ func (s *Store) advanceCheckpoint(
 	return current, statuses, completedCallID, nil
 }
 
+// A blocked pre-decision can complete a call without budgets, but its budget
+// reservation and denial may still follow. Revalidate retained evidence rather
+// than treating the compact terminal index as the lifecycle authority.
+func (s *Store) checkpointWithTerminalBudget(record Record) (ledgerCheckpointPayload, []CallStatus, map[string]struct{}, error) {
+	records, head, _, err := s.loadVerifiedLocked()
+	if err != nil {
+		return ledgerCheckpointPayload{}, nil, nil, err
+	}
+	accepted := false
+	for _, retained := range records {
+		if retained.Call.CallID == record.Call.CallID && retained.Event == EventRequestAccepted {
+			accepted = true
+			break
+		}
+	}
+	if !accepted || head == nil {
+		return ledgerCheckpointPayload{}, nil, nil, fmt.Errorf("terminal budget continuation lacks retained request acceptance")
+	}
+	next, err := advanceChainHead(*head, record)
+	if err != nil {
+		return ledgerCheckpointPayload{}, nil, nil, err
+	}
+	return s.checkpointFromRecords(append(records, record), &next)
+}
+
 func advanceTerminalDigest(previous, callID string) string {
 	digest := sha256.New()
 	_, _ = digest.Write([]byte(previous))

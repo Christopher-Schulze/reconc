@@ -107,6 +107,13 @@ type TerminalCall struct {
 	CompletedAtUnix     int64           `json:"completed_at_unix"`
 }
 
+// DenialAccounting records actual consumption, including partial charging
+// when some matching budgets have already exhausted their denial capacity.
+type DenialAccounting struct {
+	ConsumedCount     uint64 `json:"consumed_count"`
+	CapacityExhausted bool   `json:"capacity_exhausted"`
+}
+
 type ApprovalRecord struct {
 	Request             actionapproval.Request  `json:"request"`
 	Status              actionapproval.Status   `json:"status"`
@@ -120,6 +127,7 @@ type ApprovalRecord struct {
 	ReceiptDecision     actionapproval.Decision `json:"receipt_decision,omitempty"`
 	ReceiptSignature    string                  `json:"receipt_signature,omitempty"`
 	UpdatedAtUnix       int64                   `json:"updated_at_unix"`
+	DenialAccounting    *DenialAccounting       `json:"denial_accounting,omitempty"`
 }
 
 type State struct {
@@ -252,16 +260,17 @@ type BudgetStatus struct {
 }
 
 type ApprovalRecordView struct {
-	RequestID       string                `json:"request_id"`
-	CallID          string                `json:"call_id"`
-	Status          actionapproval.Status `json:"status"`
-	AuthorityPolicy string                `json:"authority_policy"`
-	AuthorityKeyID  string                `json:"authority_key_id,omitempty"`
-	ReceiptID       string                `json:"receipt_id,omitempty"`
-	ReceiptSignedAt string                `json:"receipt_signed_at,omitempty"`
-	IssuedAt        string                `json:"issued_at"`
-	ExpiresAt       string                `json:"expires_at"`
-	UpdatedAtUnix   int64                 `json:"updated_at_unix"`
+	RequestID        string                `json:"request_id"`
+	CallID           string                `json:"call_id"`
+	Status           actionapproval.Status `json:"status"`
+	AuthorityPolicy  string                `json:"authority_policy"`
+	AuthorityKeyID   string                `json:"authority_key_id,omitempty"`
+	ReceiptID        string                `json:"receipt_id,omitempty"`
+	ReceiptSignedAt  string                `json:"receipt_signed_at,omitempty"`
+	IssuedAt         string                `json:"issued_at"`
+	ExpiresAt        string                `json:"expires_at"`
+	UpdatedAtUnix    int64                 `json:"updated_at_unix"`
+	DenialAccounting *DenialAccounting     `json:"denial_accounting,omitempty"`
 }
 
 type StateError struct {

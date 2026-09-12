@@ -86,6 +86,7 @@ func (g *Gateway) failUnknownDownstream(
 			0,
 			false,
 			false,
+			nil,
 		); err != nil {
 			return blockedGatewayResult(call.callID, action.ReasonLedgerUnavailable)
 		}
@@ -193,6 +194,7 @@ func (g *Gateway) failMalformedDownstream(
 		if err := call.ledger.budget(
 			ctx, budgetDecision, kind, call.budget, stateVersion,
 			actualBytes, false, false,
+			nil,
 		); err != nil {
 			return blockedGatewayResult(call.callID, action.ReasonLedgerUnavailable)
 		}
@@ -268,6 +270,7 @@ func (g *Gateway) settleAndRecord(
 				0,
 				false,
 				false,
+				nil,
 			)
 			if ledgerErr != nil {
 				return action.ReasonLedgerUnavailable, errors.Join(err, ledgerErr)
@@ -288,6 +291,7 @@ func (g *Gateway) settleAndRecord(
 		call.actualResultBytes,
 		call.postApprovalReserved,
 		call.postApprovalCommitted,
+		nil,
 	)
 	if err != nil {
 		return action.ReasonLedgerUnavailable, err

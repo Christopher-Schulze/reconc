@@ -5,13 +5,13 @@
 
 ## Queue
 
-- [ ] 536 Retain approval budget diagnostics through recovery -> tasks/536-retain-approval-budget-diagnostics-through-recovery.md
 - [ ] 537 Distinguish coverage measurements from thresholds -> tasks/537-distinguish-coverage-measurements-from-thresholds.md
 - [ ] 538 Verify review fixes and current performance evidence -> tasks/538-verify-review-fixes-and-current-performance-evidence.md
 
 ## Blocked
 
 ## Done
+- [x] 536 Retain approval budget diagnostics through recovery -> tasks/done/536-retain-approval-budget-diagnostics-through-recovery.md
 - [x] 535 Redact complete quoted path spans -> tasks/done/535-redact-complete-quoted-path-spans.md
 - [x] 534 Preserve typed briefing remediation actions -> tasks/done/534-preserve-typed-briefing-remediation-actions.md
 - [x] 533 Propagate declared writes through command prevention -> tasks/done/533-propagate-declared-writes-through-command-prevention.md

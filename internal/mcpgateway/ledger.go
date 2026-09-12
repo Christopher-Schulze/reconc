@@ -193,9 +193,19 @@ func (l *callLedger) budget(
 	actualResultBytes uint64,
 	approvalReserved bool,
 	approvalCommitted bool,
+	denialAccounting *actionstate.DenialAccounting,
 ) error {
 	if len(snapshot.Candidates) == 0 {
 		return nil
+	}
+	if kind == actionledger.BudgetDenied && denialAccounting == nil {
+		if l.mode == action.LedgerOff {
+			return nil
+		}
+		return fmt.Errorf("terminal denial accounting is unavailable")
+	}
+	if denialAccounting != nil && (kind != actionledger.BudgetDenied || denialAccounting.ConsumedCount > uint64(len(snapshot.Candidates))) {
+		return fmt.Errorf("terminal denial accounting does not match budget candidates")
 	}
 	reserved, consumed, err := budgetDeltas(
 		kind,
@@ -206,6 +216,9 @@ func (l *callLedger) budget(
 	)
 	if err != nil {
 		return err
+	}
+	if denialAccounting != nil {
+		consumed.DeniedCount = int64(denialAccounting.ConsumedCount)
 	}
 	ids := make([]string, len(snapshot.Candidates))
 	for index, candidate := range snapshot.Candidates {
