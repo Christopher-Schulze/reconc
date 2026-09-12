@@ -297,7 +297,8 @@ samples across the full suite; each internal repetition set is collapsed to a
 deterministic median before outer statistics are calculated. `make benchmark-compare`
 normalizes every target against its same-package calibration
 benchmark and independently compares absolute bytes and allocations against the
-checked baseline. Every package sample also runs an independent CPU sentinel
+checked baseline. It writes `--output` only after proving that path is not an
+alias of `--baseline` or `--result`. Every package sample also runs an independent CPU sentinel
 before and after the product benchmarks with the same internal repetition
 count; the bracketed sentinel median is retained per group. Raw absolute
 nanoseconds, same-package calibration drift, and sentinel drift remain in the
@@ -394,8 +395,15 @@ is unavailable until the matching GOOS/GOARCH runs on native hardware. After a
 profile run, `make benchmark-pgo` uses the hook-worker CPU profile by default,
 builds provenance-verified `-pgo=off` and profile-guided host binaries, and
 writes a report with profile identity, binary sizes, and seven-sample cold-start
-p50/p95 measurements under `.build/benchmarks/pgo/`. The report is evidence for
+p50/p95 measurements under `.build/benchmarks/pgo/`. Cold-start `p95_ns` is the
+nearest-rank 95th percentile: `ceil(0.95 * n) - 1` on the sorted samples,
+bounded to the sample range, so seven samples select the maximum. The report
+format is `reconc.benchmark-pgo/v2`; v1 reports used a different index formula
+and must not be relabeled. The report is evidence for
 review; it does not change the normal build or release path.
+`make benchmark-compare` publishes `--output` only after proving it is not the
+same filesystem object as `--baseline` or `--result`, including relative,
+cleaned, symlink, and hardlink aliases, in both recipe and non-recipe modes.
 
 The benchmark workflow runs on scoped pull requests, a weekly scheduled
 macOS runner, or explicit dispatch. It uploads raw samples and the comparison

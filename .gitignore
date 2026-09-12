@@ -42,6 +42,10 @@ coverage.html
 # Local dev
 tmp/
 
+# Python bytecode from benchmark helpers
+__pycache__/
+*.pyc
+
 # Local planning / release notes
 /CHANGELOG.md
 /changelog.md

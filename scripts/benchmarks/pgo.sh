@@ -115,7 +115,11 @@ import json
 import os
 import statistics
 import subprocess
+import sys
 import time
+
+sys.path.insert(0, os.path.join(os.environ["PGO_ROOT"], "scripts", "benchmarks"))
+from pgo_stats import p95_ns
 
 
 def digest(path):
@@ -140,7 +144,7 @@ def cold_start(path):
     return {
         "samples_ns": samples,
         "p50_ns": statistics.median(samples),
-        "p95_ns": ordered[int(0.95 * (len(ordered) - 1))],
+        "p95_ns": p95_ns(samples),
         "min_ns": ordered[0],
         "max_ns": ordered[-1],
         "range_ns": ordered[-1] - ordered[0],
@@ -150,7 +154,7 @@ def cold_start(path):
 off_binary = os.environ["PGO_OFF_BINARY"]
 pgo_binary = os.environ["PGO_BINARY"]
 report = {
-    "format_version": "reconc.benchmark-pgo/v1",
+    "format_version": "reconc.benchmark-pgo/v2",
     "environment": {
         "go_version": os.environ["PGO_GO_VERSION"],
         "goos": os.environ["PGO_GOOS"],

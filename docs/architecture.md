@@ -1578,7 +1578,9 @@ against a same-package reference from the same run. Each package sample is
 bracketed by an independent CPU sentinel benchmark; its averaged median is
 retained per group for host-drift adjustment. `make benchmark-compare` accepts
 only the same suite, Go version, OS, architecture, sample count, benchtime,
-and logical CPU count. Different CPU identities are incompatible; the sentinel
+and logical CPU count. `--output` is rejected when it aliases `--baseline` or
+`--result` after absolute cleaning or as the same existing file, including
+symlinks and hardlinks. Different CPU identities are incompatible; the sentinel
 adjusts timing noise within the same identified environment and does not make
 different machines equivalent.
 

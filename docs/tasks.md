@@ -2,13 +2,12 @@
 
 ## Active
 
-- [~] 531 Harden benchmark percentile and output contracts -> tasks/531-harden-benchmark-percentile-and-output-contracts.md
-
 ## Queue
 
 ## Blocked
 
 ## Done
+- [x] 531 Harden benchmark percentile and output contracts -> tasks/done/531-harden-benchmark-percentile-and-output-contracts.md
 - [x] 528 Align assurance manifest admission with stack detection -> tasks/done/528-align-assurance-manifest-admission-with-stack-detection.md
 - [x] 530 Detect dirty TASK ancestors and Gitlinks -> tasks/done/530-detect-dirty-task-ancestors-and-gitlinks.md
 - [x] 529 Redact foreign absolute paths in proof bundles -> tasks/done/529-redact-foreign-absolute-paths-in-proof-bundles.md

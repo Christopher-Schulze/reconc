@@ -100,6 +100,9 @@ func runCompare(args []string, stdout io.Writer) error {
 	if *recipe {
 		return runRecipeComparison(*baselinePath, *resultPath, *output, *suite, *current, stdout)
 	}
+	if err := rejectAliasedComparisonOutput(*output, *baselinePath, *resultPath); err != nil {
+		return err
+	}
 	baseline, err := readBaseline(*baselinePath)
 	if err != nil {
 		return err
@@ -110,7 +113,7 @@ func runCompare(args []string, stdout io.Writer) error {
 	}
 	report, compareErr := compareResults(baseline, result)
 	if report.FormatVersion != "" {
-		body, encodeErr := encodeContract(report)
+		body, encodeErr := marshalComparison(report)
 		if encodeErr != nil {
 			return encodeErr
 		}
@@ -118,7 +121,7 @@ func runCompare(args []string, stdout io.Writer) error {
 			if _, err := stdout.Write(body); err != nil {
 				return err
 			}
-		} else if err := publishContract(*output, body, stdout); err != nil {
+		} else if err := publishComparison(*output, body, stdout); err != nil {
 			return err
 		}
 	}
@@ -152,6 +155,11 @@ func runBaseline(args []string, stdout io.Writer) error {
 	}
 	return publishContract(*output, body, stdout)
 }
+
+var (
+	marshalComparison = encodeContract
+	publishComparison = publishContract
+)
 
 func publishContract(path string, body []byte, stdout io.Writer) error {
 	result, err := atomicfile.WriteIfChanged(filepath.Clean(path), body, 0o644)

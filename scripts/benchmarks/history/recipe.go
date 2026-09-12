@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 
 	"reconc.dev/reconc/internal/policy"
@@ -18,8 +17,8 @@ func runRecipeComparison(baselinePath, resultPath, output, suite, current string
 	if err := templates.ValidateRecipeInvocation(policy.RecipeContractPerformance, args, "benchmark compare"); err != nil {
 		return err
 	}
-	if filepath.Clean(output) == filepath.Clean(baselinePath) || filepath.Clean(output) == filepath.Clean(resultPath) {
-		return errors.New("recipe comparison output must differ from its inputs")
+	if err := rejectAliasedComparisonOutput(output, baselinePath, resultPath); err != nil {
+		return err
 	}
 	baseline, err := readBaseline(baselinePath)
 	if err != nil {
@@ -36,11 +35,11 @@ func runRecipeComparison(baselinePath, resultPath, output, suite, current string
 	if comparisonErr != nil && !errors.Is(comparisonErr, errRegression) {
 		return comparisonErr
 	}
-	body, err := encodeContract(report)
+	body, err := marshalComparison(report)
 	if err != nil {
 		return err
 	}
-	if err := publishContract(output, body, io.Discard); err != nil {
+	if err := publishComparison(output, body, io.Discard); err != nil {
 		return err
 	}
 	evidence := benchmarkRecipeEvidence(report, baselinePath, resultPath, output, current, body)
