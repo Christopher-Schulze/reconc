@@ -759,8 +759,15 @@ and byte-compares the notice before checksums and provenance are accepted.
     while arguments, results, and progress are already canonical roots. The
      production compiled-plan path therefore avoids rebuilding the same object
      and revalidating its pointer program for every predicate.
-     Runtime-plan cache misses use repository-root-scoped singleflight rather
-     than holding the cache mutex across filesystem I/O. Lock and source
+     Runtime-plan cache misses use repository-root-scoped joinable generations
+     rather than holding the cache mutex across filesystem I/O. Same-root
+     callers share one joinable load; the last caller makes that generation
+     non-joinable and removes it from the in-flight map before cancelling the
+     worker, so a replacement caller never inherits `context.Canceled`. At most
+     four distinct roots compile concurrently; a draining generation keeps its
+     slot until the worker returns. Caller cancellation or deadline during
+     freshness observation does not drop a previously validated plan. An older
+     worker cannot delete or overwrite a newer generation's cache. Lock and source
      identities are revalidated immediately before a compiled plan is
      published. Cold loads stream canonical freshness fields into SHA-256
      instead of materializing a JSON snapshot. Content digests from the

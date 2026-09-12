@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"encoding/json/jsontext"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -28,14 +29,19 @@ import (
 // the public one-shot behavior; the hook worker keeps one evaluator for its
 // lifetime so unchanged repositories skip lock JSON decoding and plan build.
 type Evaluator struct {
-	mu        sync.Mutex
-	plans     map[string]runtimePlanCacheEntry
-	loads     map[string]*runtimePlanLoad
-	loadSlots chan struct{}
-	planBytes uint64
-	useSerial uint64
-	loadHook  func(runtimePlanLoadStage)
-	loadStats *sourceFreshnessStats
+	mu               sync.Mutex
+	plans            map[string]runtimePlanCacheEntry
+	loads            map[string]*runtimePlanLoad
+	loadSlots        chan struct{}
+	planBytes        uint64
+	useSerial        uint64
+	loadSeq          uint64
+	loadHook         func(runtimePlanLoadStage)
+	joinHook         func(root string, callers int, gen uint64)
+	drainHook        func(root string, gen uint64)
+	cacheObserveHook func(root string, gen uint64)
+	slotWaitHook     func(root string)
+	loadStats        *sourceFreshnessStats
 }
 
 const maxRuntimePlanCacheEntries = 32
@@ -55,6 +61,7 @@ type runtimePlanCacheEntry struct {
 	freshness      [sha256.Size]byte
 	freshnessValid bool
 	lastUsed       uint64
+	gen            uint64
 	plan           *runtimePlan
 	bytes          uint64
 }
@@ -66,6 +73,8 @@ type runtimePlanLoad struct {
 	plan     *runtimePlan
 	err      error
 	callers  int
+	gen      uint64
+	joinable bool
 	finished bool
 }
 
@@ -151,6 +160,9 @@ func (e *Evaluator) loadFreshRuntimePlanWithContext(ctx context.Context, root st
 	}
 	plan, err := e.loadRuntimePlanWithContext(ctx, root)
 	if err != nil {
+		if runtimePlanCallerAbort(err) {
+			return nil, err
+		}
 		return nil, lockfileRefreshRequired(err)
 	}
 	return plan, nil
@@ -180,13 +192,16 @@ func (e *Evaluator) loadRuntimePlanWithContext(ctx context.Context, root string)
 	if e.loadSlots == nil {
 		e.loadSlots = make(chan struct{}, maxRuntimePlanConcurrentLoads)
 	}
-	if active := e.loads[root]; active != nil {
+	if active := e.loads[root]; active != nil && active.joinable {
 		active.callers++
+		callers, gen := active.callers, active.gen
 		e.mu.Unlock()
-		return e.waitRuntimePlanLoad(ctx, active)
+		e.runJoinHook(root, callers, gen)
+		return e.waitRuntimePlanLoad(ctx, root, active)
 	}
 	slots := e.loadSlots
 	e.mu.Unlock()
+	e.runSlotWaitHook(root)
 	select {
 	case slots <- struct{}{}:
 	case <-ctx.Done():
@@ -197,29 +212,35 @@ func (e *Evaluator) loadRuntimePlanWithContext(ctx context.Context, root string)
 	// caller waited for a bounded compilation slot. Reuse it and release the
 	// transient slot rather than creating duplicate work.
 	e.mu.Lock()
-	if active := e.loads[root]; active != nil {
+	if active := e.loads[root]; active != nil && active.joinable {
 		active.callers++
+		callers, gen := active.callers, active.gen
 		e.mu.Unlock()
 		<-slots
-		return e.waitRuntimePlanLoad(ctx, active)
+		e.runJoinHook(root, callers, gen)
+		return e.waitRuntimePlanLoad(ctx, root, active)
 	}
+	e.loadSeq++
 	loadCtx, loadCancel := context.WithCancel(context.Background())
 	active := &runtimePlanLoad{
-		done: make(chan struct{}), ctx: loadCtx, cancel: loadCancel, callers: 1,
+		done: make(chan struct{}), ctx: loadCtx, cancel: loadCancel, callers: 1, gen: e.loadSeq, joinable: true,
 	}
 	e.loads[root] = active
+	gen := active.gen
 	e.mu.Unlock()
+	e.runJoinHook(root, 1, gen)
 	go e.runRuntimePlanLoad(root, active, slots)
-	return e.waitRuntimePlanLoad(ctx, active)
+	return e.waitRuntimePlanLoad(ctx, root, active)
 }
 
 func (e *Evaluator) runRuntimePlanLoad(root string, active *runtimePlanLoad, slots chan struct{}) {
 	defer func() { <-slots }()
-	active.plan, active.err = e.loadRuntimePlanOwned(active.ctx, root)
+	active.plan, active.err = e.loadRuntimePlanOwned(active.ctx, root, active.gen)
 	e.mu.Lock()
 	if current, ok := e.loads[root]; ok && current == active {
 		delete(e.loads, root)
 	}
+	active.joinable = false
 	active.finished = true
 	close(active.done)
 	e.mu.Unlock()
@@ -228,20 +249,28 @@ func (e *Evaluator) runRuntimePlanLoad(root string, active *runtimePlanLoad, slo
 
 func (e *Evaluator) waitRuntimePlanLoad(
 	ctx context.Context,
+	root string,
 	active *runtimePlanLoad,
 ) (*runtimePlan, error) {
 	select {
 	case <-active.done:
 		return active.plan, active.err
 	case <-ctx.Done():
-		lastCaller := false
+		cancelWorker := false
 		e.mu.Lock()
 		if !active.finished && active.callers > 0 {
 			active.callers--
-			lastCaller = active.callers == 0
+			if active.callers == 0 {
+				active.joinable = false
+				if e.loads[root] == active {
+					delete(e.loads, root)
+				}
+				cancelWorker = true
+			}
 		}
 		e.mu.Unlock()
-		if lastCaller {
+		if cancelWorker {
+			e.runDrainHook(root, active.gen)
 			active.cancel()
 			<-active.done
 		}
@@ -249,17 +278,43 @@ func (e *Evaluator) waitRuntimePlanLoad(
 	}
 }
 
-func (e *Evaluator) loadRuntimePlanOwned(ctx context.Context, root string) (*runtimePlan, error) {
+func (e *Evaluator) runJoinHook(root string, callers int, gen uint64) {
+	if e != nil && e.joinHook != nil {
+		e.joinHook(root, callers, gen)
+	}
+}
+
+func (e *Evaluator) runDrainHook(root string, gen uint64) {
+	if e != nil && e.drainHook != nil {
+		e.drainHook(root, gen)
+	}
+}
+
+func (e *Evaluator) runCacheObserveHook(root string, gen uint64) {
+	if e != nil && e.cacheObserveHook != nil {
+		e.cacheObserveHook(root, gen)
+	}
+}
+
+func (e *Evaluator) runSlotWaitHook(root string) {
+	if e != nil && e.slotWaitHook != nil {
+		e.slotWaitHook(root)
+	}
+}
+
+func runtimePlanCallerAbort(err error) bool {
+	return err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
+}
+
+func (e *Evaluator) loadRuntimePlanOwned(ctx context.Context, root string, gen uint64) (*runtimePlan, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	data, err := readLockfileBytes(root)
 	if err != nil {
-		e.invalidateRuntimePlan(root)
-		return nil, err
+		return e.failRuntimePlanLoad(root, gen, err)
 	}
 	if err := ctx.Err(); err != nil {
-		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
 	lockHash := sha256.Sum256(data)
@@ -268,6 +323,7 @@ func (e *Evaluator) loadRuntimePlanOwned(ctx context.Context, root string) (*run
 	e.mu.Unlock()
 	if cachedOK {
 		if cached.lockHash == lockHash && cached.freshnessValid {
+			e.runCacheObserveHook(root, gen)
 			freshness, freshnessErr := observeRuntimeSourceFreshnessWithStatsContext(ctx, root, cached.plan, nil)
 			if freshnessErr == nil && freshness == cached.freshness {
 				e.mu.Lock()
@@ -279,86 +335,95 @@ func (e *Evaluator) loadRuntimePlanOwned(ctx context.Context, root string) (*run
 				e.mu.Unlock()
 				return cached.plan, nil
 			}
+			if runtimePlanCallerAbort(freshnessErr) {
+				return nil, freshnessErr
+			}
+			if freshnessErr != nil {
+				return nil, freshnessErr
+			}
+			e.invalidateRuntimePlanFrom(root, gen)
+		} else if cached.lockHash != lockHash {
+			e.invalidateRuntimePlanFrom(root, gen)
 		}
-		e.invalidateRuntimePlan(root)
 	}
 	loadContext, err := ingest.NewSourceLoadContextWithContext(ctx, root)
 	if err != nil {
-		e.invalidateRuntimePlan(root)
-		return nil, err
+		return e.failRuntimePlanLoad(root, gen, err)
 	}
 	bundle, err := ingest.LoadPolicySourcesWithContextAndCancellation(ctx, loadContext)
 	if err != nil {
-		e.invalidateRuntimePlan(root)
-		return nil, err
+		return e.failRuntimePlanLoad(root, gen, err)
 	}
 	e.runLoadHook(runtimePlanLoadAfterSourceSnapshot)
 	if err := ctx.Err(); err != nil {
-		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
 	currentDigest, err := compiler.ComputeSourceDigestWithContext(ctx, bundle)
 	if err != nil {
-		e.invalidateRuntimePlan(root)
+		if runtimePlanCallerAbort(err) {
+			return nil, err
+		}
+		e.invalidateRuntimePlanFrom(root, gen)
 		return nil, &rerrors.LockfileError{Message: "compute current source digest", Cause: err}
 	}
 
 	lock, err := decodeLockfile(data)
 	if err != nil {
-		e.invalidateRuntimePlan(root)
-		return nil, err
+		return e.failRuntimePlanLoad(root, gen, err)
 	}
 	if err := ctx.Err(); err != nil {
-		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
 	lock.byteHash = lockHash
 	if err := validateLockfileFreshnessBundle(lock.payload, lock.migrated, bundle, currentDigest); err != nil {
-		e.invalidateRuntimePlan(root)
-		return nil, err
+		return e.failRuntimePlanLoad(root, gen, err)
 	}
 	plan, err := compileRuntimePlanFromLockForRoot(lock, root)
 	if err != nil {
-		e.invalidateRuntimePlan(root)
-		return nil, err
+		return e.failRuntimePlanLoad(root, gen, err)
 	}
 	if err := ctx.Err(); err != nil {
-		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
 	plan.sourceFreshness, err = newSourceFreshnessRecipe(root, bundle.PolicyIncludePatterns())
 	if err != nil {
-		e.invalidateRuntimePlan(root)
-		return nil, err
+		return e.failRuntimePlanLoad(root, gen, err)
 	}
 	freshness, err := observeRuntimeSourceFreshnessFromBundleWithStatsContext(ctx, root, plan, bundle, e.loadStats)
 	if err != nil {
-		e.invalidateRuntimePlan(root)
+		if runtimePlanCallerAbort(err) {
+			return nil, err
+		}
+		e.invalidateRuntimePlanFrom(root, gen)
 		return nil, &rerrors.LockfileError{Message: "observe runtime source freshness", Cause: err}
 	}
 	e.runLoadHook(runtimePlanLoadAfterInitialFreshness)
 	if err := ctx.Err(); err != nil {
-		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
 	publicationLock, err := readLockfileBytes(root)
 	if err != nil || sha256.Sum256(publicationLock) != lockHash {
-		e.invalidateRuntimePlan(root)
+		if runtimePlanCallerAbort(err) {
+			return nil, err
+		}
+		e.invalidateRuntimePlanFrom(root, gen)
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile changed while preparing the runtime plan", Cause: err}
 	}
 	e.runLoadHook(runtimePlanLoadAfterPublicationLock)
 	if err := ctx.Err(); err != nil {
-		e.invalidateRuntimePlan(root)
 		return nil, err
 	}
 	publicationFreshness, err := observeRuntimeSourceFreshnessWithStatsContext(ctx, root, plan, e.loadStats)
 	if err != nil || publicationFreshness != freshness {
-		e.invalidateRuntimePlan(root)
+		if runtimePlanCallerAbort(err) {
+			return nil, err
+		}
+		e.invalidateRuntimePlanFrom(root, gen)
 		return nil, &rerrors.LockfileError{Message: "policy sources changed while preparing the runtime plan", Cause: err}
 	}
 	e.cacheRuntimePlan(root, runtimePlanCacheEntry{
 		lockHash: lockHash, freshness: freshness, freshnessValid: true,
-		plan: plan, bytes: plan.memoryBytes,
+		gen: gen, plan: plan, bytes: plan.memoryBytes,
 	})
 	return plan, nil
 }
@@ -369,9 +434,19 @@ func (e *Evaluator) runLoadHook(stage runtimePlanLoadStage) {
 	}
 }
 
-func (e *Evaluator) invalidateRuntimePlan(root string) {
+func (e *Evaluator) failRuntimePlanLoad(root string, gen uint64, err error) (*runtimePlan, error) {
+	if runtimePlanCallerAbort(err) {
+		return nil, err
+	}
+	e.invalidateRuntimePlanFrom(root, gen)
+	return nil, err
+}
+
+func (e *Evaluator) invalidateRuntimePlanFrom(root string, gen uint64) {
 	e.mu.Lock()
-	e.removeRuntimePlanLocked(root)
+	if entry, ok := e.plans[root]; ok && entry.gen <= gen {
+		e.removeRuntimePlanLocked(root)
+	}
 	e.mu.Unlock()
 }
 
@@ -381,6 +456,9 @@ func (e *Evaluator) cacheRuntimePlan(root string, entry runtimePlanCacheEntry) b
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if current, ok := e.plans[root]; ok && current.gen > entry.gen {
+		return false
+	}
 	if e.plans == nil {
 		e.plans = make(map[string]runtimePlanCacheEntry)
 	}

@@ -3689,9 +3689,14 @@ environment-sensitive, so the allocation reductions are the portable claim.
 
 Context-aware runtime-plan loads coalesce per repository without binding every
 waiter to another caller's cancellation: a canceled waiter returns immediately
-while surviving callers continue, and cancellation of the final caller closes
-the shared load without publishing a partial plan. Discovery, source reads,
-include expansion, template
+while surviving callers continue. The last caller marks its generation
+non-joinable and removes it from the in-flight map before cancelling the
+worker, so a replacement caller starts a new generation instead of inheriting
+`context.Canceled`. A previously validated cached plan survives caller
+cancellation or deadline during freshness observation unless lock bytes,
+source identity, freshness, decoding, or another persistent fact proves it
+stale. Old workers cannot delete or overwrite a newer generation's cache.
+Discovery, source reads, include expansion, template
 dependency resolution, source digesting, and freshness hashing check the caller
 lifecycle at bounded stage and per-entry boundaries. Compatibility entry points
 use a background context, while context-bearing evaluation returns the original
@@ -3701,8 +3706,11 @@ The evaluator retains at most 32 immutable runtime plans and 128 MiB of
 conservatively accounted plan graphs. A legal plan larger than that budget is
 served uncached; it is not treated as a policy failure. At most four distinct
 roots compile concurrently per evaluator, while same-root callers share one
-load, so transient lockfile, source, and compiled-plan graphs remain bounded
-and cancellation-aware. Action decision caches retain at most 256 results and
+joinable generation. A draining generation still occupies its slot until the
+worker returns, and a replacement generation for the same root takes a new
+slot rather than inheriting the cancelled worker. Transient lockfile, source,
+and compiled-plan graphs remain bounded and cancellation-aware. Action decision
+caches retain at most 256 results and
 64 MiB of accounted result graphs. Cached results own their backing arrays;
 lookup cloning happens after the cache lock is released, and oversized legal
 results bypass retention while preserving the exact cache identity contract.
@@ -5500,10 +5508,16 @@ Security posture:
   Migrated legacy locks additionally prove embedded-rule and MCP parity against
   reparsed current sources.
 - Runtime-plan loading coordinates only callers for the same repository root.
+  Each in-flight root load is joinable until its last caller leaves; that
+  transition is atomic with removing the generation from the map, then the
+  worker is cancelled. A new caller never joins a draining generation.
   Lockfile reads, source walks, freshness hashing, decoding, and compilation for
-  different roots proceed independently. Before publishing a newly compiled
-  plan, the evaluator revalidates both the lockfile hash and complete source
-  freshness so an out-of-lock mutation cannot publish stale state.
+  different roots proceed independently. Caller cancellation or deadline during
+  freshness observation does not drop a previously validated cache. Before
+  publishing a newly compiled plan, the evaluator revalidates both the
+  lockfile hash and complete source freshness so an out-of-lock mutation
+  cannot publish stale state. An older worker cannot invalidate or overwrite a
+  newer generation's published plan.
 
 Reconc is a deterministic repository control plane, not an operating-system
 sandbox. A deliberately hostile same-user process can replace local policy,

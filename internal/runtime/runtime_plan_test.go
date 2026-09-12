@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	stderrors "errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/compiler"
+	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/policy"
 	contractschema "reconc.dev/reconc/internal/schema"
 )
@@ -502,28 +504,25 @@ func TestRuntimePlanCanceledOwnerDoesNotStopSurvivingWaiter(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("runtime plan owner did not reach deterministic load hook")
 	}
+	joined := make(chan struct{})
+	evaluator.joinHook = func(root string, callers int, gen uint64) {
+		if callers == 2 {
+			select {
+			case <-joined:
+			default:
+				close(joined)
+			}
+		}
+	}
 	waiterDone := make(chan error, 1)
 	go func() {
 		_, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo)
 		waiterDone <- err
 	}()
-	deadline := time.After(time.Second)
-	for {
-		evaluator.mu.Lock()
-		callers := 0
-		if active := evaluator.loads[repo]; active != nil {
-			callers = active.callers
-		}
-		evaluator.mu.Unlock()
-		if callers == 2 {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatal("surviving waiter did not join shared load")
-		default:
-			time.Sleep(time.Millisecond)
-		}
+	select {
+	case <-joined:
+	case <-time.After(time.Second):
+		t.Fatal("surviving waiter did not join shared load")
 	}
 	cancelOwner()
 	select {
@@ -608,6 +607,416 @@ func TestRuntimePlanCanceledOwnerLeavesNoPartialLoad(t *testing.T) {
 	evaluator.loadHook = nil
 	if _, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo); err != nil {
 		t.Fatalf("uncanceled retry after owner cancellation: %v", err)
+	}
+}
+
+func TestRuntimePlanLastCallerDoesNotJoinDrainingGeneration(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	evaluator := NewEvaluator()
+	aEntered := make(chan struct{})
+	aRelease := make(chan struct{})
+	evaluator.loadHook = func(stage runtimePlanLoadStage) {
+		if stage != runtimePlanLoadAfterSourceSnapshot {
+			return
+		}
+		evaluator.mu.Lock()
+		gen := uint64(0)
+		if load := evaluator.loads[repo]; load != nil {
+			gen = load.gen
+		}
+		evaluator.mu.Unlock()
+		if gen == 1 {
+			close(aEntered)
+			<-aRelease
+		}
+	}
+	drainEntered := make(chan struct{})
+	allowDrain := make(chan struct{})
+	bDone := make(chan error, 1)
+	evaluator.drainHook = func(root string, gen uint64) {
+		if gen != 1 {
+			return
+		}
+		close(drainEntered)
+		<-allowDrain
+		go func() {
+			_, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo)
+			bDone <- err
+		}()
+	}
+	ownerContext, cancelOwner := context.WithCancel(context.Background())
+	ownerDone := make(chan error, 1)
+	go func() {
+		_, err := evaluator.loadRuntimePlanWithContext(ownerContext, repo)
+		ownerDone <- err
+	}()
+	select {
+	case <-aEntered:
+	case <-time.After(time.Second):
+		t.Fatal("generation A did not reach snapshot hook")
+	}
+	cancelOwner()
+	select {
+	case <-drainEntered:
+	case <-time.After(time.Second):
+		t.Fatal("last caller did not mark generation A non-joinable")
+	}
+	evaluator.mu.Lock()
+	draining := evaluator.loads[repo]
+	evaluator.mu.Unlock()
+	if draining != nil && draining.gen == 1 && draining.joinable {
+		close(allowDrain)
+		close(aRelease)
+		t.Fatal("draining generation remained joinable")
+	}
+	close(allowDrain)
+	select {
+	case err := <-bDone:
+		if err != nil {
+			t.Fatalf("replacement generation inherited draining cancellation: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		close(aRelease)
+		t.Fatal("replacement generation did not complete")
+	}
+	close(aRelease)
+	select {
+	case err := <-ownerDone:
+		if !stderrors.Is(err, context.Canceled) {
+			t.Fatalf("generation A error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("generation A did not return")
+	}
+	evaluator.mu.Lock()
+	defer evaluator.mu.Unlock()
+	if len(evaluator.loads) != 0 || len(evaluator.plans) != 1 {
+		t.Fatalf("overlapping generation state: active %d cached %d", len(evaluator.loads), len(evaluator.plans))
+	}
+}
+
+func TestRuntimePlanCanceledFreshnessKeepsValidatedCache(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	evaluator := NewEvaluator()
+	first, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo)
+	if err != nil || first == nil {
+		t.Fatalf("initial load: %v", err)
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	evaluator.cacheObserveHook = func(root string, gen uint64) {
+		close(entered)
+		<-release
+	}
+	callerContext, cancelCaller := context.WithCancel(context.Background())
+	callerDone := make(chan error, 1)
+	go func() {
+		_, err := evaluator.loadRuntimePlanWithContext(callerContext, repo)
+		callerDone <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("cache hit did not reach freshness observation")
+	}
+	cancelCaller()
+	close(release)
+	select {
+	case err := <-callerDone:
+		if !stderrors.Is(err, context.Canceled) {
+			t.Fatalf("canceled cache hit error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled cache hit did not return")
+	}
+	evaluator.cacheObserveHook = nil
+	second, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo)
+	if err != nil || second != first {
+		t.Fatalf("validated cache was dropped: plan=%p err=%v", second, err)
+	}
+}
+
+func TestRuntimePlanDeadlineFreshnessKeepsValidatedCache(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	evaluator := NewEvaluator()
+	first, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo)
+	if err != nil || first == nil {
+		t.Fatalf("initial load: %v", err)
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	evaluator.cacheObserveHook = func(root string, gen uint64) {
+		close(entered)
+		<-release
+	}
+	callerContext, cancelCaller := context.WithDeadline(context.Background(), time.Now().Add(time.Hour))
+	callerDone := make(chan error, 1)
+	go func() {
+		_, err := evaluator.loadRuntimePlanWithContext(callerContext, repo)
+		callerDone <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("cache hit did not reach freshness observation")
+	}
+	cancelCaller()
+	close(release)
+	select {
+	case err := <-callerDone:
+		if !stderrors.Is(err, context.Canceled) && !stderrors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("deadline cache hit error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadline cache hit did not return")
+	}
+	evaluator.cacheObserveHook = nil
+	second, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo)
+	if err != nil || second != first {
+		t.Fatalf("validated cache was dropped after deadline: plan=%p err=%v", second, err)
+	}
+}
+
+func TestRuntimePlanOldWorkerDoesNotInvalidateNewerCache(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	evaluator := NewEvaluator()
+	aEntered := make(chan struct{})
+	aRelease := make(chan struct{})
+	evaluator.loadHook = func(stage runtimePlanLoadStage) {
+		if stage != runtimePlanLoadAfterSourceSnapshot {
+			return
+		}
+		evaluator.mu.Lock()
+		gen := uint64(0)
+		if load := evaluator.loads[repo]; load != nil {
+			gen = load.gen
+		}
+		evaluator.mu.Unlock()
+		if gen == 1 {
+			close(aEntered)
+			<-aRelease
+		}
+	}
+	bPlan := make(chan *runtimePlan, 1)
+	evaluator.drainHook = func(root string, gen uint64) {
+		if gen != 1 {
+			return
+		}
+		plan, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo)
+		if err != nil {
+			bPlan <- nil
+			return
+		}
+		bPlan <- plan
+	}
+	ownerContext, cancelOwner := context.WithCancel(context.Background())
+	ownerDone := make(chan error, 1)
+	go func() {
+		_, err := evaluator.loadRuntimePlanWithContext(ownerContext, repo)
+		ownerDone <- err
+	}()
+	select {
+	case <-aEntered:
+	case <-time.After(time.Second):
+		t.Fatal("generation A did not reach snapshot hook")
+	}
+	cancelOwner()
+	var published *runtimePlan
+	select {
+	case published = <-bPlan:
+		if published == nil {
+			close(aRelease)
+			t.Fatal("replacement generation failed")
+		}
+	case <-time.After(5 * time.Second):
+		close(aRelease)
+		t.Fatal("replacement generation did not publish")
+	}
+	close(aRelease)
+	select {
+	case err := <-ownerDone:
+		if !stderrors.Is(err, context.Canceled) {
+			t.Fatalf("generation A error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("generation A did not return")
+	}
+	evaluator.loadHook = nil
+	evaluator.drainHook = nil
+	kept, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo)
+	if err != nil || kept != published {
+		t.Fatalf("old worker mutated newer cache: plan=%p want=%p err=%v", kept, published, err)
+	}
+}
+
+func TestRuntimePlanCallerAbortRecognizesCancellationAndDeadlines(t *testing.T) {
+	if runtimePlanCallerAbort(nil) {
+		t.Fatal("nil error treated as caller abort")
+	}
+	if !runtimePlanCallerAbort(context.Canceled) {
+		t.Fatal("context.Canceled must abort")
+	}
+	if !runtimePlanCallerAbort(context.DeadlineExceeded) {
+		t.Fatal("context.DeadlineExceeded must abort")
+	}
+	if !runtimePlanCallerAbort(fmt.Errorf("observe: %w", context.DeadlineExceeded)) {
+		t.Fatal("wrapped deadline must abort")
+	}
+	if !runtimePlanCallerAbort(&rerrors.LockfileError{Message: "observe runtime source freshness", Cause: context.Canceled}) {
+		t.Fatal("lockfile-wrapped cancellation must abort")
+	}
+	if runtimePlanCallerAbort(os.ErrNotExist) {
+		t.Fatal("persistent IO error treated as caller abort")
+	}
+}
+
+func TestRuntimePlanDeadlineExceededOwnedLoadKeepsValidatedCache(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	evaluator := NewEvaluator()
+	first, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo)
+	if err != nil || first == nil {
+		t.Fatalf("initial load: %v", err)
+	}
+	deadline, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	if _, err := evaluator.loadRuntimePlanOwned(deadline, repo, 1); !stderrors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expired owned load error = %v", err)
+	}
+	second, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo)
+	if err != nil || second != first {
+		t.Fatalf("deadline abort dropped validated cache: plan=%p err=%v", second, err)
+	}
+}
+
+func TestRuntimePlanCanceledFreshLoadDoesNotRequireLockfileRefresh(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	evaluator := NewEvaluator()
+	hookEntered := make(chan struct{})
+	release := make(chan struct{})
+	evaluator.loadHook = func(stage runtimePlanLoadStage) {
+		if stage != runtimePlanLoadAfterSourceSnapshot {
+			return
+		}
+		close(hookEntered)
+		<-release
+	}
+	callerContext, cancelCaller := context.WithCancel(context.Background())
+	callerDone := make(chan error, 1)
+	go func() {
+		_, err := evaluator.loadFreshRuntimePlanWithContext(callerContext, repo)
+		callerDone <- err
+	}()
+	select {
+	case <-hookEntered:
+	case <-time.After(time.Second):
+		t.Fatal("fresh load did not reach snapshot hook")
+	}
+	cancelCaller()
+	close(release)
+	select {
+	case err := <-callerDone:
+		if !stderrors.Is(err, context.Canceled) {
+			t.Fatalf("canceled fresh load error = %v", err)
+		}
+		if strings.Contains(err.Error(), "explicit refresh required") {
+			t.Fatalf("caller cancellation wrapped as lockfile refresh: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled fresh load did not return")
+	}
+	evaluator.mu.Lock()
+	active, cached := len(evaluator.loads), len(evaluator.plans)
+	evaluator.mu.Unlock()
+	if active != 0 {
+		t.Fatalf("canceled fresh load leaked in-flight state: active %d cached %d", active, cached)
+	}
+}
+
+func TestRuntimePlanSlotWaiterCancelDoesNotStopOccupants(t *testing.T) {
+	withRECONCHome(t)
+	evaluator := NewEvaluator()
+	entered := make(chan struct{}, maxRuntimePlanConcurrentLoads)
+	release := make(chan struct{})
+	evaluator.loadHook = func(stage runtimePlanLoadStage) {
+		if stage != runtimePlanLoadAfterSourceSnapshot {
+			return
+		}
+		entered <- struct{}{}
+		<-release
+	}
+	occupantDone := make(chan error, maxRuntimePlanConcurrentLoads)
+	occupants := make([]string, maxRuntimePlanConcurrentLoads)
+	for index := range occupants {
+		occupants[index] = makeRepo(t, "# project\n", "", "rules: []\n")
+		go func(root string) {
+			_, err := evaluator.loadRuntimePlanWithContext(context.Background(), root)
+			occupantDone <- err
+		}(occupants[index])
+	}
+	for range occupants {
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			t.Fatal("occupant did not acquire a compilation slot")
+		}
+	}
+	fifth := makeRepo(t, "# project\n", "", "rules: []\n")
+	waitSlot := make(chan struct{})
+	allowWait := make(chan struct{})
+	evaluator.slotWaitHook = func(root string) {
+		if root != fifth {
+			return
+		}
+		close(waitSlot)
+		<-allowWait
+	}
+	fifthContext, cancelFifth := context.WithCancel(context.Background())
+	fifthDone := make(chan error, 1)
+	go func() {
+		_, err := evaluator.loadRuntimePlanWithContext(fifthContext, fifth)
+		fifthDone <- err
+	}()
+	select {
+	case <-waitSlot:
+	case <-time.After(time.Second):
+		t.Fatal("fifth root did not wait for a compilation slot")
+	}
+	cancelFifth()
+	close(allowWait)
+	select {
+	case err := <-fifthDone:
+		if !stderrors.Is(err, context.Canceled) {
+			t.Fatalf("slot waiter error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled slot waiter remained blocked")
+	}
+	close(release)
+	for range occupants {
+		select {
+		case err := <-occupantDone:
+			if err != nil {
+				t.Fatalf("occupant load: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("occupant did not complete after slot waiter cancellation")
+		}
+	}
+	evaluator.loadHook = nil
+	evaluator.slotWaitHook = nil
+	if _, err := evaluator.loadRuntimePlanWithContext(context.Background(), fifth); err != nil {
+		t.Fatalf("retry after slot contention: %v", err)
+	}
+	evaluator.mu.Lock()
+	defer evaluator.mu.Unlock()
+	if len(evaluator.loads) != 0 {
+		t.Fatalf("slot contention leaked in-flight loads: %d", len(evaluator.loads))
 	}
 }
 
