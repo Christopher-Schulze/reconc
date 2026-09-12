@@ -1335,6 +1335,12 @@ a deterministic uncertainty summary plus a SHA-256 identity of that sanitized
 classification only. Shared CLI `--output` paths stage complete rendered bytes
 privately and publish them atomically; final symlinks and non-regular targets
 fail closed while the existing destination remains intact.
+External paths in proof text become `<external>`. Quoted POSIX, drive, UNC,
+and file-URI spans include spaces, Unicode, punctuation, and escaped quotes;
+an unmatched opening quote causes conservative redaction through the remaining
+span. Ordinary web URLs and repository-relative paths remain readable. File
+URIs never qualify as portable structured path identities. Sanitization is
+idempotent, including after repository and home prefix replacement.
 The public schema is `schemas/v1/proof-bundle.schema.json`.
 
 Exit codes:
