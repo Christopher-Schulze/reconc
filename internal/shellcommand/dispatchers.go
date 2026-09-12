@@ -219,7 +219,7 @@ func classifySystemdRunOption(word string) (int, bool) {
 func parallelCommand(words []commandWord) ([]commandWord, bool) {
 	quote := false
 	for index := 0; index < len(words); index++ {
-		if words[index].dynamic {
+		if words[index].dynamic || strings.ContainsAny(words[index].value, "{}") {
 			return nil, false
 		}
 		word := words[index].value
@@ -244,6 +244,13 @@ func parallelCommand(words []commandWord) ([]commandWord, bool) {
 			next, ok := skipStaticOperands(words, index+1, operands)
 			if !ok {
 				return nil, false
+			}
+			// Parallel evaluates replacement expressions in option values too,
+			// including tag strings and output paths, outside the inner command.
+			for _, operand := range words[index+1 : next] {
+				if strings.ContainsAny(operand.value, "{}") {
+					return nil, false
+				}
 			}
 			index = next - 1
 			continue

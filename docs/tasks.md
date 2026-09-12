@@ -5,10 +5,13 @@
 
 ## Queue
 
+- [ ] 541 Redact escaped quoted proof paths -> tasks/541-redact-escaped-quoted-proof-paths.md
+- [ ] 542 Distinguish coverage policy clauses from measurements -> tasks/542-distinguish-coverage-policy-clauses-from-measurements.md
 
 ## Blocked
 
 ## Done
+- [x] 540 Reject GNU Parallel option expansions -> tasks/done/540-reject-gnu-parallel-option-expansions.md
 - [x] 539 Reduce session pre-hook allocations without weakening cache identity -> tasks/done/539-reduce-session-pre-hook-allocations-without-weakening-cache-identity.md
 - [x] 538 Verify review fixes and current performance evidence -> tasks/done/538-verify-review-fixes-and-current-performance-evidence.md
 - [x] 537 Distinguish coverage measurements from thresholds -> tasks/done/537-distinguish-coverage-measurements-from-thresholds.md
@@ -18,4 +21,3 @@
 - [x] 533 Propagate declared writes through command prevention -> tasks/done/533-propagate-declared-writes-through-command-prevention.md
 - [x] 532 Close GNU Parallel command-policy bypasses -> tasks/done/532-close-gnu-parallel-command-policy-bypasses.md
 - [x] 531 Harden benchmark percentile and output contracts -> tasks/done/531-harden-benchmark-percentile-and-output-contracts.md
-- [x] 528 Align assurance manifest admission with stack detection -> tasks/done/528-align-assurance-manifest-admission-with-stack-detection.md

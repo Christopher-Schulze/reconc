@@ -1,6 +1,24 @@
 package shellcommand
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
+
+func TestParallelOptionReplacementsRemainIncomplete(t *testing.T) {
+	for _, option := range []string{"--tagstring", "--tag-string", "--workdir", "--wd", "--results", "--retries"} {
+		for _, separator := range []string{" ", "="} {
+			for _, value := range []string{`{= system("git status"); =}`, "{1}", "prefix{#}"} {
+				command := fmt.Sprintf("parallel %s%s'%s' echo ::: .", option, separator, value)
+				t.Run(command, func(t *testing.T) {
+					if _, reason := InvocationsWithReason(command, 16); reason != IncompleteDynamicCommand {
+						t.Fatalf("replacement option received complete analysis: %q", reason)
+					}
+				})
+			}
+		}
+	}
+}
 
 func TestParallelInnerCommandUsesDepthBudget(t *testing.T) {
 	for _, command := range []string{"parallel echo ::: .", "parallel -q echo ::: ."} {

@@ -23,6 +23,14 @@ func TestParallelPreventionPreservesInnerShellBoundary(t *testing.T) {
 		{"parallel 'echo git status' ::: .", DecisionPass},
 		{"parallel -q echo 'git status; git status' ::: .", DecisionPass},
 		{"echo parallel 'git status' ::: .", DecisionPass},
+		{`parallel --tagstring '{= system("git status"); =}' echo ::: .`, DecisionBlock},
+		{`parallel --tagstring='{= system("git status"); =}' echo ::: .`, DecisionBlock},
+		{`sudo parallel -q --tag-string '{= system("git status"); =}' echo ::: .`, DecisionBlock},
+		{`parallel --workdir '{= system("git status"); $_="."; =}' echo ::: .`, DecisionBlock},
+		{`parallel --results='{= system("git status"); =}' echo ::: .`, DecisionBlock},
+		{`parallel --retries '{= system("git status"); $_=1; =}' echo ::: .`, DecisionBlock},
+		{`parallel --tagstring literal --workdir=. echo ::: '{= system("git status"); =}'`, DecisionPass},
+		{`echo parallel --tagstring '{= system("git status"); =}' echo ::: .`, DecisionPass},
 	}
 	for _, test := range tests {
 		t.Run(test.command, func(t *testing.T) {

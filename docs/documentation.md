@@ -3011,6 +3011,9 @@ analyzer after outer quote removal; `--quote` preserves literal argument
 boundaries. Input appended by Parallel remains unknown command arguments,
 including when consumed by another shell or `eval`. Replacement expressions,
 custom replacement markers, and unsupported replacement modes fail closed.
+This includes replacement-shaped option values, whether supplied separately
+or as `--option=value`; options such as `--tagstring` can execute replacement
+code outside the inner command. Literal input after `:::` remains argument data.
 Ordinary literal
 arguments such as `echo git clean` never become executable-command matches.
 An unqualified rule executable matches the basename of an absolute executable
