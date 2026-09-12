@@ -65,6 +65,11 @@ func TestTerminalTaskCompletionBlocksDirtyGitlinkAncestor(t *testing.T) {
 	if testing.Short() {
 		t.Skip("creates a local Git submodule fixture")
 	}
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "user.useConfigOnly")
+	t.Setenv("GIT_CONFIG_VALUE_0", "true")
 	t.Setenv(stopPolicyUntrackedModeEnv, "no")
 	repo := setupPolicyRepo(t)
 	gitInitHelper(t, repo)
@@ -144,6 +149,8 @@ func addSessionGitlink(t *testing.T, repo, mount, content string, taskRoot bool)
 	sessionGit(t, child, "add", "-A")
 	sessionGit(t, child, "commit", "-m", "gitlink child", "--quiet")
 	sessionGit(t, repo, "-c", "protocol.file.allow=always", "submodule", "add", "--quiet", child, mount)
+	sessionGit(t, filepath.Join(repo, mount), "config", "user.name", "reconc-test")
+	sessionGit(t, filepath.Join(repo, mount), "config", "user.email", "reconc-test@example.com")
 }
 
 func TestUncacheableStopRejectsTerminalGitDriftDuringEvaluation(t *testing.T) {

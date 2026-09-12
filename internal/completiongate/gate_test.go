@@ -334,6 +334,11 @@ func TestTypedTaskTerminalAndCommittedStateContracts(t *testing.T) {
 		if testing.Short() {
 			t.Skip("creates a local Git submodule fixture")
 		}
+		t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+		t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+		t.Setenv("GIT_CONFIG_COUNT", "1")
+		t.Setenv("GIT_CONFIG_KEY_0", "user.useConfigOnly")
+		t.Setenv("GIT_CONFIG_VALUE_0", "true")
 		config := "task_lifecycle:\n  profile: sections-v1\n  completion:\n    require_committed: true\n"
 		repo := completionRepo(t, "rules: []\n", map[string]string{".reconc.yml": config})
 		initCompletionGit(t, repo)
@@ -511,6 +516,8 @@ func addCompletionGitlink(t *testing.T, repo, mount, content string) {
 	gitCompletion(t, child, "add", "-A")
 	gitCompletion(t, child, "commit", "-m", "gitlink child")
 	gitCompletion(t, repo, "-c", "protocol.file.allow=always", "submodule", "add", "--quiet", child, mount)
+	gitCompletion(t, filepath.Join(repo, mount), "config", "user.name", "reconc-test")
+	gitCompletion(t, filepath.Join(repo, mount), "config", "user.email", "reconc-test@example.com")
 }
 
 func writeCompletionFile(t *testing.T, repo, relative, body string) {
