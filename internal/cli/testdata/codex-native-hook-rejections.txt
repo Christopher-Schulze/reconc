@@ -1,0 +1,7 @@
+2026-09-12T20:08:03.839129Z ERROR codex_core::tools::router: error=Command blocked by PreToolUse hook: reconc blocked this file modification before execution.
+- [hook-verify-deny-write] Avoid writing paths matching forbidden.txt, forbidden-command-marker.. Command: *** Begin Patch
+*** Add File: forbidden.txt
++PROBE_DENIED
+*** End Patch
+2026-09-12T20:08:05.493064Z ERROR codex_core::tools::router: error=Command blocked by PreToolUse hook: reconc blocked this command before execution.
+- [hook-verify-deny-command] Do not run touch forbidden-command-marker in this repository; revert or replace the invocation with an allowed alternative.. Command: touch forbidden-command-marker

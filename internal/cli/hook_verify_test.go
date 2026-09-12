@@ -153,6 +153,33 @@ func TestHookVerificationHelpDocumentsExitContract(t *testing.T) {
 	}
 }
 
+func TestHookVerificationTextRetainsLiveReceiptAndEscapesPaths(t *testing.T) {
+	result := hookVerificationResult{
+		Host:  &liveHookHostIdentity{Executable: "/tmp/native\npath", RuntimeSHA256: strings.Repeat("b", 64)},
+		Probe: &liveHookReceipt{RunID: strings.Repeat("a", 32), Mode: "native-exec", Operations: []liveHookOperationProof{{Operation: "denied-write", Decision: "block", HostOutcome: "rejected", EffectCheck: "absent", Complete: true}}},
+	}
+	var output bytes.Buffer
+	if err := writeHookVerificationEvidence(result, &output); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Count(output.Bytes(), []byte{'\n'}) != 1 {
+		t.Fatal("live evidence injected extra terminal lines")
+	}
+	var decoded struct {
+		Host  liveHookHostIdentity `json:"host"`
+		Probe liveHookReceipt      `json:"probe"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(output.String(), "  evidence: ")), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Host.Executable != result.Host.Executable || decoded.Host.RuntimeSHA256 != result.Host.RuntimeSHA256 || decoded.Probe.RunID != result.Probe.RunID || len(decoded.Probe.Operations) != 1 || !decoded.Probe.Operations[0].Complete {
+		t.Fatalf("live receipt lost identity or operation evidence: %+v", decoded)
+	}
+	if err := writeHookVerificationEvidence(result, failingOutputWriter{}); err == nil {
+		t.Fatal("live receipt output failure was ignored")
+	}
+}
+
 func TestHookVerificationReportOutputFailureWinsOverIncompleteStatus(t *testing.T) {
 	report := hookVerificationReport{
 		FormatVersion: hookVerificationFormatVersion,
@@ -370,6 +397,8 @@ func TestHookVerificationInternalCommandsRequireIsolatedWorkspace(t *testing.T) 
 	for _, args := range [][]string{
 		{"hook", "__verify-offline", "", "", t.TempDir()},
 		{"hook", "__verify-live-setup", hooks.KindOpenCode, "cli", t.TempDir()},
+		{"hook", "__verify-live-confirm", t.TempDir()},
+		{"hook", "__verify-live-capture", t.TempDir(), strings.Repeat("a", 32), "codex-pre-tool-use"},
 	} {
 		var stdout, stderr bytes.Buffer
 		err := Run(args, "test", &stdout, &stderr)
@@ -431,11 +460,12 @@ func TestLiveHookVerifyReportsMissingKnownHostBinary(t *testing.T) {
 	}
 }
 
-func TestLiveHookVerifyReportsOperatorAbortWithoutClaims(t *testing.T) {
+func TestLiveHookVerifyJSONNeverWaitsForOperator(t *testing.T) {
+	hostPath := writeLiveHookHostFixture(t, "printf '%s\\n' 'opencode test'\n")
 	originalLookPath := hookVerifyLookPath
 	hookVerifyLookPath = func(name string) (string, error) {
-		if name == "opencode" || name == "jq" {
-			return "/usr/bin/" + name, nil
+		if name == "opencode" {
+			return hostPath, nil
 		}
 		return originalLookPath(name)
 	}
@@ -446,7 +476,7 @@ func TestLiveHookVerifyReportsOperatorAbortWithoutClaims(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	options := hookVerifyOptions{host: hooks.KindOpenCode, surface: "cli", live: true, allowAuthenticated: true, jsonOutput: true}
-	if err := runLiveHookVerification(options, surfaces, strings.NewReader(""), &stdout, &stderr); ExitCode(err) != hookVerificationIncompleteExitCode {
+	if err := runLiveHookVerification(options, surfaces, rejectedLiveHookInput{t}, &stdout, &stderr); ExitCode(err) != hookVerificationIncompleteExitCode {
 		t.Fatalf("live verification exit = %d, want %d: %v", ExitCode(err), hookVerificationIncompleteExitCode, err)
 	}
 	var report hookVerificationReport
@@ -454,8 +484,68 @@ func TestLiveHookVerifyReportsOperatorAbortWithoutClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := report.Results[0]
-	if report.Complete || result.Loaded || result.Observed || result.Enforced || !strings.Contains(result.Detail, "operator aborted") {
+	if report.Complete || result.Loaded || result.Observed || result.Enforced || !strings.Contains(result.Detail, "JSON mode never waits") {
 		t.Fatalf("aborted report = %+v", report)
+	}
+}
+
+type rejectedLiveHookInput struct{ t *testing.T }
+
+func (input rejectedLiveHookInput) Read([]byte) (int, error) {
+	input.t.Error("noninteractive live verification attempted to read operator input")
+	return 0, fmt.Errorf("operator input must not be read")
+}
+
+func TestLiveHookOperatorConfirmationIsBounded(t *testing.T) {
+	workspace, err := newHookVerificationWorkspace("reconc-hook-confirm-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer workspace.cleanup()
+	for _, test := range []struct {
+		name, input string
+		valid       bool
+	}{
+		{"confirmed", "\n", true},
+		{"aborted", "", false},
+		{"oversized", strings.Repeat("x", 4096) + "\n", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := waitLiveHookOperator(ctx, workspace, strings.NewReader(test.input)); (err == nil) != test.valid {
+				t.Fatalf("confirmation error=%v", err)
+			}
+		})
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if err := waitLiveHookOperator(ctx, workspace, reader); err == nil || ctx.Err() == nil || time.Since(start) > time.Second {
+		t.Fatalf("blocked operator read did not respect deadline: %v", err)
+	}
+}
+
+func TestLiveHookProbeRecordRejectsContradictoryExitStatus(t *testing.T) {
+	for _, test := range []struct {
+		class string
+		exit  int
+		valid bool
+	}{
+		{"allowed-or-observed", 0, true}, {"blocked", 2, true}, {"runtime-error", 1, true},
+		{"blocked", 0, false}, {"allowed-or-observed", 2, false}, {"runtime-error", 0, false},
+		{"runtime-error", -1, false}, {"runtime-error", 256, false},
+	} {
+		record := liveHookProbeRecord{Route: "opencode-pre-tool-use", Fields: []string{}, ResultClass: test.class, ExitCode: test.exit}
+		if got := validLiveHookProbeRecord(record); got != test.valid {
+			t.Fatalf("class=%s exit=%d accepted=%t", test.class, test.exit, got)
+		}
 	}
 }
 
@@ -470,7 +560,7 @@ func TestApplyLiveHookProbeRecordsSeparatesObservedFromComplete(t *testing.T) {
 		{Route: "opencode-pre-tool-use", Fields: []string{"session_id", "tool_input", "tool_name"}, ResultClass: "blocked", ExitCode: 2, DurationNanos: int64(3 * time.Millisecond)},
 	}
 	result = applyLiveHookProbeRecords(result, records, repo)
-	if !result.Loaded || !result.Observed || !result.Enforced || !result.Degraded || result.DurationMillis != 3 {
+	if !result.Loaded || !result.Observed || result.Enforced || !result.Degraded || result.DurationMillis != 3 {
 		t.Fatalf("live facts = %+v", result)
 	}
 	if len(result.UnprovenEvents) != 1 || result.UnprovenEvents[0] != "opencode-stop" {

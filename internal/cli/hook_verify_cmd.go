@@ -47,6 +47,9 @@ type hookVerificationResult struct {
 	ResultClass        string   `json:"result_class"`
 	Detail             string   `json:"detail"`
 	ActionRequired     string   `json:"action_required"`
+
+	Host  *liveHookHostIdentity `json:"host,omitempty"`
+	Probe *liveHookReceipt      `json:"probe,omitempty"`
 }
 
 type hookVerifyOptions struct {
@@ -144,7 +147,9 @@ func writeHookVerifyHelp(output io.Writer) {
 	fmt.Fprintln(output, "       reconc hook verify --live --host KIND --surface SURFACE --allow-authenticated [--json]")
 	fmt.Fprintln(output, "")
 	fmt.Fprintln(output, "Offline mode uses a disposable repository and no model, account, cloud service, or caller repository.")
-	fmt.Fprintln(output, "Live mode prepares an isolated repository, never launches a host, and waits for explicit operator confirmation.")
+	fmt.Fprintln(output, "Live mode uses an isolated repository and a five-minute deadline. Qualified Codex CLI runs four native write/shell controls.")
+	fmt.Fprintln(output, "Other surfaces currently require an operator-assisted exercise. Missing native evidence remains incomplete.")
+	fmt.Fprintln(output, "JSON mode never waits for Enter. Route observations alone cannot prove native enforcement.")
 	fmt.Fprintln(output, "A fully rendered incomplete verification exits 2; input, runtime, and output failures exit 1.")
 }
 
@@ -213,6 +218,25 @@ func writeHookVerificationText(report hookVerificationReport, output io.Writer) 
 				return err
 			}
 		}
+		if err := writeHookVerificationEvidence(result, output); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func writeHookVerificationEvidence(result hookVerificationResult, output io.Writer) error {
+	if result.Host == nil && result.Probe == nil {
+		return nil
+	}
+	evidence := struct {
+		Host  *liveHookHostIdentity `json:"host,omitempty"`
+		Probe *liveHookReceipt      `json:"probe,omitempty"`
+	}{Host: result.Host, Probe: result.Probe}
+	body, err := json.Marshal(evidence)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(output, "  evidence: %s\n", body)
+	return err
 }

@@ -252,6 +252,7 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook runtime: event %q is not executable", event)}
 	}
 	result := agentsession.RunHookRequestWithEvaluatorAndStopCache(root, handler, event, payload, evaluator, stopCache)
+	timing.recordPolicyDecision(result)
 	timing.mark("handler")
 	if result.Err != nil {
 		if result.ExitCode == 0 {
@@ -328,6 +329,9 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 		}
 	}
 	result = boundHookResult(result, route)
+	if result.Err != nil {
+		timing.policyDecision = ""
+	}
 
 	emitHookRuntimeResult(result, stdout, stderr)
 	if result.ExitCode != 0 {

@@ -8,16 +8,18 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/hooks"
+	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
 type hookRuntimeTiming struct {
-	enabled    bool
-	event      string
-	diagnostic io.Writer
-	probe      *os.File
-	startedAt  time.Time
-	lastMark   time.Time
-	stages     []string
+	enabled        bool
+	event          string
+	diagnostic     io.Writer
+	probe          *os.File
+	startedAt      time.Time
+	lastMark       time.Time
+	stages         []string
+	policyDecision string
 }
 
 var hookTimingProbeFile = func(fd int) *os.File {
@@ -61,13 +63,26 @@ func (t *hookRuntimeTiming) mark(name string) {
 	t.lastMark = now
 }
 
+func (t *hookRuntimeTiming) recordPolicyDecision(result agentsession.Result) {
+	if t == nil || t.probe == nil {
+		return
+	}
+	if decision, known := result.PolicyDecision(); known {
+		t.policyDecision = string(decision)
+	}
+}
+
 func (t *hookRuntimeTiming) finish(exitCode int) {
 	if t == nil || !t.enabled {
 		return
 	}
 	total := time.Since(t.startedAt).Round(time.Microsecond)
 	if t.probe != nil {
-		fmt.Fprintf(t.probe, "duration_ns=%d\n", total.Nanoseconds())
+		decision := t.policyDecision
+		if decision == "" {
+			decision = "unproven"
+		}
+		fmt.Fprintf(t.probe, "duration_ns=%d\npolicy_decision=%s\n", total.Nanoseconds(), decision)
 		_ = t.probe.Close()
 		t.probe = nil
 	}

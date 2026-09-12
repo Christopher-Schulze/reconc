@@ -4268,15 +4268,71 @@ per host. Generated route presence or compilation alone never upgrades a host
 to `enforced`.
 
 The explicit `--live --host KIND --surface SURFACE --allow-authenticated` mode
-prepares one disposable host exercise and waits for the operator without
-launching or authenticating the host. Its temporary shim records only route
-identity, sorted top-level field names, result class, exit code, and duration;
-it never writes raw payloads, prompts, tool arguments, output, secrets, or
-repository content. Missing delivery, partial matrices, operator EOF, absent
-negative enforcement, unsupported direct transports, unavailable tools, and
+prepares one disposable host exercise. Qualified Codex CLI on macOS/Linux runs
+four native allowed/denied write/shell controls using existing authentication,
+an ephemeral session, and invocation-local trust for the generated hooks.
+It does not change saved host configuration or resume an existing conversation.
+Other surfaces currently require an operator-assisted exercise: text mode waits
+within a five-minute execution deadline, while JSON mode returns incomplete
+without reading Enter. Interrupts and termination signals cancel the probe.
+Native cleanup has a separate two-second bound. The temporary shim delegates capture to the disposable Reconc binary;
+it requires no jq installation. Capture records route identity, sorted top-level
+field names, result class, exit code, total wrapper duration, run identity,
+timestamp, and SHA-256 fingerprints of delivered input, returned control output,
+and available native session/turn/call/tool-name/tool-input/command identities.
+It never writes raw
+payloads, prompts, tool arguments, output, secrets, or repository content.
+The wrapper's stdout, stderr, and exit code are preserved for bounded successful
+capture. Known event-specific JSON denials, including Cursor's exit-zero
+permission response, are distinguished from an empty or unrecognized response.
+Native field names are case-sensitive; aliases such as `Permission` cannot
+supply a `permission` decision. Persisted capture records reject unknown fields.
+A captured denial describes the hook response; host enforcement still requires
+an independently linked native outcome. A separate `policy_decision` records
+`pass` or `block` only from the evaluator's complete, error-free classification;
+unclassified reads, malformed input, unavailable policy, and encoding failures
+remain `unproven`. The existing timing descriptor carries this bounded metadata
+without changing the host's control response. Go cannot pass that descriptor on
+Windows, where policy provenance remains unproven. Missing delivery, partial matrices,
+operator EOF, absent negative enforcement, unsupported direct transports, unavailable tools, and
 missing executables for known local host surfaces stay degraded or unproven.
 Executable availability is reported only for surfaces with an exact local
-discovery contract; UI- and cloud-only surfaces are not guessed.
+discovery contract; UI- and cloud-only surfaces are not guessed. Codex, Devin,
+OMP, and Cursor CLI identification checks the reported version; Cursor also
+must identify itself as Cursor Agent and prefers `cursor-agent` over `agent`.
+The shared DSH discovery contract uses `dsh --version` plus the launcher's
+DeepSeek Harness identity in `dsh --help`; a numeric version alone is insufficient.
+This discovery contract does not yet register a DSH adapter or qualify a native
+DSH execution. Platform integration remains pending.
+The optional `host` object records the resolved executable, reported version,
+`entrypoint_sha256`, and `identity_verified`. The Codex runner additionally
+resolves and launches `runtime_executable`, fingerprints `runtime_sha256`, and
+checks both files before and after execution. A launcher digest alone does not
+bind every runtime dependency that a script may load. Metadata
+probes have time and output bounds and never include raw failure diagnostics.
+Route-only operator observations cannot establish `enforced`: a blocked hook
+and missing marker files do not prove separately attempted native operations.
+The optional `probe` object binds a fresh run ID and start time to the Reconc
+executable digest, disposable repository identity, and sorted configuration-file
+digests. Each read, allowed/denied write, allowed/denied shell, nonzero shell,
+and classified MCP operation has a distinct nonce and starts unproven. Capture
+installation preserves the generated wrapper's digest, and configuration drift
+invalidates the exercise. Capture rejects stale or foreign run bindings,
+repeated call IDs on the same session/route, contradictory decision encodings,
+ambiguous JSON, and oversized input or output. Each wrapper subprocess has a
+30-second capture deadline.
+The native receipt additionally records process identity, start/end time, exit
+status, and invocation/stdout/stderr digests. Capture binds its owned process
+group. Each completed operation requires its own matching call and policy
+decision, native outcome, and independent marker-content or absence check.
+Native denied commands must match the host's timestamped rejection exactly;
+assistant messages never prove enforcement. Both allowed controls and both
+denials are required for write/shell `enforced=true`. The report remains
+`complete=false` and degraded while read, nonzero-shell, classified-MCP, or
+additional lifecycle qualification is missing. Prepared receipts and
+operator confirmation alone do not establish native execution.
+Text output includes the same host and probe objects as one escaped compact
+`evidence` JSON line; JSON output exposes those objects directly.
 `scripts/tests/host-integration-probe.sh` delegates to that product command and
 contains no second matrix.
 

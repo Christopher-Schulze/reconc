@@ -191,7 +191,7 @@ func initializeHookVerificationRepo(repo string, stageDeniedPath bool) error {
 	}
 	files := map[string]string{
 		"AGENTS.md":   "# Disposable Reconc hook verification repository\n",
-		".reconc.yml": "rules:\n  - id: hook-verify-deny-write\n    kind: deny_write\n    paths: ['forbidden.txt']\n    mode: block\n    message: synthetic hook verification denial\n",
+		".reconc.yml": "rules:\n  - id: hook-verify-deny-write\n    kind: deny_write\n    paths: ['forbidden.txt', 'forbidden-command-marker']\n    mode: block\n    message: synthetic hook verification denial\n  - id: hook-verify-deny-command\n    kind: forbid_command\n    commands: ['touch forbidden-command-marker']\n    mode: block\n    message: synthetic hook command verification denial\n",
 	}
 	if stageDeniedPath {
 		files["forbidden.txt"] = "synthetic verification input\n"
@@ -361,8 +361,13 @@ func lookupEnvironment(environment []string, name string) (string, bool) {
 func runHookVerificationChild(workspace hookVerificationWorkspace, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	return runHookVerificationChildContext(ctx, workspace, args...)
+}
+
+func runHookVerificationChildContext(ctx context.Context, workspace hookVerificationWorkspace, args ...string) ([]byte, error) {
 	command := newHookVerificationChildCommand(ctx, workspace.executable, args...)
 	command.Env = append([]string(nil), workspace.environment...)
+	configureHookVerificationProcess(command)
 	body, err := boundedexec.Output(command, 4*maxHookVerificationOutput)
 	if err != nil {
 		var exitError *exec.ExitError

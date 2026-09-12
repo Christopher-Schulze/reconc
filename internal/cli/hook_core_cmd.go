@@ -50,6 +50,10 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 		return runHookVerificationOfflineChild(args[1:], stdout)
 	case "__verify-live-setup":
 		return runHookVerificationLiveSetupChild(args[1:], stdout)
+	case "__verify-live-confirm":
+		return runHookVerificationLiveConfirmChild(args[1:], os.Stdin)
+	case "__verify-live-capture":
+		return runHookVerificationCaptureChild(args[1:], os.Stdin, stdout, stderr)
 	case "sync-scaffold":
 		return runHookSyncScaffold(args[1:], stdout, stderr)
 	case "runtime":
