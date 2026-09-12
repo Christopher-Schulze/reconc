@@ -329,6 +329,45 @@ func TestTypedTaskTerminalAndCommittedStateContracts(t *testing.T) {
 		report = evaluateCompletion(t, repo, completiongate.Options{})
 		assertFailedCheck(t, report, "task/committed")
 	})
+
+	t.Run("dirty ancestor gitlink blocks committed completion", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("creates a local Git submodule fixture")
+		}
+		config := "task_lifecycle:\n  profile: sections-v1\n  completion:\n    require_committed: true\n"
+		repo := completionRepo(t, "rules: []\n", map[string]string{".reconc.yml": config})
+		initCompletionGit(t, repo)
+		addCompletionGitlink(t, repo, "docs", terminalTaskOverview())
+		addCompletionGitlink(t, repo, "vendor/lib", "unrelated\n")
+		gitCompletion(t, repo, "add", "-A")
+		gitCompletion(t, repo, "commit", "-m", "task and unrelated gitlinks")
+		report := evaluateCompletion(t, repo, completiongate.Options{})
+		if !report.OK {
+			t.Fatalf("clean TASK gitlink was rejected: %+v", report.Checks)
+		}
+
+		writeCompletionFile(t, repo, "docs/tasks.md", terminalTaskOverview()+"\n")
+		report = evaluateCompletion(t, repo, completiongate.Options{})
+		assertFailedCheck(t, report, "task/committed")
+		assertCheckDetailContains(t, report, "task/committed", "docs")
+
+		writeCompletionFile(t, repo, "vendor/lib/state.txt", "dirty-unrelated\n")
+		report = evaluateCompletion(t, repo, completiongate.Options{})
+		assertFailedCheck(t, report, "task/committed")
+		assertCheckDetailContains(t, report, "task/committed", "docs")
+		if strings.Contains(checkDetail(t, report, "task/committed"), "vendor/lib") {
+			t.Fatalf("unrelated dirty gitlink entered TASK completion: %+v", report.Checks)
+		}
+
+		gitCompletion(t, filepath.Join(repo, "docs"), "add", "tasks.md")
+		gitCompletion(t, filepath.Join(repo, "docs"), "commit", "-m", "task dirty")
+		gitCompletion(t, repo, "add", "docs")
+		gitCompletion(t, repo, "commit", "-m", "record task gitlink")
+		report = evaluateCompletion(t, repo, completiongate.Options{})
+		if !report.OK {
+			t.Fatalf("unrelated dirty gitlink blocked TASK completion: %+v", report.Checks)
+		}
+	})
 }
 
 func TestCleanGitIsExplicitOptIn(t *testing.T) {
@@ -432,6 +471,46 @@ func assertFailedCheck(t *testing.T, report *completiongate.Report, id string) {
 		}
 	}
 	t.Fatalf("missing failed check %q: %#v", id, report.Checks)
+}
+
+func checkDetail(t *testing.T, report *completiongate.Report, id string) string {
+	t.Helper()
+	for _, check := range report.Checks {
+		if check.ID == id {
+			return check.Detail
+		}
+	}
+	t.Fatalf("missing check %q: %#v", id, report.Checks)
+	return ""
+}
+
+func assertCheckDetailContains(t *testing.T, report *completiongate.Report, id, want string) {
+	t.Helper()
+	detail := checkDetail(t, report, id)
+	if !strings.Contains(detail, want) {
+		t.Fatalf("check %q detail %q does not contain %q", id, detail, want)
+	}
+}
+
+func terminalTaskOverview() string {
+	return "# TASK Control Plane\n\n## Active\n\n## Queue\n\n## Blocked\n\n## Done\n"
+}
+
+func addCompletionGitlink(t *testing.T, repo, mount, content string) {
+	t.Helper()
+	child := t.TempDir()
+	gitCompletion(t, child, "init")
+	gitCompletion(t, child, "config", "user.name", "reconc-test")
+	gitCompletion(t, child, "config", "user.email", "reconc-test@example.com")
+	if mount == "docs" {
+		writeCompletionFile(t, child, "tasks.md", content)
+		writeCompletionFile(t, child, "tasks/.gitkeep", "")
+	} else {
+		writeCompletionFile(t, child, "state.txt", content)
+	}
+	gitCompletion(t, child, "add", "-A")
+	gitCompletion(t, child, "commit", "-m", "gitlink child")
+	gitCompletion(t, repo, "-c", "protocol.file.allow=always", "submodule", "add", "--quiet", child, mount)
 }
 
 func writeCompletionFile(t *testing.T, repo, relative, body string) {

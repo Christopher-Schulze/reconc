@@ -1530,7 +1530,10 @@ path only after 64 new material events, 30 minutes with new progress, or a
 failed command, then reuse the normal full Stop report as a policy checkpoint.
 Explicitly configured TASK state fails closed if its overview disappears, and
 optional committed completion reuses that terminal report's Git and typed TASK
-snapshot instead of inspecting either control plane again.
+snapshot instead of inspecting either control plane again. Dirty TASK ownership
+is segment-aware: a bare Gitlink such as `docs` is in-scope when it contains
+`docs/tasks.md` or `docs/tasks`, and the same `DirtyCompletionPaths` contract
+feeds both `done` and terminal Stop.
 The shared `completiongate` used by Stop-facing views, `done`, and TUI binds
 that snapshot to current policy, session evidence, staged command proofs, and
 typed TASK completion. Snapshot construction first derives the exact

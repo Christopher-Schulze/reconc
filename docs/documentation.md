@@ -2120,7 +2120,13 @@ omitted counts remain explicit.
 Once `task_lifecycle` is explicitly present, its overview path is mandatory:
 missing, unreadable, unsafe, or invalid TASK state fails closed instead of
 degrading to `absent`. `completion.require_committed: true` additionally blocks
-terminal TASK completion while the configured overview or detail tree is dirty.
+terminal TASK completion while the configured overview, detail tree, or a
+dirty ancestor Gitlink/directory that contains either path is dirty. Ownership
+uses slash-separated path segments rather than a trailing-slash Git
+presentation: exact overview, the detail directory and its descendants, and
+proper ancestors of either path are owned; similarly prefixed siblings such as
+`docs-old` or `docs/taskset` are not. Completion and terminal Stop share
+`DirtyCompletionPaths`.
 All TASK config, overview, runtime-state, detail, and archive paths use one
 identity-aware component guard. It rejects symlink/reparse and irregular
 components, non-directory intermediates, and replacement identities; the fast

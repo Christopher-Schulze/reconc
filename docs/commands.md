@@ -1634,8 +1634,11 @@ overview/detail paths, Done window, and required completion evidence under
 `task_lifecycle` in `.reconc.yml`; `auto` succeeds only on an unambiguous exact
 grammar match. Explicit configuration makes the overview mandatory.
 `completion.require_committed: true` requires the terminal TASK control-plane
-changes to be committed, reusing the terminal Stop snapshot without adding Git
-work to executable TASK continuations.
+changes to be committed, including a dirty Gitlink or directory ancestor that
+contains the configured overview or detail tree. Matching uses slash-separated
+path segments, so `docs` owns `docs/tasks.md` while `docs-old` does not. The
+gate reuses the terminal Stop snapshot without adding Git work to executable
+TASK continuations.
 
 - `task status [repo] [--json]`: current TASK, current Sub-Task, bounded blockers, missing configured evidence, exact next action
 - `task validate [repo] [--json]`: full live-control-plane validation with stable issue IDs
