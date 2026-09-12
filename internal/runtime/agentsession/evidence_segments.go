@@ -655,6 +655,9 @@ func (m *evidenceMerger) merge(
 		return fmt.Errorf("complete evidence exceeds %d merged bytes", maxCompleteEvidenceBytes)
 	}
 	for path, epoch := range writeEpochs {
+		if _, retained := m.writes[path]; !retained {
+			continue
+		}
 		if _, exists := m.state.WriteEpochs[path]; !exists {
 			charge := len(path) + mergedEpochOverheadBytes
 			if m.retainedBytes+charge > maxCompleteEvidenceBytes {

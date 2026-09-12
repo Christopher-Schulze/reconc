@@ -2677,7 +2677,8 @@ compare those components before rebuilding a cache key.
 Disabled and unchanged hook events do not create run state. Run decisions record every
 bounded repository continuation plus material transitions without prompt
 payloads. Live session state is hard-capped at 1 MiB; every evidence
-collection has both item and byte limits, and repeated command results are
+collection has both item and byte limits, canonical `write_epochs` keys are a
+subset of retained `write_paths`, and repeated command results are
 deduplicated. Every changed mutation checks the exact normalized serialized
 state before publication. Product mutators keep bounded string collections in
 deterministic order so canonical updates bypass collection rebuilding; callback

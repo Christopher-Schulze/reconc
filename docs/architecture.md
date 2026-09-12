@@ -938,7 +938,7 @@ class of hostile input.
 | stdin read timeout | **5 seconds** | Prevents agent hangs from wedging the hook call. Typical payloads arrive < 50 ms. |
 | Max JSON nesting depth | **32 levels** | Prevents stack-busting via deeply nested payloads. |
 | Max persisted live session state | **1 MiB** | Bounds full-file state publication and recovery cost. |
-| Evidence collections | **item + byte caps per field; 64 chained segments** | A full live collection rotates losslessly; non-segmentable evidence or chain failure creates durable project taint. |
+| Evidence collections | **item + byte caps per field; 64 chained segments** | A full live collection rotates losslessly; `write_epochs` keys stay a subset of retained `write_paths`; non-segmentable evidence or chain failure creates durable project taint. |
 | Audit record | **32 KiB** | Bounds one locked JSONL append. |
 | Audit/run storage | **2 MiB live + 2 archives each** | Fixed rings and transition-only run records prevent repository-local log growth. |
 | Action ledger | **64 KiB per record / 4 MiB live + 2 archives** | Bounds payload-free lifecycle evidence; rotation refuses to prune an active call whose retained beginning would be lost. |

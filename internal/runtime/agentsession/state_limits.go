@@ -74,7 +74,7 @@ func normalizeSessionState(state SessionState) SessionState {
 	state.ConsumedApprovalIdentities = []string{}
 	appendNormalizedExactStrings(&state, &state.ReadPaths, reads, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "read_paths")
 	appendNormalizedExactStrings(&state, &state.WritePaths, writes, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "write_paths")
-	for _, value := range writes {
+	for _, value := range state.WritePaths {
 		if epoch := writeEpochs[value]; epoch > 0 {
 			state.WriteEpochs[value] = epoch
 		}

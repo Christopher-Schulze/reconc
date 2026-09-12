@@ -364,6 +364,20 @@ func TestEvidenceSegmentAggregateBudgetPersistsCapacityTaint(t *testing.T) {
 	}
 }
 
+func TestEvidenceMergerIgnoresEpochsWithoutWritePaths(t *testing.T) {
+	state := emptyState("/repo", "merge-epochs")
+	merger := newEvidenceMerger(&state)
+	if err := merger.merge(nil, []string{"a.go"}, map[string]uint64{"a.go": 3, "ghost.go": 9}, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := state.WriteEpochs["ghost.go"]; exists {
+		t.Fatalf("unretained epoch survived merge: %v", state.WriteEpochs)
+	}
+	if state.WriteEpochs["a.go"] != 3 {
+		t.Fatalf("retained epoch lost: %v", state.WriteEpochs)
+	}
+}
+
 func writeEvidenceChainFixture(t testing.TB, repo, sessionID string, count int, commandBytes int) SessionState {
 	return writeEvidenceChainFixtureWith(t, repo, sessionID, count, func(index int) evidenceSegment {
 		command := fmt.Sprintf("%04d-%s", index, strings.Repeat("x", commandBytes))

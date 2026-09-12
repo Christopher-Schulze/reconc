@@ -3,6 +3,7 @@ package agentsession
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"reflect"
 	"strings"
 	"sync"
@@ -46,7 +47,7 @@ func TestNormalizeSessionStatePreservesCollectionSemantics(t *testing.T) {
 	if got, want := normalized.WritePaths, []string{" spaced.go ", "a.go", "z.go"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("WritePaths = %#v, want %#v", got, want)
 	}
-	if got, want := normalized.WriteEpochs, map[string]uint64{"a.go": 3, "z.go": 7, longPath: 13}; !reflect.DeepEqual(got, want) {
+	if got, want := normalized.WriteEpochs, map[string]uint64{"a.go": 3, "z.go": 7}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("WriteEpochs = %#v, want %#v", got, want)
 	}
 	if got, want := normalized.Commands, []string{"echo ok", "git status"}; !reflect.DeepEqual(got, want) {
@@ -145,6 +146,306 @@ func TestNormalizeSessionStateIsIdempotentAtAdmissionBoundary(t *testing.T) {
 			t.Fatalf("input %d normalized state was not admitted: %+v", index, first)
 		}
 	}
+}
+
+func TestNormalizeSessionStateWriteEpochsMatchRetainedWrites(t *testing.T) {
+	longPath := strings.Repeat("x", maxPathBytes+1)
+	byteBoundPath := strings.Repeat("b", 81)
+	tests := []struct {
+		name           string
+		state          SessionState
+		wantPaths      []string
+		wantEpochs     map[string]uint64
+		wantOverflow   bool
+		overflowReason string
+		overflowLimit  string
+	}{
+		{
+			name: "duplicate-and-unsorted-keep-max-epoch",
+			state: SessionState{
+				WritePaths:  []string{"z.go", "a.go", "a.go", "z.go"},
+				WriteEpochs: map[string]uint64{"a.go": 4, "z.go": 9},
+			},
+			wantPaths:  []string{"a.go", "z.go"},
+			wantEpochs: map[string]uint64{"a.go": 4, "z.go": 9},
+		},
+		{
+			name: "missing-epochs-are-not-invented",
+			state: SessionState{
+				WritePaths:  []string{"a.go", "b.go"},
+				WriteEpochs: map[string]uint64{"b.go": 2},
+			},
+			wantPaths:  []string{"a.go", "b.go"},
+			wantEpochs: map[string]uint64{"b.go": 2},
+		},
+		{
+			name: "zero-epochs-are-dropped",
+			state: SessionState{
+				WritePaths:  []string{"a.go"},
+				WriteEpochs: map[string]uint64{"a.go": 0, "b.go": 8},
+			},
+			wantPaths:  []string{"a.go"},
+			wantEpochs: map[string]uint64{},
+		},
+		{
+			name: "extra-epoch-keys-are-dropped",
+			state: SessionState{
+				WritePaths:  []string{"kept.go"},
+				WriteEpochs: map[string]uint64{"a.go": 1, "kept.go": 3, "stale.go": 11},
+			},
+			wantPaths:  []string{"kept.go"},
+			wantEpochs: map[string]uint64{"kept.go": 3},
+		},
+		{
+			name: "nil-collections-become-empty-canonical",
+			state: SessionState{
+				WritePaths:  nil,
+				WriteEpochs: nil,
+			},
+			wantPaths:  []string{},
+			wantEpochs: map[string]uint64{},
+		},
+		{
+			name: "oversize-item-does-not-keep-epoch",
+			state: SessionState{
+				WritePaths:  []string{"a.go", longPath},
+				WriteEpochs: map[string]uint64{"a.go": 3, longPath: 13},
+			},
+			wantPaths:      []string{"a.go"},
+			wantEpochs:     map[string]uint64{"a.go": 3},
+			wantOverflow:   true,
+			overflowReason: "write_paths",
+			overflowLimit:  "item_bytes",
+		},
+		{
+			name: "prior-overflow-survives-without-new-overflow",
+			state: SessionState{
+				WritePaths:             []string{"a.go"},
+				WriteEpochs:            map[string]uint64{"a.go": 1},
+				EvidenceOverflow:       true,
+				EvidenceOverflowReason: "commands",
+				EvidenceOverflowLimit:  "item_count",
+			},
+			wantPaths:      []string{"a.go"},
+			wantEpochs:     map[string]uint64{"a.go": 1},
+			wantOverflow:   true,
+			overflowReason: "commands",
+			overflowLimit:  "item_count",
+		},
+		{
+			name: "combined-overflow-keeps-flag-and-first-new-reason",
+			state: SessionState{
+				WritePaths:             []string{"a.go", longPath},
+				WriteEpochs:            map[string]uint64{"a.go": 3, longPath: 13},
+				EvidenceOverflow:       true,
+				EvidenceOverflowReason: "commands",
+				EvidenceOverflowLimit:  "item_count",
+			},
+			wantPaths:      []string{"a.go"},
+			wantEpochs:     map[string]uint64{"a.go": 3},
+			wantOverflow:   true,
+			overflowReason: "write_paths",
+			overflowLimit:  "item_bytes",
+		},
+		{
+			name: "byte-budget-drops-unretained-epochs",
+			state: func() SessionState {
+				count := (maxPathEvidenceBytes / len(byteBoundPath)) + 2
+				state := SessionState{WritePaths: make([]string, 0, count), WriteEpochs: map[string]uint64{}}
+				for index := 0; index < count; index++ {
+					path := fmt.Sprintf("%s-%04d", byteBoundPath, index)
+					state.WritePaths = append(state.WritePaths, path)
+					state.WriteEpochs[path] = uint64(index + 1)
+				}
+				return state
+			}(),
+			wantOverflow:   true,
+			overflowReason: "write_paths",
+			overflowLimit:  "byte_budget",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			normalized := normalizeSessionState(test.state)
+			second := normalizeSessionState(normalized)
+			if !reflect.DeepEqual(second, normalized) {
+				t.Fatalf("not a fixed point: first=%+v second=%+v", normalized, second)
+			}
+			if !sessionStateIsNormalized(normalized) {
+				t.Fatalf("normalized state was not admitted: %+v", normalized)
+			}
+			assertWriteEpochsSubset(t, normalized)
+			if test.wantPaths != nil && !reflect.DeepEqual(normalized.WritePaths, test.wantPaths) {
+				t.Fatalf("WritePaths = %#v, want %#v", normalized.WritePaths, test.wantPaths)
+			}
+			if test.wantEpochs != nil && !reflect.DeepEqual(normalized.WriteEpochs, test.wantEpochs) {
+				t.Fatalf("WriteEpochs = %#v, want %#v", normalized.WriteEpochs, test.wantEpochs)
+			}
+			if normalized.EvidenceOverflow != test.wantOverflow {
+				t.Fatalf("EvidenceOverflow = %v, want %v", normalized.EvidenceOverflow, test.wantOverflow)
+			}
+			if test.overflowReason != "" && normalized.EvidenceOverflowReason != test.overflowReason {
+				t.Fatalf("overflow reason = %q, want %q", normalized.EvidenceOverflowReason, test.overflowReason)
+			}
+			if test.overflowLimit != "" && normalized.EvidenceOverflowLimit != test.overflowLimit {
+				t.Fatalf("overflow limit = %q, want %q", normalized.EvidenceOverflowLimit, test.overflowLimit)
+			}
+			if test.name == "byte-budget-drops-unretained-epochs" {
+				if len(normalized.WritePaths) == 0 || len(normalized.WritePaths) >= len(test.state.WritePaths) {
+					t.Fatalf("byte budget retained %d of %d paths", len(normalized.WritePaths), len(test.state.WritePaths))
+				}
+			}
+			epochSnapshot := cloneWriteEpochs(normalized.WriteEpochs)
+			if test.state.WriteEpochs != nil {
+				for path := range test.state.WriteEpochs {
+					test.state.WriteEpochs[path] = 99
+				}
+			}
+			if !reflect.DeepEqual(normalized.WriteEpochs, epochSnapshot) {
+				t.Fatal("normalized WriteEpochs aliased the input map")
+			}
+			if len(test.state.WritePaths) > 0 && len(normalized.WritePaths) > 0 {
+				test.state.WritePaths[0] = "mutated-after-normalize"
+				if normalized.WritePaths[0] == "mutated-after-normalize" {
+					t.Fatal("normalized WritePaths aliased the input slice")
+				}
+			}
+			body, err := json.Marshal(normalized)
+			if err != nil {
+				t.Fatal(err)
+			}
+			again, err := json.Marshal(second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(body) != string(again) {
+				t.Fatalf("normalized JSON was not stable")
+			}
+		})
+	}
+}
+
+func TestNormalizeSessionStateWriteEpochsAtAndAboveCountLimit(t *testing.T) {
+	atLimit := overflowWriteState(maxPathEvidenceItems)
+	normalized := normalizeSessionState(atLimit)
+	if !sessionStateIsNormalized(normalized) || normalized.EvidenceOverflow {
+		t.Fatalf("exactly-at-limit writes were not canonical: paths=%d overflow=%v", len(normalized.WritePaths), normalized.EvidenceOverflow)
+	}
+	if len(normalized.WritePaths) != maxPathEvidenceItems || len(normalized.WriteEpochs) != maxPathEvidenceItems {
+		t.Fatalf("exactly-at-limit retained paths=%d epochs=%d", len(normalized.WritePaths), len(normalized.WriteEpochs))
+	}
+	assertWriteEpochsSubset(t, normalized)
+
+	over := overflowWriteState(maxPathEvidenceItems + 1)
+	dropped := sortedUniqueExact(over.WritePaths)[maxPathEvidenceItems]
+	normalized = normalizeSessionState(over)
+	if !sessionStateIsNormalized(normalized) || !normalized.EvidenceOverflow || normalized.EvidenceOverflowLimit != "item_count" {
+		t.Fatalf("count overflow was not recorded: %+v", normalized)
+	}
+	if len(normalized.WritePaths) != maxPathEvidenceItems {
+		t.Fatalf("count overflow retained %d paths", len(normalized.WritePaths))
+	}
+	if _, exists := normalized.WriteEpochs[dropped]; exists {
+		t.Fatalf("discarded path kept epoch %q", dropped)
+	}
+	assertWriteEpochsSubset(t, normalized)
+	if !reflect.DeepEqual(normalizeSessionState(normalized), normalized) {
+		t.Fatal("count overflow normalization was not a fixed point")
+	}
+}
+
+func TestNormalizeSessionStateWriteEpochsProperty(t *testing.T) {
+	rng := rand.New(rand.NewSource(526))
+	for trial := 0; trial < 64; trial++ {
+		pathCount := rng.Intn(48)
+		state := SessionState{
+			WritePaths:  make([]string, 0, pathCount+4),
+			WriteEpochs: map[string]uint64{},
+		}
+		if pathCount == 0 && rng.Intn(4) == 0 {
+			state.WritePaths = nil
+			state.WriteEpochs = nil
+		} else {
+			for index := 0; index < pathCount; index++ {
+				path := fmt.Sprintf("p-%02d.go", rng.Intn(40))
+				state.WritePaths = append(state.WritePaths, path)
+				switch rng.Intn(4) {
+				case 0:
+				case 1:
+					state.WriteEpochs[path] = 0
+				default:
+					state.WriteEpochs[path] = uint64(rng.Intn(50) + 1)
+				}
+			}
+			for extra := 0; extra < rng.Intn(6); extra++ {
+				state.WriteEpochs[fmt.Sprintf("ghost-%d.go", extra)] = uint64(extra + 1)
+			}
+		}
+		if rng.Intn(3) == 0 {
+			state.EvidenceOverflow = true
+			state.EvidenceOverflowReason = "legacy"
+			state.EvidenceOverflowLimit = "item_count"
+		}
+		first := normalizeSessionState(state)
+		second := normalizeSessionState(first)
+		if !reflect.DeepEqual(first, second) {
+			t.Fatalf("trial %d was not a fixed point", trial)
+		}
+		if !sessionStateIsNormalized(first) {
+			t.Fatalf("trial %d was not admitted: %+v", trial, first)
+		}
+		assertWriteEpochsSubset(t, first)
+		if first.WriteEpochs == nil {
+			t.Fatal("normalized WriteEpochs was nil")
+		}
+		body, err := json.Marshal(first)
+		if err != nil {
+			t.Fatal(err)
+		}
+		again, err := json.Marshal(second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != string(again) {
+			t.Fatalf("trial %d JSON was not stable", trial)
+		}
+		if len(first.WritePaths) > 0 {
+			first.WritePaths[0] = "aliased"
+			if len(state.WritePaths) > 0 && state.WritePaths[0] == "aliased" {
+				t.Fatal("normalized WritePaths aliased input")
+			}
+		}
+	}
+}
+
+func assertWriteEpochsSubset(t *testing.T, state SessionState) {
+	t.Helper()
+	if state.WriteEpochs == nil {
+		t.Fatal("WriteEpochs is nil")
+	}
+	if len(state.WriteEpochs) > len(state.WritePaths) {
+		t.Fatalf("epoch map larger than writes: epochs=%d paths=%d", len(state.WriteEpochs), len(state.WritePaths))
+	}
+	for path, epoch := range state.WriteEpochs {
+		if epoch == 0 {
+			t.Fatalf("zero epoch retained for %q", path)
+		}
+		if !containsString(state.WritePaths, path) {
+			t.Fatalf("epoch key %q is not a retained write path: %v", path, state.WritePaths)
+		}
+	}
+}
+
+func overflowWriteState(count int) SessionState {
+	state := emptyState("/repo", "write-epoch-limit")
+	state.WritePaths = make([]string, 0, count)
+	state.WriteEpochs = make(map[string]uint64, count)
+	for index := 0; index < count; index++ {
+		path := fmt.Sprintf("src/file-%04d.go", count-index-1)
+		state.WritePaths = append(state.WritePaths, path)
+		state.WriteEpochs[path] = uint64(index + 1)
+	}
+	return state
 }
 
 func TestPendingToolCallExpiryReclaimsCapacity(t *testing.T) {
