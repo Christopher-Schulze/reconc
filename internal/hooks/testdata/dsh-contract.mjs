@@ -45,7 +45,69 @@ const bounded = async (promise, ms = 1500) => {
 const records = () => existsSync(process.env.RECONC_DSH_TEST_LOG)
   ? readFileSync(process.env.RECONC_DSH_TEST_LOG, 'utf8').trim().split('\n').map(JSON.parse) : []
 
-if (mode === 'composition' || mode === 'observations' || mode === 'decision-limit' || mode.startsWith('session-') || mode.startsWith('advisory-')) {
+if (mode === 'diagnostics-timer') {
+  const output = []
+  let summarize
+  const summarized = new Promise(resolve => { summarize = resolve })
+  const diagnostics = new module.DSHDiagnostics(message => {
+    output.push(message)
+    if (message.includes('summary:')) summarize()
+  })
+  try {
+    diagnostics.report('policy', 'timer finding')
+    diagnostics.report('policy', 'timer finding')
+    await bounded(summarized, 1000)
+    assert.equal(output.length, 2)
+    assert.match(output[1], /1 repeats coalesced/)
+    diagnostics.report('policy', 'timer finding')
+    diagnostics.close()
+    const count = output.length
+    await sleep(100)
+    assert.equal(output.length, count, 'disposed diagnostic timer fired again')
+  } finally { diagnostics.close() }
+} else if (mode === 'diagnostics') {
+  const output = []
+  let clock = 0
+  const diagnostics = new module.DSHDiagnostics(message => output.push(message), () => clock)
+  try {
+    diagnostics.report('policy', 'first finding')
+    for (let i = 0; i < 1000; i++) diagnostics.report('policy', 'first finding')
+    diagnostics.report('policy', 'different finding')
+    assert.equal(output.length, 2, 'repeats hid a distinct finding or flooded output')
+    assert.match(output[1], /different finding/)
+    assert.ok(diagnostics.timer)
+    clock = 30000
+    diagnostics.report('policy', 'another finding')
+    assert.match(output[2], /1000 repeats coalesced; 0 new findings/)
+    assert.match(output[3], /another finding/)
+    for (let i = 0; i < 300; i++) diagnostics.report('policy', `new finding ${i}`)
+    assert.equal(diagnostics.seen.size, 256)
+    assert.equal(diagnostics.examples.length, 4)
+    assert.equal(output.length, 19, 'distinct-message burst was not bounded')
+    diagnostics.flush()
+    assert.match(output.at(-1), /285 new findings exceeded/)
+    assert.match(output.at(-1), /new finding 299/)
+    diagnostics.report('policy', 'first finding')
+    assert.match(output.at(-1), /first finding/, 'evicted identity was permanently suppressed')
+    diagnostics.report('policy', 'a\n\r\x1b\x00' + 'x'.repeat(5000))
+    assert.ok(!/[\x00-\x1f\x7f-\x9f]/.test(output.at(-1).trimEnd()))
+    assert.ok(output.at(-1).length < 2100)
+    const prefix = 'x'.repeat(3000)
+    const before = output.length
+    diagnostics.report('policy', prefix + 'a')
+    diagnostics.report('policy', prefix + 'b')
+    assert.equal(output.length, before + 2, 'truncated display merged distinct findings')
+    diagnostics.report('policy', prefix + 'b')
+    diagnostics.close()
+    assert.match(output.at(-1), /1 repeats coalesced/)
+    assert.equal(diagnostics.timer, undefined)
+    assert.equal(diagnostics.seen.size, 0)
+    const closedLength = output.length
+    diagnostics.close()
+    diagnostics.report('policy', 'after close')
+    assert.equal(output.length, closedLength)
+  } finally { diagnostics.close() }
+} else if (mode === 'composition' || mode === 'observations' || mode === 'decision-limit' || mode.startsWith('session-') || mode.startsWith('advisory-')) {
   module.apply(ctx)
   try {
     if (mode.startsWith('advisory-')) {

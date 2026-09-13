@@ -1030,7 +1030,6 @@ if (kind === "opencode" || kind === "kilo") {
     throw new Error("DSH extension blocked a policy-allowed tool call")
   }
   const deniedEdit = call("denied-edit", "forbidden.txt")
-  diagnostics.length = 0
   deniedEdit.name = "edit"
   deniedEdit.arguments = Object.freeze({ file_path: "forbidden.txt", old_string: "old", new_string: "new" })
   if ((await listeners.get("tools/pre-execute")(deniedEdit, () => ({ kind: "allow" })))?.kind !== "allow" || !heard("hook-verify-deny-write")) {

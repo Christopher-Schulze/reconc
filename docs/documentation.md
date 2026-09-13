@@ -4656,8 +4656,14 @@ and active exchange, with at most 200 ms for an idle worker's graceful shutdown.
 Worker callbacks are bound to their owning process and ambiguous failed requests
 are never replayed. Session setup waiters are capped at 512 and honor cancellation.
 Capacity limits reject only advisory work; DSH tools and steps still continue.
-Diagnostics are limited to eight per category per extension instance, with each
-reason capped at 2,048 characters, preventing repeated failures from flooding context.
+Diagnostics deduplicate the 256 most recently observed category/finding hashes;
+full reason text is hashed before its display is capped at 2,048 characters.
+Repeats do not consume the allowance for new findings: at most 16 new messages
+are printed per 30-second window. A timed summary reports coalesced repeats,
+the number of new findings exceeding that allowance, and up to four latest
+overflow examples capped at 256 characters each. Disposal flushes the summary
+once and clears its timer. Evicted identities can be reported again; no category
+is permanently muted. Control characters are removed from diagnostic text.
 Post observations carry identity/outcome metadata with an empty input object and
 a bounded error message; they never retransmit complete file contents or create
 material write/command evidence. Older full-input observation envelopes remain

@@ -14,6 +14,11 @@ func TestDSHGeneratedCompositionContract(t *testing.T) {
 	runDSHContract(t, "composition")
 }
 
+func TestDSHBoundedDiagnosticFindings(t *testing.T) {
+	runDSHContract(t, "diagnostics")
+	runDSHContract(t, "diagnostics-timer")
+}
+
 func TestDSHWorkerLifecycleAndResourceContracts(t *testing.T) {
 	for _, mode := range []string{"restart", "crash", "cancel", "deadline", "shutdown", "priority", "bytes", "count", "json", "observations", "decision-limit", "session-cancel", "session-limit", "advisory-setup", "advisory-evaluation", "advisory-stop", "advisory-combined"} {
 		t.Run(mode, func(t *testing.T) { runDSHContract(t, mode) })
@@ -32,6 +37,12 @@ func runDSHContract(t *testing.T, mode string) {
 		t.Fatal(err)
 	}
 	content := artifact.Content
+	if mode == "diagnostics-timer" {
+		content = strings.Replace(content, "const diagnosticWindowMilliseconds = 30000", "const diagnosticWindowMilliseconds = 50", 1)
+		if content == artifact.Content {
+			t.Fatal("diagnostic timer fixture did not find its window")
+		}
+	}
 	if mode == "deadline" {
 		content = strings.Replace(content, `"dsh-post-tool-use":{"timeoutMilliseconds":5000`, `"dsh-post-tool-use":{"timeoutMilliseconds":150`, 1)
 		if content == artifact.Content {
@@ -46,7 +57,7 @@ func runDSHContract(t *testing.T, mode string) {
 		}
 	}
 	for path, content := range map[string]string{
-		artifact.TargetPath: content + "\nexport { WorkerTransport, jsonBytes }\n",
+		artifact.TargetPath: content + "\nexport { WorkerTransport, jsonBytes, DSHDiagnostics }\n",
 		WrapperPath:         "#!/bin/sh\nexec \"$RECONC_DSH_TEST_BUN\" \"$RECONC_DSH_TEST_PEER\"\n",
 	} {
 		target := filepath.Join(repo, filepath.FromSlash(path))

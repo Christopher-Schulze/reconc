@@ -2,6 +2,7 @@
 // Advisory only: Go evaluates policy; Reconc never blocks DSH dispatch.
 
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,6 +15,7 @@ const maxRequestBytes = 64 * 1024 * 1024 + 64 * 1024
 const maxQueuedBytes = 128 * 1024 * 1024
 const maxPendingCalls = 512
 const advisoryMilliseconds = 500
+const diagnosticWindowMilliseconds = 30000
 
 const text = (value, fallback) => typeof value === 'string' && value.trim() ? value.trim() : fallback
 
@@ -313,6 +315,66 @@ class WorkerTransport {
   }
 }
 
+class DSHDiagnostics {
+  constructor(write = message => process.stderr.write(message), now = () => performance.now()) {
+    this.write = write
+    this.now = now
+    this.seen = new Map()
+    this.examples = []
+    this.windowStarted = now()
+    this.sent = 0
+    this.repeats = 0
+    this.overflow = 0
+    this.timer = undefined
+    this.closed = false
+  }
+
+  report(kind, reason) {
+    if (this.closed) return
+    if (this.now() - this.windowStarted >= diagnosticWindowMilliseconds) this.flush()
+    const raw = text(reason, 'evaluation unavailable')
+    const key = createHash('sha256').update(kind).update('\0').update(raw).digest('hex')
+    const repeated = this.seen.has(key)
+    this.seen.delete(key)
+    this.seen.set(key, true)
+    if (this.seen.size > 256) this.seen.delete(this.seen.keys().next().value)
+    if (repeated) this.repeats = Math.min(Number.MAX_SAFE_INTEGER, this.repeats + 1)
+    else {
+      const message = raw.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').slice(0, 2048)
+      if (this.sent < 16) {
+        this.sent++
+        this.write(`reconc dsh advisory (${kind}): ${message}\n`)
+        return
+      }
+      this.overflow = Math.min(Number.MAX_SAFE_INTEGER, this.overflow + 1)
+      if (this.examples.length === 4) this.examples.shift()
+      this.examples.push(`${kind}: ${message.slice(0, 256)}`)
+    }
+    if (!this.timer) this.timer = setTimeout(() => this.flush(), Math.max(1, diagnosticWindowMilliseconds - (this.now() - this.windowStarted)))
+  }
+
+  flush() {
+    clearTimeout(this.timer)
+    this.timer = undefined
+    if (this.repeats || this.overflow) {
+      const examples = this.examples.length ? `; latest overflow examples: ${this.examples.join(' | ')}` : ''
+      this.write(`reconc dsh advisory summary: ${this.repeats} repeats coalesced; ${this.overflow} new findings exceeded the output budget${examples}\n`)
+    }
+    this.repeats = 0
+    this.overflow = 0
+    this.sent = 0
+    this.examples = []
+    this.windowStarted = this.now()
+  }
+
+  close() {
+    if (this.closed) return
+    this.closed = true
+    this.flush()
+    this.seen.clear()
+  }
+}
+
 export const inject = ['tools', 'systemPrompt']
 
 export function apply(ctx) {
@@ -331,14 +393,10 @@ export function apply(ctx) {
     return false
   }
 
-  const diagnosticCounts = new Map()
+  const diagnostics = new DSHDiagnostics()
   const report = (kind, reason) => {
     if (disposing) return
-    const count = diagnosticCounts.get(kind) || 0
-    if (count >= 8) return
-    diagnosticCounts.set(kind, count + 1)
-    const message = text(reason, 'evaluation unavailable').replace(/[\r\n\x1b]/g, ' ').slice(0, 2048)
-    process.stderr.write(`reconc dsh advisory (${kind}): ${message}${count === 7 ? '; further diagnostics of this kind suppressed' : ''}\n`)
+    diagnostics.report(kind, reason)
   }
 
   const startSession = (identity) => {
@@ -484,6 +542,7 @@ export function apply(ctx) {
   const service = ctx.provide('reconcGuard', { repo, mode: 'advisory' })
   ctx.effect(() => async () => {
     disposing = true
+    diagnostics.close()
     service()
     result()
     stop()
