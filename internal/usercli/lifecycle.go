@@ -15,7 +15,7 @@ import (
 	"reconc.dev/reconc/internal/schema"
 )
 
-const LifecycleFormatVersion = "reconc.global-lifecycle/v1"
+const LifecycleFormatVersion = "reconc.global-lifecycle/v2"
 const maxInstallationDirectoryEntries = 32
 
 type LifecycleStatus string
@@ -42,9 +42,37 @@ type LifecycleReport struct {
 	BinaryPath     *string            `json:"binary_path"`
 	ReceiptPath    *string            `json:"receipt_path"`
 	PlanDigest     *string            `json:"plan_digest"`
+	Skill          *SkillUpdateReport `json:"skill"`
 	Checks         []DiagnosticCheck  `json:"checks"`
 	Actions        []DiagnosticAction `json:"actions"`
 	NextAction     string             `json:"next_action"`
+}
+
+type SkillUpdateState string
+
+const (
+	SkillMissing       SkillUpdateState = "missing"
+	SkillUnmanaged     SkillUpdateState = "unmanaged"
+	SkillCurrent       SkillUpdateState = "current"
+	SkillStaleOwned    SkillUpdateState = "stale-owned"
+	SkillModifiedOwned SkillUpdateState = "modified-owned"
+	SkillUnavailable   SkillUpdateState = "unavailable"
+)
+
+type SkillUpdateAction struct {
+	Kind          string   `json:"kind"`
+	Argv          []string `json:"argv"`
+	Cwd           string   `json:"cwd"`
+	Authorization string   `json:"authorization"`
+}
+
+type SkillUpdateReport struct {
+	State                   SkillUpdateState   `json:"state"`
+	Path                    string             `json:"path"`
+	InstalledManifestDigest *string            `json:"installed_manifest_digest"`
+	TargetManifestDigest    *string            `json:"target_manifest_digest"`
+	Discovery               string             `json:"discovery"`
+	Action                  *SkillUpdateAction `json:"action"`
 }
 
 type UpdateRequest struct {

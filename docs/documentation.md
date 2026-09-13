@@ -821,9 +821,10 @@ never aliases for `current=false`. It reports `healthy`,
 ownership-aware remediation. Malformed receipts, checksum drift, conflicting
 owners, and ambiguous legacy installations fail closed. The JSON contracts are
 `schemas/v1/installation-receipt.schema.json` and
-`schemas/v1/global-diagnostic.schema.json`. Mutating update and uninstall
-results use `schemas/v1/global-lifecycle.schema.json`; release discovery is
-bound by `schemas/v1/release-manifest.schema.json`. All four ship in the
+`schemas/v1/global-diagnostic.schema.json`. Update check, update apply, and
+uninstall results use `schemas/v2/global-lifecycle.schema.json`; the v1
+lifecycle schema remains available for previously emitted reports. Release
+discovery is bound by `schemas/v1/release-manifest.schema.json`. These schemas ship in the
 checksummed release inventory.
 
 The `existing` profile is the mature-repository wiring path. It requires an
@@ -1746,18 +1747,32 @@ Run the complete ownership-aware update:
 reconc update
 ```
 
-The command selects stable by default, verifies the release and current
-installation, applies an available update atomically, and succeeds without
-mutation when already current. Equal version text alone is insufficient: the
-receipt artifact SHA-256 must match the selected release asset. Use
+The command selects stable by default and inspects the binary and portable
+skill independently, even when the selected binary is already current.
+`reconc update check --json` reports the plan without mutation. An owned stale
+skill updates automatically with the selected binary or by itself when the
+binary is current. An absent skill produces an explicit `reconc install-cli
+--skill-only` action with typed arguments, working directory, and authorization;
+`update` never installs an absent skill silently. Modified or unmanaged skill
+directories are preserved and block the update. A selected release without a
+verified skill bundle cannot repair an owned skill.
+
+Before publication, the updater verifies the selected manifest and archive
+against release checksums, then compares the candidate binary's embedded
+skill identity through `reconc skill-manifest --json`. The binary, skill, and
+receipt share the installation lock and rollback transaction. A failure cannot
+report a partially updated installation as current. When both components are
+current, the command succeeds without mutation. Equal version text alone is
+insufficient: the receipt artifact SHA-256 must match the selected release
+asset. Use
 `--channel stable|preview` or
 `--version VERSION` only when that selection is intentional. Exact-version
 downgrades and channel changes require explicit flags.
-The current user journey has no separate check/apply step: this one command
-performs the verified decision and the safe update transaction.
+The default command performs the verified decision and the safe update
+transaction; `update check` and `update apply` are explicit automation forms.
 Direct installations download only the immutable manifest-selected asset,
 verify version, checksum, and required provenance, smoke-test a sibling
-candidate, and atomically replace only the receipt-owned binary. Source,
+candidate, and atomically publish the receipt-owned components. Source,
 unowned, ambiguous, shadowed, read-only, and unsupported installations return
 a non-mutating remediation.
 
@@ -2358,6 +2373,7 @@ Bootstrap and inspection:
 - `extract`
 - `doctor`
 - `install-cli`
+- `skill-manifest` - inspect the running binary's embedded skill identity
 - `update`
 - `uninstall`
 

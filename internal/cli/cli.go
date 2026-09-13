@@ -130,6 +130,8 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 		return runRepo(argv[1:], version, stdout)
 	case "install-cli":
 		return runInstallCLI(argv[1:], version, stdout)
+	case "skill-manifest":
+		return runSkillManifest(argv[1:], stdout)
 	case "update":
 		return runUpdate(argv[1:], version, stdout)
 	case "uninstall":

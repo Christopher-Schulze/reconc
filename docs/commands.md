@@ -33,7 +33,8 @@ Generated from `internal/commandmeta`; run `make reference-docs` after changing 
 | `reconc repo sync verify` | `reconc repo sync verify [repo] [--json]` | verify the portable repository receipt and owned artifacts | text, json |
 | `reconc repo sync recover` | `reconc repo sync recover [repo] [--json]` | finalize or roll back an interrupted repository sync | text, json |
 | `reconc install-cli` | `reconc install-cli [--install-dir PATH] [--skill-dir PATH] [--no-skill \| --skill-only] [--json]` | install the running build and owned portable skill | text, json |
-| `reconc update` | `reconc update [--channel stable\|preview \| --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]` | apply an ownership-safe global CLI update | text, json |
+| `reconc skill-manifest` | `reconc skill-manifest --json` | print the running binary's embedded portable skill identity | json |
+| `reconc update` | `reconc update [check\|apply] [--channel stable\|preview \| --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]` | inspect and update the owned binary and portable skill | text, json |
 | `reconc uninstall` | `reconc uninstall [--purge-state] [--remove-skill] [--json]` | remove the owned CLI and optionally its verified skill | text, json |
 | `reconc init` | `reconc init [repo] [--profile PROFILE] [selection flags]` | transactionally onboard a repository | text, json, file |
 | `reconc adopt` | `reconc adopt [repo] [--yaml \| --json \| --apply]` | detect tooling and suggest rules | text, yaml, json |

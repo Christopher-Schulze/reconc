@@ -90,6 +90,24 @@ func prepareSkillInstallation(explicit string, previous *Receipt) (*skillInstall
 	if err != nil {
 		return nil, err
 	}
+	return prepareSkillInstallationPayload(target, previous, desired, files)
+}
+
+func prepareSkillInstallationPayload(target string, previous *Receipt, desired *SkillReceipt, files []skillbundle.File) (*skillInstallation, error) {
+	if desired == nil || desired.Path != target || len(files) != len(desired.Files) {
+		return nil, errors.New("selected skill payload does not match the destination")
+	}
+	if err := validateSkillReceipt(desired); err != nil {
+		return nil, err
+	}
+	for index, file := range files {
+		expected := desired.Files[index]
+		digest := sha256.Sum256(file.Data)
+		if file.Path != expected.Path || len(file.Data) != expected.Size ||
+			hex.EncodeToString(digest[:]) != expected.SHA256 {
+			return nil, fmt.Errorf("selected skill content differs for %s", expected.Path)
+		}
+	}
 	transaction := &skillInstallation{target: target, desired: desired}
 	if previous != nil {
 		transaction.previous = previous.Skill

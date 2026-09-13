@@ -33,6 +33,14 @@ exact emitted remediation before bootstrap. For authorized installation from
 another repo, use its toolkit's portable binary for that one-time command.
 After successful installation, use bare `reconc` instead of versioned paths.
 
+Use `reconc update check --json` to inspect the selected binary and skill
+without mutation. Bare `reconc update` updates a stale receipt-owned skill
+automatically, including when the binary is already current. If the skill is
+absent, follow the explicit `install-cli --skill-only` action in the report;
+`update` does not install it silently. Modified or unmanaged skill directories
+must be inspected before retrying. `reconc skill-manifest --json` prints the
+running binary's embedded skill identity for read-only verification.
+
 ## Bootstrap A Repo
 
 For a new target repo:

@@ -13,6 +13,7 @@ import (
 	"reconc.dev/reconc/buildprovenance"
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedexec"
+	skillbundle "reconc.dev/reconc/skills/reconc"
 )
 
 const maxLifecycleCommandOutput = 1 << 20
@@ -78,50 +79,97 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 		report.NextAction = err.Error()
 		return report, nil
 	}
-	if comparison == 0 {
-		paths, receiptErr := resolveReceiptPaths()
-		if receiptErr != nil {
-			report.Status = LifecycleFailed
-			report.NextAction = receiptErr.Error()
-			return report, nil
-		}
-		receipt, receiptErr := loadReceiptFile(paths.receipt)
-		if receiptErr != nil {
-			report.Status = LifecycleFailed
-			report.NextAction = "Read the direct-install receipt before comparing artifact identity: " + receiptErr.Error()
-			return report, nil
-		}
-		if receipt.ArtifactSHA256 == release.asset.SHA256 {
-			report.Status = LifecycleCurrent
-			report.NextAction = "Global Reconc already matches the selected release artifact."
-			return report, nil
-		}
+	paths, receiptErr := resolveReceiptPaths()
+	if receiptErr != nil {
+		report.Status = LifecycleFailed
+		report.NextAction = receiptErr.Error()
+		return report, nil
 	}
+	receipt, receiptErr := loadReceiptFile(paths.receipt)
+	if receiptErr != nil {
+		report.Status = LifecycleFailed
+		report.NextAction = "Read the direct-install receipt before comparing component identity: " + receiptErr.Error()
+		return report, nil
+	}
+	skill, targetSkill, skillArchive, skillErr := inspectSelectedSkill(ctx, release, receipt)
+	if skillErr != nil {
+		report.Status = LifecycleFailed
+		report.Checks = append(report.Checks, DiagnosticCheck{Name: "selected-skill", Status: "fail", Detail: skillErr.Error()})
+		report.NextAction = "Verify the selected release skill assets, then rerun the update."
+		return report, nil
+	}
+	report.Skill = skill
+	binaryCurrent := comparison == 0 && receipt.ArtifactSHA256 == release.asset.SHA256
 	if comparison > 0 && !request.AllowDowngrade {
 		report.Status = LifecycleRefused
 		report.NextAction = "Rerun with `--allow-downgrade` to authorize the selected downgrade."
 		return report, nil
 	}
+	switch skill.State {
+	case SkillMissing:
+		if skill.Action != nil {
+			report.Status = LifecycleUpdateAvailable
+			report.NextAction = "Run `reconc install-cli --skill-only` explicitly before updating; the missing skill is not installed silently."
+			if apply {
+				report.Status = LifecycleRefused
+			}
+			return report, nil
+		}
+		report.Checks = append(report.Checks, DiagnosticCheck{Name: "selected-skill", Status: "warn", Detail: "selected release predates the portable skill bundle; only its binary can be updated"})
+		if binaryCurrent {
+			report.Status = LifecycleRefused
+			report.NextAction = "The selected release has no verified skill bundle; its binary is current but the skill cannot be installed from it."
+			return report, nil
+		}
+	case SkillUnmanaged, SkillModifiedOwned:
+		report.Status = LifecycleRefused
+		report.NextAction = "Preserve and inspect the unmanaged or modified skill directory before updating."
+		return report, nil
+	case SkillUnavailable:
+		report.Status = LifecycleRefused
+		report.NextAction = "The selected release has no verified skill bundle; choose a release with the portable skill."
+		return report, nil
+	}
+	if binaryCurrent && targetSkill != nil {
+		embedded, err := skillbundle.BuildManifest()
+		if err != nil || embedded.Digest != targetSkill.ManifestDigest {
+			report.Status = LifecycleFailed
+			report.NextAction = "The selected skill bundle does not match the current binary's embedded skill; verify the selected release."
+			return report, nil
+		}
+	}
+	if binaryCurrent && skill.State == SkillCurrent {
+		report.Status = LifecycleCurrent
+		report.NextAction = "Global Reconc and its owned skill match the selected release."
+		return report, nil
+	}
 	report.Status = LifecycleUpdateAvailable
-	report.Actions = []DiagnosticAction{{
-		Kind: "direct-update", Command: updateCommand(request),
-		Detail: fmt.Sprintf("replace the receipt-owned direct binary with %s", target),
-	}}
+	if !binaryCurrent {
+		report.Actions = []DiagnosticAction{{
+			Kind: "direct-update", Command: updateCommand(request),
+			Detail: fmt.Sprintf("replace the receipt-owned direct binary with %s", target),
+		}}
+	}
 	report.NextAction = "Run `" + updateCommand(request) + "` to apply the verified update."
 	if !apply {
 		return report, nil
 	}
-	return applyDirectUpdate(ctx, report, release)
+	if binaryCurrent {
+		return applyOwnedSkillUpdate(ctx, report, release, targetSkill, skillArchive)
+	}
+	return applyDirectUpdate(ctx, report, release, targetSkill, skillArchive)
 }
 
-func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release selectedRelease) (*LifecycleReport, error) {
+func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release selectedRelease, targetSkill *SkillReceipt, skillArchive ReleaseAsset) (*LifecycleReport, error) {
 	paths, err := resolveReceiptPaths()
 	if err != nil {
 		return nil, err
 	}
 	targetPath := ""
 	provenanceState := ProvenanceEmbeddedVerified
-	err = withReceiptLock(paths, func() error {
+	mutationCommitted := false
+	rollbackFailed := false
+	err = withReceiptLock(paths, func() (resultErr error) {
 		receiptSnapshot, err := loadReceiptSnapshot(paths.receipt)
 		if err != nil {
 			return err
@@ -130,11 +178,62 @@ func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release sel
 		if receipt.Manager != ManagerDirect {
 			return errors.New("direct installation ownership changed before update")
 		}
+		var skill *skillInstallation
+		if targetSkill != nil {
+			if receipt.Skill == nil || !samePath(receipt.Skill.Path, targetSkill.Path) {
+				return errors.New("owned skill changed before direct update")
+			}
+			if report.Skill.State == SkillStaleOwned {
+				files, err := loadSelectedSkillFiles(ctx, release, targetSkill, skillArchive)
+				if err != nil {
+					return err
+				}
+				skill, err = prepareSkillInstallationPayload(targetSkill.Path, receipt, targetSkill, files)
+				if skill != nil {
+					defer func() { resultErr = errors.Join(resultErr, skill.cleanup()) }()
+				}
+				if err != nil {
+					return err
+				}
+			} else if err := verifySkillTree(receipt.Skill.Path, receipt.Skill.Files); err != nil {
+				return fmt.Errorf("owned skill changed before direct update: %w", err)
+			}
+		}
 		backup, err := captureBinaryBackup(receipt.BinaryPath)
 		if err != nil {
 			return err
 		}
 		return withCapturedBinaryBackup(backup, func(backup *binaryBackup) error {
+			binaryPublished := false
+			var publishedIdentity os.FileInfo
+			rollback := func(cause error) error {
+				if skill != nil {
+					cause = skill.rollback(cause)
+					if err := verifySkillTree(skill.target, skill.previous.Files); err != nil {
+						rollbackFailed = true
+					}
+				}
+				if !binaryPublished {
+					return cause
+				}
+				if publishedIdentity == nil {
+					backup.retain = true
+					rollbackFailed = true
+					return errors.Join(cause, fmt.Errorf("published binary identity unavailable; retain previous binary at %s", backup.path))
+				}
+				expected := &binaryBackup{exists: true, identity: publishedIdentity, digest: release.asset.SHA256}
+				if _, err := publishBinaryFromFileIfCurrent(receipt.BinaryPath, backup.path, backup.mode, expected); err != nil {
+					backup.retain = true
+					rollbackFailed = true
+					return errors.Join(cause, fmt.Errorf("restore previous binary from %s: %w", backup.path, err))
+				}
+				if digest, err := fileSHA256(receipt.BinaryPath); err != nil || digest != backup.digest {
+					backup.retain = true
+					rollbackFailed = true
+					return errors.Join(cause, fmt.Errorf("verify restored binary from %s: %w", backup.path, err))
+				}
+				return cause
+			}
 			if !backup.exists || backup.digest != receipt.ArtifactSHA256 {
 				return errors.New("direct installation changed before update")
 			}
@@ -164,25 +263,39 @@ func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release sel
 				if err := smokeCandidate(ctx, candidatePath, release.manifest.Version); err != nil {
 					return err
 				}
+				if targetSkill != nil {
+					if err := verifyCandidateSkillManifest(ctx, candidatePath, targetSkill); err != nil {
+						return err
+					}
+				}
 				if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
 					return err
 				}
 				if err := beforeDirectUpdatePhase("publication"); err != nil {
 					return err
 				}
-				if err := publishBinaryFromFileIfCurrent(targetPath, candidatePath, 0o755, backup); err != nil {
+				publication, err := publishBinaryFromFileIfCurrent(targetPath, candidatePath, 0o755, backup)
+				if err != nil {
 					if errors.Is(err, atomicfile.ErrCurrentChanged) {
 						return err
 					}
-					return rollbackInstall(targetPath, backup, true, fmt.Errorf("publish update: %w", err))
+					if publication.Outcome != atomicfile.PublicationNotPublished {
+						binaryPublished = true
+					}
+					return rollback(fmt.Errorf("publish update: %w", err))
+				}
+				binaryPublished = true
+				publishedIdentity, err = os.Lstat(targetPath)
+				if err != nil || !publishedIdentity.Mode().IsRegular() || publishedIdentity.Mode()&os.ModeSymlink != 0 {
+					return rollback(errors.Join(errors.New("published binary identity unavailable"), err))
 				}
 				updatedDigest, err := fileSHA256(targetPath)
 				if err != nil || updatedDigest != release.asset.SHA256 {
-					return rollbackInstall(targetPath, backup, true, errors.New("published update checksum verification failed"))
+					return rollback(errors.New("published update checksum verification failed"))
 				}
 				provenance, err := buildprovenance.InspectBinary(targetPath)
 				if err != nil {
-					return rollbackInstall(targetPath, backup, true, err)
+					return rollback(err)
 				}
 				input := ReceiptInput{
 					Manager: ManagerDirect, Channel: channelForRelease(release),
@@ -193,30 +306,55 @@ func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release sel
 					SourceDigest: provenance.SourceDigest, ProvenanceState: provenanceState,
 					InstalledAt: time.Now().UTC(),
 				}
+				input.Skill = targetSkill
 				updatedReceipt, err := NewReceipt(input)
 				if err != nil {
-					return rollbackInstall(targetPath, backup, true, err)
+					return rollback(err)
 				}
 				if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
-					return rollbackInstall(targetPath, backup, true, err)
+					return rollback(err)
+				}
+				if skill != nil {
+					if err := skill.publish(); err != nil {
+						return rollback(err)
+					}
+					if err := beforeSkillReceiptPublish(paths.receipt); err != nil {
+						return rollback(err)
+					}
+				} else if targetSkill != nil {
+					if err := verifySkillTree(targetSkill.Path, targetSkill.Files); err != nil {
+						return rollback(err)
+					}
+				}
+				if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
+					return rollback(err)
 				}
 				if _, err := writeReceiptUnlocked(paths.receipt, updatedReceipt); err != nil {
-					return rollbackInstall(targetPath, backup, true, err)
+					return rollback(err)
 				}
+				if skill != nil {
+					skill.committed = true
+				}
+				mutationCommitted = true
 				return nil
 			})
 		})
 	})
 	if err != nil {
 		report.Status = LifecycleFailed
+		report.Changed = mutationCommitted || rollbackFailed
 		report.Checks = append(report.Checks, DiagnosticCheck{
 			Name: "direct-update", Status: "fail", Detail: err.Error(),
 		})
-		report.NextAction = "The previous binary was retained or restored; resolve the failure and rerun the update."
+		report.NextAction = "Inspect the binary, skill, receipt, and any retained backup before retrying the failed update."
 		return report, nil
 	}
 	report.Status = LifecycleUpdated
 	report.Changed = true
+	if report.Skill != nil && targetSkill != nil {
+		report.Skill.State = SkillCurrent
+		report.Skill.InstalledManifestDigest = stringPointer(targetSkill.ManifestDigest)
+	}
 	report.BinaryPath = &targetPath
 	report.Checks = append(report.Checks, DiagnosticCheck{
 		Name: "direct-update", Status: "pass",

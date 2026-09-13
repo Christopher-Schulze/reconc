@@ -171,24 +171,27 @@ func (backup *binaryBackup) cleanup() error {
 }
 
 func publishBinaryFromFile(target, source string, mode os.FileMode) error {
-	return publishBinaryFromFileIfCurrent(target, source, mode, nil)
+	_, err := publishBinaryFromFileIfCurrent(target, source, mode, nil)
+	return err
 }
 
-func publishBinaryFromFileIfCurrent(target, source string, mode os.FileMode, expected *binaryBackup) error {
-	return boundedio.WithRegularFileSnapshot(source, maxBinaryBytes, func(file *os.File, _ os.FileInfo) error {
-		var err error
+func publishBinaryFromFileIfCurrent(target, source string, mode os.FileMode, expected *binaryBackup) (atomicfile.PublicationResult, error) {
+	var result atomicfile.PublicationResult
+	err := boundedio.WithRegularFileSnapshot(source, maxBinaryBytes, func(file *os.File, _ os.FileInfo) error {
+		var publishErr error
 		if expected == nil {
-			_, err = atomicfile.WriteStream(target, file, maxBinaryBytes, mode)
+			result, publishErr = atomicfile.WriteStream(target, file, maxBinaryBytes, mode)
 		} else {
 			if !expected.exists || expected.identity == nil || expected.digest == "" {
 				return errors.New("conditional binary publication expectation is unavailable")
 			}
-			_, err = atomicfile.WriteStreamIfCurrent(target, file, maxBinaryBytes, mode, atomicfile.ExpectedStream{
+			result, publishErr = atomicfile.WriteStreamIfCurrent(target, file, maxBinaryBytes, mode, atomicfile.ExpectedStream{
 				Info: expected.identity, Digest: expected.digest, Exists: true,
 			})
 		}
-		return err
+		return publishErr
 	})
+	return result, err
 }
 
 func rollbackInstall(path string, backup *binaryBackup, changed bool, cause error) error {

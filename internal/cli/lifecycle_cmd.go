@@ -167,6 +167,13 @@ func writeLifecycleReport(stdout io.Writer, report *usercli.LifecycleReport, jso
 	if report.TargetVersion != nil {
 		fmt.Fprintf(stdout, "Target: %s\n", *report.TargetVersion)
 	}
+	if report.Skill != nil {
+		fmt.Fprintf(stdout, "Skill: %s (%s)\n", report.Skill.State, report.Skill.Path)
+		if report.Skill.Action != nil {
+			fmt.Fprintf(stdout, "Skill action: %s (cwd: %s; authorization: %s)\n",
+				strings.Join(report.Skill.Action.Argv, " "), report.Skill.Action.Cwd, report.Skill.Action.Authorization)
+		}
+	}
 	for _, check := range report.Checks {
 		fmt.Fprintf(stdout, "[%s] %s: %s\n", strings.ToUpper(check.Status), check.Name, check.Detail)
 	}
@@ -207,5 +214,6 @@ func hasExactArgument(args []string, value string) bool {
 
 func printUpdateHelp(stdout io.Writer) {
 	fmt.Fprintln(stdout, "Usage: reconc update [--channel stable|preview | --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]")
-	fmt.Fprintln(stdout, "Apply an ownership-safe global CLI update, or succeed without mutation when already current.")
+	fmt.Fprintln(stdout, "Check the binary and owned skill independently; leave both unchanged when already current, or update stale owned components together.")
+	fmt.Fprintln(stdout, "A missing skill is proposed as an explicit install-cli --skill-only action, never installed by update.")
 }

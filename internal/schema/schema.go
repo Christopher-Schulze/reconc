@@ -72,7 +72,7 @@ const (
 	ProofBundleURL                 = DefaultBaseURL + "/proof-bundle.schema.json"
 	InstallationReceiptURL         = "urn:reconc:schema:installation-receipt:v2:sha256:2a5259b3820e737b64ddbf77cbe57be2b904d1924a114fcb67ba0726a94c002d"
 	GlobalDiagnosticURL            = DefaultBaseURL + "/global-diagnostic.schema.json"
-	GlobalLifecycleURL             = DefaultBaseURL + "/global-lifecycle.schema.json"
+	GlobalLifecycleURL             = "urn:reconc:schema:global-lifecycle:v2:sha256:4b0b882eaa20dd814bb1f7ef22e27425471f5b907bbedb26668a86b4f902b261"
 	HarnessPackManifestURL         = DefaultBaseURL + "/harness-pack-manifest.schema.json"
 	RepositoryInstallURL           = DefaultBaseURL + "/repository-install.schema.json"
 	RepositorySyncPlanURL          = Version2BaseURL + "/repository-sync-plan.schema.json"
