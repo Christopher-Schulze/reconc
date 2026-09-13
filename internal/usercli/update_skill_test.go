@@ -317,21 +317,11 @@ func TestUpdateCLIRequiresExplicitMissingSkillAction(t *testing.T) {
 	writeDirectTestReceipt(t, installedBinary, "1.0.0")
 	releaseDir := t.TempDir()
 	writeLocalReleaseWithSkill(t, releaseDir, binary, "1.0.0")
-	run := func(args ...string) (*LifecycleReport, error) {
-		t.Helper()
-		command := exec.Command(installedBinary, args...)
-		body, commandErr := command.CombinedOutput()
-		var report LifecycleReport
-		if err := json.Unmarshal(body, &report); err != nil {
-			t.Fatalf("CLI output is not one lifecycle document: %v\n%s", err, body)
-		}
-		return &report, commandErr
-	}
-	check, err := run("update", "check", "--from-dir", releaseDir, "--json")
+	check, err := runUpdateCLI(t, installedBinary, "update", "check", "--from-dir", releaseDir, "--json")
 	if err != nil || check.Status != LifecycleUpdateAvailable || check.Skill == nil || check.Skill.Action == nil {
 		t.Fatalf("CLI omitted missing-skill action: %+v, %v", check, err)
 	}
-	apply, err := run("update", "apply", "--from-dir", releaseDir, "--json")
+	apply, err := runUpdateCLI(t, installedBinary, "update", "apply", "--from-dir", releaseDir, "--json")
 	if err == nil || apply.Status != LifecycleRefused || apply.Changed {
 		t.Fatalf("CLI installed missing skill without explicit action: %+v, %v", apply, err)
 	}
@@ -339,10 +329,21 @@ func TestUpdateCLIRequiresExplicitMissingSkillAction(t *testing.T) {
 	if body, err := install.CombinedOutput(); err != nil {
 		t.Fatalf("explicit skill action failed: %v\n%s", err, body)
 	}
-	current, err := run("update", "check", "--from-dir", releaseDir, "--json")
+	current, err := runUpdateCLI(t, installedBinary, "update", "check", "--from-dir", releaseDir, "--json")
 	if err != nil || current.Status != LifecycleCurrent || current.Skill == nil || current.Skill.State != SkillCurrent {
 		t.Fatalf("CLI did not recognize explicit skill installation: %+v, %v", current, err)
 	}
+}
+
+func runUpdateCLI(t *testing.T, installedBinary string, args ...string) (*LifecycleReport, error) {
+	t.Helper()
+	command := exec.Command(installedBinary, args...)
+	body, commandErr := command.CombinedOutput()
+	var report LifecycleReport
+	if err := json.Unmarshal(body, &report); err != nil {
+		t.Fatalf("CLI output is not one lifecycle document: %v\n%s", err, body)
+	}
+	return &report, commandErr
 }
 
 func TestUpdateRepairsStaleOwnedSkillWithoutReplacingCurrentBinary(t *testing.T) {
@@ -363,7 +364,7 @@ func TestUpdateRepairsStaleOwnedSkillWithoutReplacingCurrentBinary(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	check, err := CheckUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDir})
+	check, err := runUpdateCLI(t, installedBinary, "update", "check", "--from-dir", releaseDir, "--json")
 	if err != nil || check.Status != LifecycleUpdateAvailable || check.Changed || check.Skill == nil ||
 		check.Skill.State != SkillStaleOwned || len(check.Actions) != 0 {
 		t.Fatalf("stale owned skill check = %+v, %v", check, err)
@@ -371,7 +372,7 @@ func TestUpdateRepairsStaleOwnedSkillWithoutReplacingCurrentBinary(t *testing.T)
 	if err := verifySkillTree(skillDir, previousSkill.Files); err != nil {
 		t.Fatalf("read-only update check changed skill: %v", err)
 	}
-	apply, err := ApplyUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDir})
+	apply, err := runUpdateCLI(t, installedBinary, "update", "apply", "--from-dir", releaseDir, "--json")
 	if err != nil || apply.Status != LifecycleUpdated || !apply.Changed || apply.Skill == nil || apply.Skill.State != SkillCurrent {
 		t.Fatalf("stale owned skill apply = %+v, %v", apply, err)
 	}
@@ -407,7 +408,14 @@ func TestUpdateRejectsModifiedOwnedSkillAndRestoresOnReceiptFailure(t *testing.T
 				t.Fatal(err)
 			}
 			if scenario == "modified" {
-				if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("user edit\n"), 0o644); err != nil {
+				file, err := os.OpenFile(filepath.Join(skillDir, "SKILL.md"), os.O_WRONLY|os.O_APPEND, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := file.WriteString("\nuser edit\n"); err != nil {
+					t.Fatal(err)
+				}
+				if err := file.Close(); err != nil {
 					t.Fatal(err)
 				}
 			} else {
@@ -415,8 +423,21 @@ func TestUpdateRejectsModifiedOwnedSkillAndRestoresOnReceiptFailure(t *testing.T
 				t.Cleanup(func() { beforeSkillReceiptPublish = oldHook })
 				beforeSkillReceiptPublish = func(string) error { return errors.New("injected skill receipt failure") }
 			}
-			report, err := ApplyUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDir})
-			if err != nil || report.Changed {
+			var report *LifecycleReport
+			if scenario == "modified" {
+				before := readTestFile(t, filepath.Join(skillDir, "SKILL.md"))
+				check, checkErr := runUpdateCLI(t, installedBinary, "update", "check", "--from-dir", releaseDir, "--json")
+				if checkErr == nil || check.Status != LifecycleRefused || check.Skill == nil || check.Skill.State != SkillModifiedOwned || check.Changed {
+					t.Fatalf("modified skill CLI check = %+v, %v", check, checkErr)
+				}
+				report, err = runUpdateCLI(t, installedBinary, "update", "apply", "--from-dir", releaseDir, "--json")
+				if !bytes.Equal(before, readTestFile(t, filepath.Join(skillDir, "SKILL.md"))) {
+					t.Fatal("modified skill CLI update changed user content")
+				}
+			} else {
+				report, err = ApplyUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDir})
+			}
+			if (scenario == "modified" && err == nil) || (scenario != "modified" && err != nil) || report.Changed {
 				t.Fatalf("unsafe skill update = %+v, %v", report, err)
 			}
 			if scenario == "modified" && report.Status != LifecycleRefused ||

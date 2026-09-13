@@ -94,7 +94,8 @@ func waitLiveHookOperator(ctx context.Context, workspace hookVerificationWorkspa
 	command := newHookVerificationChildCommand(ctx, workspace.executable, "hook", "__verify-live-confirm", workspace.repo)
 	command.Env = append([]string(nil), workspace.environment...)
 	command.Stdin = input
-	configureHookVerificationProcess(command)
+	// This child reads the operator's terminal. It must inherit the foreground
+	// process group; CommandContext still terminates the bounded reader on cancel.
 	_, err := boundedexec.Output(command, 1024)
 	return err
 }
@@ -256,6 +257,9 @@ func installLiveHookProbeShim(repo, runID string) error {
 set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo=$(CDPATH= cd -- "$script_dir/../../.." && pwd)
+if [ "${1:-}" = "__worker_v1__" ]; then
+  exec "$script_dir/hook-verify-real" "$@"
+fi
 export RECONC_HOOK_VERIFY_ISOLATED_CHILD=1 RECONC_HOOK_VERIFY_REPO="$repo"
 exec "$repo/reconc" hook __verify-live-capture "$repo" "` + runID + `" "$@"
 `

@@ -93,7 +93,7 @@ func TestRunHookRoutesEvidenceCommands(t *testing.T) {
 	repo := t.TempDir()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	if err := runHook([]string{"evidence-status", repo}, &stdout, &stderr); err != nil {
+	if err := runHook([]string{"evidence-status", repo}, "test", &stdout, &stderr); err != nil {
 		t.Fatalf("runHook evidence-status: %v", err)
 	}
 	if stdout.String() != "evidence taint: none\n" {
@@ -101,7 +101,7 @@ func TestRunHookRoutesEvidenceCommands(t *testing.T) {
 	}
 
 	stdout.Reset()
-	err := runHook([]string{"evidence-resolve", repo, "--token", "token", "--reason", "reviewed"}, &stdout, &stderr)
+	err := runHook([]string{"evidence-resolve", repo, "--token", "token", "--reason", "reviewed"}, "test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "no persisted evidence taint exists") {
 		t.Fatalf("evidence-resolve error = %v", err)
 	}

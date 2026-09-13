@@ -118,7 +118,7 @@ native permission event, MCP discriminator, post-user-shell result,
 synchronous Stop gate, or continuation acknowledgement.
 
 DeepSeek Harness loads the repository-owned extension only when launched from
-the repository root with `dsh --patch .dsh/reconc.patch.yml`; direct install or
+the repository root with `npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml`; direct install or
 bootstrap does not edit a user profile. Its `agent-loop` depends on the
 extension's `reconcGuard` service. The final synchronous guard denies a call
 without a matching completed Go pre-tool decision, including a skipped pre

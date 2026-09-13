@@ -57,8 +57,9 @@ native agent hooks when supported directories such as `.claude/`, `.codex/`,
 `.zcode/`, or `.grok/`
 already exist.
 DeepSeek Harness still requires an explicit launch from the repository root
-with `dsh --patch .dsh/reconc.patch.yml`; installed files alone do not prove
-that its native guard is active.
+with `npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml`;
+a global `dsh` installation is not required. Installed files alone do not
+prove that its native guard is active.
 Kimi Code is intentionally excluded because its hooks are user-global. Only an
 explicit operator action installs them:
 

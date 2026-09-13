@@ -115,7 +115,7 @@ func verificationSurfaceAction(kind, surface string) string {
 	case KindZCode + ":cli":
 		return "Start ZCode in the disposable repository and exercise SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure, and Stop."
 	case KindDSH + ":cli":
-		return "Start DSH from the disposable repository with --patch .dsh/reconc.patch.yml and exercise the native pre-tool guard and final-result observations."
+		return "Start DSH from the disposable repository with npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml and exercise the native pre-tool guard and final-result observations."
 	default:
 		return "Start " + kind + " in the disposable repository and exercise its documented positive, negative, compaction, and Stop routes."
 	}

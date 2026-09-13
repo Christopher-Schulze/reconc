@@ -321,9 +321,11 @@ func validateLiveHookCaptureBindings(records []liveHookProbeRecord, receipt *liv
 		if binding.CallSHA256 == "" {
 			continue
 		}
-		key := record.Route + "/" + binding.SessionSHA256 + "/" + binding.CallSHA256
+		// Cursor can reuse tool_use_id for distinct tools in one turn. Keep
+		// replay detection bound to the delivered tool identity as well.
+		key := record.Route + "/" + binding.SessionSHA256 + "/" + binding.CallSHA256 + "/" + binding.ToolNameSHA256 + "/" + binding.ToolInputSHA256
 		if seen[key] {
-			return fmt.Errorf("live capture: repeated native call on the same route")
+			return fmt.Errorf("live capture: repeated native tool on the same route")
 		}
 		seen[key] = true
 	}

@@ -64,7 +64,7 @@ func runOfflineHookVerification(options hookVerifyOptions, surfaces []hooks.Veri
 	return report, nil
 }
 
-func runHookVerificationOfflineChild(args []string, stdout io.Writer) error {
+func runHookVerificationOfflineChild(args []string, version string, stdout io.Writer) error {
 	if os.Getenv(hookVerificationChildEnv) != "1" || len(args) != 3 || args[2] != os.Getenv(hookVerificationRepoEnv) {
 		return &CLIError{ExitCode: 1, Message: "reconc hook: unknown subcommand \"__verify-offline\""}
 	}
@@ -72,7 +72,7 @@ func runHookVerificationOfflineChild(args []string, stdout io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook verify: invalid isolated offline surface"}
 	}
-	report, err := runOfflineHookVerificationLocal(surfaces)
+	report, err := runOfflineHookVerificationLocal(surfaces, version)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook verify: " + err.Error()}
 	}
@@ -84,8 +84,8 @@ func runHookVerificationOfflineChild(args []string, stdout io.Writer) error {
 	return nil
 }
 
-func runOfflineHookVerificationLocal(surfaces []hooks.VerificationSurface) (hookVerificationReport, error) {
-	repo, cleanup, err := prepareOfflineHookVerification()
+func runOfflineHookVerificationLocal(surfaces []hooks.VerificationSurface, version string) (hookVerificationReport, error) {
+	repo, cleanup, err := prepareOfflineHookVerification(version)
 	if err != nil {
 		return hookVerificationReport{}, err
 	}
@@ -97,11 +97,11 @@ func runOfflineHookVerificationLocal(surfaces []hooks.VerificationSurface) (hook
 	return assembleOfflineHookReport(surfaces, byKind), nil
 }
 
-func prepareOfflineHookVerification() (string, func(), error) {
-	return prepareHookVerificationRepo("reconc-hook-verify-", true)
+func prepareOfflineHookVerification(version string) (string, func(), error) {
+	return prepareHookVerificationRepo("reconc-hook-verify-", true, version)
 }
 
-func prepareHookVerificationRepo(prefix string, stageDeniedPath bool) (string, func(), error) {
+func prepareHookVerificationRepo(prefix string, stageDeniedPath bool, version string) (string, func(), error) {
 	if os.Getenv(hookVerificationChildEnv) != "1" {
 		return "", nil, fmt.Errorf("%s setup must run in an isolated child", prefix)
 	}
@@ -113,7 +113,7 @@ func prepareHookVerificationRepo(prefix string, stageDeniedPath bool) (string, f
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve isolated bare executable: %w", err)
 	}
-	install, err := usercli.InstallCurrentWithReceipt(filepath.Dir(bareExecutable), usercli.InstallOptions{Version: "hook-verify", SkillMode: usercli.SkillSkip})
+	install, err := usercli.InstallCurrentWithReceipt(filepath.Dir(bareExecutable), usercli.InstallOptions{Version: version, SkillMode: usercli.SkillSkip})
 	if err != nil {
 		return "", nil, fmt.Errorf("bind isolated bare executable to receipt: %w", err)
 	}
@@ -385,6 +385,24 @@ func linkOrCopyVerificationExecutable(source, target string) error {
 		openTarget: func(path string, flag int, mode os.FileMode) (hookVerificationCopyTarget, error) {
 			return os.OpenFile(path, flag, mode)
 		},
+	})
+}
+
+func copyHookVerificationExecutable(source, target string) error {
+	resolved, err := filepath.EvalSymlinks(source)
+	if err != nil {
+		return fmt.Errorf("resolve running executable identity: %w", err)
+	}
+	info, err := os.Lstat(resolved)
+	if err != nil {
+		return fmt.Errorf("inspect running executable: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
+		info.Size() <= 0 || info.Size() > maxHookVerificationExecutable {
+		return fmt.Errorf("running executable must be a non-symlink regular file within %d bytes", maxHookVerificationExecutable)
+	}
+	return streamHookVerificationExecutable(resolved, target, info, func(path string, flag int, mode os.FileMode) (hookVerificationCopyTarget, error) {
+		return os.OpenFile(path, flag, mode)
 	})
 }
 
@@ -753,7 +771,7 @@ func installDSHVerificationWorker(repo, target string) string {
 	}
 	name := strings.ToLower(filepath.Base(executable))
 	if !strings.HasSuffix(name, ".test") && !strings.HasSuffix(name, ".test.exe") {
-		if err := linkOrCopyVerificationExecutable(executable, target); err != nil {
+		if err := copyHookVerificationExecutable(executable, target); err != nil {
 			return "install real DSH verification worker: " + err.Error()
 		}
 		return ""

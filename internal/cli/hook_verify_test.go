@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -54,39 +55,91 @@ func TestHookVerifyOfflineCoversSharedMatrixWithoutLiveClaims(t *testing.T) {
 	}
 }
 
-func TestBuiltCLIHookVerifyUsesRealDSHWorker(t *testing.T) {
+func TestManagedCLIHookVerifyCompletesMatrixWithoutChangingBinary(t *testing.T) {
 	_, source, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("resolve test source")
 	}
 	moduleRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
-	executable := filepath.Join(t.TempDir(), "reconc")
+	buildDirectory := t.TempDir()
+	executable := filepath.Join(buildDirectory, "reconc")
 	if runtime.GOOS == "windows" {
 		executable += ".exe"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	build := exec.CommandContext(ctx, "go", "build", "-o", executable, "./cmd/reconc")
+	build := exec.CommandContext(ctx, "make", "build", "BINDIR="+buildDirectory)
 	build.Dir = moduleRoot
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build product CLI: %v: %s", err, output)
 	}
-	command := exec.CommandContext(ctx, executable, "hook", "verify", "--host", hooks.KindDSH, "--json")
+	versionOutput, err := exec.CommandContext(ctx, executable, "--version").CombinedOutput()
+	if err != nil || !strings.Contains(string(versionOutput), "dev+") {
+		t.Fatalf("managed binary version = %q, error = %v, want a development commit", versionOutput, err)
+	}
+	originalBinary, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalDigest := sha256.Sum256(originalBinary)
+	command := exec.CommandContext(ctx, executable, "hook", "verify", "--json")
 	command.Dir = t.TempDir()
 	output, err := command.CombinedOutput()
 	if err != nil {
-		t.Fatalf("built CLI DSH verification: %v: %s", err, output)
+		t.Fatalf("managed CLI offline verification: %v: %s", err, output)
 	}
 	var report hookVerificationReport
 	if err := json.Unmarshal(output, &report); err != nil {
 		t.Fatalf("decode built CLI report: %v: %s", err, output)
 	}
-	if !report.Complete || len(report.Results) != 1 {
-		t.Fatalf("built CLI DSH report incomplete: %+v", report)
+	if !report.Complete || len(report.Results) != len(hooks.VerificationSurfaces()) {
+		t.Fatalf("managed CLI offline report incomplete: %+v", report)
 	}
-	result := report.Results[0]
-	if result.Kind != hooks.KindDSH || result.Transport != "verified" || result.PolicyDecision != "verified" || result.ResponseAdaptation != "verified" {
-		t.Fatalf("built CLI DSH worker was not exercised: %+v", result)
+	var dshVerified bool
+	for _, result := range report.Results {
+		if result.Kind == hooks.KindDSH {
+			dshVerified = result.Transport == "verified" && result.PolicyDecision == "verified" && result.ResponseAdaptation == "verified"
+		}
+	}
+	if !dshVerified {
+		t.Fatal("managed CLI did not execute the DSH adapter worker")
+	}
+	currentBinary, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha256.Sum256(currentBinary) != originalDigest {
+		t.Fatal("offline verification changed its managed source executable")
+	}
+	if runtime.GOOS == "windows" {
+		return // Direct execution of the POSIX capture shim is a macOS/Linux check.
+	}
+	repo := t.TempDir()
+	if err := initializeHookVerificationRepo(repo, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hooks.Install(hooks.KindOMP, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyHookVerificationExecutable(executable, filepath.Join(repo, "reconc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := installLiveHookProbeShim(repo, strings.Repeat("a", 32)); err != nil {
+		t.Fatal(err)
+	}
+	worker := exec.CommandContext(ctx, filepath.Join(repo, hooks.WrapperPath), "__worker_v1__", repo)
+	worker.Dir = repo
+	worker.Stdin = strings.NewReader("{\"format_version\":1,\"type\":\"ping\",\"id\":\"ping\"}\n{\"format_version\":1,\"type\":\"shutdown\",\"id\":\"bye\"}\n")
+	workerOutput, err := worker.Output()
+	if err != nil {
+		t.Fatalf("live capture shim broke persistent worker transport: %v", err)
+	}
+	workerDecoder := json.NewDecoder(bytes.NewReader(workerOutput))
+	for _, want := range []struct{ id, kind string }{{"ping", "response"}, {"bye", "shutdown"}} {
+		var response hookWorkerResponse
+		if err := workerDecoder.Decode(&response); err != nil || response.ID != want.id || response.Type != want.kind || response.Code != 0 {
+			t.Fatalf("persistent worker response = %+v, %v, want %s/%s", response, err, want.id, want.kind)
+		}
 	}
 }
 

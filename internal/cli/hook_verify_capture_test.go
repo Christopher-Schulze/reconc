@@ -154,6 +154,29 @@ func TestLiveHookCaptureRejectsStaleReplayedAndContradictoryRecords(t *testing.T
 	}
 }
 
+func TestLiveHookCaptureDistinguishesCursorToolsWithReusedCallID(t *testing.T) {
+	receipt := &liveHookReceipt{RunID: strings.Repeat("a", 32), StartedAt: time.Now().Add(-time.Second)}
+	first, err := newLiveHookCaptureRecord(receipt.RunID, "cursor-post-tool-use-failure", []byte(`{"session_id":"cursor-session","tool_use_id":"shared-call","tool_name":"write","tool_input":{"file_path":"forbidden.txt"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := newLiveHookCaptureRecord(receipt.RunID, "cursor-post-tool-use-failure", []byte(`{"session_id":"cursor-session","tool_use_id":"shared-call","tool_name":"bash","tool_input":{"command":"exit 7"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range []*liveHookProbeRecord{&first, &second} {
+		record.ResultClass = "allowed-or-observed"
+		record.Binding.Decision, record.Binding.DecisionSource = "unproven", "empty-response"
+		record.Binding.ResponseSHA256 = liveHookDigest(nil)
+	}
+	if err := validateLiveHookCaptureBindings([]liveHookProbeRecord{first, second}, receipt, time.Now()); err != nil {
+		t.Fatalf("distinct Cursor tools reused one tool_use_id: %v", err)
+	}
+	if err := validateLiveHookCaptureBindings([]liveHookProbeRecord{first, first}, receipt, time.Now()); err == nil {
+		t.Fatal("duplicate native tool identity was accepted")
+	}
+}
+
 func TestLiveHookCaptureCommandUsesExactNativeKey(t *testing.T) {
 	for _, test := range []struct{ input, command string }{
 		{`{"command":"touch exact"}`, "touch exact"},

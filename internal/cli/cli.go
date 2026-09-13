@@ -117,7 +117,7 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 	case "exec":
 		return runExec(argv[1:], stdout, stderr)
 	case "hook":
-		return runHook(argv[1:], stdout, stderr)
+		return runHook(argv[1:], version, stdout, stderr)
 	case "mcp":
 		return runMCP(argv[1:], version, stdout, stderr)
 	case "grok":

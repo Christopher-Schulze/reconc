@@ -14,7 +14,7 @@ import (
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
-func runHook(args []string, stdout, stderr io.Writer) error {
+func runHook(args []string, version string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | uninstall | status | verify | bridge | conform | sync-scaffold | claim | evidence-status | evidence-resolve)"}
 	}
@@ -47,7 +47,7 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 	case "verify":
 		return runHookVerify(args[1:], stdout, stderr)
 	case "__verify-offline":
-		return runHookVerificationOfflineChild(args[1:], stdout)
+		return runHookVerificationOfflineChild(args[1:], version, stdout)
 	case "__verify-live-setup":
 		return runHookVerificationLiveSetupChild(args[1:], stdout)
 	case "__verify-live-confirm":

@@ -4354,8 +4354,13 @@ Executable availability is reported only for surfaces with an exact local
 discovery contract; UI- and cloud-only surfaces are not guessed. Codex, Devin,
 OMP, and Cursor CLI identification checks the reported version; Cursor also
 must identify itself as Cursor Agent and prefers `cursor-agent` over `agent`.
-The shared DSH discovery contract uses `dsh --version` plus the launcher's
-DeepSeek Harness identity in `dsh --help`; a numeric version alone is insufficient.
+The shared DSH discovery contract uses a resolved local `dsh` entrypoint's
+`--version` and DeepSeek Harness identity in `--help`; a numeric version alone
+is insufficient. The official `npx @deepseek-ai/dsh` launcher does not require
+a global `dsh` on PATH. For live verification, run
+`npm exec --yes --package=@deepseek-ai/dsh@0.1.5-rc.2 -- reconc hook verify --live --host dsh --surface cli --allow-authenticated`
+so npm exposes that package's `dsh` entrypoint to the verifier. The verifier
+still requires a model-backed tool call before reporting native enforcement.
 The native DSH adapter is registered separately. Executable discovery alone
 does not qualify a native DSH execution or prove that a profile patch loaded.
 The optional `host` object records the resolved executable, reported version,
@@ -4402,7 +4407,7 @@ contains no second matrix.
 | Kilo Code CLI | `.kilo/plugin/reconc.js` with `KILO_PURE` unset; same lifecycle classes as OpenCode | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code VS Code host | The same canonical project plugin when that host loads external project plugins | CLI observations are never reused as VS Code proof |
 | Oh My Pi CLI | `.omp/extensions/reconc.ts`; native session, input, tool, user-shell, user-Python observation, approval, compaction, shutdown, and awaited main-session Stop routes | OMP 18.1.18 emitted Reconc session, pre-tool, final post-tool, Stop, and shutdown routes in a disposable repository; `tool_call` and `user_bash` have blocking contracts, but native policy denial was not exercised; `user_python` is observed and never decided |
-| DeepSeek Harness CLI | `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml` loaded with `dsh --patch`; native pre-tool guard, bounded Stop steering, and final-result observations | The published DSH ToolRuntime blocked a protected write and a skipped pre listener in a disposable repository; a profile load succeeded, but provider-backed model tool calls and Stop steering remain unproven |
+| DeepSeek Harness CLI | `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml` loaded with the explicit `--patch` overlay through the official `npx @deepseek-ai/dsh` launcher; native pre-tool guard, bounded Stop steering, and final-result observations | The published DSH ToolRuntime blocked a protected write and a skipped pre listener in a disposable repository; a profile load succeeded, but provider-backed model tool calls and Stop steering remain unproven |
 | Pi Coding Agent | `.pi/extensions/reconc.ts`; trusted-project session, input, tool, user-shell, result, compaction, settled, and shutdown routes | Static extension and saved-trust contract plus per-route liveness; `tool_call` and `user_bash` can enforce before host action, while settled continuation remains inferred |
 | ZCode CLI | `.zcode/config.json`; all seven native session, prompt, tool, permission, failure, and synchronous Stop routes through the documented process executor | Static workspace contract plus per-route liveness; pre-tool, permission, and Stop can block, while host timeouts remain fail-open |
 | Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; the 16 decision- and evidence-carrying hooks of the host's twenty dispatch through receipt-bound bare `reconc` and discover the current repository | Generator-exact global configuration plus installation-receipt executable identity; no live claim without a real Kimi route observation |
@@ -4575,11 +4580,13 @@ route liveness, not a demonstrated Reconc policy denial or general extension-ord
 enforcement guarantee.
 
 DeepSeek Harness uses a repository-owned Cordis extension at `.dsh/reconc.mjs`.
-`reconc hook install dsh` also writes `.dsh/reconc.patch.yml`; invoke DSH from
-the repository with `dsh --profile headless --patch .dsh/reconc.patch.yml` to
-load it. Installation does not edit a user profile and reports the extension as
-`installed`, not `configured`; host loading is reported separately as live
-evidence.
+`reconc hook install dsh` also writes `.dsh/reconc.patch.yml`; invoke the
+supported DSH build from the repository with
+`npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml`
+to load it. The CLI accepts a task after these options. A global `dsh`
+installation is not required. Installation does not edit a user profile and
+reports the extension as `installed`, not `configured`; host loading is reported
+separately as live evidence.
 The overlay injects a `reconcGuard` service into `agent-loop`, so the tool
 runtime cannot start that agent before the extension has mounted. The
 extension awaits the Go policy worker in `tools/pre-execute`, binds an allow
