@@ -113,8 +113,13 @@ func NormalizeDSHPayload(event string, payloadBytes []byte, repoRoot string) ([]
 		return nil, errors.New("DSH turn-stopping requires stop_hook_active")
 	}
 	if event == "dsh-pre-tool-use" {
-		if raw.ToolName == "pwsh" {
+		switch raw.ToolName {
+		case "pwsh":
 			return nil, errors.New("DSH PowerShell has no Reconc command-policy parser")
+		case "run_code":
+			return nil, errors.New("DSH run_code has no inspectable command contract; set DSH_TOOLS_MODE=native and use read/write/edit/bash")
+		case "terminal_open", "terminal_send", "terminal_signal":
+			return nil, errors.New("DSH raw terminal state has no inspectable command contract; use one-shot bash from the repository root")
 		}
 		if raw.ToolName == "bash" {
 			var input struct {

@@ -1,12 +1,43 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
+
+func TestDSHRejectsUninspectableExecutionRoutes(t *testing.T) {
+	repo := newTask499ScenarioRepo(t, "rules:\n  - id: deny-generated\n    template: no-generated-writes\n", nil)
+	for _, test := range []struct {
+		name, input string
+	}{
+		{"run_code", `{"code":"const fs=await import('node:fs/promises'); await fs.writeFile('generated/blocked.go','x')","description":"write file"}`},
+		{"terminal_send", `{"sessionId":"s","text":"printf x > generated/blocked.go","submit":true}`},
+		{"terminal_open", `{"type":"shell","cwd":"/tmp"}`},
+		{"terminal_signal", `{"sessionId":"s","signal":"SIGCONT"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			payload, err := json.Marshal(map[string]interface{}{
+				"hook_event_name": "tools/pre-execute", "session_id": "dsh-unsafe", "cwd": repo,
+				"agent_id": "agent-1", "tool_name": test.name, "tool_input": json.RawMessage(test.input),
+				"tool_call_id": "call-1", "root_call_id": "call-1",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := agentsession.NormalizeDSHPayload("dsh-pre-tool-use", payload, repo); err == nil || !strings.Contains(err.Error(), "command contract") {
+				t.Fatalf("unsafe route diagnostic = %v", err)
+			}
+			out, diagnostic, code := runWithStdin(t, string(payload), "hook", "runtime", "dsh-pre-tool-use", repo)
+			if code != 2 || out != "" {
+				t.Fatalf("unsafe route: code=%d stdout=%q stderr=%q", code, out, diagnostic)
+			}
+		})
+	}
+}
 
 func TestDSHPreDecisionAndFinalResultObservation(t *testing.T) {
 	repo := newTask499ScenarioRepo(t, "rules:\n  - id: deny-generated\n    template: no-generated-writes\n", nil)

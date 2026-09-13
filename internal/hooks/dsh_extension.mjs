@@ -61,6 +61,52 @@ const executionIdentity = (exec) => {
   }
 }
 
+// These providers share tool names with very different execution contracts.
+// Re-read configuration at both policy entry and final dispatch, including
+// renamed delegation tools. A patch on the parent does not protect a process.
+const compositionConflict = (ctx, name) => {
+  if (name === 'run_code') return 'Reconc cannot inspect arbitrary DSH code; set DSH_TOOLS_MODE=native and use read/write/edit/bash'
+  if (['terminal_open', 'terminal_send', 'terminal_signal'].includes(name)) {
+    return 'Reconc cannot bind raw terminal state; use the one-shot bash tool from the repository root'
+  }
+  if (!ctx.registry || typeof ctx.registry.values !== 'function') return 'Reconc cannot inspect the active DSH plugin registry'
+  const providers = new Set()
+  const external = new Set()
+  const requested = []
+  const engines = []
+  let workflow = name === 'workflow'
+  let delegation = ['subagent', 'fork', 'ralph'].includes(name)
+  for (const runtime of ctx.registry.values()) {
+    if (!runtime.fibers?.length) continue
+    if (runtime.name === 'hooks-codex' || runtime.name === 'hooks-claude-code') {
+      return `Reconc DSH native policy conflicts with active ${runtime.name}; disable one integration`
+    }
+    if (name === 'bash' && runtime.name === 'tool-bash-persistent') {
+      return 'Reconc requires one-shot tool-bash; tool-bash-persistent retains unbound cwd and shell state'
+    }
+    for (const fiber of runtime.fibers) {
+      const config = fiber.config || {}
+      if (runtime.name === 'subagent-spawn-in-process' || runtime.name === 'subagent-fork-in-process') {
+        providers.add(config.providerName || (runtime.name === 'subagent-spawn-in-process' ? 'spawn' : 'fork'))
+      } else if (runtime.name?.startsWith('subagent-') && config.providerName) {
+        external.add(config.providerName)
+      }
+      if (runtime.name === 'tool-subagent' && name === (config.toolName || 'subagent')) {
+        delegation = true
+        requested.push(config.provider)
+      }
+      if (runtime.name === 'tool-ralph' && name === 'ralph') requested.push(config.subagentProvider || 'spawn')
+      if (runtime.name === 'tool-workflow' && name === (config.toolName || 'workflow')) workflow = true
+      if (runtime.name === 'WorkerThreadWorkflowEngine') engines.push(config.provider || 'spawn')
+    }
+  }
+  if (workflow) requested.push(...engines)
+  if ((delegation || workflow) && (!requested.length || requested.some(provider => !providers.has(provider) || external.has(provider)))) {
+    return 'Reconc requires a registered in-process spawn/fork provider for delegation; external children need their own protected runtime'
+  }
+  return undefined
+}
+
 class WorkerTransport {
   constructor() {
     this.child = undefined
@@ -203,16 +249,6 @@ export function apply(ctx) {
   let disposing = false
   let observationOverloadReported = false
 
-  const duplicateBridge = () => {
-    if (!ctx.registry || typeof ctx.registry.values !== 'function') return 'Reconc cannot inspect the active DSH plugin registry'
-    for (const runtime of ctx.registry.values()) {
-      if ((runtime.name === 'hooks-codex' || runtime.name === 'hooks-claude-code') && runtime.fibers?.length > 0) {
-        return `Reconc DSH native policy conflicts with active ${runtime.name}; disable one integration`
-      }
-    }
-    return undefined
-  }
-
   const releaseDecision = (identity) => {
     if (decisions.get(identity.token) === identity) decisions.delete(identity.token)
     if (identity.abort) identity.signal.removeEventListener('abort', identity.abort)
@@ -254,7 +290,7 @@ export function apply(ctx) {
 
   const pre = ctx.on('tools/pre-execute', async (exec, next) => {
     const identity = executionIdentity(exec)
-    const conflict = duplicateBridge()
+    const conflict = compositionConflict(ctx, exec.name)
     if (conflict) return { kind: 'deny', reason: conflict }
     if (disposing || !identity || decisions.size >= maxPendingCalls) {
       return { kind: 'deny', reason: 'Reconc cannot bind this DSH tool call to a protected session' }
@@ -296,7 +332,7 @@ export function apply(ctx) {
   })
 
   const guard = ctx.tools.guard(exec => {
-    const conflict = duplicateBridge()
+    const conflict = compositionConflict(ctx, exec.name)
     if (conflict) return conflict
     const identity = decisions.get(exec.token)
     if (disposing || !identity || identity.agent !== exec.agent || identity.session !== exec.agent?.session?.header?.id ||

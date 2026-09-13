@@ -4618,15 +4618,27 @@ inputs; `str_replace_editor` is supported when a profile enables it. DSH
 sessions and Bash workdirs must resolve to the repository root; subdirectories
 are denied because DSH resolves relative file paths against its session or
 shell workdir while Reconc policy resolves them against the repository root.
-The Windows `pwsh` tool is denied
-because Reconc's command parser has no PowerShell policy contract.
+The supported shell provider is one-shot `tool-bash`. An active
+`tool-bash-persistent` provider makes Bash calls fail closed because its cwd,
+variables, and functions survive between calls. `pwsh`, `run_code`, and raw
+`terminal_open`/`terminal_send`/`terminal_signal` calls are denied: these routes
+have no inspectable Reconc command contract. Use `DSH_TOOLS_MODE=native` and
+the native file tools or one-shot Bash; terminal read/list/close remain available.
+Delegation through `tool-subagent` (including renamed tools), `workflow`, and
+`ralph` requires a registered in-process spawn/fork provider. The extension
+checks active provider configurations again at the final guard. External DSH
+SDK, Codex, Claude, ACP, or unknown providers are refused for those delegation
+routes: a parent profile patch does not establish a protected child runtime.
+Custom tools still require explicit policy classification under `custom:dsh`;
+the native adapter is not a sandbox for arbitrary custom plugin implementations.
 Its `tools/result` event exposes a frozen result after host result transforms,
 which is useful for observation but cannot prove the original shell exit or
 file effect. Reconc therefore records DSH post routes passively and requires
 trusted `reconc exec` or CI evidence for such claims. The extension awaits
 session setup before each agent step, supplies compact guidance in prompt
 assembly after compaction, and can steer a blocked Stop once per agent turn.
-These lifecycle paths still need qualification against a live model session.
+Pinned source/API review and executable offline policy/adapter regressions
+define this integration's acceptance contract.
 An extension loaded for one repository rejects calls from another repository
 in that DSH process; use a separate patched process for each repository.
 
