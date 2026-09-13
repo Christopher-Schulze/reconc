@@ -30,6 +30,9 @@ Source review confirmed the native pre-tool decision and awaited steering signat
 
 Targeted adapter and real Go-worker tests cover policy denial/allow, warnings, malformed responses, launch failure, timeout, cancellation, bounded Stop reentry, next-turn reset, disposal, provider composition, and passive result integrity. The obsolete advisory-conversion unit test is replaced by these native-decision contracts and the common all-host policy-denial assertion.
 
+The upstream `ToolExecutionInput.agent` field is optional for host calls outside an agent session. Those calls continue without fabricated session identity or evidence; malformed agent-owned calls still follow the normal pre-tool failure policy. The composition regression covers both cases.
+After that boundary correction, the targeted DSH race suite, complete `make test-fast` suites, build, and publication/pack audit passed again.
+
 Complete uncached race suites passed for both Go modules, including the shared host matrix and embedded skill bundle. Publication/artifact trust, build, vet and Staticcheck passed. Self-hosting passed after replacing its old 14-configured-entry expectation with all 15 registry entries and including DSH in the same session-start transport loop. Generated documentation and the deterministic scaffold pack match their sources. No DSH installation or agent/model execution was performed.
 
 CI, CodeQL and the separate source-watch workflow are checked against the pushed archived commit; their remote results are reported after push rather than predeclared in this file.

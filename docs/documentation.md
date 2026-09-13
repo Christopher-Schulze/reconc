@@ -4672,6 +4672,8 @@ transport capacity. Allowed calls delegate to the next handler exactly once;
 warnings retain their successful decision. DSH retains its own cancellation,
 permission, and plugin behavior. Reconc does not lock host-owned execution
 properties; later plugins can change input after its pre-tool evaluation.
+ToolRuntime calls without an agent are outside agent-session policy and continue
+without creating session evidence, as do calls owned by another repository.
 The built-in read/write/edit tools retain typed input. Relative native file
 paths in repository subdirectories are rebased to the policy root. Both native
 and PTC modes remain available. `run_code`, PowerShell, persistent Bash, all

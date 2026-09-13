@@ -222,7 +222,9 @@ if (mode === 'diagnostics-timer') {
       const foreign = call('write'); foreign.agent = { id: 'other', session: { header: Object.freeze({ id: 'outside', cwd: '/tmp' }) } }
       await allowed(foreign)
       const missing = call('read'); delete missing.agent
-      assert.equal((await pre(missing)).kind, 'deny')
+      await allowed(missing)
+      const invalid = call('read'); invalid.agent = {}
+      assert.equal((await pre(invalid)).kind, 'deny')
       await allowed(call('bash', { command: 'pwd', workdir: '/tmp' }))
     }
   } finally { await bounded(cleanup()) }

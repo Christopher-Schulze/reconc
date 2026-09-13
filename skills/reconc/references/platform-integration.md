@@ -129,6 +129,8 @@ shell state and external children do not create assumed evidence or inherited
 protection. Later plugins can replace execution input; Reconc does not lock
 host-owned fields. Final transformed `tools/result` outcomes remain passive
 observations. Use `reconc exec` for authoritative command proof.
+Agentless ToolRuntime calls are outside agent-session policy and create no
+session evidence.
 
 ZCode snapshots `.zcode/config.json` at session start. Reconc merges only exact
 managed process entries and preserves foreign settings, events, commands, and

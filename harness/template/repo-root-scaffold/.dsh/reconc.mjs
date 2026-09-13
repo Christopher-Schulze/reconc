@@ -462,6 +462,8 @@ export function apply(ctx) {
   })
 
   const pre = ctx.on('tools/pre-execute', async (exec, next) => {
+    // ToolRuntime also serves host callers outside an agent session.
+    if (exec.agent === undefined) return next()
     const identity = executionIdentity(exec)
     if (identity && isRepoDirectory(identity.cwd) === false) return next()
     if (disposing) return { kind: 'deny', reason: 'Reconc extension is disposing' }
