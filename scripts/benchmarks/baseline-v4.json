@@ -1,0 +1,3786 @@
+{
+  "format_version": "reconc.benchmark-baseline/v4",
+  "tolerances": {
+    "normalized_ns_per_op": 0.2,
+    "normalized_bytes_per_op": 0.05,
+    "normalized_allocs_per_op": 0.05,
+    "absolute_ns_per_op": 0.2,
+    "absolute_bytes_per_op": 0.1,
+    "absolute_allocs_per_op": 0.1,
+    "absolute_peak_rss_bytes": 0.2
+  },
+  "result": {
+    "format_version": "reconc.benchmark-result/v4",
+    "suite_version": "reconc.performance-history/v10",
+    "environment": {
+      "go_version": "go1.27.1",
+      "goos": "darwin",
+      "goarch": "arm64",
+      "cpu": "Apple M1",
+      "commit": "c814f5b40579d2feed47231ec9dc2d80afda1dea",
+      "dirty": false
+    },
+    "parameters": {
+      "count": 5,
+      "benchtime": "250ms",
+      "cpu": 1,
+      "repetitions": 3
+    },
+    "groups": [
+      {
+        "name": "action-bounded-trace",
+        "package": "./internal/action",
+        "calibration": {
+          "name": "BenchmarkActionEvaluatorRepresentativeCalibrated",
+          "samples": [
+            {
+              "iterations": 3367,
+              "peak_rss_bytes": 119144448,
+              "ns_per_op": 93133,
+              "bytes_per_op": 79359,
+              "allocs_per_op": 383
+            },
+            {
+              "iterations": 3442,
+              "peak_rss_bytes": 120537088,
+              "ns_per_op": 90102,
+              "bytes_per_op": 79359,
+              "allocs_per_op": 383
+            },
+            {
+              "iterations": 3224,
+              "peak_rss_bytes": 119406592,
+              "ns_per_op": 98016,
+              "bytes_per_op": 79359,
+              "allocs_per_op": 383
+            },
+            {
+              "iterations": 3453,
+              "peak_rss_bytes": 123289600,
+              "ns_per_op": 90554,
+              "bytes_per_op": 79359,
+              "allocs_per_op": 383
+            },
+            {
+              "iterations": 3157,
+              "peak_rss_bytes": 121798656,
+              "ns_per_op": 91973,
+              "bytes_per_op": 79359,
+              "allocs_per_op": 383
+            }
+          ],
+          "median": {
+            "ns_per_op": 91973,
+            "bytes_per_op": 79359,
+            "allocs_per_op": 383
+          },
+          "p50": {
+            "ns_per_op": 91973,
+            "bytes_per_op": 79359,
+            "allocs_per_op": 383
+          },
+          "p95": {
+            "ns_per_op": 97039.4,
+            "bytes_per_op": 79359,
+            "allocs_per_op": 383
+          },
+          "peak_rss_bytes": 123289600
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4879707,
+              "peak_rss_bytes": 92880896,
+              "ns_per_op": 61.585,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4872620,
+              "peak_rss_bytes": 94732288,
+              "ns_per_op": 61.6,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4875643,
+              "peak_rss_bytes": 94863360,
+              "ns_per_op": 61.614999999999995,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4861914,
+              "peak_rss_bytes": 92422144,
+              "ns_per_op": 61.985,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4857348,
+              "peak_rss_bytes": 94601216,
+              "ns_per_op": 62.379999999999995,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 61.614999999999995,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 61.614999999999995,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 62.300999999999995,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 94863360
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkActionEvaluatorMaximumLegalPlanCalibrated",
+              "samples": [
+                {
+                  "iterations": 682,
+                  "peak_rss_bytes": 119144448,
+                  "ns_per_op": 436378,
+                  "bytes_per_op": 326707,
+                  "allocs_per_op": 801
+                },
+                {
+                  "iterations": 688,
+                  "peak_rss_bytes": 120537088,
+                  "ns_per_op": 427754,
+                  "bytes_per_op": 326707,
+                  "allocs_per_op": 801
+                },
+                {
+                  "iterations": 649,
+                  "peak_rss_bytes": 119406592,
+                  "ns_per_op": 459986,
+                  "bytes_per_op": 326708,
+                  "allocs_per_op": 801
+                },
+                {
+                  "iterations": 692,
+                  "peak_rss_bytes": 123289600,
+                  "ns_per_op": 430173,
+                  "bytes_per_op": 326707,
+                  "allocs_per_op": 801
+                },
+                {
+                  "iterations": 678,
+                  "peak_rss_bytes": 121798656,
+                  "ns_per_op": 436367,
+                  "bytes_per_op": 326707,
+                  "allocs_per_op": 801
+                }
+              ],
+              "median": {
+                "ns_per_op": 436367,
+                "bytes_per_op": 326707,
+                "allocs_per_op": 801
+              },
+              "p50": {
+                "ns_per_op": 436367,
+                "bytes_per_op": 326707,
+                "allocs_per_op": 801
+              },
+              "p95": {
+                "ns_per_op": 455264.4,
+                "bytes_per_op": 326707.8,
+                "allocs_per_op": 801
+              },
+              "peak_rss_bytes": 123289600
+            },
+            "normalized": {
+              "ns_per_op": 4.744511976340883,
+              "bytes_per_op": 4.116823548683829,
+              "allocs_per_op": 2.0913838120104438
+            }
+          },
+          {
+            "benchmark": {
+              "name": "BenchmarkActionContextRootPredicates",
+              "samples": [
+                {
+                  "iterations": 32546,
+                  "peak_rss_bytes": 119144448,
+                  "ns_per_op": 9250,
+                  "bytes_per_op": 312,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 32892,
+                  "peak_rss_bytes": 120537088,
+                  "ns_per_op": 9158,
+                  "bytes_per_op": 312,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 31251,
+                  "peak_rss_bytes": 119406592,
+                  "ns_per_op": 9655,
+                  "bytes_per_op": 312,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 32900,
+                  "peak_rss_bytes": 123289600,
+                  "ns_per_op": 9125,
+                  "bytes_per_op": 312,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 27957,
+                  "peak_rss_bytes": 121798656,
+                  "ns_per_op": 15414,
+                  "bytes_per_op": 312,
+                  "allocs_per_op": 3
+                }
+              ],
+              "median": {
+                "ns_per_op": 9250,
+                "bytes_per_op": 312,
+                "allocs_per_op": 3
+              },
+              "p50": {
+                "ns_per_op": 9250,
+                "bytes_per_op": 312,
+                "allocs_per_op": 3
+              },
+              "p95": {
+                "ns_per_op": 14262.199999999999,
+                "bytes_per_op": 312,
+                "allocs_per_op": 3
+              },
+              "peak_rss_bytes": 123289600
+            },
+            "normalized": {
+              "ns_per_op": 0.10057299424831201,
+              "bytes_per_op": 0.003931501152988319,
+              "allocs_per_op": 0.007832898172323759
+            }
+          }
+        ]
+      },
+      {
+        "name": "action-decision-cache",
+        "package": "./internal/action",
+        "calibration": {
+          "name": "BenchmarkPreparedDecisionCacheHit",
+          "samples": [
+            {
+              "iterations": 258861,
+              "peak_rss_bytes": 119144448,
+              "ns_per_op": 1155,
+              "bytes_per_op": 4608,
+              "allocs_per_op": 3
+            },
+            {
+              "iterations": 252778,
+              "peak_rss_bytes": 120537088,
+              "ns_per_op": 1166,
+              "bytes_per_op": 4608,
+              "allocs_per_op": 3
+            },
+            {
+              "iterations": 236565,
+              "peak_rss_bytes": 119406592,
+              "ns_per_op": 1249,
+              "bytes_per_op": 4608,
+              "allocs_per_op": 3
+            },
+            {
+              "iterations": 256318,
+              "peak_rss_bytes": 123289600,
+              "ns_per_op": 1164,
+              "bytes_per_op": 4608,
+              "allocs_per_op": 3
+            },
+            {
+              "iterations": 223540,
+              "peak_rss_bytes": 121798656,
+              "ns_per_op": 1315,
+              "bytes_per_op": 4608,
+              "allocs_per_op": 3
+            }
+          ],
+          "median": {
+            "ns_per_op": 1166,
+            "bytes_per_op": 4608,
+            "allocs_per_op": 3
+          },
+          "p50": {
+            "ns_per_op": 1166,
+            "bytes_per_op": 4608,
+            "allocs_per_op": 3
+          },
+          "p95": {
+            "ns_per_op": 1301.8,
+            "bytes_per_op": 4608,
+            "allocs_per_op": 3
+          },
+          "peak_rss_bytes": 123289600
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4879707,
+              "peak_rss_bytes": 92880896,
+              "ns_per_op": 61.585,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4872620,
+              "peak_rss_bytes": 94732288,
+              "ns_per_op": 61.6,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4875643,
+              "peak_rss_bytes": 94863360,
+              "ns_per_op": 61.614999999999995,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4861914,
+              "peak_rss_bytes": 92422144,
+              "ns_per_op": 61.985,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4857348,
+              "peak_rss_bytes": 94601216,
+              "ns_per_op": 62.379999999999995,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 61.614999999999995,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 61.614999999999995,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 62.300999999999995,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 94863360
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkPreparedDecisionCacheStore",
+              "samples": [
+                {
+                  "iterations": 190701,
+                  "peak_rss_bytes": 119144448,
+                  "ns_per_op": 1582,
+                  "bytes_per_op": 4608,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 198988,
+                  "peak_rss_bytes": 120537088,
+                  "ns_per_op": 1491,
+                  "bytes_per_op": 4608,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 187068,
+                  "peak_rss_bytes": 119406592,
+                  "ns_per_op": 1605,
+                  "bytes_per_op": 4608,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 184716,
+                  "peak_rss_bytes": 123289600,
+                  "ns_per_op": 1619,
+                  "bytes_per_op": 4608,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 193574,
+                  "peak_rss_bytes": 121798656,
+                  "ns_per_op": 1545,
+                  "bytes_per_op": 4608,
+                  "allocs_per_op": 3
+                }
+              ],
+              "median": {
+                "ns_per_op": 1582,
+                "bytes_per_op": 4608,
+                "allocs_per_op": 3
+              },
+              "p50": {
+                "ns_per_op": 1582,
+                "bytes_per_op": 4608,
+                "allocs_per_op": 3
+              },
+              "p95": {
+                "ns_per_op": 1616.2,
+                "bytes_per_op": 4608,
+                "allocs_per_op": 3
+              },
+              "peak_rss_bytes": 123289600
+            },
+            "normalized": {
+              "ns_per_op": 1.3567753001715266,
+              "bytes_per_op": 1,
+              "allocs_per_op": 1
+            }
+          }
+        ]
+      },
+      {
+        "name": "action-ledger-checkpoint",
+        "package": "./internal/actionledger",
+        "calibration": {
+          "name": "BenchmarkLedgerCheckpointAdvanceNoActiveCalls",
+          "samples": [
+            {
+              "iterations": 101928,
+              "peak_rss_bytes": 125288448,
+              "ns_per_op": 2680,
+              "bytes_per_op": 1816,
+              "allocs_per_op": 5
+            },
+            {
+              "iterations": 101461,
+              "peak_rss_bytes": 125566976,
+              "ns_per_op": 3968,
+              "bytes_per_op": 1816,
+              "allocs_per_op": 5
+            },
+            {
+              "iterations": 99746,
+              "peak_rss_bytes": 126763008,
+              "ns_per_op": 2730,
+              "bytes_per_op": 1816,
+              "allocs_per_op": 5
+            },
+            {
+              "iterations": 104205,
+              "peak_rss_bytes": 126418944,
+              "ns_per_op": 2695,
+              "bytes_per_op": 1816,
+              "allocs_per_op": 5
+            },
+            {
+              "iterations": 102060,
+              "peak_rss_bytes": 126763008,
+              "ns_per_op": 2704,
+              "bytes_per_op": 1816,
+              "allocs_per_op": 5
+            }
+          ],
+          "median": {
+            "ns_per_op": 2704,
+            "bytes_per_op": 1816,
+            "allocs_per_op": 5
+          },
+          "p50": {
+            "ns_per_op": 2704,
+            "bytes_per_op": 1816,
+            "allocs_per_op": 5
+          },
+          "p95": {
+            "ns_per_op": 3720.3999999999996,
+            "bytes_per_op": 1816,
+            "allocs_per_op": 5
+          },
+          "peak_rss_bytes": 126763008
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4846875,
+              "peak_rss_bytes": 94846976,
+              "ns_per_op": 62.21,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4872597,
+              "peak_rss_bytes": 94830592,
+              "ns_per_op": 61.894999999999996,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4873197,
+              "peak_rss_bytes": 93814784,
+              "ns_per_op": 61.724999999999994,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4865022,
+              "peak_rss_bytes": 94928896,
+              "ns_per_op": 61.754999999999995,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4762351,
+              "peak_rss_bytes": 92930048,
+              "ns_per_op": 63.6,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 61.894999999999996,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 61.894999999999996,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 63.322,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 94928896
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkLedgerCheckpointAdvanceActive256",
+              "samples": [
+                {
+                  "iterations": 1052,
+                  "peak_rss_bytes": 125288448,
+                  "ns_per_op": 381055,
+                  "bytes_per_op": 478695,
+                  "allocs_per_op": 276
+                },
+                {
+                  "iterations": 1184,
+                  "peak_rss_bytes": 125566976,
+                  "ns_per_op": 251335,
+                  "bytes_per_op": 478695,
+                  "allocs_per_op": 276
+                },
+                {
+                  "iterations": 1231,
+                  "peak_rss_bytes": 126763008,
+                  "ns_per_op": 230220,
+                  "bytes_per_op": 478696,
+                  "allocs_per_op": 276
+                },
+                {
+                  "iterations": 1252,
+                  "peak_rss_bytes": 126418944,
+                  "ns_per_op": 229460,
+                  "bytes_per_op": 478695,
+                  "allocs_per_op": 276
+                },
+                {
+                  "iterations": 1258,
+                  "peak_rss_bytes": 126763008,
+                  "ns_per_op": 232520,
+                  "bytes_per_op": 478695,
+                  "allocs_per_op": 276
+                }
+              ],
+              "median": {
+                "ns_per_op": 232520,
+                "bytes_per_op": 478695,
+                "allocs_per_op": 276
+              },
+              "p50": {
+                "ns_per_op": 232520,
+                "bytes_per_op": 478695,
+                "allocs_per_op": 276
+              },
+              "p95": {
+                "ns_per_op": 355111,
+                "bytes_per_op": 478695.8,
+                "allocs_per_op": 276
+              },
+              "peak_rss_bytes": 126763008
+            },
+            "normalized": {
+              "ns_per_op": 85.99112426035504,
+              "bytes_per_op": 263.5985682819383,
+              "allocs_per_op": 55.2
+            }
+          },
+          {
+            "benchmark": {
+              "name": "BenchmarkLedgerCheckpointAdvanceTerminal65536",
+              "samples": [
+                {
+                  "iterations": 93961,
+                  "peak_rss_bytes": 125288448,
+                  "ns_per_op": 3301,
+                  "bytes_per_op": 1816,
+                  "allocs_per_op": 5
+                },
+                {
+                  "iterations": 99837,
+                  "peak_rss_bytes": 125566976,
+                  "ns_per_op": 2823,
+                  "bytes_per_op": 1816,
+                  "allocs_per_op": 5
+                },
+                {
+                  "iterations": 102574,
+                  "peak_rss_bytes": 126763008,
+                  "ns_per_op": 2806,
+                  "bytes_per_op": 1816,
+                  "allocs_per_op": 5
+                },
+                {
+                  "iterations": 99386,
+                  "peak_rss_bytes": 126418944,
+                  "ns_per_op": 2819,
+                  "bytes_per_op": 1816,
+                  "allocs_per_op": 5
+                },
+                {
+                  "iterations": 99088,
+                  "peak_rss_bytes": 126763008,
+                  "ns_per_op": 2849,
+                  "bytes_per_op": 1816,
+                  "allocs_per_op": 5
+                }
+              ],
+              "median": {
+                "ns_per_op": 2823,
+                "bytes_per_op": 1816,
+                "allocs_per_op": 5
+              },
+              "p50": {
+                "ns_per_op": 2823,
+                "bytes_per_op": 1816,
+                "allocs_per_op": 5
+              },
+              "p95": {
+                "ns_per_op": 3210.6,
+                "bytes_per_op": 1816,
+                "allocs_per_op": 5
+              },
+              "peak_rss_bytes": 126763008
+            },
+            "normalized": {
+              "ns_per_op": 1.044008875739645,
+              "bytes_per_op": 1,
+              "allocs_per_op": 1
+            }
+          }
+        ]
+      },
+      {
+        "name": "action-structured-inspection",
+        "package": "./internal/actioninspect",
+        "calibration": {
+          "name": "BenchmarkStructuredJSONRepresentative",
+          "samples": [
+            {
+              "iterations": 29722,
+              "peak_rss_bytes": 139362304,
+              "ns_per_op": 9967,
+              "bytes_per_op": 4944,
+              "allocs_per_op": 69
+            },
+            {
+              "iterations": 32233,
+              "peak_rss_bytes": 135888896,
+              "ns_per_op": 10020,
+              "bytes_per_op": 4944,
+              "allocs_per_op": 69
+            },
+            {
+              "iterations": 32552,
+              "peak_rss_bytes": 136069120,
+              "ns_per_op": 9427,
+              "bytes_per_op": 4944,
+              "allocs_per_op": 69
+            },
+            {
+              "iterations": 33604,
+              "peak_rss_bytes": 135348224,
+              "ns_per_op": 8960,
+              "bytes_per_op": 4944,
+              "allocs_per_op": 69
+            },
+            {
+              "iterations": 32618,
+              "peak_rss_bytes": 137117696,
+              "ns_per_op": 9235,
+              "bytes_per_op": 4944,
+              "allocs_per_op": 69
+            }
+          ],
+          "median": {
+            "ns_per_op": 9427,
+            "bytes_per_op": 4944,
+            "allocs_per_op": 69
+          },
+          "p50": {
+            "ns_per_op": 9427,
+            "bytes_per_op": 4944,
+            "allocs_per_op": 69
+          },
+          "p95": {
+            "ns_per_op": 10009.4,
+            "bytes_per_op": 4944,
+            "allocs_per_op": 69
+          },
+          "peak_rss_bytes": 139362304
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4870432,
+              "peak_rss_bytes": 93683712,
+              "ns_per_op": 62.08,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4849274,
+              "peak_rss_bytes": 94142464,
+              "ns_per_op": 65.65,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4781650,
+              "peak_rss_bytes": 93700096,
+              "ns_per_op": 63.595,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4678203,
+              "peak_rss_bytes": 93519872,
+              "ns_per_op": 64.45,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4827979,
+              "peak_rss_bytes": 92880896,
+              "ns_per_op": 63.254999999999995,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 63.595,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 63.595,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 65.41000000000001,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 94142464
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkMaximumLegalContentArray",
+              "samples": [
+                {
+                  "iterations": 39,
+                  "peak_rss_bytes": 139362304,
+                  "ns_per_op": 7603596,
+                  "bytes_per_op": 176948,
+                  "allocs_per_op": 68
+                },
+                {
+                  "iterations": 37,
+                  "peak_rss_bytes": 135888896,
+                  "ns_per_op": 7940448,
+                  "bytes_per_op": 176952,
+                  "allocs_per_op": 68
+                },
+                {
+                  "iterations": 39,
+                  "peak_rss_bytes": 136069120,
+                  "ns_per_op": 7806713,
+                  "bytes_per_op": 176948,
+                  "allocs_per_op": 68
+                },
+                {
+                  "iterations": 38,
+                  "peak_rss_bytes": 135348224,
+                  "ns_per_op": 7963732,
+                  "bytes_per_op": 176950,
+                  "allocs_per_op": 68
+                },
+                {
+                  "iterations": 39,
+                  "peak_rss_bytes": 137117696,
+                  "ns_per_op": 7604080,
+                  "bytes_per_op": 176948,
+                  "allocs_per_op": 68
+                }
+              ],
+              "median": {
+                "ns_per_op": 7806713,
+                "bytes_per_op": 176948,
+                "allocs_per_op": 68
+              },
+              "p50": {
+                "ns_per_op": 7806713,
+                "bytes_per_op": 176948,
+                "allocs_per_op": 68
+              },
+              "p95": {
+                "ns_per_op": 7959075.2,
+                "bytes_per_op": 176951.6,
+                "allocs_per_op": 68
+              },
+              "peak_rss_bytes": 139362304
+            },
+            "normalized": {
+              "ns_per_op": 828.1227325766415,
+              "bytes_per_op": 35.79045307443366,
+              "allocs_per_op": 0.9855072463768116
+            }
+          }
+        ]
+      },
+      {
+        "name": "compiler-canonical-json",
+        "package": "./internal/compiler",
+        "calibration": {
+          "name": "BenchmarkNormalizeJSONValueTwice",
+          "samples": [
+            {
+              "iterations": 47204,
+              "peak_rss_bytes": 161038336,
+              "ns_per_op": 6010,
+              "bytes_per_op": 3344,
+              "allocs_per_op": 64
+            },
+            {
+              "iterations": 33973,
+              "peak_rss_bytes": 165773312,
+              "ns_per_op": 8300,
+              "bytes_per_op": 3344,
+              "allocs_per_op": 64
+            },
+            {
+              "iterations": 47317,
+              "peak_rss_bytes": 161316864,
+              "ns_per_op": 6401,
+              "bytes_per_op": 3344,
+              "allocs_per_op": 64
+            },
+            {
+              "iterations": 53744,
+              "peak_rss_bytes": 162873344,
+              "ns_per_op": 5941,
+              "bytes_per_op": 3344,
+              "allocs_per_op": 64
+            },
+            {
+              "iterations": 59316,
+              "peak_rss_bytes": 163479552,
+              "ns_per_op": 5100,
+              "bytes_per_op": 3344,
+              "allocs_per_op": 64
+            }
+          ],
+          "median": {
+            "ns_per_op": 6010,
+            "bytes_per_op": 3344,
+            "allocs_per_op": 64
+          },
+          "p50": {
+            "ns_per_op": 6010,
+            "bytes_per_op": 3344,
+            "allocs_per_op": 64
+          },
+          "p95": {
+            "ns_per_op": 7920.2,
+            "bytes_per_op": 3344,
+            "allocs_per_op": 64
+          },
+          "peak_rss_bytes": 165773312
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4595247,
+              "peak_rss_bytes": 92815360,
+              "ns_per_op": 66.22,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4781097,
+              "peak_rss_bytes": 94470144,
+              "ns_per_op": 68.28999999999999,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4566546,
+              "peak_rss_bytes": 93732864,
+              "ns_per_op": 67.67,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4600550,
+              "peak_rss_bytes": 93306880,
+              "ns_per_op": 65.525,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4871935,
+              "peak_rss_bytes": 93126656,
+              "ns_per_op": 61.785,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 66.22,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 66.22,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 68.166,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 94470144
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkNormalizeJSONValueOnce",
+              "samples": [
+                {
+                  "iterations": 92684,
+                  "peak_rss_bytes": 161038336,
+                  "ns_per_op": 3295,
+                  "bytes_per_op": 1672,
+                  "allocs_per_op": 32
+                },
+                {
+                  "iterations": 111921,
+                  "peak_rss_bytes": 165773312,
+                  "ns_per_op": 2880,
+                  "bytes_per_op": 1672,
+                  "allocs_per_op": 32
+                },
+                {
+                  "iterations": 93264,
+                  "peak_rss_bytes": 161316864,
+                  "ns_per_op": 3307,
+                  "bytes_per_op": 1672,
+                  "allocs_per_op": 32
+                },
+                {
+                  "iterations": 91837,
+                  "peak_rss_bytes": 162873344,
+                  "ns_per_op": 3471,
+                  "bytes_per_op": 1672,
+                  "allocs_per_op": 32
+                },
+                {
+                  "iterations": 113838,
+                  "peak_rss_bytes": 163479552,
+                  "ns_per_op": 2646,
+                  "bytes_per_op": 1672,
+                  "allocs_per_op": 32
+                }
+              ],
+              "median": {
+                "ns_per_op": 3295,
+                "bytes_per_op": 1672,
+                "allocs_per_op": 32
+              },
+              "p50": {
+                "ns_per_op": 3295,
+                "bytes_per_op": 1672,
+                "allocs_per_op": 32
+              },
+              "p95": {
+                "ns_per_op": 3438.2,
+                "bytes_per_op": 1672,
+                "allocs_per_op": 32
+              },
+              "peak_rss_bytes": 165773312
+            },
+            "normalized": {
+              "ns_per_op": 0.5482529118136439,
+              "bytes_per_op": 0.5,
+              "allocs_per_op": 0.5
+            }
+          }
+        ]
+      },
+      {
+        "name": "compiler-conflict-scaling",
+        "package": "./internal/compiler",
+        "calibration": {
+          "name": "BenchmarkDetectConflictsUniqueRules",
+          "samples": [
+            {
+              "iterations": 68,
+              "peak_rss_bytes": 161038336,
+              "ns_per_op": 4181674,
+              "bytes_per_op": 10651738,
+              "allocs_per_op": 16448
+            },
+            {
+              "iterations": 52,
+              "peak_rss_bytes": 165773312,
+              "ns_per_op": 5266401,
+              "bytes_per_op": 10651738,
+              "allocs_per_op": 16448
+            },
+            {
+              "iterations": 66,
+              "peak_rss_bytes": 161316864,
+              "ns_per_op": 4357523,
+              "bytes_per_op": 10651739,
+              "allocs_per_op": 16448
+            },
+            {
+              "iterations": 69,
+              "peak_rss_bytes": 162873344,
+              "ns_per_op": 4195442,
+              "bytes_per_op": 10651739,
+              "allocs_per_op": 16448
+            },
+            {
+              "iterations": 84,
+              "peak_rss_bytes": 163479552,
+              "ns_per_op": 3416797,
+              "bytes_per_op": 10651738,
+              "allocs_per_op": 16448
+            }
+          ],
+          "median": {
+            "ns_per_op": 4195442,
+            "bytes_per_op": 10651738,
+            "allocs_per_op": 16448
+          },
+          "p50": {
+            "ns_per_op": 4195442,
+            "bytes_per_op": 10651738,
+            "allocs_per_op": 16448
+          },
+          "p95": {
+            "ns_per_op": 5084625.399999999,
+            "bytes_per_op": 10651739,
+            "allocs_per_op": 16448
+          },
+          "peak_rss_bytes": 165773312
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4595247,
+              "peak_rss_bytes": 92815360,
+              "ns_per_op": 66.22,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4781097,
+              "peak_rss_bytes": 94470144,
+              "ns_per_op": 68.28999999999999,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4566546,
+              "peak_rss_bytes": 93732864,
+              "ns_per_op": 67.67,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4600550,
+              "peak_rss_bytes": 93306880,
+              "ns_per_op": 65.525,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4871935,
+              "peak_rss_bytes": 93126656,
+              "ns_per_op": 61.785,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 66.22,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 66.22,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 68.166,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 94470144
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkDetectConflictsGroupedDuplicates",
+              "samples": [
+                {
+                  "iterations": 25,
+                  "peak_rss_bytes": 161038336,
+                  "ns_per_op": 12507172,
+                  "bytes_per_op": 20268848,
+                  "allocs_per_op": 66352
+                },
+                {
+                  "iterations": 12,
+                  "peak_rss_bytes": 165773312,
+                  "ns_per_op": 47902305,
+                  "bytes_per_op": 20268848,
+                  "allocs_per_op": 66352
+                },
+                {
+                  "iterations": 18,
+                  "peak_rss_bytes": 161316864,
+                  "ns_per_op": 18226646,
+                  "bytes_per_op": 20268848,
+                  "allocs_per_op": 66352
+                },
+                {
+                  "iterations": 22,
+                  "peak_rss_bytes": 162873344,
+                  "ns_per_op": 13066913,
+                  "bytes_per_op": 20268848,
+                  "allocs_per_op": 66352
+                },
+                {
+                  "iterations": 32,
+                  "peak_rss_bytes": 163479552,
+                  "ns_per_op": 10281246,
+                  "bytes_per_op": 20268848,
+                  "allocs_per_op": 66352
+                }
+              ],
+              "median": {
+                "ns_per_op": 13066913,
+                "bytes_per_op": 20268848,
+                "allocs_per_op": 66352
+              },
+              "p50": {
+                "ns_per_op": 13066913,
+                "bytes_per_op": 20268848,
+                "allocs_per_op": 66352
+              },
+              "p95": {
+                "ns_per_op": 41967173.199999996,
+                "bytes_per_op": 20268848,
+                "allocs_per_op": 66352
+              },
+              "peak_rss_bytes": 165773312
+            },
+            "normalized": {
+              "ns_per_op": 3.1145497899863708,
+              "bytes_per_op": 1.9028676822505397,
+              "allocs_per_op": 4.034046692607004
+            }
+          }
+        ]
+      },
+      {
+        "name": "hook-worker-frame-growth",
+        "package": "./internal/cli",
+        "calibration": {
+          "name": "BenchmarkHookWorkerFrameRepresentativeCalibrated",
+          "samples": [
+            {
+              "iterations": 9054,
+              "peak_rss_bytes": 336658432,
+              "ns_per_op": 35088,
+              "bytes_per_op": 139312,
+              "allocs_per_op": 3
+            },
+            {
+              "iterations": 7615,
+              "peak_rss_bytes": 332922880,
+              "ns_per_op": 42533,
+              "bytes_per_op": 139312,
+              "allocs_per_op": 3
+            },
+            {
+              "iterations": 8413,
+              "peak_rss_bytes": 331841536,
+              "ns_per_op": 37529,
+              "bytes_per_op": 139312,
+              "allocs_per_op": 3
+            },
+            {
+              "iterations": 7590,
+              "peak_rss_bytes": 332382208,
+              "ns_per_op": 43171,
+              "bytes_per_op": 139312,
+              "allocs_per_op": 3
+            },
+            {
+              "iterations": 7801,
+              "peak_rss_bytes": 332152832,
+              "ns_per_op": 39293,
+              "bytes_per_op": 139312,
+              "allocs_per_op": 3
+            }
+          ],
+          "median": {
+            "ns_per_op": 39293,
+            "bytes_per_op": 139312,
+            "allocs_per_op": 3
+          },
+          "p50": {
+            "ns_per_op": 39293,
+            "bytes_per_op": 139312,
+            "allocs_per_op": 3
+          },
+          "p95": {
+            "ns_per_op": 43043.4,
+            "bytes_per_op": 139312,
+            "allocs_per_op": 3
+          },
+          "peak_rss_bytes": 336658432
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4670350,
+              "peak_rss_bytes": 92962816,
+              "ns_per_op": 65.98,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4603029,
+              "peak_rss_bytes": 93306880,
+              "ns_per_op": 70.58500000000001,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4153726,
+              "peak_rss_bytes": 94846976,
+              "ns_per_op": 71.745,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4567663,
+              "peak_rss_bytes": 95010816,
+              "ns_per_op": 71.82,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4606018,
+              "peak_rss_bytes": 93716480,
+              "ns_per_op": 108.01,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 71.745,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 71.745,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 100.77199999999999,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 95010816
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkHookWorkerFrameLarge",
+              "samples": [
+                {
+                  "iterations": 1258,
+                  "peak_rss_bytes": 336658432,
+                  "ns_per_op": 232859,
+                  "bytes_per_op": 1392688,
+                  "allocs_per_op": 4
+                },
+                {
+                  "iterations": 1206,
+                  "peak_rss_bytes": 332922880,
+                  "ns_per_op": 246516,
+                  "bytes_per_op": 1392688,
+                  "allocs_per_op": 4
+                },
+                {
+                  "iterations": 1201,
+                  "peak_rss_bytes": 331841536,
+                  "ns_per_op": 248293,
+                  "bytes_per_op": 1392688,
+                  "allocs_per_op": 4
+                },
+                {
+                  "iterations": 1026,
+                  "peak_rss_bytes": 332382208,
+                  "ns_per_op": 267761,
+                  "bytes_per_op": 1392688,
+                  "allocs_per_op": 4
+                },
+                {
+                  "iterations": 902,
+                  "peak_rss_bytes": 332152832,
+                  "ns_per_op": 348805,
+                  "bytes_per_op": 1392688,
+                  "allocs_per_op": 4
+                }
+              ],
+              "median": {
+                "ns_per_op": 248293,
+                "bytes_per_op": 1392688,
+                "allocs_per_op": 4
+              },
+              "p50": {
+                "ns_per_op": 248293,
+                "bytes_per_op": 1392688,
+                "allocs_per_op": 4
+              },
+              "p95": {
+                "ns_per_op": 332596.2,
+                "bytes_per_op": 1392688,
+                "allocs_per_op": 4
+              },
+              "peak_rss_bytes": 336658432
+            },
+            "normalized": {
+              "ns_per_op": 6.319013564757081,
+              "bytes_per_op": 9.996899046744,
+              "allocs_per_op": 1.3333333333333333
+            }
+          }
+        ]
+      },
+      {
+        "name": "hook-worker-end-to-end",
+        "package": "./internal/cli",
+        "calibration": {
+          "name": "BenchmarkHookRuntimeTransport/stdio-worker",
+          "samples": [
+            {
+              "iterations": 674,
+              "peak_rss_bytes": 374571008,
+              "ns_per_op": 417015,
+              "bytes_per_op": 203,
+              "allocs_per_op": 2
+            },
+            {
+              "iterations": 597,
+              "peak_rss_bytes": 381665280,
+              "ns_per_op": 451049,
+              "bytes_per_op": 205,
+              "allocs_per_op": 2
+            },
+            {
+              "iterations": 642,
+              "peak_rss_bytes": 378339328,
+              "ns_per_op": 438479,
+              "bytes_per_op": 204,
+              "allocs_per_op": 2
+            },
+            {
+              "iterations": 561,
+              "peak_rss_bytes": 382369792,
+              "ns_per_op": 547435,
+              "bytes_per_op": 206,
+              "allocs_per_op": 2
+            },
+            {
+              "iterations": 595,
+              "peak_rss_bytes": 377274368,
+              "ns_per_op": 476475,
+              "bytes_per_op": 205,
+              "allocs_per_op": 2
+            }
+          ],
+          "median": {
+            "ns_per_op": 451049,
+            "bytes_per_op": 205,
+            "allocs_per_op": 2
+          },
+          "p50": {
+            "ns_per_op": 451049,
+            "bytes_per_op": 205,
+            "allocs_per_op": 2
+          },
+          "p95": {
+            "ns_per_op": 533243,
+            "bytes_per_op": 205.8,
+            "allocs_per_op": 2
+          },
+          "peak_rss_bytes": 382369792
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4670350,
+              "peak_rss_bytes": 92962816,
+              "ns_per_op": 65.98,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4603029,
+              "peak_rss_bytes": 93306880,
+              "ns_per_op": 70.58500000000001,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4153726,
+              "peak_rss_bytes": 94846976,
+              "ns_per_op": 71.745,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4567663,
+              "peak_rss_bytes": 95010816,
+              "ns_per_op": 71.82,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4606018,
+              "peak_rss_bytes": 93716480,
+              "ns_per_op": 108.01,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 71.745,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 71.745,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 100.77199999999999,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 95010816
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkHookRuntimeTransport/one-shot",
+              "samples": [
+                {
+                  "iterations": 21,
+                  "peak_rss_bytes": 374571008,
+                  "ns_per_op": 13192734,
+                  "bytes_per_op": 13738,
+                  "allocs_per_op": 47
+                },
+                {
+                  "iterations": 21,
+                  "peak_rss_bytes": 381665280,
+                  "ns_per_op": 13490617,
+                  "bytes_per_op": 13736,
+                  "allocs_per_op": 47
+                },
+                {
+                  "iterations": 21,
+                  "peak_rss_bytes": 378339328,
+                  "ns_per_op": 14063266,
+                  "bytes_per_op": 13736,
+                  "allocs_per_op": 47
+                },
+                {
+                  "iterations": 16,
+                  "peak_rss_bytes": 382369792,
+                  "ns_per_op": 17825740,
+                  "bytes_per_op": 13736,
+                  "allocs_per_op": 47
+                },
+                {
+                  "iterations": 21,
+                  "peak_rss_bytes": 377274368,
+                  "ns_per_op": 14240108,
+                  "bytes_per_op": 13736,
+                  "allocs_per_op": 47
+                }
+              ],
+              "median": {
+                "ns_per_op": 14063266,
+                "bytes_per_op": 13736,
+                "allocs_per_op": 47
+              },
+              "p50": {
+                "ns_per_op": 14063266,
+                "bytes_per_op": 13736,
+                "allocs_per_op": 47
+              },
+              "p95": {
+                "ns_per_op": 17108613.599999998,
+                "bytes_per_op": 13737.6,
+                "allocs_per_op": 47
+              },
+              "peak_rss_bytes": 382369792
+            },
+            "normalized": {
+              "ns_per_op": 31.179020461191577,
+              "bytes_per_op": 67.00487804878048,
+              "allocs_per_op": 23.5
+            }
+          }
+        ]
+      },
+      {
+        "name": "ingest-source-context",
+        "package": "./internal/ingest",
+        "calibration": {
+          "name": "BenchmarkLoadPolicySourcesWithDiscovery",
+          "samples": [
+            {
+              "iterations": 231,
+              "peak_rss_bytes": 129515520,
+              "ns_per_op": 1283838,
+              "bytes_per_op": 158504,
+              "allocs_per_op": 1503
+            },
+            {
+              "iterations": 228,
+              "peak_rss_bytes": 129712128,
+              "ns_per_op": 1367957,
+              "bytes_per_op": 158472,
+              "allocs_per_op": 1503
+            },
+            {
+              "iterations": 231,
+              "peak_rss_bytes": 129908736,
+              "ns_per_op": 1304669,
+              "bytes_per_op": 158472,
+              "allocs_per_op": 1503
+            },
+            {
+              "iterations": 236,
+              "peak_rss_bytes": 129990656,
+              "ns_per_op": 1276040,
+              "bytes_per_op": 158504,
+              "allocs_per_op": 1503
+            },
+            {
+              "iterations": 235,
+              "peak_rss_bytes": 130088960,
+              "ns_per_op": 1279371,
+              "bytes_per_op": 158504,
+              "allocs_per_op": 1503
+            }
+          ],
+          "median": {
+            "ns_per_op": 1283838,
+            "bytes_per_op": 158504,
+            "allocs_per_op": 1503
+          },
+          "p50": {
+            "ns_per_op": 1283838,
+            "bytes_per_op": 158504,
+            "allocs_per_op": 1503
+          },
+          "p95": {
+            "ns_per_op": 1355299.4,
+            "bytes_per_op": 158504,
+            "allocs_per_op": 1503
+          },
+          "peak_rss_bytes": 130088960
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4853318,
+              "peak_rss_bytes": 93601792,
+              "ns_per_op": 61.82,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4876608,
+              "peak_rss_bytes": 93093888,
+              "ns_per_op": 61.980000000000004,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4879466,
+              "peak_rss_bytes": 94371840,
+              "ns_per_op": 61.58,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4871622,
+              "peak_rss_bytes": 94633984,
+              "ns_per_op": 61.605000000000004,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4873050,
+              "peak_rss_bytes": 93470720,
+              "ns_per_op": 61.565,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 61.605000000000004,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 61.605000000000004,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 61.948,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 94633984
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkLoadPolicySourcesWithContext",
+              "samples": [
+                {
+                  "iterations": 307,
+                  "peak_rss_bytes": 129515520,
+                  "ns_per_op": 978973,
+                  "bytes_per_op": 104312,
+                  "allocs_per_op": 1031
+                },
+                {
+                  "iterations": 302,
+                  "peak_rss_bytes": 129712128,
+                  "ns_per_op": 990081,
+                  "bytes_per_op": 104312,
+                  "allocs_per_op": 1031
+                },
+                {
+                  "iterations": 307,
+                  "peak_rss_bytes": 129908736,
+                  "ns_per_op": 972225,
+                  "bytes_per_op": 104312,
+                  "allocs_per_op": 1031
+                },
+                {
+                  "iterations": 307,
+                  "peak_rss_bytes": 129990656,
+                  "ns_per_op": 967408,
+                  "bytes_per_op": 104312,
+                  "allocs_per_op": 1031
+                },
+                {
+                  "iterations": 309,
+                  "peak_rss_bytes": 130088960,
+                  "ns_per_op": 959340,
+                  "bytes_per_op": 104312,
+                  "allocs_per_op": 1031
+                }
+              ],
+              "median": {
+                "ns_per_op": 972225,
+                "bytes_per_op": 104312,
+                "allocs_per_op": 1031
+              },
+              "p50": {
+                "ns_per_op": 972225,
+                "bytes_per_op": 104312,
+                "allocs_per_op": 1031
+              },
+              "p95": {
+                "ns_per_op": 987859.4,
+                "bytes_per_op": 104312,
+                "allocs_per_op": 1031
+              },
+              "peak_rss_bytes": 130088960
+            },
+            "normalized": {
+              "ns_per_op": 0.7572801241278105,
+              "bytes_per_op": 0.658103265532731,
+              "allocs_per_op": 0.6859614105123087
+            }
+          }
+        ]
+      },
+      {
+        "name": "mcp-frame-routing",
+        "package": "./internal/mcpgateway",
+        "calibration": {
+          "name": "BenchmarkParseFrameSmall",
+          "samples": [
+            {
+              "iterations": 421078,
+              "peak_rss_bytes": 221380608,
+              "ns_per_op": 747.9,
+              "bytes_per_op": 744,
+              "allocs_per_op": 15
+            },
+            {
+              "iterations": 424035,
+              "peak_rss_bytes": 239648768,
+              "ns_per_op": 767.6,
+              "bytes_per_op": 744,
+              "allocs_per_op": 15
+            },
+            {
+              "iterations": 426802,
+              "peak_rss_bytes": 227606528,
+              "ns_per_op": 741,
+              "bytes_per_op": 744,
+              "allocs_per_op": 15
+            },
+            {
+              "iterations": 429808,
+              "peak_rss_bytes": 238256128,
+              "ns_per_op": 743.3,
+              "bytes_per_op": 744,
+              "allocs_per_op": 15
+            },
+            {
+              "iterations": 426673,
+              "peak_rss_bytes": 229883904,
+              "ns_per_op": 742.2,
+              "bytes_per_op": 744,
+              "allocs_per_op": 15
+            }
+          ],
+          "median": {
+            "ns_per_op": 743.3,
+            "bytes_per_op": 744,
+            "allocs_per_op": 15
+          },
+          "p50": {
+            "ns_per_op": 743.3,
+            "bytes_per_op": 744,
+            "allocs_per_op": 15
+          },
+          "p95": {
+            "ns_per_op": 763.66,
+            "bytes_per_op": 744,
+            "allocs_per_op": 15
+          },
+          "peak_rss_bytes": 239648768
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4872918,
+              "peak_rss_bytes": 92962816,
+              "ns_per_op": 62.165,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4879010,
+              "peak_rss_bytes": 94732288,
+              "ns_per_op": 61.56,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4875478,
+              "peak_rss_bytes": 94814208,
+              "ns_per_op": 61.67,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4877026,
+              "peak_rss_bytes": 93110272,
+              "ns_per_op": 61.555,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4876112,
+              "peak_rss_bytes": 93585408,
+              "ns_per_op": 61.545,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 61.56,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 61.56,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 62.066,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 94814208
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkParseFrameProgress",
+              "samples": [
+                {
+                  "iterations": 249010,
+                  "peak_rss_bytes": 221380608,
+                  "ns_per_op": 1269,
+                  "bytes_per_op": 928,
+                  "allocs_per_op": 25
+                },
+                {
+                  "iterations": 241942,
+                  "peak_rss_bytes": 239648768,
+                  "ns_per_op": 1305,
+                  "bytes_per_op": 928,
+                  "allocs_per_op": 25
+                },
+                {
+                  "iterations": 251037,
+                  "peak_rss_bytes": 227606528,
+                  "ns_per_op": 1248,
+                  "bytes_per_op": 928,
+                  "allocs_per_op": 25
+                },
+                {
+                  "iterations": 249424,
+                  "peak_rss_bytes": 238256128,
+                  "ns_per_op": 1254,
+                  "bytes_per_op": 928,
+                  "allocs_per_op": 25
+                },
+                {
+                  "iterations": 252000,
+                  "peak_rss_bytes": 229883904,
+                  "ns_per_op": 1259,
+                  "bytes_per_op": 928,
+                  "allocs_per_op": 25
+                }
+              ],
+              "median": {
+                "ns_per_op": 1259,
+                "bytes_per_op": 928,
+                "allocs_per_op": 25
+              },
+              "p50": {
+                "ns_per_op": 1259,
+                "bytes_per_op": 928,
+                "allocs_per_op": 25
+              },
+              "p95": {
+                "ns_per_op": 1297.8,
+                "bytes_per_op": 928,
+                "allocs_per_op": 25
+              },
+              "peak_rss_bytes": 239648768
+            },
+            "normalized": {
+              "ns_per_op": 1.6937979281582134,
+              "bytes_per_op": 1.2473118279569892,
+              "allocs_per_op": 1.6666666666666667
+            }
+          },
+          {
+            "benchmark": {
+              "name": "BenchmarkParseFrameRepresentative",
+              "samples": [
+                {
+                  "iterations": 174829,
+                  "peak_rss_bytes": 221380608,
+                  "ns_per_op": 1727,
+                  "bytes_per_op": 1208,
+                  "allocs_per_op": 32
+                },
+                {
+                  "iterations": 179325,
+                  "peak_rss_bytes": 239648768,
+                  "ns_per_op": 1709,
+                  "bytes_per_op": 1208,
+                  "allocs_per_op": 32
+                },
+                {
+                  "iterations": 180750,
+                  "peak_rss_bytes": 227606528,
+                  "ns_per_op": 1704,
+                  "bytes_per_op": 1208,
+                  "allocs_per_op": 32
+                },
+                {
+                  "iterations": 180135,
+                  "peak_rss_bytes": 238256128,
+                  "ns_per_op": 1710,
+                  "bytes_per_op": 1208,
+                  "allocs_per_op": 32
+                },
+                {
+                  "iterations": 180367,
+                  "peak_rss_bytes": 229883904,
+                  "ns_per_op": 1711,
+                  "bytes_per_op": 1208,
+                  "allocs_per_op": 32
+                }
+              ],
+              "median": {
+                "ns_per_op": 1710,
+                "bytes_per_op": 1208,
+                "allocs_per_op": 32
+              },
+              "p50": {
+                "ns_per_op": 1710,
+                "bytes_per_op": 1208,
+                "allocs_per_op": 32
+              },
+              "p95": {
+                "ns_per_op": 1723.8,
+                "bytes_per_op": 1208,
+                "allocs_per_op": 32
+              },
+              "peak_rss_bytes": 239648768
+            },
+            "normalized": {
+              "ns_per_op": 2.3005515942418944,
+              "bytes_per_op": 1.6236559139784945,
+              "allocs_per_op": 2.1333333333333333
+            }
+          }
+        ]
+      },
+      {
+        "name": "prospective-path-resolution",
+        "package": "./internal/pathidentity",
+        "calibration": {
+          "name": "BenchmarkResolveProspectiveIndependent",
+          "samples": [
+            {
+              "iterations": 3672,
+              "peak_rss_bytes": 94666752,
+              "ns_per_op": 83787,
+              "bytes_per_op": 16728,
+              "allocs_per_op": 171
+            },
+            {
+              "iterations": 3676,
+              "peak_rss_bytes": 94715904,
+              "ns_per_op": 84464,
+              "bytes_per_op": 16728,
+              "allocs_per_op": 171
+            },
+            {
+              "iterations": 3523,
+              "peak_rss_bytes": 95830016,
+              "ns_per_op": 86763,
+              "bytes_per_op": 16728,
+              "allocs_per_op": 171
+            },
+            {
+              "iterations": 3484,
+              "peak_rss_bytes": 96370688,
+              "ns_per_op": 89215,
+              "bytes_per_op": 16728,
+              "allocs_per_op": 171
+            },
+            {
+              "iterations": 3398,
+              "peak_rss_bytes": 96337920,
+              "ns_per_op": 93589,
+              "bytes_per_op": 16728,
+              "allocs_per_op": 171
+            }
+          ],
+          "median": {
+            "ns_per_op": 86763,
+            "bytes_per_op": 16728,
+            "allocs_per_op": 171
+          },
+          "p50": {
+            "ns_per_op": 86763,
+            "bytes_per_op": 16728,
+            "allocs_per_op": 171
+          },
+          "p95": {
+            "ns_per_op": 92714.2,
+            "bytes_per_op": 16728,
+            "allocs_per_op": 171
+          },
+          "peak_rss_bytes": 96370688
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4866814,
+              "peak_rss_bytes": 93011968,
+              "ns_per_op": 62.075,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4873227,
+              "peak_rss_bytes": 93552640,
+              "ns_per_op": 61.565,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4870086,
+              "peak_rss_bytes": 92897280,
+              "ns_per_op": 66.965,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4787396,
+              "peak_rss_bytes": 94584832,
+              "ns_per_op": 68.495,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4856764,
+              "peak_rss_bytes": 93257728,
+              "ns_per_op": 64.35,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 64.35,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 64.35,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 68.18900000000001,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 94584832
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkResolveProspectiveBatch",
+              "samples": [
+                {
+                  "iterations": 6915,
+                  "peak_rss_bytes": 94666752,
+                  "ns_per_op": 44643,
+                  "bytes_per_op": 9272,
+                  "allocs_per_op": 88
+                },
+                {
+                  "iterations": 6902,
+                  "peak_rss_bytes": 94715904,
+                  "ns_per_op": 44472,
+                  "bytes_per_op": 9272,
+                  "allocs_per_op": 88
+                },
+                {
+                  "iterations": 6691,
+                  "peak_rss_bytes": 95830016,
+                  "ns_per_op": 44770,
+                  "bytes_per_op": 9272,
+                  "allocs_per_op": 88
+                },
+                {
+                  "iterations": 6417,
+                  "peak_rss_bytes": 96370688,
+                  "ns_per_op": 44740,
+                  "bytes_per_op": 9272,
+                  "allocs_per_op": 88
+                },
+                {
+                  "iterations": 6477,
+                  "peak_rss_bytes": 96337920,
+                  "ns_per_op": 48563,
+                  "bytes_per_op": 9272,
+                  "allocs_per_op": 88
+                }
+              ],
+              "median": {
+                "ns_per_op": 44740,
+                "bytes_per_op": 9272,
+                "allocs_per_op": 88
+              },
+              "p50": {
+                "ns_per_op": 44740,
+                "bytes_per_op": 9272,
+                "allocs_per_op": 88
+              },
+              "p95": {
+                "ns_per_op": 47804.4,
+                "bytes_per_op": 9272,
+                "allocs_per_op": 88
+              },
+              "peak_rss_bytes": 96370688
+            },
+            "normalized": {
+              "ns_per_op": 0.5156575959798532,
+              "bytes_per_op": 0.5542802486848398,
+              "allocs_per_op": 0.5146198830409356
+            }
+          }
+        ]
+      },
+      {
+        "name": "runtime-command-matching",
+        "package": "./internal/runtime",
+        "calibration": {
+          "name": "BenchmarkForbiddenCommandReparse",
+          "samples": [
+            {
+              "iterations": 10000,
+              "peak_rss_bytes": 173654016,
+              "ns_per_op": 29643,
+              "bytes_per_op": 70352,
+              "allocs_per_op": 400
+            },
+            {
+              "iterations": 8655,
+              "peak_rss_bytes": 173703168,
+              "ns_per_op": 37279,
+              "bytes_per_op": 70352,
+              "allocs_per_op": 400
+            },
+            {
+              "iterations": 7149,
+              "peak_rss_bytes": 170147840,
+              "ns_per_op": 45150,
+              "bytes_per_op": 70352,
+              "allocs_per_op": 400
+            },
+            {
+              "iterations": 8163,
+              "peak_rss_bytes": 172785664,
+              "ns_per_op": 40765,
+              "bytes_per_op": 70352,
+              "allocs_per_op": 400
+            },
+            {
+              "iterations": 7008,
+              "peak_rss_bytes": 170967040,
+              "ns_per_op": 46540,
+              "bytes_per_op": 70352,
+              "allocs_per_op": 400
+            }
+          ],
+          "median": {
+            "ns_per_op": 40765,
+            "bytes_per_op": 70352,
+            "allocs_per_op": 400
+          },
+          "p50": {
+            "ns_per_op": 40765,
+            "bytes_per_op": 70352,
+            "allocs_per_op": 400
+          },
+          "p95": {
+            "ns_per_op": 46262,
+            "bytes_per_op": 70352,
+            "allocs_per_op": 400
+          },
+          "peak_rss_bytes": 173703168
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4867018,
+              "peak_rss_bytes": 94945280,
+              "ns_per_op": 62.870000000000005,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4635704,
+              "peak_rss_bytes": 93585408,
+              "ns_per_op": 67.51,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4414144,
+              "peak_rss_bytes": 94945280,
+              "ns_per_op": 70.845,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4620164,
+              "peak_rss_bytes": 93061120,
+              "ns_per_op": 70.475,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4638403,
+              "peak_rss_bytes": 95207424,
+              "ns_per_op": 72.125,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 70.475,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 70.475,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 71.869,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 95207424
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkForbiddenCommandPrepared",
+              "samples": [
+                {
+                  "iterations": 313388,
+                  "peak_rss_bytes": 173654016,
+                  "ns_per_op": 966.2,
+                  "bytes_per_op": 352,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 277791,
+                  "peak_rss_bytes": 173703168,
+                  "ns_per_op": 1123,
+                  "bytes_per_op": 352,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 217282,
+                  "peak_rss_bytes": 170147840,
+                  "ns_per_op": 1399,
+                  "bytes_per_op": 352,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 221444,
+                  "peak_rss_bytes": 172785664,
+                  "ns_per_op": 1309,
+                  "bytes_per_op": 352,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 223624,
+                  "peak_rss_bytes": 170967040,
+                  "ns_per_op": 2042,
+                  "bytes_per_op": 352,
+                  "allocs_per_op": 3
+                }
+              ],
+              "median": {
+                "ns_per_op": 1309,
+                "bytes_per_op": 352,
+                "allocs_per_op": 3
+              },
+              "p50": {
+                "ns_per_op": 1309,
+                "bytes_per_op": 352,
+                "allocs_per_op": 3
+              },
+              "p95": {
+                "ns_per_op": 1913.3999999999999,
+                "bytes_per_op": 352,
+                "allocs_per_op": 3
+              },
+              "peak_rss_bytes": 173703168
+            },
+            "normalized": {
+              "ns_per_op": 0.03211087943088434,
+              "bytes_per_op": 0.005003411416875142,
+              "allocs_per_op": 0.0075
+            }
+          }
+        ]
+      },
+      {
+        "name": "runtime-command-evidence",
+        "package": "./internal/runtime",
+        "calibration": {
+          "name": "BenchmarkCommandEvidenceReparse",
+          "samples": [
+            {
+              "iterations": 223700,
+              "peak_rss_bytes": 173654016,
+              "ns_per_op": 1390,
+              "bytes_per_op": 472,
+              "allocs_per_op": 14
+            },
+            {
+              "iterations": 200304,
+              "peak_rss_bytes": 173703168,
+              "ns_per_op": 1518,
+              "bytes_per_op": 472,
+              "allocs_per_op": 14
+            },
+            {
+              "iterations": 160188,
+              "peak_rss_bytes": 170147840,
+              "ns_per_op": 1958,
+              "bytes_per_op": 472,
+              "allocs_per_op": 14
+            },
+            {
+              "iterations": 168321,
+              "peak_rss_bytes": 172785664,
+              "ns_per_op": 1823,
+              "bytes_per_op": 472,
+              "allocs_per_op": 14
+            },
+            {
+              "iterations": 177068,
+              "peak_rss_bytes": 170967040,
+              "ns_per_op": 1780,
+              "bytes_per_op": 472,
+              "allocs_per_op": 14
+            }
+          ],
+          "median": {
+            "ns_per_op": 1780,
+            "bytes_per_op": 472,
+            "allocs_per_op": 14
+          },
+          "p50": {
+            "ns_per_op": 1780,
+            "bytes_per_op": 472,
+            "allocs_per_op": 14
+          },
+          "p95": {
+            "ns_per_op": 1931,
+            "bytes_per_op": 472,
+            "allocs_per_op": 14
+          },
+          "peak_rss_bytes": 173703168
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4867018,
+              "peak_rss_bytes": 94945280,
+              "ns_per_op": 62.870000000000005,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4635704,
+              "peak_rss_bytes": 93585408,
+              "ns_per_op": 67.51,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4414144,
+              "peak_rss_bytes": 94945280,
+              "ns_per_op": 70.845,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4620164,
+              "peak_rss_bytes": 93061120,
+              "ns_per_op": 70.475,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4638403,
+              "peak_rss_bytes": 95207424,
+              "ns_per_op": 72.125,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 70.475,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 70.475,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 71.869,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 95207424
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkCommandEvidencePrepared",
+              "samples": [
+                {
+                  "iterations": 3324040,
+                  "peak_rss_bytes": 173654016,
+                  "ns_per_op": 90.56,
+                  "bytes_per_op": 64,
+                  "allocs_per_op": 2
+                },
+                {
+                  "iterations": 2864182,
+                  "peak_rss_bytes": 173703168,
+                  "ns_per_op": 106.4,
+                  "bytes_per_op": 64,
+                  "allocs_per_op": 2
+                },
+                {
+                  "iterations": 2251352,
+                  "peak_rss_bytes": 170147840,
+                  "ns_per_op": 133.9,
+                  "bytes_per_op": 64,
+                  "allocs_per_op": 2
+                },
+                {
+                  "iterations": 2411341,
+                  "peak_rss_bytes": 172785664,
+                  "ns_per_op": 129.1,
+                  "bytes_per_op": 64,
+                  "allocs_per_op": 2
+                },
+                {
+                  "iterations": 2206503,
+                  "peak_rss_bytes": 170967040,
+                  "ns_per_op": 148.9,
+                  "bytes_per_op": 64,
+                  "allocs_per_op": 2
+                }
+              ],
+              "median": {
+                "ns_per_op": 129.1,
+                "bytes_per_op": 64,
+                "allocs_per_op": 2
+              },
+              "p50": {
+                "ns_per_op": 129.1,
+                "bytes_per_op": 64,
+                "allocs_per_op": 2
+              },
+              "p95": {
+                "ns_per_op": 145.9,
+                "bytes_per_op": 64,
+                "allocs_per_op": 2
+              },
+              "peak_rss_bytes": 173703168
+            },
+            "normalized": {
+              "ns_per_op": 0.07252808988764045,
+              "bytes_per_op": 0.13559322033898305,
+              "allocs_per_op": 0.14285714285714285
+            }
+          }
+        ]
+      },
+      {
+        "name": "runtime-evaluation-memos",
+        "package": "./internal/runtime",
+        "calibration": {
+          "name": "BenchmarkEvidenceMatchMemoShared",
+          "samples": [
+            {
+              "iterations": 2244802,
+              "peak_rss_bytes": 173654016,
+              "ns_per_op": 145.2,
+              "bytes_per_op": 24,
+              "allocs_per_op": 2
+            },
+            {
+              "iterations": 1871155,
+              "peak_rss_bytes": 173703168,
+              "ns_per_op": 161.3,
+              "bytes_per_op": 24,
+              "allocs_per_op": 2
+            },
+            {
+              "iterations": 1685707,
+              "peak_rss_bytes": 170147840,
+              "ns_per_op": 177.8,
+              "bytes_per_op": 24,
+              "allocs_per_op": 2
+            },
+            {
+              "iterations": 1814374,
+              "peak_rss_bytes": 172785664,
+              "ns_per_op": 166.7,
+              "bytes_per_op": 24,
+              "allocs_per_op": 2
+            },
+            {
+              "iterations": 1796950,
+              "peak_rss_bytes": 170967040,
+              "ns_per_op": 163.6,
+              "bytes_per_op": 24,
+              "allocs_per_op": 2
+            }
+          ],
+          "median": {
+            "ns_per_op": 163.6,
+            "bytes_per_op": 24,
+            "allocs_per_op": 2
+          },
+          "p50": {
+            "ns_per_op": 163.6,
+            "bytes_per_op": 24,
+            "allocs_per_op": 2
+          },
+          "p95": {
+            "ns_per_op": 175.58,
+            "bytes_per_op": 24,
+            "allocs_per_op": 2
+          },
+          "peak_rss_bytes": 173703168
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4867018,
+              "peak_rss_bytes": 94945280,
+              "ns_per_op": 62.870000000000005,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4635704,
+              "peak_rss_bytes": 93585408,
+              "ns_per_op": 67.51,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4414144,
+              "peak_rss_bytes": 94945280,
+              "ns_per_op": 70.845,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4620164,
+              "peak_rss_bytes": 93061120,
+              "ns_per_op": 70.475,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4638403,
+              "peak_rss_bytes": 95207424,
+              "ns_per_op": 72.125,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 70.475,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 70.475,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 71.869,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 95207424
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkMatchContextMemoHit",
+              "samples": [
+                {
+                  "iterations": 554106,
+                  "peak_rss_bytes": 173654016,
+                  "ns_per_op": 537.4,
+                  "bytes_per_op": 784,
+                  "allocs_per_op": 6
+                },
+                {
+                  "iterations": 497684,
+                  "peak_rss_bytes": 173703168,
+                  "ns_per_op": 628.8,
+                  "bytes_per_op": 784,
+                  "allocs_per_op": 6
+                },
+                {
+                  "iterations": 412196,
+                  "peak_rss_bytes": 170147840,
+                  "ns_per_op": 718.4,
+                  "bytes_per_op": 784,
+                  "allocs_per_op": 6
+                },
+                {
+                  "iterations": 429804,
+                  "peak_rss_bytes": 172785664,
+                  "ns_per_op": 663.7,
+                  "bytes_per_op": 784,
+                  "allocs_per_op": 6
+                },
+                {
+                  "iterations": 445538,
+                  "peak_rss_bytes": 170967040,
+                  "ns_per_op": 1171,
+                  "bytes_per_op": 784,
+                  "allocs_per_op": 6
+                }
+              ],
+              "median": {
+                "ns_per_op": 663.7,
+                "bytes_per_op": 784,
+                "allocs_per_op": 6
+              },
+              "p50": {
+                "ns_per_op": 663.7,
+                "bytes_per_op": 784,
+                "allocs_per_op": 6
+              },
+              "p95": {
+                "ns_per_op": 1080.48,
+                "bytes_per_op": 784,
+                "allocs_per_op": 6
+              },
+              "peak_rss_bytes": 173703168
+            },
+            "normalized": {
+              "ns_per_op": 4.056845965770171,
+              "bytes_per_op": 32.666666666666664,
+              "allocs_per_op": 3
+            }
+          }
+        ]
+      },
+      {
+        "name": "runtime-execution-input",
+        "package": "./internal/runtime",
+        "calibration": {
+          "name": "BenchmarkLoadExecutionInputsEvents256",
+          "samples": [
+            {
+              "iterations": 7315,
+              "peak_rss_bytes": 173654016,
+              "ns_per_op": 42963,
+              "bytes_per_op": 28841,
+              "allocs_per_op": 520
+            },
+            {
+              "iterations": 7165,
+              "peak_rss_bytes": 173703168,
+              "ns_per_op": 45825,
+              "bytes_per_op": 28841,
+              "allocs_per_op": 520
+            },
+            {
+              "iterations": 3045,
+              "peak_rss_bytes": 170147840,
+              "ns_per_op": 83784,
+              "bytes_per_op": 28841,
+              "allocs_per_op": 520
+            },
+            {
+              "iterations": 5322,
+              "peak_rss_bytes": 172785664,
+              "ns_per_op": 64890,
+              "bytes_per_op": 28841,
+              "allocs_per_op": 520
+            },
+            {
+              "iterations": 5758,
+              "peak_rss_bytes": 170967040,
+              "ns_per_op": 58086,
+              "bytes_per_op": 28841,
+              "allocs_per_op": 520
+            }
+          ],
+          "median": {
+            "ns_per_op": 58086,
+            "bytes_per_op": 28841,
+            "allocs_per_op": 520
+          },
+          "p50": {
+            "ns_per_op": 58086,
+            "bytes_per_op": 28841,
+            "allocs_per_op": 520
+          },
+          "p95": {
+            "ns_per_op": 80005.2,
+            "bytes_per_op": 28841,
+            "allocs_per_op": 520
+          },
+          "peak_rss_bytes": 173703168
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4867018,
+              "peak_rss_bytes": 94945280,
+              "ns_per_op": 62.870000000000005,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4635704,
+              "peak_rss_bytes": 93585408,
+              "ns_per_op": 67.51,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4414144,
+              "peak_rss_bytes": 94945280,
+              "ns_per_op": 70.845,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4620164,
+              "peak_rss_bytes": 93061120,
+              "ns_per_op": 70.475,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4638403,
+              "peak_rss_bytes": 95207424,
+              "ns_per_op": 72.125,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 70.475,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 70.475,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 71.869,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 95207424
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkLoadExecutionInputsEvents8192",
+              "samples": [
+                {
+                  "iterations": 186,
+                  "peak_rss_bytes": 173654016,
+                  "ns_per_op": 1609698,
+                  "bytes_per_op": 1016793,
+                  "allocs_per_op": 24358
+                },
+                {
+                  "iterations": 178,
+                  "peak_rss_bytes": 173703168,
+                  "ns_per_op": 1629719,
+                  "bytes_per_op": 1016793,
+                  "allocs_per_op": 24358
+                },
+                {
+                  "iterations": 120,
+                  "peak_rss_bytes": 170147840,
+                  "ns_per_op": 2474021,
+                  "bytes_per_op": 1016794,
+                  "allocs_per_op": 24358
+                },
+                {
+                  "iterations": 124,
+                  "peak_rss_bytes": 172785664,
+                  "ns_per_op": 2323909,
+                  "bytes_per_op": 1016794,
+                  "allocs_per_op": 24358
+                },
+                {
+                  "iterations": 136,
+                  "peak_rss_bytes": 170967040,
+                  "ns_per_op": 2069465,
+                  "bytes_per_op": 1016794,
+                  "allocs_per_op": 24358
+                }
+              ],
+              "median": {
+                "ns_per_op": 2069465,
+                "bytes_per_op": 1016794,
+                "allocs_per_op": 24358
+              },
+              "p50": {
+                "ns_per_op": 2069465,
+                "bytes_per_op": 1016794,
+                "allocs_per_op": 24358
+              },
+              "p95": {
+                "ns_per_op": 2443998.6,
+                "bytes_per_op": 1016794,
+                "allocs_per_op": 24358
+              },
+              "peak_rss_bytes": 173703168
+            },
+            "normalized": {
+              "ns_per_op": 35.627603897668976,
+              "bytes_per_op": 35.255157588155754,
+              "allocs_per_op": 46.84230769230769
+            }
+          }
+        ]
+      },
+      {
+        "name": "runtime-lockfile-decode",
+        "package": "./internal/runtime",
+        "calibration": {
+          "name": "BenchmarkDecodeCurrentLockfileRepresentative",
+          "samples": [
+            {
+              "iterations": 1099,
+              "peak_rss_bytes": 173654016,
+              "ns_per_op": 248618,
+              "bytes_per_op": 182545,
+              "allocs_per_op": 612
+            },
+            {
+              "iterations": 1062,
+              "peak_rss_bytes": 173703168,
+              "ns_per_op": 255925,
+              "bytes_per_op": 182354,
+              "allocs_per_op": 612
+            },
+            {
+              "iterations": 873,
+              "peak_rss_bytes": 170147840,
+              "ns_per_op": 366037,
+              "bytes_per_op": 182455,
+              "allocs_per_op": 612
+            },
+            {
+              "iterations": 808,
+              "peak_rss_bytes": 172785664,
+              "ns_per_op": 363003,
+              "bytes_per_op": 182275,
+              "allocs_per_op": 612
+            },
+            {
+              "iterations": 1002,
+              "peak_rss_bytes": 170967040,
+              "ns_per_op": 298958,
+              "bytes_per_op": 182493,
+              "allocs_per_op": 612
+            }
+          ],
+          "median": {
+            "ns_per_op": 298958,
+            "bytes_per_op": 182455,
+            "allocs_per_op": 612
+          },
+          "p50": {
+            "ns_per_op": 298958,
+            "bytes_per_op": 182455,
+            "allocs_per_op": 612
+          },
+          "p95": {
+            "ns_per_op": 365430.2,
+            "bytes_per_op": 182534.6,
+            "allocs_per_op": 612
+          },
+          "peak_rss_bytes": 173703168
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4867018,
+              "peak_rss_bytes": 94945280,
+              "ns_per_op": 62.870000000000005,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4635704,
+              "peak_rss_bytes": 93585408,
+              "ns_per_op": 67.51,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4414144,
+              "peak_rss_bytes": 94945280,
+              "ns_per_op": 70.845,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4620164,
+              "peak_rss_bytes": 93061120,
+              "ns_per_op": 70.475,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4638403,
+              "peak_rss_bytes": 95207424,
+              "ns_per_op": 72.125,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 70.475,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 70.475,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 71.869,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 95207424
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkDecodeCurrentLockfileMaximumRules",
+              "samples": [
+                {
+                  "iterations": 24,
+                  "peak_rss_bytes": 173654016,
+                  "ns_per_op": 11554997,
+                  "bytes_per_op": 15896618,
+                  "allocs_per_op": 12974
+                },
+                {
+                  "iterations": 21,
+                  "peak_rss_bytes": 173703168,
+                  "ns_per_op": 12209825,
+                  "bytes_per_op": 16417104,
+                  "allocs_per_op": 12992
+                },
+                {
+                  "iterations": 19,
+                  "peak_rss_bytes": 170147840,
+                  "ns_per_op": 15750290,
+                  "bytes_per_op": 16004858,
+                  "allocs_per_op": 12978
+                },
+                {
+                  "iterations": 20,
+                  "peak_rss_bytes": 172785664,
+                  "ns_per_op": 15218185,
+                  "bytes_per_op": 16139423,
+                  "allocs_per_op": 12989
+                },
+                {
+                  "iterations": 21,
+                  "peak_rss_bytes": 170967040,
+                  "ns_per_op": 13878117,
+                  "bytes_per_op": 16208929,
+                  "allocs_per_op": 12986
+                }
+              ],
+              "median": {
+                "ns_per_op": 13878117,
+                "bytes_per_op": 16139423,
+                "allocs_per_op": 12986
+              },
+              "p50": {
+                "ns_per_op": 13878117,
+                "bytes_per_op": 16139423,
+                "allocs_per_op": 12986
+              },
+              "p95": {
+                "ns_per_op": 15643869,
+                "bytes_per_op": 16375469,
+                "allocs_per_op": 12991.4
+              },
+              "peak_rss_bytes": 173703168
+            },
+            "normalized": {
+              "ns_per_op": 46.42162778718081,
+              "bytes_per_op": 88.45700583705572,
+              "allocs_per_op": 21.218954248366014
+            }
+          }
+        ]
+      },
+      {
+        "name": "runtime-source-freshness",
+        "package": "./internal/runtime",
+        "calibration": {
+          "name": "BenchmarkRuntimePlanFreshnessHit",
+          "samples": [
+            {
+              "iterations": 789,
+              "peak_rss_bytes": 173654016,
+              "ns_per_op": 366608,
+              "bytes_per_op": 90864,
+              "allocs_per_op": 455
+            },
+            {
+              "iterations": 751,
+              "peak_rss_bytes": 173703168,
+              "ns_per_op": 411905,
+              "bytes_per_op": 90864,
+              "allocs_per_op": 455
+            },
+            {
+              "iterations": 597,
+              "peak_rss_bytes": 170147840,
+              "ns_per_op": 539578,
+              "bytes_per_op": 90864,
+              "allocs_per_op": 455
+            },
+            {
+              "iterations": 686,
+              "peak_rss_bytes": 172785664,
+              "ns_per_op": 466551,
+              "bytes_per_op": 90864,
+              "allocs_per_op": 455
+            },
+            {
+              "iterations": 736,
+              "peak_rss_bytes": 170967040,
+              "ns_per_op": 405961,
+              "bytes_per_op": 90864,
+              "allocs_per_op": 455
+            }
+          ],
+          "median": {
+            "ns_per_op": 411905,
+            "bytes_per_op": 90864,
+            "allocs_per_op": 455
+          },
+          "p50": {
+            "ns_per_op": 411905,
+            "bytes_per_op": 90864,
+            "allocs_per_op": 455
+          },
+          "p95": {
+            "ns_per_op": 524972.6,
+            "bytes_per_op": 90864,
+            "allocs_per_op": 455
+          },
+          "peak_rss_bytes": 173703168
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4867018,
+              "peak_rss_bytes": 94945280,
+              "ns_per_op": 62.870000000000005,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4635704,
+              "peak_rss_bytes": 93585408,
+              "ns_per_op": 67.51,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4414144,
+              "peak_rss_bytes": 94945280,
+              "ns_per_op": 70.845,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4620164,
+              "peak_rss_bytes": 93061120,
+              "ns_per_op": 70.475,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4638403,
+              "peak_rss_bytes": 95207424,
+              "ns_per_op": 72.125,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 70.475,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 70.475,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 71.869,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 95207424
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkRuntimePlanFreshnessLargeSourceSet",
+              "samples": [
+                {
+                  "iterations": 69,
+                  "peak_rss_bytes": 173654016,
+                  "ns_per_op": 4179282,
+                  "bytes_per_op": 659560,
+                  "allocs_per_op": 4657
+                },
+                {
+                  "iterations": 51,
+                  "peak_rss_bytes": 173703168,
+                  "ns_per_op": 5876815,
+                  "bytes_per_op": 659560,
+                  "allocs_per_op": 4657
+                },
+                {
+                  "iterations": 55,
+                  "peak_rss_bytes": 170147840,
+                  "ns_per_op": 6228614,
+                  "bytes_per_op": 659560,
+                  "allocs_per_op": 4657
+                },
+                {
+                  "iterations": 60,
+                  "peak_rss_bytes": 172785664,
+                  "ns_per_op": 4808947,
+                  "bytes_per_op": 659544,
+                  "allocs_per_op": 4657
+                },
+                {
+                  "iterations": 60,
+                  "peak_rss_bytes": 170967040,
+                  "ns_per_op": 4791265,
+                  "bytes_per_op": 659560,
+                  "allocs_per_op": 4657
+                }
+              ],
+              "median": {
+                "ns_per_op": 4808947,
+                "bytes_per_op": 659560,
+                "allocs_per_op": 4657
+              },
+              "p50": {
+                "ns_per_op": 4808947,
+                "bytes_per_op": 659560,
+                "allocs_per_op": 4657
+              },
+              "p95": {
+                "ns_per_op": 6158254.2,
+                "bytes_per_op": 659560,
+                "allocs_per_op": 4657
+              },
+              "peak_rss_bytes": 173703168
+            },
+            "normalized": {
+              "ns_per_op": 11.674893482720531,
+              "bytes_per_op": 7.2587603451311855,
+              "allocs_per_op": 10.235164835164834
+            }
+          },
+          {
+            "benchmark": {
+              "name": "BenchmarkRuntimePlanConcurrentRoots",
+              "samples": [
+                {
+                  "iterations": 740,
+                  "peak_rss_bytes": 173654016,
+                  "ns_per_op": 365297,
+                  "bytes_per_op": 91168,
+                  "allocs_per_op": 455
+                },
+                {
+                  "iterations": 714,
+                  "peak_rss_bytes": 173703168,
+                  "ns_per_op": 421579,
+                  "bytes_per_op": 91168,
+                  "allocs_per_op": 455
+                },
+                {
+                  "iterations": 604,
+                  "peak_rss_bytes": 170147840,
+                  "ns_per_op": 526602,
+                  "bytes_per_op": 91168,
+                  "allocs_per_op": 455
+                },
+                {
+                  "iterations": 699,
+                  "peak_rss_bytes": 172785664,
+                  "ns_per_op": 487806,
+                  "bytes_per_op": 91136,
+                  "allocs_per_op": 455
+                },
+                {
+                  "iterations": 733,
+                  "peak_rss_bytes": 170967040,
+                  "ns_per_op": 413707,
+                  "bytes_per_op": 91168,
+                  "allocs_per_op": 455
+                }
+              ],
+              "median": {
+                "ns_per_op": 421579,
+                "bytes_per_op": 91168,
+                "allocs_per_op": 455
+              },
+              "p50": {
+                "ns_per_op": 421579,
+                "bytes_per_op": 91168,
+                "allocs_per_op": 455
+              },
+              "p95": {
+                "ns_per_op": 518842.8,
+                "bytes_per_op": 91168,
+                "allocs_per_op": 455
+              },
+              "peak_rss_bytes": 173703168
+            },
+            "normalized": {
+              "ns_per_op": 1.0234859979849722,
+              "bytes_per_op": 1.0033456594470858,
+              "allocs_per_op": 1
+            }
+          }
+        ]
+      },
+      {
+        "name": "runtime-write-epochs",
+        "package": "./internal/runtime",
+        "calibration": {
+          "name": "BenchmarkNormalizeWriteEpochsPerPath",
+          "samples": [
+            {
+              "iterations": 97,
+              "peak_rss_bytes": 173654016,
+              "ns_per_op": 3235430,
+              "bytes_per_op": 665600,
+              "allocs_per_op": 6656
+            },
+            {
+              "iterations": 69,
+              "peak_rss_bytes": 173703168,
+              "ns_per_op": 4099404,
+              "bytes_per_op": 665601,
+              "allocs_per_op": 6656
+            },
+            {
+              "iterations": 76,
+              "peak_rss_bytes": 170147840,
+              "ns_per_op": 4378148,
+              "bytes_per_op": 665601,
+              "allocs_per_op": 6656
+            },
+            {
+              "iterations": 81,
+              "peak_rss_bytes": 172785664,
+              "ns_per_op": 3939904,
+              "bytes_per_op": 665601,
+              "allocs_per_op": 6656
+            },
+            {
+              "iterations": 79,
+              "peak_rss_bytes": 170967040,
+              "ns_per_op": 4180338,
+              "bytes_per_op": 665601,
+              "allocs_per_op": 6656
+            }
+          ],
+          "median": {
+            "ns_per_op": 4099404,
+            "bytes_per_op": 665601,
+            "allocs_per_op": 6656
+          },
+          "p50": {
+            "ns_per_op": 4099404,
+            "bytes_per_op": 665601,
+            "allocs_per_op": 6656
+          },
+          "p95": {
+            "ns_per_op": 4338586,
+            "bytes_per_op": 665601,
+            "allocs_per_op": 6656
+          },
+          "peak_rss_bytes": 173703168
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4867018,
+              "peak_rss_bytes": 94945280,
+              "ns_per_op": 62.870000000000005,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4635704,
+              "peak_rss_bytes": 93585408,
+              "ns_per_op": 67.51,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4414144,
+              "peak_rss_bytes": 94945280,
+              "ns_per_op": 70.845,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4620164,
+              "peak_rss_bytes": 93061120,
+              "ns_per_op": 70.475,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4638403,
+              "peak_rss_bytes": 95207424,
+              "ns_per_op": 72.125,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 70.475,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 70.475,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 71.869,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 95207424
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkNormalizeWriteEpochsBatch",
+              "samples": [
+                {
+                  "iterations": 300,
+                  "peak_rss_bytes": 173654016,
+                  "ns_per_op": 995226,
+                  "bytes_per_op": 267832,
+                  "allocs_per_op": 2087
+                },
+                {
+                  "iterations": 286,
+                  "peak_rss_bytes": 173703168,
+                  "ns_per_op": 1108509,
+                  "bytes_per_op": 267832,
+                  "allocs_per_op": 2087
+                },
+                {
+                  "iterations": 206,
+                  "peak_rss_bytes": 170147840,
+                  "ns_per_op": 1433796,
+                  "bytes_per_op": 267832,
+                  "allocs_per_op": 2087
+                },
+                {
+                  "iterations": 254,
+                  "peak_rss_bytes": 172785664,
+                  "ns_per_op": 1191289,
+                  "bytes_per_op": 267832,
+                  "allocs_per_op": 2087
+                },
+                {
+                  "iterations": 236,
+                  "peak_rss_bytes": 170967040,
+                  "ns_per_op": 1261935,
+                  "bytes_per_op": 265784,
+                  "allocs_per_op": 2087
+                }
+              ],
+              "median": {
+                "ns_per_op": 1191289,
+                "bytes_per_op": 267832,
+                "allocs_per_op": 2087
+              },
+              "p50": {
+                "ns_per_op": 1191289,
+                "bytes_per_op": 267832,
+                "allocs_per_op": 2087
+              },
+              "p95": {
+                "ns_per_op": 1399423.8,
+                "bytes_per_op": 267832,
+                "allocs_per_op": 2087
+              },
+              "peak_rss_bytes": 173703168
+            },
+            "normalized": {
+              "ns_per_op": 0.2906005360779274,
+              "bytes_per_op": 0.4023912223689568,
+              "allocs_per_op": 0.3135516826923077
+            }
+          }
+        ]
+      },
+      {
+        "name": "session-evidence-workloads",
+        "package": "./internal/runtime/agentsession",
+        "calibration": {
+          "name": "BenchmarkVerifiedEvidencePrefix",
+          "samples": [
+            {
+              "iterations": 538,
+              "peak_rss_bytes": 194134016,
+              "ns_per_op": 522286,
+              "bytes_per_op": 784432,
+              "allocs_per_op": 623
+            },
+            {
+              "iterations": 577,
+              "peak_rss_bytes": 187727872,
+              "ns_per_op": 608231,
+              "bytes_per_op": 784752,
+              "allocs_per_op": 623
+            },
+            {
+              "iterations": 530,
+              "peak_rss_bytes": 191496192,
+              "ns_per_op": 571674,
+              "bytes_per_op": 784784,
+              "allocs_per_op": 623
+            },
+            {
+              "iterations": 558,
+              "peak_rss_bytes": 189153280,
+              "ns_per_op": 558173,
+              "bytes_per_op": 784558,
+              "allocs_per_op": 623
+            },
+            {
+              "iterations": 562,
+              "peak_rss_bytes": 191741952,
+              "ns_per_op": 591928,
+              "bytes_per_op": 784624,
+              "allocs_per_op": 623
+            }
+          ],
+          "median": {
+            "ns_per_op": 571674,
+            "bytes_per_op": 784624,
+            "allocs_per_op": 623
+          },
+          "p50": {
+            "ns_per_op": 571674,
+            "bytes_per_op": 784624,
+            "allocs_per_op": 623
+          },
+          "p95": {
+            "ns_per_op": 604970.4,
+            "bytes_per_op": 784777.6,
+            "allocs_per_op": 623
+          },
+          "peak_rss_bytes": 194134016
+        },
+        "cpu_calibration": {
+          "name": "BenchmarkReconcCPUSentinel",
+          "samples": [
+            {
+              "iterations": 4625311,
+              "peak_rss_bytes": 94683136,
+              "ns_per_op": 67.72,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4185732,
+              "peak_rss_bytes": 92389376,
+              "ns_per_op": 73.9,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4146554,
+              "peak_rss_bytes": 94650368,
+              "ns_per_op": 81.285,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4169349,
+              "peak_rss_bytes": 92995584,
+              "ns_per_op": 74.455,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            },
+            {
+              "iterations": 4131322,
+              "peak_rss_bytes": 94732288,
+              "ns_per_op": 71.59,
+              "bytes_per_op": 0,
+              "allocs_per_op": 0
+            }
+          ],
+          "median": {
+            "ns_per_op": 73.9,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p50": {
+            "ns_per_op": 73.9,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "p95": {
+            "ns_per_op": 79.919,
+            "bytes_per_op": 0,
+            "allocs_per_op": 0
+          },
+          "peak_rss_bytes": 94732288
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkWorkerPreHookVerifiedEvidencePrefix/warm-prefix",
+              "samples": [
+                {
+                  "iterations": 100,
+                  "peak_rss_bytes": 189693952,
+                  "ns_per_op": 3279096,
+                  "bytes_per_op": 642253,
+                  "allocs_per_op": 5585
+                },
+                {
+                  "iterations": 79,
+                  "peak_rss_bytes": 192413696,
+                  "ns_per_op": 5169289,
+                  "bytes_per_op": 643248,
+                  "allocs_per_op": 5585
+                },
+                {
+                  "iterations": 99,
+                  "peak_rss_bytes": 189136896,
+                  "ns_per_op": 3212418,
+                  "bytes_per_op": 643342,
+                  "allocs_per_op": 5585
+                },
+                {
+                  "iterations": 100,
+                  "peak_rss_bytes": 194281472,
+                  "ns_per_op": 2921898,
+                  "bytes_per_op": 643133,
+                  "allocs_per_op": 5585
+                },
+                {
+                  "iterations": 85,
+                  "peak_rss_bytes": 188956672,
+                  "ns_per_op": 3864563,
+                  "bytes_per_op": 642320,
+                  "allocs_per_op": 5585
+                }
+              ],
+              "median": {
+                "ns_per_op": 3279096,
+                "bytes_per_op": 643133,
+                "allocs_per_op": 5585
+              },
+              "p50": {
+                "ns_per_op": 3279096,
+                "bytes_per_op": 643133,
+                "allocs_per_op": 5585
+              },
+              "p95": {
+                "ns_per_op": 4908343.8,
+                "bytes_per_op": 643323.2,
+                "allocs_per_op": 5585
+              },
+              "peak_rss_bytes": 194281472
+            },
+            "normalized": {
+              "ns_per_op": 5.735954407581944,
+              "bytes_per_op": 0.8196703134240094,
+              "allocs_per_op": 8.964686998394864
+            }
+          },
+          {
+            "benchmark": {
+              "name": "BenchmarkWorkerPreHookVerifiedEvidencePrefix/cold-prefix",
+              "samples": [
+                {
+                  "iterations": 92,
+                  "peak_rss_bytes": 189693952,
+                  "ns_per_op": 3485670,
+                  "bytes_per_op": 724560,
+                  "allocs_per_op": 6156
+                },
+                {
+                  "iterations": 81,
+                  "peak_rss_bytes": 192413696,
+                  "ns_per_op": 4389642,
+                  "bytes_per_op": 725459,
+                  "allocs_per_op": 6152
+                },
+                {
+                  "iterations": 86,
+                  "peak_rss_bytes": 189136896,
+                  "ns_per_op": 3757017,
+                  "bytes_per_op": 725699,
+                  "allocs_per_op": 6158
+                },
+                {
+                  "iterations": 88,
+                  "peak_rss_bytes": 194281472,
+                  "ns_per_op": 3640317,
+                  "bytes_per_op": 725280,
+                  "allocs_per_op": 6152
+                },
+                {
+                  "iterations": 84,
+                  "peak_rss_bytes": 188956672,
+                  "ns_per_op": 3846548,
+                  "bytes_per_op": 724800,
+                  "allocs_per_op": 6158
+                }
+              ],
+              "median": {
+                "ns_per_op": 3757017,
+                "bytes_per_op": 725280,
+                "allocs_per_op": 6156
+              },
+              "p50": {
+                "ns_per_op": 3757017,
+                "bytes_per_op": 725280,
+                "allocs_per_op": 6156
+              },
+              "p95": {
+                "ns_per_op": 4281023.2,
+                "bytes_per_op": 725651,
+                "allocs_per_op": 6158
+              },
+              "peak_rss_bytes": 194281472
+            },
+            "normalized": {
+              "ns_per_op": 6.571957094427943,
+              "bytes_per_op": 0.9243663206835376,
+              "allocs_per_op": 9.881219903691814
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
