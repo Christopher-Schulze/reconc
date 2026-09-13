@@ -244,6 +244,9 @@ func TestBootstrapApplyInstallsTheRunningBuildAndRequiresItOnPATHBeforeWriting(t
 
 func TestInstallCLICommandPublishesAReadyBareCommand(t *testing.T) {
 	directory := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("RECONC_HOME", t.TempDir())
 	t.Setenv("RECONC_INSTALL_DIR", directory)
 	t.Setenv("PATH", directory)
@@ -257,6 +260,34 @@ func TestInstallCLICommandPublishesAReadyBareCommand(t *testing.T) {
 	}
 	if report.Status == nil || !report.Status.Ready || report.Status.ResolvedPath == "" {
 		t.Fatalf("install-cli did not publish a bare command: %+v", report)
+	}
+	if report.Skill == nil || report.Receipt == nil || report.Receipt.Skill == nil ||
+		report.Skill.Path != filepath.Join(home, ".agents", "skills", "reconc") {
+		t.Fatalf("install-cli did not publish the default shared skill: %+v", report)
+	}
+}
+
+func TestInstallCLIExplicitNoSkillKeepsSharedRootUntouched(t *testing.T) {
+	directory := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv("RECONC_INSTALL_DIR", directory)
+	t.Setenv("PATH", directory)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"install-cli", "--no-skill", "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatalf("binary-only install: %v stderr=%s", err, stderr.String())
+	}
+	var report usercli.InstallReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Receipt == nil || report.Receipt.Skill != nil || report.Skill != nil {
+		t.Fatalf("binary-only install claimed a skill: %+v", report)
+	}
+	if _, err := os.Lstat(filepath.Join(home, ".agents", "skills", "reconc")); !os.IsNotExist(err) {
+		t.Fatalf("binary-only install changed shared skill root: %v", err)
 	}
 }
 

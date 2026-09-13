@@ -32,9 +32,9 @@ Generated from `internal/commandmeta`; run `make reference-docs` after changing 
 | `reconc repo sync resolve` | `reconc repo sync resolve --plan PATH --digest SHA256 --path RELATIVE --strategy STRATEGY [binary flags] [--json]` | resolve one exact non-mutable sync action | text, json |
 | `reconc repo sync verify` | `reconc repo sync verify [repo] [--json]` | verify the portable repository receipt and owned artifacts | text, json |
 | `reconc repo sync recover` | `reconc repo sync recover [repo] [--json]` | finalize or roll back an interrupted repository sync | text, json |
-| `reconc install-cli` | `reconc install-cli [--install-dir PATH] [--json]` | install the running build as the stable user CLI | text, json |
+| `reconc install-cli` | `reconc install-cli [--install-dir PATH] [--skill-dir PATH] [--no-skill \| --skill-only] [--json]` | install the running build and owned portable skill | text, json |
 | `reconc update` | `reconc update [--channel stable\|preview \| --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]` | apply an ownership-safe global CLI update | text, json |
-| `reconc uninstall` | `reconc uninstall [--purge-state] [--json]` | remove only the globally owned CLI installation | text, json |
+| `reconc uninstall` | `reconc uninstall [--purge-state] [--remove-skill] [--json]` | remove the owned CLI and optionally its verified skill | text, json |
 | `reconc init` | `reconc init [repo] [--profile PROFILE] [selection flags]` | transactionally onboard a repository | text, json, file |
 | `reconc adopt` | `reconc adopt [repo] [--yaml \| --json \| --apply]` | detect tooling and suggest rules | text, yaml, json |
 | `reconc extract` | `reconc extract [repo] [--from PATH] [--yaml \| --json]` | scan instruction prose for rule hints | text, yaml, json |

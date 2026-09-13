@@ -19,6 +19,7 @@
 #   make completion         -- emit flat shell completion artifacts into dist/
 #   make sbom               -- emit deterministic SPDX and CycloneDX SBOMs
 #   make notices            -- emit deterministic third-party license notices
+#   make skill              -- emit the embedded portable skill archive and manifest
 #   make checksums          -- generate dist/SHA256SUMS over release artefacts
 #   make verify-release      -- verify dist/ against the canonical release matrix
 #   make self-host          -- run the clean-repository bootstrap golden path
@@ -63,7 +64,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test-fast test test-langchain test-release-trust self-host publication-audit harness-pack-check reference-docs reference-docs-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices checksums verify-release bench benchmark-record benchmark-profile benchmark-pgo benchmark-compare benchmark-baseline check-test-parallelism
+.PHONY: build test-fast test test-langchain test-release-trust self-host publication-audit harness-pack-check reference-docs reference-docs-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices skill checksums verify-release bench benchmark-record benchmark-profile benchmark-pgo benchmark-compare benchmark-baseline check-test-parallelism
 
 build: check-build-identity
 	@mkdir -p $(BINDIR)
@@ -237,7 +238,13 @@ notices: check-build-identity
 	 GO="$(GO)" ./scripts/release/generated-assets.sh generate notices "$(DISTDIR)" "$$version" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)" $(RELEASE_TARGETS)
 	@echo "license notices -> $(DISTDIR)/"
 
-checksums: sbom notices
+skill:
+	@mkdir -p $(DISTDIR)
+	@version=$$(./scripts/build/resolve-version.sh) || exit $$?; \
+	 GO="$(GO)" ./scripts/release/generated-assets.sh generate skill "$(DISTDIR)" "$$version" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)"
+	@echo "portable skill -> $(DISTDIR)/"
+
+checksums: sbom notices skill
 	@mkdir -p $(DISTDIR)
 	@./scripts/release/copy-assets.sh $(DISTDIR)
 	@./scripts/release/write-checksums.sh $(DISTDIR)

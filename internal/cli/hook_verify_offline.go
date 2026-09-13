@@ -113,7 +113,7 @@ func prepareHookVerificationRepo(prefix string, stageDeniedPath bool) (string, f
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve isolated bare executable: %w", err)
 	}
-	install, err := usercli.InstallCurrentWithReceipt(filepath.Dir(bareExecutable), usercli.InstallOptions{Version: "hook-verify"})
+	install, err := usercli.InstallCurrentWithReceipt(filepath.Dir(bareExecutable), usercli.InstallOptions{Version: "hook-verify", SkillMode: usercli.SkillSkip})
 	if err != nil {
 		return "", nil, fmt.Errorf("bind isolated bare executable to receipt: %w", err)
 	}

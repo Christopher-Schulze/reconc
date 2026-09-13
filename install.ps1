@@ -6,7 +6,8 @@ param(
     [Parameter(ParameterSetName = "Channel")]
     [ValidateSet("Stable", "Preview")]
     [string]$Channel = "Stable",
-    [switch]$AllowDowngrade
+    [switch]$AllowDowngrade,
+    [switch]$NoSkill
 )
 
 Set-StrictMode -Version Latest
@@ -410,7 +411,8 @@ function Install-ReconcVerifiedArtifact {
         [ValidateSet("stable", "preview", "exact")]
         [string]$InstallChannel = "exact",
         [ValidateSet("github-verified", "embedded-verified")]
-        [string]$ProvenanceState = "embedded-verified"
+        [string]$ProvenanceState = "embedded-verified",
+        [bool]$SkipSkill = $false
     )
 
     if ($ExpectedChecksum -notmatch '^[0-9a-f]{64}$') {
@@ -455,7 +457,11 @@ function Install-ReconcVerifiedArtifact {
         $env:RECONC_INSTALL_ARTIFACT = $AssetName
         $env:RECONC_INSTALL_RELEASE_TAG = "reconc-v$ReleaseVersion"
         $env:RECONC_INSTALL_PROVENANCE = $ProvenanceState
-        $installOutput = & $ArtifactPath install-cli --install-dir $resolvedInstallDirectory --json 2>&1
+        $installArguments = @("install-cli", "--install-dir", $resolvedInstallDirectory, "--json")
+        if ($SkipSkill) {
+            $installArguments += "--no-skill"
+        }
+        $installOutput = & $ArtifactPath @installArguments 2>&1
         $installExitCode = $LASTEXITCODE
     }
     finally {
@@ -510,7 +516,8 @@ function Invoke-ReconcInstall {
         [string]$RequestedVersion = "",
         [ValidateSet("Stable", "Preview")]
         [string]$RequestedChannel = "Stable",
-        [bool]$DowngradeAllowed = $false
+        [bool]$DowngradeAllowed = $false,
+        [bool]$SkipSkill = $false
     )
 
     if ($env:OS -ne "Windows_NT") {
@@ -575,7 +582,8 @@ function Invoke-ReconcInstall {
             -ReleaseVersion $releaseVersion `
             -AssetName $assetName `
             -InstallChannel $installChannel `
-            -ProvenanceState $provenanceState
+            -ProvenanceState $provenanceState `
+            -SkipSkill $SkipSkill
         Write-Host "installed reconc $releaseVersion ($installChannel) at $targetPath"
 
         if (-not (Test-ReconcCommandMatches -ExpectedChecksum $expectedChecksum -ExpectedPath $targetPath)) {
@@ -595,11 +603,13 @@ if ($MyInvocation.InvocationName -ne ".") {
     if ($PSCmdlet.ParameterSetName -eq "Version") {
         Invoke-ReconcInstall `
             -RequestedVersion $Version `
-            -DowngradeAllowed $AllowDowngrade.IsPresent
+            -DowngradeAllowed $AllowDowngrade.IsPresent `
+            -SkipSkill $NoSkill.IsPresent
     }
     else {
         Invoke-ReconcInstall `
             -RequestedChannel $Channel `
-            -DowngradeAllowed $AllowDowngrade.IsPresent
+            -DowngradeAllowed $AllowDowngrade.IsPresent `
+            -SkipSkill $NoSkill.IsPresent
     }
 }

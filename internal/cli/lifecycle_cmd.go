@@ -117,11 +117,13 @@ func runUninstall(args []string, version string, stdout io.Writer) error {
 		switch argument {
 		case "--purge-state":
 			request.PurgeState = true
+		case "--remove-skill":
+			request.RemoveSkill = true
 		case "--json":
 			jsonOut = true
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc uninstall [--purge-state] [--json]")
-			fmt.Fprintln(stdout, "Remove only the receipt-owned global installation. Repository state is never removed.")
+			fmt.Fprintln(stdout, "Usage: reconc uninstall [--purge-state] [--remove-skill] [--json]")
+			fmt.Fprintln(stdout, "Remove the receipt-owned CLI; preserve the skill unless --remove-skill verifies and removes it.")
 			return nil
 		default:
 			if jsonRequested {

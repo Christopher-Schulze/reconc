@@ -55,7 +55,8 @@ type UpdateRequest struct {
 }
 
 type UninstallRequest struct {
-	PurgeState bool
+	PurgeState  bool
+	RemoveSkill bool
 }
 
 var lifecycleCommand = exec.CommandContext
@@ -109,8 +110,9 @@ func uninstallOwned(report *LifecycleReport, request UninstallRequest) (*Lifecyc
 		return nil, err
 	}
 	var removedPath string
+	hadSkill := false
 	mutationCommitted := false
-	err = withReceiptLock(paths, func() error {
+	err = withReceiptLock(paths, func() (resultErr error) {
 		if request.PurgeState {
 			if err := validatePurgeInventory(paths, true); err != nil {
 				return err
@@ -121,6 +123,15 @@ func uninstallOwned(report *LifecycleReport, request UninstallRequest) (*Lifecyc
 			return err
 		}
 		receipt := receiptSnapshot.receipt
+		hadSkill = receipt.Skill != nil
+		var skill *skillInstallation
+		if request.RemoveSkill && receipt.Skill != nil {
+			skill, err = prepareOwnedSkillRemoval(receipt.Skill)
+			if err != nil {
+				return err
+			}
+			defer func() { resultErr = errors.Join(resultErr, skill.cleanup()) }()
+		}
 		if report.Owner == nil || receipt.Manager != *report.Owner {
 			return errors.New("installation ownership changed before uninstall")
 		}
@@ -141,23 +152,37 @@ func uninstallOwned(report *LifecycleReport, request UninstallRequest) (*Lifecyc
 			return err
 		}
 		return withCapturedBinaryBackup(backup, func(backup *binaryBackup) error {
+			if skill != nil {
+				if err := skill.removeOwned(); err != nil {
+					return skill.rollback(err)
+				}
+			}
+			restoreSkill := func(cause error) error {
+				if skill == nil {
+					return cause
+				}
+				return skill.rollback(cause)
+			}
 			if err := beforeUninstallRemoval(receipt.BinaryPath); err != nil {
-				return err
+				return restoreSkill(err)
 			}
 			if err := validateBinaryBackupSnapshot(receipt.BinaryPath, backup); err != nil {
-				return err
+				return restoreSkill(err)
 			}
 			if err := os.Remove(receipt.BinaryPath); err != nil {
-				return fmt.Errorf("remove owned binary: %w", err)
+				return restoreSkill(fmt.Errorf("remove owned binary: %w", err))
 			}
 			if err := beforeUninstallRemoval(paths.receipt); err != nil {
-				return rollbackUninstallBinary(receipt.BinaryPath, backup, err)
+				return restoreSkill(rollbackUninstallBinary(receipt.BinaryPath, backup, err))
 			}
 			if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
-				return rollbackUninstallBinary(receipt.BinaryPath, backup, err)
+				return restoreSkill(rollbackUninstallBinary(receipt.BinaryPath, backup, err))
 			}
 			if err := os.Remove(paths.receipt); err != nil {
-				return rollbackUninstallBinary(receipt.BinaryPath, backup, fmt.Errorf("remove installation receipt: %w", err))
+				return restoreSkill(rollbackUninstallBinary(receipt.BinaryPath, backup, fmt.Errorf("remove installation receipt: %w", err)))
+			}
+			if skill != nil {
+				skill.committed = true
 			}
 			mutationCommitted = true
 			removedPath = receipt.BinaryPath
@@ -174,9 +199,9 @@ func uninstallOwned(report *LifecycleReport, request UninstallRequest) (*Lifecyc
 			report.Status = LifecycleFailed
 			report.Changed = true
 			report.Checks = append(report.Checks, DiagnosticCheck{
-				Name: "state-purge", Status: "fail", Detail: err.Error(),
+				Name: "post-commit-cleanup", Status: "fail", Detail: err.Error(),
 			})
-			report.NextAction = "Inspect the retained installation state; the owned binary and receipt were already removed."
+			report.NextAction = "Inspect the retained installation state or skill backup; the owned binary and receipt were already removed."
 			return report, nil
 		}
 		report.Status = LifecycleRefused
@@ -192,6 +217,15 @@ func uninstallOwned(report *LifecycleReport, request UninstallRequest) (*Lifecyc
 	report.Checks = append(report.Checks, DiagnosticCheck{
 		Name: "owned-removal", Status: "pass", Detail: "removed receipt-owned binary and installation receipt",
 	})
+	if request.RemoveSkill {
+		report.Checks = append(report.Checks, DiagnosticCheck{
+			Name: "skill-removal", Status: "pass", Detail: "removed verified receipt-owned skill when present",
+		})
+	} else if hadSkill {
+		report.Checks = append(report.Checks, DiagnosticCheck{
+			Name: "skill-retention", Status: "warn", Detail: "portable skill was preserved; its receipt ownership ended with the binary installation",
+		})
+	}
 	report.Actions = []DiagnosticAction{}
 	report.NextAction = "Global Reconc is uninstalled; repository policy and runtime evidence were preserved."
 	return report, nil

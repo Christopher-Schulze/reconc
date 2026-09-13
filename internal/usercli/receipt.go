@@ -22,10 +22,11 @@ import (
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/privatefs"
 	"reconc.dev/reconc/internal/schema"
+	skillbundle "reconc.dev/reconc/skills/reconc"
 )
 
 const (
-	ReceiptFormatVersion     = "1"
+	ReceiptFormatVersion     = "2"
 	maxInstallationReceipt   = 64 << 10
 	installationStateDirName = "install"
 	receiptFileName          = "receipt.json"
@@ -62,7 +63,20 @@ var (
 	targetNamePattern   = regexp.MustCompile(`^[a-z0-9]+$`)
 	sha256Pattern       = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	artifactNamePattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._+-]*$`)
+	skillFilePattern    = regexp.MustCompile(`^(SKILL\.md|references/[a-z0-9-]+\.md)$`)
 )
+
+type SkillFileReceipt struct {
+	Path   string `json:"path"`
+	Size   int    `json:"size"`
+	SHA256 string `json:"sha256"`
+}
+
+type SkillReceipt struct {
+	Path           string             `json:"path"`
+	ManifestDigest string             `json:"manifest_digest"`
+	Files          []SkillFileReceipt `json:"files"`
+}
 
 type Receipt struct {
 	Schema           string          `json:"$schema"`
@@ -79,6 +93,7 @@ type Receipt struct {
 	GOARCH           string          `json:"goarch"`
 	SourceDigest     string          `json:"source_digest"`
 	ProvenanceState  ProvenanceState `json:"provenance_state"`
+	Skill            *SkillReceipt   `json:"skill,omitempty"`
 	InstalledAt      string          `json:"installed_at"`
 	ReceiptDigest    string          `json:"receipt_digest"`
 }
@@ -96,6 +111,7 @@ type ReceiptInput struct {
 	GOARCH           string
 	SourceDigest     string
 	ProvenanceState  ProvenanceState
+	Skill            *SkillReceipt
 	InstalledAt      time.Time
 }
 
@@ -124,6 +140,11 @@ func NewReceipt(input ReceiptInput) (*Receipt, error) {
 		BinaryPath: filepath.Clean(input.BinaryPath), GOOS: strings.TrimSpace(input.GOOS),
 		GOARCH: strings.TrimSpace(input.GOARCH), SourceDigest: strings.TrimSpace(input.SourceDigest),
 		ProvenanceState: input.ProvenanceState, InstalledAt: installedAt.Format(time.RFC3339),
+	}
+	if input.Skill != nil {
+		copyOfSkill := *input.Skill
+		copyOfSkill.Files = append([]SkillFileReceipt(nil), input.Skill.Files...)
+		receipt.Skill = &copyOfSkill
 	}
 	digest, err := computeReceiptDigest(receipt)
 	if err != nil {
@@ -473,6 +494,14 @@ func validateReceipt(receipt *Receipt) error {
 	if !validProvenanceState(receipt.ProvenanceState) {
 		return errors.New("invalid installation provenance state")
 	}
+	if receipt.Skill != nil {
+		if receipt.FormatVersion != ReceiptFormatVersion {
+			return errors.New("skill ownership requires installation receipt format 2")
+		}
+		if err := validateSkillReceipt(receipt.Skill); err != nil {
+			return err
+		}
+	}
 	installedAt, err := time.Parse(time.RFC3339, receipt.InstalledAt)
 	if err != nil || !strings.HasSuffix(receipt.InstalledAt, "Z") ||
 		installedAt.UTC().Format(time.RFC3339) != receipt.InstalledAt {
@@ -487,6 +516,34 @@ func validateReceipt(receipt *Receipt) error {
 	}
 	if receipt.ReceiptDigest != expected {
 		return errors.New("installation receipt digest mismatch")
+	}
+	return nil
+}
+
+func validateSkillReceipt(skill *SkillReceipt) error {
+	if skill == nil || !filepath.IsAbs(skill.Path) || filepath.Clean(skill.Path) != skill.Path ||
+		filepath.Base(skill.Path) != "reconc" || !sha256Pattern.MatchString(skill.ManifestDigest) {
+		return errors.New("invalid installed skill path or manifest digest")
+	}
+	if len(skill.Files) == 0 || len(skill.Files) > 32 {
+		return errors.New("installed skill receipt must list 1..32 files")
+	}
+	previous := ""
+	manifestFiles := make([]skillbundle.File, 0, len(skill.Files))
+	for _, file := range skill.Files {
+		if !skillFilePattern.MatchString(file.Path) || file.Path <= previous ||
+			file.Size <= 0 || file.Size > 64<<10 || !sha256Pattern.MatchString(file.SHA256) {
+			return fmt.Errorf("invalid installed skill file receipt %q", file.Path)
+		}
+		previous = file.Path
+		manifestFiles = append(manifestFiles, skillbundle.File{Path: file.Path, Size: file.Size, SHA256: file.SHA256})
+	}
+	if skill.Files[0].Path != "SKILL.md" {
+		return errors.New("installed skill receipt must start with SKILL.md")
+	}
+	digest, err := skillbundle.DigestFiles(manifestFiles)
+	if err != nil || digest != skill.ManifestDigest {
+		return errors.Join(errors.New("installed skill manifest digest mismatch"), err)
 	}
 	return nil
 }

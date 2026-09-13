@@ -65,6 +65,26 @@ func TestReceiptRoundTripIsStrictAndSelfDigested(t *testing.T) {
 	}
 }
 
+func TestLegacyBinaryOnlyReceiptRemainsReadable(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	legacy := testReceipt(t, "1.2.3", ManagerSource)
+	legacy.Schema = schema.DefaultBaseURL + "/installation-receipt.schema.json"
+	legacy.FormatVersion = "1"
+	legacy.ReceiptDigest = ""
+	var err error
+	legacy.ReceiptDigest, err = computeReceiptDigest(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := WriteReceipt(legacy); err != nil {
+		t.Fatalf("write historical binary-only receipt: %v", err)
+	}
+	loaded, _, err := LoadReceipt()
+	if err != nil || loaded.FormatVersion != "1" || loaded.Skill != nil {
+		t.Fatalf("historical receipt was not retained: %+v, %v", loaded, err)
+	}
+}
+
 func TestReceiptRejectsTamperTrailingDataAndOversize(t *testing.T) {
 	for _, test := range []struct {
 		name string

@@ -204,11 +204,14 @@ GO="$go_bin" "$root/scripts/release/generated-assets.sh" generate completion \
   "$surface_tmp" "$version" "$commit" "$epoch"
 GO="$go_bin" "$root/scripts/release/generated-assets.sh" generate manpage \
   "$surface_tmp" "$version" "$commit" "$epoch"
+GO="$go_bin" "$root/scripts/release/generated-assets.sh" generate skill \
+  "$surface_tmp" "$version" "$commit" "$epoch"
 GO="$go_bin" "$root/scripts/release/generated-assets.sh" generate notices \
   "$surface_tmp" "$version" "$commit" "$epoch" "$@"
 surface_names=$(
   "$root/scripts/release/generated-assets.sh" list-mode completion "$version"
   "$root/scripts/release/generated-assets.sh" list-mode manpage "$version"
+  "$root/scripts/release/generated-assets.sh" list-mode skill "$version"
   "$root/scripts/release/generated-assets.sh" list-mode notices "$version"
 )
 while IFS= read -r name; do

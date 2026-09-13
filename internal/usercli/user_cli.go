@@ -4,6 +4,7 @@ package usercli
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/pathidentity"
+	"reconc.dev/reconc/internal/schema"
 )
 
 const (
@@ -50,11 +52,20 @@ type BareStatus struct {
 }
 
 type InstallReport struct {
-	Status      *Status  `json:"status"`
-	Receipt     *Receipt `json:"receipt,omitempty"`
-	ReceiptPath string   `json:"receipt_path,omitempty"`
-	Changed     bool     `json:"changed"`
+	Status      *Status             `json:"status"`
+	Receipt     *Receipt            `json:"receipt,omitempty"`
+	ReceiptPath string              `json:"receipt_path,omitempty"`
+	Skill       *SkillInstallReport `json:"skill,omitempty"`
+	Changed     bool                `json:"changed"`
 }
+
+type SkillInstallMode string
+
+const (
+	SkillSkip    SkillInstallMode = "skip"
+	SkillInstall SkillInstallMode = "install"
+	SkillOnly    SkillInstallMode = "only"
+)
 
 type InstallOptions struct {
 	Version         string
@@ -64,6 +75,8 @@ type InstallOptions struct {
 	ReleaseTag      string
 	ProvenanceState ProvenanceState
 	InstalledAt     time.Time
+	SkillMode       SkillInstallMode
+	SkillDir        string
 }
 
 func InspectRunningOnPATH() (*BareStatus, error) {
@@ -216,20 +229,48 @@ func InstallCurrentWithReceipt(installDir string, options InstallOptions) (*Inst
 }
 
 func installCurrent(installDir string, options InstallOptions, publishReceipt bool) (*InstallReport, error) {
+	if options.SkillMode != "" && options.SkillMode != SkillSkip && options.SkillMode != SkillInstall && options.SkillMode != SkillOnly {
+		return nil, fmt.Errorf("invalid skill installation mode %q", options.SkillMode)
+	}
+	if options.SkillMode == SkillOnly && !publishReceipt {
+		return nil, errors.New("skill-only installation requires a receipt")
+	}
+	if (options.SkillMode == SkillSkip || options.SkillMode == "") && options.SkillDir != "" {
+		return nil, errors.New("skill directory requires skill installation")
+	}
 	paths, err := resolveReceiptPaths()
 	if err != nil {
 		return nil, err
 	}
 	var report *InstallReport
-	err = withReceiptLock(paths, func() error {
+	err = withReceiptLock(paths, func() (resultErr error) {
 		status, inspectErr := InspectCurrent(installDir)
 		if inspectErr != nil {
 			return inspectErr
 		}
+		changed := !status.Installed || !status.Executable || !status.Current
+		previous, loadErr := loadReceiptFile(paths.receipt)
+		if loadErr != nil && !errors.Is(loadErr, os.ErrNotExist) && options.SkillMode != SkillSkip && options.SkillMode != "" {
+			return fmt.Errorf("inspect existing skill ownership: %w", loadErr)
+		}
+		if options.SkillMode == SkillOnly && (changed || !status.Ready || previous == nil ||
+			!samePath(previous.BinaryPath, status.TargetPath) || previous.ArtifactSHA256 != status.ExpectedSHA256) {
+			return errors.New("skill-only installation requires the running binary to match a ready owned installation")
+		}
 		if err := ensureRealDirectory(filepath.Dir(status.TargetPath)); err != nil {
 			return err
 		}
-		changed := !status.Installed || !status.Executable || !status.Current
+		var skill *skillInstallation
+		if options.SkillMode == SkillInstall || options.SkillMode == SkillOnly {
+			var prepareErr error
+			skill, prepareErr = prepareSkillInstallation(options.SkillDir, previous)
+			if skill != nil {
+				defer func() { resultErr = errors.Join(resultErr, skill.cleanup()) }()
+			}
+			if prepareErr != nil {
+				return prepareErr
+			}
+		}
 		install := func(backup *binaryBackup) error {
 			if changed {
 				if err := publishBinaryFromFile(status.TargetPath, status.SourcePath, 0o755); err != nil {
@@ -248,21 +289,75 @@ func installCurrent(installDir string, options InstallOptions, publishReceipt bo
 			if !publishReceipt || !verified.Ready {
 				return nil
 			}
-			input, err := installReceiptInput(verified, options)
-			if err != nil {
-				return rollbackInstall(status.TargetPath, backup, changed, err)
+			var receipt *Receipt
+			if options.SkillMode == SkillOnly {
+				copyOfPrevious := *previous
+				copyOfPrevious.Skill = skill.desired
+				copyOfPrevious.Schema = schema.Resolve(schema.InstallationReceipt)
+				copyOfPrevious.FormatVersion = ReceiptFormatVersion
+				if skill.changed {
+					copyOfPrevious.InstalledAt = time.Now().UTC().Format(time.RFC3339)
+				}
+				copyOfPrevious.ReceiptDigest, err = computeReceiptDigest(&copyOfPrevious)
+				if err != nil {
+					return err
+				}
+				receipt = &copyOfPrevious
+			} else {
+				input, inputErr := installReceiptInput(verified, options)
+				if inputErr != nil {
+					return rollbackInstall(status.TargetPath, backup, changed, inputErr)
+				}
+				if skill != nil {
+					input.Skill = skill.desired
+				} else if previous != nil {
+					input.Skill = previous.Skill
+				}
+				if previous != nil && !changed && options.InstalledAt.IsZero() {
+					input.InstalledAt, err = time.Parse(time.RFC3339, previous.InstalledAt)
+					if err != nil {
+						return err
+					}
+				}
+				receipt, err = NewReceipt(input)
+				if err != nil {
+					return rollbackInstall(status.TargetPath, backup, changed, err)
+				}
+				if previous != nil && !changed && options.InstalledAt.IsZero() {
+					if receipt.ReceiptDigest == previous.ReceiptDigest {
+						receipt = previous
+					} else {
+						input.InstalledAt = time.Now().UTC()
+						receipt, err = NewReceipt(input)
+						if err != nil {
+							return err
+						}
+					}
+				}
 			}
-			receipt, err := NewReceipt(input)
-			if err != nil {
-				return rollbackInstall(status.TargetPath, backup, changed, err)
+			if skill != nil {
+				if err := skill.publish(); err != nil {
+					return rollbackInstall(status.TargetPath, backup, changed, skill.rollback(err))
+				}
+				if err := beforeSkillReceiptPublish(paths.receipt); err != nil {
+					return rollbackInstall(status.TargetPath, backup, changed, skill.rollback(err))
+				}
 			}
 			receiptChanged, err := writeReceiptUnlocked(paths.receipt, receipt)
 			if err != nil {
+				if skill != nil {
+					err = skill.rollback(err)
+				}
 				return rollbackInstall(status.TargetPath, backup, changed, err)
+			}
+			if skill != nil {
+				skill.committed = true
+				report.Skill = &SkillInstallReport{Path: skill.target, ManifestDigest: skill.desired.ManifestDigest,
+					Changed: skill.changed, Discovery: skillDiscoveryDetail(skill.target)}
 			}
 			report.Receipt = receipt
 			report.ReceiptPath = paths.receipt
-			report.Changed = report.Changed || receiptChanged
+			report.Changed = report.Changed || receiptChanged || skill != nil && skill.changed
 			return nil
 		}
 		if !changed {

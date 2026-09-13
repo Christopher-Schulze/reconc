@@ -14,6 +14,9 @@ import (
 
 func runInstallCLI(args []string, version string, stdout io.Writer) error {
 	installDir := ""
+	skillDir := ""
+	noSkill := false
+	skillOnly := false
 	jsonOut := false
 	for index := 0; index < len(args); index++ {
 		switch args[index] {
@@ -28,19 +31,40 @@ func runInstallCLI(args []string, version string, stdout io.Writer) error {
 			installDir = value
 		case "--json":
 			jsonOut = true
+		case "--no-skill":
+			noSkill = true
+		case "--skill-only":
+			skillOnly = true
+		case "--skill-dir":
+			value, ok := nextArgValue(args, &index, "--skill-dir", argValueNoLeadingDash)
+			if !ok || skillDir != "" {
+				return &CLIError{ExitCode: 1, Message: "reconc install-cli: --skill-dir requires one path"}
+			}
+			skillDir = value
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc install-cli [--install-dir PATH] [--json]")
-			fmt.Fprintln(stdout, "Atomically install the running executable as the stable user CLI.")
+			fmt.Fprintln(stdout, "Usage: reconc install-cli [--install-dir PATH] [--skill-dir PATH] [--no-skill | --skill-only] [--json]")
+			fmt.Fprintln(stdout, "Install the running executable and owned portable skill; --no-skill skips the skill.")
+			fmt.Fprintln(stdout, "--skill-only installs the skill for an already owned, current binary.")
 			fmt.Fprintln(stdout, "The command fails with exact remediation when the installed CLI is not current on PATH.")
 			return nil
 		default:
 			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc install-cli: unknown argument %q", args[index])}
 		}
 	}
+	if noSkill && (skillOnly || skillDir != "") {
+		return &CLIError{ExitCode: 1, Message: "reconc install-cli: --no-skill conflicts with --skill-only or --skill-dir"}
+	}
 	options, err := installCLIOptions(version)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc install-cli: " + err.Error()}
 	}
+	options.SkillMode = usercli.SkillInstall
+	if noSkill {
+		options.SkillMode = usercli.SkillSkip
+	} else if skillOnly {
+		options.SkillMode = usercli.SkillOnly
+	}
+	options.SkillDir = skillDir
 	report, err := usercli.InstallCurrentWithReceipt(installDir, options)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc install-cli: " + err.Error()}
@@ -58,6 +82,9 @@ func runInstallCLI(args []string, version string, stdout io.Writer) error {
 		}
 		fmt.Fprintf(stdout, "User CLI: %s (%s)\n", report.Status.TargetPath, action)
 		fmt.Fprintf(stdout, "PATH command: %s\n", displayUserCLIPath(report.Status))
+		if report.Skill != nil {
+			fmt.Fprintf(stdout, "Portable skill: %s (%s)\n", report.Skill.Path, report.Skill.Discovery)
+		}
 		fmt.Fprintf(stdout, "Next: %s\n", report.Status.NextAction)
 	}
 	if !report.Status.Ready {
@@ -74,7 +101,7 @@ func ensureCurrentUserCLI(command string, version string) error {
 	if diagnostic.Status == usercli.DiagnosticHealthy {
 		return nil
 	}
-	report, err := usercli.InstallCurrentWithReceipt("", usercli.InstallOptions{Version: version})
+	report, err := usercli.InstallCurrentWithReceipt("", usercli.InstallOptions{Version: version, SkillMode: usercli.SkillSkip})
 	if err != nil {
 		return userCLICommandError(command, "install user CLI: "+err.Error())
 	}

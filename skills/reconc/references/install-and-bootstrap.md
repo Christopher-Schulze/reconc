@@ -22,8 +22,13 @@ repository hooks in the product source tree. Product integration tests use
 `make self-host` with disposable repositories. Switch to the intended consumer
 repository before following bootstrap or the repository decision loop.
 
-`install-cli` atomically publishes the exact running build and proves bare
-`reconc` resolves to it. If PATH activation needs a new terminal, apply the
+`install-cli` atomically publishes the exact running build and the embedded
+portable skill at `~/.agents/skills/reconc`, then proves bare `reconc` resolves
+to the build. Use `--no-skill` for a binary-only install, `--skill-dir PATH` for
+an explicit skill destination, or `--skill-only` for an already owned current
+binary. An archive or raw binary download alone does not install a skill.
+`doctor --global` verifies receipt-owned skill files but cannot prove that a
+host loaded them. If PATH activation needs a new terminal, apply the
 exact emitted remediation before bootstrap. For authorized installation from
 another repo, use its toolkit's portable binary for that one-time command.
 After successful installation, use bare `reconc` instead of versioned paths.

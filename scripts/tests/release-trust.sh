@@ -385,13 +385,14 @@ require_text "$root/Makefile" './scripts/release/generated-assets.sh generate co
 require_text "$root/Makefile" './scripts/release/generated-assets.sh generate manpage'
 require_text "$root/Makefile" './scripts/release/generated-assets.sh generate sbom'
 require_text "$root/Makefile" './scripts/release/generated-assets.sh generate notices'
+require_text "$root/Makefile" './scripts/release/generated-assets.sh generate skill'
 require_text "$root/scripts/release/verify-artifacts.sh" 'scripts/release/generated-assets.sh" list'
 require_text "$root/scripts/release/copy-assets.sh" 'scripts/release/schema-assets list-release'
 require_text "$root/scripts/release/verify-artifacts.sh" 'scripts/release/schema-assets list-release'
 if grep -Fq '.schema.json' "$root/scripts/release/copied-assets.tsv"; then
   fail "copied-assets.tsv duplicates the typed schema registry"
 fi
-for duplicated_name in reconc.bash reconc.zsh reconc.fish release-manifest.json '.spdx.json' '.cdx.json' THIRD_PARTY_NOTICES.txt; do
+for duplicated_name in reconc.bash reconc.zsh reconc.fish release-manifest.json '.spdx.json' '.cdx.json' THIRD_PARTY_NOTICES.txt 'reconc-skill-'; do
   if grep -Fq "$duplicated_name" "$root/Makefile" || grep -Fq "$duplicated_name" "$root/scripts/release/verify-artifacts.sh"; then
     fail "generated release asset $duplicated_name escaped the canonical generated-assets inventory"
   fi
@@ -519,6 +520,14 @@ generate_sbom "$release_dir" "$project_version"
 verify_release_artifacts() {
   "$root/scripts/release/verify-artifacts.sh" "$1" reconc "$project_version" "$release_target"
 }
+verify_release_artifacts "$release_dir"
+skill_archive="$release_dir/reconc-skill-$project_version.zip"
+printf '\ncorrupt skill archive\n' >> "$skill_archive"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
+expect_failure verify_release_artifacts "$release_dir"
+GO=go "$root/scripts/release/generated-assets.sh" generate skill \
+  "$release_dir" "$project_version" "$release_commit" "$release_epoch"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
 verify_release_artifacts "$release_dir"
 printf '\n# stale despite a valid checksum\n' >> "$release_dir/LICENSE"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
@@ -776,8 +785,16 @@ if ! receipt_install_output=$(
 fi
 [ -f "$receipt_home/install/receipt.json" ] \
   || fail "PATH-ready POSIX installer did not publish an ownership receipt"
+[ -f "$installer_user_home/.agents/skills/reconc/SKILL.md" ] \
+  || fail "PATH-ready POSIX installer did not publish the embedded skill"
+for skill_file in SKILL.md references/install-and-bootstrap.md references/workflow-and-evidence.md references/platform-integration.md references/completion-and-boundaries.md; do
+  cmp -s "$root/skills/reconc/$skill_file" "$installer_user_home/.agents/skills/reconc/$skill_file" \
+    || fail "installed skill differs from the release source: $skill_file"
+done
+grep -Fq '"skill": {' "$receipt_home/install/receipt.json" \
+  || fail "PATH-ready POSIX installer did not bind skill ownership"
 global_report=$(
-  PATH="$install_dir:$PATH" RECONC_HOME="$receipt_home" \
+  HOME="$installer_user_home" PATH="$install_dir:$PATH" RECONC_HOME="$receipt_home" \
     "$install_dir/reconc" doctor --global --json
 )
 printf '%s\n' "$global_report" | grep -Fq '"status": "healthy"' \
@@ -788,6 +805,32 @@ printf '%s\n' "$global_report" | grep -Fq '"channel": "exact"' \
   || fail "POSIX installer did not retain the exact channel"
 printf '%s\n' "$global_report" | grep -Fq '"provenance_state": "github-verified"' \
   || fail "POSIX installer did not retain mandatory GitHub provenance"
+printf '%s\n' "$global_report" | grep -Fq '"name": "skill-installation"' \
+  || fail "POSIX installer diagnosis omitted skill integrity"
+
+binary_only_home="$tmp/binary-only-home"
+binary_only_receipt="$tmp/binary-only-receipt"
+binary_only_install="$tmp/binary-only-bin"
+mkdir -p "$binary_only_home" "$binary_only_receipt" "$binary_only_install"
+if ! binary_only_output=$(
+  HOME="$binary_only_home" \
+    PATH="$fake_bin:$binary_only_install:$PATH" \
+    RECONC_HOME="$binary_only_receipt" \
+    RECONC_TEST_FIXTURE="$fixture" \
+    RECONC_TEST_EXPECTED_SOURCE_REF="refs/tags/reconc-v$project_version" \
+    RECONC_RELEASE_BASE="https://release.invalid" \
+    RECONC_INSTALL_DIR="$binary_only_install" \
+    sh "$root/install.sh" "$project_version" --no-skill 2>&1
+); then
+  fail "POSIX binary-only installer failed: $binary_only_output"
+fi
+[ -f "$binary_only_install/reconc" ] \
+  || fail "POSIX binary-only installer omitted the CLI"
+[ ! -e "$binary_only_home/.agents/skills/reconc" ] \
+  || fail "POSIX binary-only installer published a skill"
+if grep -Fq '"skill": {' "$binary_only_receipt/install/receipt.json"; then
+  fail "POSIX binary-only installer claimed skill ownership"
+fi
 
 installed_digest=$(sha256_file "$install_dir/reconc")
 dd if=/dev/zero of="$fixture/SHA256SUMS" bs=1048576 count=3 2>/dev/null

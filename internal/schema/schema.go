@@ -70,7 +70,7 @@ const (
 	PolicyFixPlanURL               = "urn:reconc:schema:policy-fix-plan:v2:sha256:851c5fee27f7392b2129084d59788e0c844233d3b7f73bb7023945672b47c14f"
 	CompletionReportURL            = DefaultBaseURL + "/completion-report.schema.json"
 	ProofBundleURL                 = DefaultBaseURL + "/proof-bundle.schema.json"
-	InstallationReceiptURL         = DefaultBaseURL + "/installation-receipt.schema.json"
+	InstallationReceiptURL         = "urn:reconc:schema:installation-receipt:v2:sha256:2a5259b3820e737b64ddbf77cbe57be2b904d1924a114fcb67ba0726a94c002d"
 	GlobalDiagnosticURL            = DefaultBaseURL + "/global-diagnostic.schema.json"
 	GlobalLifecycleURL             = DefaultBaseURL + "/global-lifecycle.schema.json"
 	HarnessPackManifestURL         = DefaultBaseURL + "/harness-pack-manifest.schema.json"

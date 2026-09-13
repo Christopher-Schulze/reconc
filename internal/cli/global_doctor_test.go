@@ -13,6 +13,8 @@ import (
 
 func TestGlobalDoctorJSONAndTextShareHealthyOwnershipTruth(t *testing.T) {
 	installDirectory := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	t.Setenv("RECONC_HOME", t.TempDir())
 	t.Setenv("RECONC_INSTALL_DIR", installDirectory)
 	t.Setenv("PATH", installDirectory)
@@ -61,6 +63,8 @@ func TestGlobalDoctorRejectsRepositoryAndDeepCombinations(t *testing.T) {
 
 func TestGlobalDoctorWritesExactOutputFile(t *testing.T) {
 	installDirectory := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	t.Setenv("RECONC_HOME", t.TempDir())
 	t.Setenv("RECONC_INSTALL_DIR", installDirectory)
 	t.Setenv("PATH", installDirectory)

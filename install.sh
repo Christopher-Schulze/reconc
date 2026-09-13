@@ -24,7 +24,7 @@ log() { printf '>> %s\n' "$1" >&2; }
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 usage() {
   printf '%s\n' \
-    'usage: sh install.sh [--channel stable|preview | --version VERSION] [--allow-downgrade]' \
+    'usage: sh install.sh [--channel stable|preview | --version VERSION] [--allow-downgrade] [--no-skill]' \
     '       sh install.sh VERSION'
 }
 shell_quote() {
@@ -104,6 +104,7 @@ compare_versions() {
 channel=""
 VERSION=""
 allow_downgrade=false
+no_skill=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --channel)
@@ -120,6 +121,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --allow-downgrade)
       allow_downgrade=true
+      shift
+      ;;
+    --no-skill)
+      no_skill=true
       shift
       ;;
     -h|--help)
@@ -333,13 +338,17 @@ if [ -x "$target" ]; then
       ;;
   esac
 fi
+set -- "$tmp" install-cli --install-dir "$INSTALL_DIR" --json
+if [ "$no_skill" = true ]; then
+  set -- "$@" --no-skill
+fi
 if install_output=$(
   RECONC_INSTALL_MANAGER=direct \
     RECONC_INSTALL_CHANNEL="$channel" \
     RECONC_INSTALL_ARTIFACT="$asset" \
     RECONC_INSTALL_RELEASE_TAG="$release_tag" \
     RECONC_INSTALL_PROVENANCE="$attestation_state" \
-    "$tmp" install-cli --install-dir "$INSTALL_DIR" --json 2>&1
+    "$@" 2>&1
 ); then
   install_status=0
 else

@@ -183,16 +183,21 @@ func diagnoseGlobalUnlocked(version string, paths receiptPaths) (*GlobalDiagnost
 			Detail: fmt.Sprintf("%s owner=%s digest=%s", paths.receipt, receipt.Manager, receipt.ReceiptDigest),
 		})
 		evaluateReceiptIdentity(report, receipt, status)
+		appendSkillDiagnostic(report, receipt.Skill)
 	case errors.Is(loadErr, os.ErrNotExist):
 		report.promoteStatus(DiagnosticUnowned)
 		report.Checks = append(report.Checks, DiagnosticCheck{
 			Name: "installation-receipt", Status: "warn", Detail: "no installation receipt",
 		})
 		classifyLegacyOwnership(report, status, provenanceErr)
+		appendSkillDiagnostic(report, nil)
 	default:
 		report.promoteStatus(DiagnosticInvalid)
 		report.Checks = append(report.Checks, DiagnosticCheck{
 			Name: "installation-receipt", Status: "fail", Detail: loadErr.Error(),
+		})
+		report.Checks = append(report.Checks, DiagnosticCheck{
+			Name: "skill-installation", Status: "warn", Detail: "skill ownership cannot be determined from an invalid receipt",
 		})
 	}
 
@@ -210,6 +215,53 @@ func diagnoseGlobalUnlocked(version string, paths receiptPaths) (*GlobalDiagnost
 		return report.Checks[left].Name < report.Checks[right].Name
 	})
 	return report, nil
+}
+
+func appendSkillDiagnostic(report *GlobalDiagnostic, installed *SkillReceipt) {
+	if installed == nil {
+		detail := "no receipt-owned portable skill; run the explicit `reconc install-cli` command to install it"
+		if defaultPath, err := resolveSkillDirectory(""); err == nil {
+			if _, statErr := os.Lstat(defaultPath); statErr == nil {
+				detail = "a skill directory exists without receipt ownership at " + defaultPath + "; preserve and inspect it before installation"
+			}
+		}
+		report.Checks = append(report.Checks, DiagnosticCheck{Name: "skill-installation", Status: "warn", Detail: detail})
+		return
+	}
+	if err := verifySkillTree(installed.Path, installed.Files); err != nil {
+		report.Checks = append(report.Checks, DiagnosticCheck{
+			Name: "skill-installation", Status: "fail", Detail: "receipt-owned skill is absent or modified: " + err.Error(),
+		})
+		return
+	}
+	report.Checks = append(report.Checks, DiagnosticCheck{
+		Name: "skill-installation", Status: "pass", Detail: installed.Path + " matches its receipt file digests",
+	})
+	current, _, err := embeddedSkillReceipt(installed.Path)
+	if err != nil {
+		report.Checks = append(report.Checks, DiagnosticCheck{
+			Name: "skill-currentness", Status: "warn", Detail: "embedded skill identity unavailable: " + err.Error(),
+		})
+	} else if sameSkillReceipt(installed, current) {
+		report.Checks = append(report.Checks, DiagnosticCheck{
+			Name: "skill-currentness", Status: "pass", Detail: "installed payload matches the running binary's embedded skill",
+		})
+	} else {
+		report.Checks = append(report.Checks, DiagnosticCheck{
+			Name: "skill-currentness", Status: "warn", Detail: "installed payload differs from the running binary's embedded skill",
+		})
+	}
+	defaultPath, err := resolveSkillDirectory("")
+	if err != nil || !samePath(installed.Path, defaultPath) {
+		report.Checks = append(report.Checks, DiagnosticCheck{
+			Name: "skill-discovery", Status: "warn", Detail: "custom skill location; configure each host explicitly and verify loading",
+		})
+		return
+	}
+	report.Checks = append(report.Checks, DiagnosticCheck{
+		Name: "skill-discovery", Status: "warn",
+		Detail: "shared local root is eligible for Codex, Devin CLI, Cursor CLI, OMP CLI, and DSH when enabled; host loading and shadowing are unverified; Cursor cloud/remote sync excludes this root",
+	})
 }
 
 func evaluateReceiptIdentity(report *GlobalDiagnostic, receipt *Receipt, status *Status) {

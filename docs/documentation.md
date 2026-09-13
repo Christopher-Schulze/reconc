@@ -570,8 +570,8 @@ regenerates `THIRD_PARTY_NOTICES.txt` from the tagged source and byte-compares
 it before checksums and provenance are accepted.
 
 `install.sh [--channel stable|preview | --version VERSION]
-[--allow-downgrade]` supports macOS and Linux. `install.ps1 [-Channel
-Stable|Preview | -Version VERSION] [-AllowDowngrade]` supports Windows x64.
+[--allow-downgrade] [--no-skill]` supports macOS and Linux. `install.ps1 [-Channel
+Stable|Preview | -Version VERSION] [-AllowDowngrade] [-NoSkill]` supports Windows x64.
 Omitting a selector resolves the latest stable GitHub release; an exact version
 uses only its immutable tag. Preview selection never accepts a draft or stable
 release. Exact downgrades fail unless the caller explicitly opts in. A custom
@@ -583,7 +583,8 @@ of elevating or silently editing shell configuration. Both installers
 download the exact platform binary and published `SHA256SUMS` over HTTPS,
 bound metadata to 2 MiB and binaries to 256 MiB, require exactly one matching
 hexadecimal SHA-256 entry, verify the payload
-before executing it, and delegate binary publication to the candidate's
+before executing it, and delegate binary and, for releases built from the
+current development source, portable skill publication to the candidate's
 `install-cli` transaction. Candidate download, local source installation,
 private backup, atomic publication, checksum verification, and rollback use
 bounded files and fixed 128 KiB buffers; the transaction never retains complete
@@ -591,7 +592,8 @@ old and new binaries as byte slices. Candidate and backup files are private,
 identity-checked, synced, and removed on every resolved path. A failed restore
 retains the only verified backup and reports its exact recovery path. When the
 installed binary is current on PATH, that
-same locked transaction writes a private, checksum-bound ownership receipt at
+same locked transaction installs the embedded five-file portable skill in
+`~/.agents/skills/reconc` by default and writes a private, checksum-bound ownership receipt at
 `$RECONC_HOME/install/receipt.json`. An off-PATH invocation can publish the
 verified binary, but exits non-zero with exact PATH remediation and does not
 claim ownership. Failures before candidate execution leave the previous valid
@@ -606,6 +608,13 @@ revalidates both identities and bytes immediately before each pathname removal,
 and refuses replacement or symlink substitutions. If receipt validation fails
 after the binary removal, rollback restores the verified binary only when the
 path is still absent, so a replacement is never overwritten.
+`reconc uninstall` preserves an installed skill by default, leaving its files
+in place without installation-receipt ownership. `--remove-skill` removes it
+only when every file still matches the owned receipt; a modified or foreign
+directory blocks the removal before the binary is removed. The skill is held
+in a same-filesystem backup until binary and receipt removal commit, and an
+in-process failure restores it with the binary. A later install preserves an
+unmanaged retained skill and reports a conflict for manual reconciliation.
 
 The v0.9 platform contract is one matrix:
 
@@ -615,12 +624,20 @@ The v0.9 platform contract is one matrix:
 | Linux | `install.sh` | amd64, arm64 | `direct` |
 | Windows | `install.ps1` | amd64 only | `direct` |
 
-Direct installers own only the verified binary and receipt. No path silently
+Direct installers built from the current development source own the verified
+binary and, unless opted out, the skill through the receipt. An
+existing foreign or modified skill directory is preserved and blocks installation.
+Release builds from this source include the skill archive and manifest as
+independently verified assets;
+downloading either asset or a raw binary does not install the skill. No path silently
 edits a shell profile or global environment.
 
 The protected v0.9.8 tag contains both `install.sh` and `install.ps1`. Public
 bootstrap commands fetch the appropriate script from that tag, never from
-mutable `main`, and install the matching checksummed v0.9.8 binary.
+mutable `main`, and install the matching checksummed v0.9.8 binary. Those
+published installers predate portable skill publication; the skill behavior
+described here belongs to the current development source and releases built
+from it.
 
 Both native installers require GitHub CLI (`gh`) and verify the downloaded
 binary against its GitHub build-provenance attestation before execution or
@@ -707,8 +724,11 @@ reconc --version
 ```
 
 `install-cli` defaults to `$RECONC_INSTALL_DIR`, then `~/.local/bin` on POSIX
-or `%LOCALAPPDATA%\Programs\Reconc\bin` on Windows. It atomically installs the
-exact running executable, rejects a symlink target, verifies its checksum and
+or `%LOCALAPPDATA%\Programs\Reconc\bin` on Windows. It installs the embedded
+skill in `~/.agents/skills/reconc` unless `--no-skill` is passed. `--skill-dir
+PATH` selects an explicit directory ending in `reconc`; `--skill-only` installs
+it for an already owned, current binary without replacing that binary. It
+atomically installs the exact running executable, rejects a symlink target, verifies its checksum and
 executable mode, and verifies the executable resolved by bare `reconc`. It
 hashes the installed target once and reuses that digest only while an opened,
 metadata-stable PATH candidate proves the same filesystem identity. It never
@@ -722,7 +742,9 @@ non-symlink regular file, self-digested, written with private permissions, and s
 `$RECONC_HOME/install/receipt.lock`. It records `direct` or `source`
 ownership, channel, exact version, artifact checksum, canonical
 binary identity, build target, source digest, provenance state, and canonical
-UTC installation time. Native installers and explicit source `install-cli`
+UTC installation time. Format 2 optionally records the skill directory,
+manifest digest, and sorted file sizes and SHA-256 digests. Format 1 binary-only
+receipts remain readable; they do not prove skill ownership. Native installers and explicit source `install-cli`
 calls publish it only after checksum, executable, version, and PATH identity
 pass. `install-cli` cannot claim an unsupported ownership type.
 Release and installer verification harnesses always bind `RECONC_HOME` and
@@ -4046,7 +4068,7 @@ summarizes the core runtime responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields; all 40 current and legacy contracts are registry-owned and ship under unique names, current artifact schemas span v1-v6, legacy portable policy locks use v1-v5, and current portable policy locks use v6
+- Stable schema and `format_version` fields; current and legacy contracts are registry-owned and ship under unique names, current artifact schemas span v1-v6, legacy portable policy locks use v1-v5, and current portable policy locks use v6
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
 - No core policy-runtime network calls; supported agent hosts own their
   authenticated inference traffic
@@ -4059,10 +4081,17 @@ the same core workflow through `reconc agent-intro`. Both default entries are
 bounded and progressively disclose specialized material through stable
 `agent-intro --section` IDs and skill-owned `references/` files.
 
-The skill is useful guidance, not a runtime requirement. Make the complete
-`skills/reconc/` directory available through the host's supported skill-discovery
-mechanism, preserving its relative references. A file in a clone does not prove
-the host loaded it. `reconc agent-intro` provides the core workflow without a
+The skill is useful guidance, not a runtime requirement. Explicit installers
+built from this source and `install-cli` publish its embedded canonical content into the
+shared local `~/.agents/skills/reconc` root by default. Codex, Devin CLI,
+Cursor CLI, OMP CLI, and DSH can discover this root locally when enabled. A
+repository clone or downloaded archive does not install the skill, and an
+installed directory does not prove a host loaded it. A host can disable the
+root, use an override, or expose another skill with the same name; Cursor does
+not sync the shared user root to its cloud/remote environments. `doctor
+--global` reports receipt integrity, currentness against the running binary,
+and discovery eligibility separately; it does not claim live host execution.
+`reconc agent-intro` provides the core workflow without a
 skill installation; `agent-intro --section integration-surfaces` explains the
 integration choices without loading the entire host reference.
 

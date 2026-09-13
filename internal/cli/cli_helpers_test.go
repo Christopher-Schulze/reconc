@@ -58,7 +58,7 @@ func TestNextArgValueCallSiteContracts(t *testing.T) {
 		{file: "hook_lifecycle_cmd.go", wantOrdinary: 3},
 		{file: "impact_options_cmd.go", wantOrdinary: 2, wantLeadingDashValue: 1},
 		{file: "inspect_cmd.go", wantOrdinary: 3},
-		{file: "install_cli_cmd.go", wantOrdinary: 1},
+		{file: "install_cli_cmd.go", wantOrdinary: 2},
 		{file: "lifecycle_cmd.go", wantOrdinary: 3},
 		{file: "mcp_gateway_cmd.go", wantOrdinary: 1},
 		{file: "policy_author_options_cmd.go", wantOrdinary: 1},
@@ -80,8 +80,8 @@ func TestNextArgValueCallSiteContracts(t *testing.T) {
 			leadingDashTotal += leadingDash
 		})
 	}
-	if ordinaryTotal != 54 || leadingDashTotal != 19 {
-		t.Fatalf("contract totals = ordinary %d, leading-dash %d; want ordinary 54, leading-dash 19", ordinaryTotal, leadingDashTotal)
+	if ordinaryTotal != 55 || leadingDashTotal != 19 {
+		t.Fatalf("contract totals = ordinary %d, leading-dash %d; want ordinary 55, leading-dash 19", ordinaryTotal, leadingDashTotal)
 	}
 }
 

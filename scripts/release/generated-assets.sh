@@ -16,6 +16,8 @@ completion bash reconc.bash
 completion zsh reconc.zsh
 completion fish reconc.fish
 manpage - reconc.1
+skill manifest reconc-skill-{version}.json
+skill archive reconc-skill-{version}.zip
 manifest - release-manifest.json
 sbom spdx reconc-{version}.spdx.json
 sbom cyclonedx reconc-{version}.cdx.json
@@ -71,7 +73,7 @@ list_mode_assets() {
   mode=$1
   version=$2
   case "$mode" in
-    all|completion|manpage|manifest|sbom|notices) ;;
+    all|completion|manpage|skill|manifest|sbom|notices) ;;
     *) fail "unknown generated release asset mode: $mode" ;;
   esac
   asset_specs | while read -r kind variant template extra; do
@@ -95,7 +97,7 @@ generate_assets() {
   epoch=$5
   shift 5
   case "$mode" in
-    all|completion|manpage|sbom|notices) ;;
+    all|completion|manpage|skill|sbom|notices) ;;
     *) fail "unknown generated release asset mode: $mode" ;;
   esac
   [ -d "$dist" ] || fail "distribution directory does not exist: $dist"
@@ -115,6 +117,13 @@ generate_assets() {
         if [ "$mode" = all ] || [ "$mode" = manpage ]; then
           SOURCE_DATE_EPOCH="$epoch" "$go_bin" -C "$root" run \
             -ldflags "-X main.Version=$version" ./cmd/reconc manpage > "$dist/$name"
+        fi
+        ;;
+      skill)
+        if { [ "$mode" = all ] || [ "$mode" = skill ]; } && [ "$variant" = manifest ]; then
+          archive_name=${name%.json}.zip
+          [ "$archive_name" != "$name" ] || fail "invalid skill manifest asset name: $name"
+          "$go_bin" -C "$root" run ./scripts/release/skill --manifest "$dist/$name" --archive "$dist/$archive_name"
         fi
         ;;
       manifest|sbom|notices) ;;

@@ -339,7 +339,16 @@ make build
 reconc --version
 ```
 
-`install-cli` atomically installs the exact running executable, rejects a
+`install-cli` atomically installs the exact running executable and the embedded
+portable skill. The skill defaults to `~/.agents/skills/reconc`; pass
+`--no-skill` to install only the CLI, `--skill-dir PATH` for a different skill
+destination, or `--skill-only` when the current binary is already receipt-owned.
+The installer scripts in the current development source install the skill by
+default; they accept `--no-skill` and `-NoSkill`, respectively. The published
+v0.9.8 installers shown above predate this behavior. A downloaded ZIP or raw
+binary is passive until an explicit installer or `install-cli` command runs.
+The transaction preserves foreign or modified skill files and reports a
+conflict instead of replacing them. It also rejects a
 symlink target, verifies checksum and executable mode, proves bare-command PATH
 identity, and then publishes a private source-ownership receipt. A successful
 repository bootstrap therefore never leaves operators navigating versioned
@@ -347,6 +356,9 @@ artifact paths. Use `reconc doctor --global` for independent read-only
 diagnosis of owner, channel, running and resolved binaries, shadows, checksum,
 and provenance. Unreadable binaries and broken PATH entries remain explicit
 diagnostics instead of being reduced to misleading stale or missing status.
+`reconc uninstall` preserves the skill files by default but removes their
+receipt ownership; `reconc uninstall --remove-skill` verifies every owned file
+before removing the skill with the binary.
 
 The shipped CLI has no Bun, Node, Python, Docker, or service dependency. Bun
 `1.3.14` is required only by contributors running the executable OpenCode,
@@ -1003,10 +1015,17 @@ Exit codes are stable for humans, agents, and CI:
 
 ## Agent Skill
 
-The repo ships an agent-facing skill at `skills/reconc/SKILL.md`.
+The repo ships an agent-facing skill at `skills/reconc/SKILL.md`, embeds the
+complete five-file payload in the binary, and exports a deterministic skill ZIP
+and manifest when release artifacts are built from this source. No release of
+these changes has been published.
 
-The skill is optional guidance and must be loaded through the host's skill
-discovery, including its `references/` directory. Without it, use
+The skill is optional guidance. An explicit normal install places it in the
+shared local discovery root for Codex, Devin CLI, Cursor CLI, OMP CLI, and DSH.
+The installation receipt binds every file digest, while `doctor --global`
+checks ownership and local integrity. Host loading can still be disabled or
+shadowed; Cursor does not sync this user root to cloud/remote environments.
+Without a loaded skill, use
 `reconc agent-intro`. CLI plus supported hooks is the normal coding-agent
 integration; CI checks the Git candidate separately. The existing MCP gateway
 is useful for governing explicitly routed downstream tools and is not required
