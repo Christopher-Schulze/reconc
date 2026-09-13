@@ -1228,10 +1228,10 @@ because its effect cannot be bound safely. Hosts without a stable pre-action
 identity or this approval channel report a blocked unsupported capability.
 Known read-only commands never enter the approval path.
 
-### `reconc hook generate <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|pi|zcode|kimi-code> [--json] [--output PATH]`
+### `reconc hook generate <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|dsh|pi|zcode|kimi-code> [--json] [--output PATH]`
 Emit the hook artefact content without writing to disk.
 
-### `reconc hook install <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|pi|zcode|kimi-code> [repo] [--force] [--json] [--output PATH]`
+### `reconc hook install <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|dsh|pi|zcode|kimi-code> [repo] [--force] [--json] [--output PATH]`
 Write the hook into the repo. Git pre-commit uses Git's active hooks path
 (`core.hooksPath`, otherwise `.git/hooks`), updates a Reconc-owned hook
 idempotently, preserves inactive legacy hooks, requires `--force` for a foreign
@@ -1245,7 +1245,13 @@ Antigravity merges the top-level
 non-reconc hook groups; and Kilo Code owns
 `.kilo/plugin/reconc.js`. Grok Build owns the dedicated
 `.grok/hooks/reconc.json` file. Oh My Pi owns only the dedicated
-`.omp/extensions/reconc.ts` file. Pi owns only
+`.omp/extensions/reconc.ts` file. DeepSeek Harness owns `.dsh/reconc.mjs`
+and `.dsh/reconc.patch.yml`; start it from the repository with
+`dsh --patch .dsh/reconc.patch.yml`. Installation does not change user
+profiles, and status cannot treat an installed overlay as proof that the
+current DSH process loaded it. Run DSH from the repository root: the native
+adapter denies subdirectory sessions and Bash workdirs because DSH resolves
+relative paths against the session or shell workdir. Pi owns only
 `.pi/extensions/reconc.ts`. ZCode merges Reconc-owned process entries into
 `.zcode/config.json` under `hooks.events` and enables that hook section while
 preserving unrelated settings, hook events, and commands. These integrations
@@ -1303,7 +1309,7 @@ that receipt path and SHA-256 identity. A missing receipt, PATH precedence
 change, relocation, or binary replacement fails with `doctor --global` and
 `install-cli` remediation instead of running under mutable ambient authority.
 
-### `reconc hook uninstall <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|pi|zcode|kimi-code> [repo] [--json] [--output PATH]`
+### `reconc hook uninstall <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|dsh|pi|zcode|kimi-code> [repo] [--json] [--output PATH]`
 Remove only generator-exact dedicated artifacts or canonical Reconc-owned JSON
 entries while preserving unrelated hooks and configuration. Modified or
 ambiguous Reconc-looking entries fail closed. Codex removes only its managed
@@ -1321,7 +1327,9 @@ The command checks malformed, incomplete, non-executable, or drifted managed
 artifacts, the repo-local wrapper, Codex's enable flag, Git `core.hooksPath`,
 Kilo Code pure mode, legacy Kilo Code plugin placement, Grok's native
 project-hook artifact, OMP's generator-exact ExtensionAPI module, and Pi's
-generator-exact extension plus project trust. Each platform generator runs once
+generator-exact extension plus project trust. DSH status checks both owned
+files and reports `installed`; real patched-host liveness is a separate fact.
+Each platform generator runs once
 per status inspection. The target bytes and mode come from one stable snapshot,
 and the shared wrapper is inspected once for the complete multi-platform report
 rather than reopened per platform. Pi is `configured` only when the
@@ -1494,7 +1502,8 @@ Regenerate source-controlled hook artifacts inside a template
 `.github/hooks/reconc.json`, `.cursor/hooks.json`, `.agents/hooks.json`,
 `.claude/settings.json`, `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
 `.kilo/plugin/reconc.js`, `.grok/hooks/reconc.json`,
-`.omp/extensions/reconc.ts`, `.pi/extensions/reconc.ts`, and
+`.omp/extensions/reconc.ts`, `.dsh/reconc.mjs`, `.dsh/reconc.patch.yml`,
+`.pi/extensions/reconc.ts`, and
 `.zcode/config.json`. This keeps scaffolded repos on the
 same generator truth as `reconc hook install`; do not copy these files
 from a source-specific harness. Reconc preflights containment for every target
@@ -1562,11 +1571,12 @@ chained evidence.
 
 ### `reconc run on [repo] [--force] [--json]` / `reconc run off [repo] [--json]`
 AI-operated switch scoped to one repository, not the whole machine. It routes
-continuation through all thirteen registered agent runtimes. Claude Code, Codex,
+continuation through all fourteen registered agent runtimes. Claude Code, Codex,
 GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, Kimi Code CLI, OMP, and ZCode expose
 synchronous Stop gates; OpenCode and Kilo Code use inferred `session.idle`
-adapters whose host boundary is best-effort and fail-open. Reconc emits exact
-Grok Stop block JSON
+adapters whose host boundary is best-effort and fail-open. DSH offers one
+advisory `agent/turn-stopping` continuation per turn. Reconc emits exact Grok
+Stop block JSON
 without a leader; synchronous stock-TUI enforcement and its continuation bound
 are accepted only when the installed Grok guide explicitly advertises the
 contract. Passive Stop sessions can be steered through `_x.ai/interject` over

@@ -131,6 +131,17 @@ func installOMP(repoRoot string, force bool) (*InstallReport, error) {
 	)
 }
 
+func installDSH(repoRoot string, force bool) (*InstallReport, error) {
+	return installManagedPlatformFile(
+		KindDSH,
+		repoRoot,
+		force,
+		func(data []byte) bool { return managedPlatformArtifact(KindDSH, data) },
+		false,
+		"Start DSH with `dsh --profile headless --patch .dsh/reconc.patch.yml` from this repository; verify a live guarded tool call before treating the integration as active.",
+	)
+}
+
 func installPi(repoRoot string, force bool) (*InstallReport, error) {
 	return installManagedPlatformFile(
 		KindPi,

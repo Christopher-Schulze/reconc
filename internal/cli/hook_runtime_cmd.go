@@ -232,6 +232,9 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	case hooks.KindOMP:
 		payload, err = agentsession.NormalizeOMPPayload(event, payload, repo)
 		timing.mark("omp_normalize")
+	case hooks.KindDSH:
+		payload, err = agentsession.NormalizeDSHPayload(event, payload, repo)
+		timing.mark("dsh_normalize")
 	case hooks.KindPi:
 		payload, err = agentsession.NormalizePiPayload(event, payload, repo)
 		timing.mark("pi_normalize")
@@ -469,6 +472,10 @@ func namespacedMCPPlatform(route hooks.RuntimeRoute) (policy.MCPPlatform, bool) 
 }
 
 func hookHandlerForRoute(event string, route hooks.RuntimeRoute) (agentsession.HookHandler, bool) {
+	if route.PlatformKind == hooks.KindDSH && (route.Event == hooks.EventPostToolUse || route.Event == hooks.EventPostToolUseFailure) {
+		// DSH exposes a transformed final result, not tool-body success proof.
+		return agentsession.HookHandlerPassive, true
+	}
 	if route.PlatformKind == hooks.KindAntigravity {
 		switch event {
 		case "antigravity-pre-invocation":
@@ -514,7 +521,7 @@ func hookHandlerForRoute(event string, route hooks.RuntimeRoute) (agentsession.H
 		if route.PlatformKind == hooks.KindDevinCLI {
 			return agentsession.HookHandlerDevinPreToolUse, true
 		}
-		if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo || route.PlatformKind == hooks.KindOMP || route.PlatformKind == hooks.KindPi || route.PlatformKind == hooks.KindZCode {
+		if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo || route.PlatformKind == hooks.KindOMP || route.PlatformKind == hooks.KindDSH || route.PlatformKind == hooks.KindPi || route.PlatformKind == hooks.KindZCode {
 			return agentsession.HookHandlerMCPAwarePreToolUse, true
 		}
 		return agentsession.HookHandlerPreToolUse, true

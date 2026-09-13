@@ -312,7 +312,8 @@ and live execution are separate facts.
 ## Platform Integration
 
 The typed registry supports Claude Code, Codex, GitHub Copilot, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi Coding Agent,
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, DeepSeek Harness,
+Pi Coding Agent,
 Grok Build, ZCode, and Kimi
 Code CLI. Run
 `reconc hook status . --json`
@@ -374,6 +375,18 @@ weaker host lifecycle respectively.
   observational. `--no-extensions` disables ambient loading; Reconc does not
   override that host choice. Tool success follows exact `isError`; only a
   successful built-in `Bash` result receives synthetic exit code zero.
+- **DeepSeek Harness**: `reconc hook install dsh .` owns `.dsh/reconc.mjs`
+  and `.dsh/reconc.patch.yml`. Start from the repository root with
+  `dsh --patch .dsh/reconc.patch.yml`; installation alone reports `installed`,
+  not live enforcement. The profile makes `agent-loop` depend on the native
+  guard service. An awaited Go pre-tool decision plus the final synchronous
+  guard blocks missing decisions and skipped listeners. Subdirectory session
+  CWDs and Bash workdirs are denied to keep relative-path policy identity
+  exact; PowerShell is denied until its command policy can be parsed. Final
+  results are passive observations and Stop can steer once per turn. Use a
+  separate patched DSH process per repository and disable its Codex/Claude
+  compatibility bridges. Provider-backed model and complete subagent
+  lifecycle enforcement are not yet proven.
 - **Pi Coding Agent**: `reconc hook install pi .` owns `.pi/extensions/reconc.ts` and
   never edits project trust. Status requires saved canonical-path trust or
   `defaultProjectTrust: "always"` before reporting `configured`. Native
@@ -446,7 +459,8 @@ reconc run off .
 ```
 
 Repository mode applies to Claude Code, Codex, GitHub Copilot, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi Coding Agent,
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, DeepSeek Harness,
+Pi Coding Agent,
 Grok Build, ZCode, and Kimi
 Code CLI, scoped to this repository rather than the whole machine. Claude Code,
 Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, Oh My Pi, ZCode, and Kimi

@@ -1,0 +1,42 @@
+{
+  "host": "dsh",
+  "display_name": "DeepSeek Harness",
+  "host_version": "0.1.5-rc.2",
+  "source_url": "https://github.com/deepseek-ai/deepseek-harness/blob/fb2c4b9e698e30edb738bca4cf0618587db7d203/packages/core/tools/src/index.ts",
+  "source_revision": "fb2c4b9e698e30edb738bca4cf0618587db7d203",
+  "capture_date": "2026-09-13",
+  "scope": "Native ToolRuntime execution events and monotonic guard; agent/pre-step and agent/turn-stopping are published at the same revision in packages/core/agent/src/runtime-types.ts.",
+  "events": [
+    {
+      "name": "agent/pre-step",
+      "bound": true
+    },
+    {
+      "name": "tools/pre-execute",
+      "bound": true
+    },
+    {
+      "name": "tools/result",
+      "bound": true
+    },
+    {
+      "name": "agent/turn-stopping",
+      "bound": true
+    },
+    {
+      "name": "tools/execute",
+      "bound": false,
+      "reason": "Other extensions can transform or short-circuit this middleware, so it is not treated as authoritative tool-body success evidence."
+    },
+    {
+      "name": "tools/post-execute",
+      "bound": false,
+      "reason": "Post middleware can transform outcomes; Reconc observes the final frozen result without claiming original tool-body success."
+    },
+    {
+      "name": "tools/ptc-dispatch-log",
+      "bound": false,
+      "reason": "This event transforms a durable log copy of nested dispatch content, not the execution decision."
+    }
+  ]
+}

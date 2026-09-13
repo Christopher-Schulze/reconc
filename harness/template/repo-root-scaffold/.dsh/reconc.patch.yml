@@ -1,0 +1,8 @@
+# Managed by reconc. Load with dsh --patch .dsh/reconc.patch.yml.
+- insert:
+    - id: reconc-native
+      name: ./reconc.mjs
+      inject: [tools, systemPrompt]
+
+- id: agent-loop
+  inject: [reconcGuard]

@@ -75,6 +75,10 @@ func buildDesiredArtifacts(root string, selection Selection, productVersion stri
 			return nil, err
 		}
 		artifacts = append(artifacts, textArtifact("hook:"+kind, artifact.TargetPath, modeFor(artifact.Executable), artifact.Content))
+		if kind == hooks.KindDSH {
+			patch := hooks.GenerateDSHPatch()
+			artifacts = append(artifacts, textArtifact("hook-activation:dsh", patch.TargetPath, modeFor(patch.Executable), patch.Content))
+		}
 		if kind == hooks.KindCodex {
 			content, err := renderCodexActivation(root)
 			if err != nil {

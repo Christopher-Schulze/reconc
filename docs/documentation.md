@@ -1535,7 +1535,8 @@ network when invoked.
 ### Which agent runtimes are supported?
 
 The registry owns integrations for Claude Code, Codex, GitHub Copilot, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi, ZCode, Grok Build,
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, DeepSeek Harness,
+Pi, ZCode, Grok Build,
 and Kimi Code CLI, plus git pre-commit as the repository backstop. Host capabilities
 differ: some expose synchronous Stop, GitHub Copilot and Kimi Code retain
 documented host-fail-open timeout behavior, OpenCode and Kilo expose inferred
@@ -4095,7 +4096,7 @@ other coding agents is:
 
 The typed platform registry is the source of truth for Git pre-commit, Claude
 Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI,
-Kilo Code, Oh My Pi, Pi, ZCode, Grok Build, and Kimi Code CLI. It owns native event names,
+Kilo Code, Oh My Pi, DeepSeek Harness, Pi, ZCode, Grok Build, and Kimi Code CLI. It owns native event names,
 normalized lifecycle coverage, compatibility routes, config and scaffold paths,
 failure behavior, timeout budgets, output budgets, installation strategy, and
 activation probes. `reconc hook status
@@ -4303,8 +4304,8 @@ OMP, and Cursor CLI identification checks the reported version; Cursor also
 must identify itself as Cursor Agent and prefers `cursor-agent` over `agent`.
 The shared DSH discovery contract uses `dsh --version` plus the launcher's
 DeepSeek Harness identity in `dsh --help`; a numeric version alone is insufficient.
-This discovery contract does not yet register a DSH adapter or qualify a native
-DSH execution. Platform integration remains pending.
+The native DSH adapter is registered separately. Executable discovery alone
+does not qualify a native DSH execution or prove that a profile patch loaded.
 The optional `host` object records the resolved executable, reported version,
 `entrypoint_sha256`, and `identity_verified`. The Codex runner additionally
 resolves and launches `runtime_executable`, fingerprints `runtime_sha256`, and
@@ -4349,6 +4350,7 @@ contains no second matrix.
 | Kilo Code CLI | `.kilo/plugin/reconc.js` with `KILO_PURE` unset; same lifecycle classes as OpenCode | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code VS Code host | The same canonical project plugin when that host loads external project plugins | CLI observations are never reused as VS Code proof |
 | Oh My Pi CLI | `.omp/extensions/reconc.ts`; native session, input, tool, user-shell, user-Python observation, approval, compaction, shutdown, and awaited main-session Stop routes | OMP 18.1.18 emitted Reconc session, pre-tool, final post-tool, Stop, and shutdown routes in a disposable repository; `tool_call` and `user_bash` have blocking contracts, but native policy denial was not exercised; `user_python` is observed and never decided |
+| DeepSeek Harness CLI | `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml` loaded with `dsh --patch`; native pre-tool guard, bounded Stop steering, and final-result observations | The published DSH ToolRuntime blocked a protected write and a skipped pre listener in a disposable repository; a profile load succeeded, but provider-backed model tool calls and Stop steering remain unproven |
 | Pi Coding Agent | `.pi/extensions/reconc.ts`; trusted-project session, input, tool, user-shell, result, compaction, settled, and shutdown routes | Static extension and saved-trust contract plus per-route liveness; `tool_call` and `user_bash` can enforce before host action, while settled continuation remains inferred |
 | ZCode CLI | `.zcode/config.json`; all seven native session, prompt, tool, permission, failure, and synchronous Stop routes through the documented process executor | Static workspace contract plus per-route liveness; pre-tool, permission, and Stop can block, while host timeouts remain fail-open |
 | Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; the 16 decision- and evidence-carrying hooks of the host's twenty dispatch through receipt-bound bare `reconc` and discover the current repository | Generator-exact global configuration plus installation-receipt executable identity; no live claim without a real Kimi route observation |
@@ -4519,6 +4521,40 @@ budget. A disposable OMP 18.1.18 print run with Reconc loaded explicitly
 observed session start, pre-tool, final post-tool, Stop, and shutdown. This is
 route liveness, not a demonstrated Reconc policy denial or general extension-order
 enforcement guarantee.
+
+DeepSeek Harness uses a repository-owned Cordis extension at `.dsh/reconc.mjs`.
+`reconc hook install dsh` also writes `.dsh/reconc.patch.yml`; invoke DSH from
+the repository with `dsh --profile headless --patch .dsh/reconc.patch.yml` to
+load it. Installation does not edit a user profile and reports the extension as
+`installed`, not `configured`; host loading is reported separately as live
+evidence.
+The overlay injects a `reconcGuard` service into `agent-loop`, so the tool
+runtime cannot start that agent before the extension has mounted. The
+extension awaits the Go policy worker in `tools/pre-execute`, binds an allow
+decision to the host execution token, and verifies it in the final synchronous
+`tools.guard`. The guard denies missing or changed decisions and locks the
+execution identity before later `tools/execute` listeners run. A published
+`dsh-v0.1.5-rc.2` ToolRuntime test denied a protected write and a call whose
+earlier listener skipped the Reconc pre hook; a permitted write ran once.
+If an active DSH Codex or Claude compatibility bridge is registered alongside
+the native extension, both pre and final guard deny tool calls until one route
+is disabled.
+The built-in `read`, `write`, `edit`, and `bash` tools retain their typed
+inputs; `str_replace_editor` is supported when a profile enables it. DSH
+sessions and Bash workdirs must resolve to the repository root; subdirectories
+are denied because DSH resolves relative file paths against its session or
+shell workdir while Reconc policy resolves them against the repository root.
+The Windows `pwsh` tool is denied
+because Reconc's command parser has no PowerShell policy contract.
+Its `tools/result` event exposes a frozen result after host result transforms,
+which is useful for observation but cannot prove the original shell exit or
+file effect. Reconc therefore records DSH post routes passively and requires
+trusted `reconc exec` or CI evidence for such claims. The extension awaits
+session setup before each agent step, supplies compact guidance in prompt
+assembly after compaction, and can steer a blocked Stop once per agent turn.
+These lifecycle paths still need qualification against a live model session.
+An extension loaded for one repository rejects calls from another repository
+in that DSH process; use a separate patched process for each repository.
 
 Pi discovers project extensions under `.pi/extensions/` only after project
 trust. `reconc hook install pi` owns exactly `.pi/extensions/reconc.ts`, never
@@ -5076,7 +5112,8 @@ that immutable result across runtime and leader-steering conclusions.
 `reconc run on|off|reset|status|log` is the canonical AI-operated repository switch.
 Its durable state applies only to the selected repository, not the whole machine.
 Repository mode persists across sessions for Claude Code, Codex, GitHub
-Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi,
+Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi,
+DeepSeek Harness, Pi,
 ZCode, Grok Build, and Kimi Code CLI. The agent
 runs these commands itself; users do not need to operate Reconc. Prompt text,
 runtime interrupts, compaction, session boundaries, runtime changes, and
@@ -5480,7 +5517,7 @@ CI checks:
   proof with runtime network access denied; its `LangChain MCP interoperability`
   result is mandatory on protected `main`
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three
-  bootstrap profiles, git pre-commit, and all thirteen agent runtimes
+  bootstrap profiles, git pre-commit, and all fourteen agent runtimes
 - current-tree and post-boundary-history publication audit once in candidate CI
   and once in the tagged artifact-build path
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;

@@ -66,6 +66,7 @@ type agentHooksConfig struct {
 	RequireKiloPlugin       bool `yaml:"require_kilo_plugin"`
 	RequireGrokHooks        bool `yaml:"require_grok_hooks"`
 	RequireOMPExtension     bool `yaml:"require_omp_extension"`
+	RequireDSHExtension     bool `yaml:"require_dsh_extension"`
 	RequirePiExtension      bool `yaml:"require_pi_extension"`
 	RequireZCodeHooks       bool `yaml:"require_zcode_hooks"`
 }

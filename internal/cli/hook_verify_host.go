@@ -34,8 +34,7 @@ func liveHookHostCandidates(kind, surface string) []string {
 		return []string{"devin"}
 	case hooks.KindOMP:
 		return []string{"omp"}
-	case "dsh":
-		// Discovery precedes platform registration; it does not advertise an adapter.
+	case hooks.KindDSH:
 		return []string{"dsh"}
 	case hooks.KindCursor:
 		switch hooks.HostSurface(surface) {
@@ -63,7 +62,7 @@ var liveHookVersionPatterns = map[string]*regexp.Regexp{
 	hooks.KindDevinCLI: regexp.MustCompile(`^devin [0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?(?: \([a-f0-9]+\))?$`),
 	hooks.KindOMP:      regexp.MustCompile(`^omp/[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$`),
 	hooks.KindCursor:   regexp.MustCompile(`^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[a-f0-9]+$`),
-	"dsh":              regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$`),
+	hooks.KindDSH:      regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$`),
 }
 
 func discoverLiveHookHost(ctx context.Context, kind, surface string) (*liveHookHostIdentity, error) {
@@ -121,7 +120,7 @@ func inspectLiveHookHost(ctx context.Context, kind, surface, path string) (*live
 			return nil, fmt.Errorf("executable did not identify itself as Cursor Agent")
 		}
 	}
-	if kind == "dsh" {
+	if kind == hooks.KindDSH {
 		// The pinned DSH launcher prints an unbranded package version. Its own
 		// --help exits before profile boot and supplies the required identity.
 		help, err := readLiveHookHostMetadata(ctx, resolved, "--help")

@@ -24,12 +24,13 @@ const hookVerificationLookPathProbeEnv = "RECONC_HOOK_VERIFY_LOOKPATH_PROBE"
 
 func TestHookVerifyOfflineCoversSharedMatrixWithoutLiveClaims(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"hook", "verify", "--json"}, "test", &stdout, &stderr); err != nil {
-		t.Fatalf("offline verify: %v (%s)", err, stderr.String())
-	}
+	runErr := Run([]string{"hook", "verify", "--json"}, "test", &stdout, &stderr)
 	var report hookVerificationReport
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		t.Fatalf("decode report: %v\n%s", err, stdout.String())
+	}
+	if runErr != nil {
+		t.Fatalf("offline verify: %v (%s), degraded=%+v", runErr, stderr.String(), degradedHookVerificationResults(report.Results))
 	}
 	if !report.Complete || report.Mode != "offline" || len(report.Results) != len(hooks.VerificationSurfaces()) {
 		t.Fatalf("offline report = complete=%t mode=%s results=%d degraded=%+v", report.Complete, report.Mode, len(report.Results), degradedHookVerificationResults(report.Results))
@@ -50,6 +51,42 @@ func TestHookVerifyOfflineCoversSharedMatrixWithoutLiveClaims(t *testing.T) {
 		if strings.Contains(encoded, forbidden) {
 			t.Fatalf("offline report exposed private probe material %q", forbidden)
 		}
+	}
+}
+
+func TestBuiltCLIHookVerifyUsesRealDSHWorker(t *testing.T) {
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test source")
+	}
+	moduleRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
+	executable := filepath.Join(t.TempDir(), "reconc")
+	if runtime.GOOS == "windows" {
+		executable += ".exe"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	build := exec.CommandContext(ctx, "go", "build", "-o", executable, "./cmd/reconc")
+	build.Dir = moduleRoot
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build product CLI: %v: %s", err, output)
+	}
+	command := exec.CommandContext(ctx, executable, "hook", "verify", "--host", hooks.KindDSH, "--json")
+	command.Dir = t.TempDir()
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("built CLI DSH verification: %v: %s", err, output)
+	}
+	var report hookVerificationReport
+	if err := json.Unmarshal(output, &report); err != nil {
+		t.Fatalf("decode built CLI report: %v: %s", err, output)
+	}
+	if !report.Complete || len(report.Results) != 1 {
+		t.Fatalf("built CLI DSH report incomplete: %+v", report)
+	}
+	result := report.Results[0]
+	if result.Kind != hooks.KindDSH || result.Transport != "verified" || result.PolicyDecision != "verified" || result.ResponseAdaptation != "verified" {
+		t.Fatalf("built CLI DSH worker was not exercised: %+v", result)
 	}
 }
 

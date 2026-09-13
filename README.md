@@ -24,7 +24,7 @@ proof, protected edits, documentation drift, unfinished work, and stuck loops
 become deterministic decisions with one exact next action.
 
 No second model judges the first. One local Go binary compiles repository-owned
-rules and enforces them across the CLI, Git, CI, and thirteen coding-agent
+rules and enforces them across the CLI, Git, CI, and fourteen coding-agent
 integrations. The exact
 [guarantees and limits](docs/documentation.md#evidence-bound-completion-control)
 stay explicit.
@@ -160,8 +160,8 @@ Core invariants are deliberately strict:
 | TASK continuity | Validates and mutates typed TASK state with recoverable claim, block, resume, split, promote, archive, and transaction recovery operations. |
 | Autonomous run control | `reconc run on|off|reset|status|log` provides one durable repository switch, bounded decision logs, terminal gates, and per-session no-progress guards. |
 | Transactional adoption | Inspects existing repositories, proposes evidence-backed packs and commands, and plans, applies, verifies, synchronizes, or removes only receipt-owned rollout state. |
-| Runtime enforcement | Generates, installs, verifies, and safely removes registry-backed hooks for thirteen coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
-| MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, Kilo, Oh My Pi, Pi, and ZCode MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
+| Runtime enforcement | Generates, installs, verifies, and safely removes registry-backed hooks for fourteen coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
+| MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, Kilo, Oh My Pi, DeepSeek Harness, Pi, and ZCode MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
 | Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, an offline policy impact lab, staged command execution, deterministic text, JSON, SARIF 2.1.0, JUnit XML, and GitHub impact reports, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
 | Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, the project license, exact third-party notices, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
 
@@ -757,6 +757,7 @@ instead of being reported as successful partial publication.
 | Grok Build | native lifecycle and hard PreToolUse hooks, strict ACP continuation, and leader-mode TUI steering |
 | Kimi Code CLI | explicit user-global `$KIMI_CODE_HOME/config.toml` integration for the 16 decision- and evidence-carrying events of the host's twenty; repository discovery prevents global hooks from acting outside initialized Reconc repositories |
 | Oh My Pi | project-local `.omp/extensions/reconc.ts` ExtensionAPI adapter with native session, prompt, approval, tool-result, generic `session_before_compact`/`session_compact`, shutdown, and synchronous `session_stop` handling, the same policy decision for shell commands the user types, and a redacted observation for Python the user runs, which no policy can decide |
+| DeepSeek Harness | project-owned `.dsh/reconc.mjs` extension plus `.dsh/reconc.patch.yml` overlay, activated explicitly with `dsh --patch .dsh/reconc.patch.yml`; asynchronous pre-tool policy and a final synchronous guard gate tool execution, while transformed final results remain observations rather than shell-success proof; one advisory Stop continuation per turn; provider-backed enforcement is not yet claimed |
 | Pi Coding Agent | trust-aware project-local `.pi/extensions/reconc.ts` extension with blocking tool and user-shell interception, exact tool outcomes, lifecycle and compaction observations, and bounded asynchronous `agent_settled` continuation |
 | ZCode | project-local `.zcode/config.json` integration for all seven native hook events, process-executor transport, hard pre-tool and permission decisions, and synchronous Stop continuation |
 | Declarative custom runtimes | repository-owned `.reconc/runtimes/*.json` manifests map exact host events and JSON Pointers into the neutral lifecycle; `hook bridge` reuses the same policy/session engine and `hook conform` proves the public adapter contract offline |
@@ -1084,7 +1085,8 @@ access. Uninstall and core repository control remain offline.
 ### Which agents are supported?
 
 Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity
-CLI, Kilo Code, Grok Build, Kimi Code CLI, Oh My Pi CLI, Pi, and ZCode have registry-backed
+CLI, Kilo Code, Grok Build, Kimi Code CLI, Oh My Pi CLI, DeepSeek Harness, Pi,
+and ZCode have registry-backed
 integrations. Their host capabilities are not identical; `reconc hook status
 . --json` reports
 the static activation state separately from per-route live evidence without
@@ -1260,7 +1262,7 @@ release artifacts remain maintained; native checks are manual only through
 `windows_smoke: true`, with a hard two-minute job limit and no release dependency.
 
 `make self-host` builds the local binary and runs the clean-repository golden
-path across all three bootstrap profiles, git pre-commit plus all thirteen agent
+path across all three bootstrap profiles, git pre-commit plus all fourteen agent
 runtimes, TASK lifecycle, retention, and stable release-layout binary
 resolution.
 

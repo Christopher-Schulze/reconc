@@ -40,9 +40,12 @@ reconc session-briefing . --json
 `init` is the canonical CLI onboarding path. It scaffolds `.reconc.yml` and
 `AGENTS.md` when missing, compiles the lockfile, installs git hooks, and wires
 native agent hooks when supported directories such as `.claude/`, `.codex/`,
-`.cursor/`, `.opencode/`, `.devin/`, `.agents/`, `.kilo/`, `.omp/`, `.pi/`,
+`.cursor/`, `.opencode/`, `.devin/`, `.agents/`, `.kilo/`, `.omp/`, `.dsh/`, `.pi/`,
 `.zcode/`, or `.grok/`
 already exist.
+DeepSeek Harness still requires an explicit launch from the repository root
+with `dsh --patch .dsh/reconc.patch.yml`; installed files alone do not prove
+that its native guard is active.
 Kimi Code is intentionally excluded because its hooks are user-global. Only an
 explicit operator action installs them:
 

@@ -79,13 +79,17 @@ For every TASK, every agent must:
 ask the user to run these commands. Inspect durable truth with `reconc run
 status .` and bounded transition history with `reconc run log .`. Repository
 mode works through Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin
-CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi, ZCode, and Grok Build, scoped to this repository
+CLI, Antigravity CLI, Kilo Code, Oh My Pi, DeepSeek Harness, Pi, ZCode, and Grok Build, scoped to this repository
 rather than the whole machine. Claude Code, Codex, GitHub Copilot, Cursor,
 Devin CLI, Antigravity CLI, Oh My Pi, and ZCode expose synchronous Stop gates. Oh My
 Pi uses awaited main-session `session_stop` with an eight-continuation cap;
 OpenCode and Kilo Code use
 inferred `session.idle`, so their host continuation remains best-effort and
-fail-open. Pi uses inferred fail-open `agent_settled` continuation with no
+fail-open. DeepSeek Harness requires the explicit `.dsh/reconc.patch.yml`
+profile overlay, binds tool calls through a final native guard, and allows one
+advisory Stop continuation per turn. Start it from the repository root; its
+status is `installed` until the patch is loaded and independently probed.
+Pi uses inferred fail-open `agent_settled` continuation with no
 delivery acknowledgement; its native tool and user-shell boundaries remain
 blocking after project trust. ZCode uses native pre-tool, permission, and Stop
 gates through `.zcode/config.json`; restart its session after hook changes, and
@@ -366,7 +370,7 @@ Runtime task-tracking tool: in-session micro-tracking only; tasks.md+tasks/ = pr
 
 Deviation: rules strict; only if rule blocks core progress -> Note in Deviations + minimal-invasive alternative + new Sub-Task to reconcile.
 
-Reconc execution: workflow commands and generated hooks resolve `.build/bin/reconc` and root `reconc` first for development/self-hosting without platform probes, then repo-local binaries under `tools/reconc/dist/`: `reconc-darwin-arm64`, `reconc-darwin-amd64`, `reconc-linux-arm64`, `reconc-linux-amd64`, `reconc-windows-amd64.exe`. PATH/global `reconc` is only a final fallback so Codex, Claude Code, GitHub Copilot, OpenCode, Oh My Pi, Pi, ZCode, Grok Build, git hooks and fresh shells work without external installation.
+Reconc execution: workflow commands and generated hooks resolve `.build/bin/reconc` and root `reconc` first for development/self-hosting without platform probes, then repo-local binaries under `tools/reconc/dist/`: `reconc-darwin-arm64`, `reconc-darwin-amd64`, `reconc-linux-arm64`, `reconc-linux-amd64`, `reconc-windows-amd64.exe`. PATH/global `reconc` is only a final fallback so Codex, Claude Code, GitHub Copilot, OpenCode, Oh My Pi, DeepSeek Harness, Pi, ZCode, Grok Build, git hooks and fresh shells work without external installation.
 
 Session entry for implementation work: read active task context if relevant -> read relevant `docs/spec.md` section -> read `docs/decisions.md` only for rationale/tradeoff questions -> read relevant `research/...` code before implementing referenced features -> reuse existing modules/naming before adding new structure.
 

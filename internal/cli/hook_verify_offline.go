@@ -682,6 +682,8 @@ func hookVerificationPayload(kind, repo string) ([]byte, error) {
 		payload = map[string]interface{}{"hookEventName": "pre_tool_use", "sessionId": "verify-grok", "workspaceRoot": repo, "toolName": "search_replace", "toolUseId": "call-1", "toolInput": map[string]interface{}{"path": "forbidden.txt", "old_string": "a", "new_string": "b"}, "toolInputTruncated": false}
 	case hooks.KindOMP, hooks.KindPi:
 		payload = map[string]interface{}{"hook_event_name": "tool_call", "session_id": "verify-" + kind, "cwd": repo, "tool_name": "write", "tool_input": map[string]interface{}{"path": "forbidden.txt"}, "tool_call_id": "call-1"}
+	case hooks.KindDSH:
+		payload = map[string]interface{}{"hook_event_name": "tools/pre-execute", "session_id": "verify-dsh", "cwd": repo, "tool_name": "write", "tool_input": map[string]interface{}{"file_path": "forbidden.txt", "content": "candidate"}, "tool_call_id": "call-1", "root_call_id": "call-1", "agent_id": "verify-agent"}
 	case hooks.KindAntigravity:
 		payload = map[string]interface{}{"conversationId": "verify-antigravity", "stepIdx": 1, "toolCall": map[string]interface{}{"name": "write_to_file", "args": map[string]interface{}{"TargetFile": "forbidden.txt"}}}
 	case hooks.KindKimiCode:
@@ -731,7 +733,56 @@ func verifyGeneratedHookTransport(kind, repo string) (string, string, []string, 
 	if transport != "verified" {
 		return transport, "failed", nil, detail
 	}
+	if kind == hooks.KindDSH {
+		fake := filepath.Join(repo, ".build", "bin", "reconc")
+		if err := os.Remove(fake); err != nil {
+			return "failed", "failed", nil, "remove disposable transport stub: " + err.Error()
+		}
+		if detail := installDSHVerificationWorker(repo, fake); detail != "" {
+			return "failed", "failed", nil, detail
+		}
+		return verifyGeneratedDSHTransport(repo)
+	}
 	return verifyGeneratedAdapterTransport(kind, repo)
+}
+
+func installDSHVerificationWorker(repo, target string) string {
+	executable, err := os.Executable()
+	if err != nil {
+		return "resolve DSH verification executable: " + err.Error()
+	}
+	name := strings.ToLower(filepath.Base(executable))
+	if !strings.HasSuffix(name, ".test") && !strings.HasSuffix(name, ".test.exe") {
+		if err := linkOrCopyVerificationExecutable(executable, target); err != nil {
+			return "install real DSH verification worker: " + err.Error()
+		}
+		return ""
+	}
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		return "resolve DSH verification source: runtime.Caller failed"
+	}
+	moduleRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	command := exec.CommandContext(ctx, "go", "build", "-o", target, "./cmd/reconc")
+	command.Dir = moduleRoot
+	command.Env = os.Environ()
+	if output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput); err != nil {
+		return fmt.Sprintf("build real DSH verification worker: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	return ""
+}
+
+func verifyGeneratedDSHTransport(repo string) (string, string, []string, string) {
+	adapterStatus, detail := verifyGeneratedBunAdapter(hooks.KindDSH, repo)
+	if adapterStatus == "unavailable" {
+		return "verified", "unavailable", []string{"generated DSH extension execution without Bun"}, detail
+	}
+	if adapterStatus != "verified" {
+		return "failed", adapterStatus, nil, detail
+	}
+	return "verified", "verified", nil, ""
 }
 
 func hookVerificationShell() (string, error) {
@@ -850,7 +901,10 @@ func exitCodeOfProcess(err error) int {
 	return exitError.ExitCode()
 }
 
-const generatedBunAdapterDriver = `import { pathToFileURL } from "node:url"
+const generatedBunAdapterDriver = `import { existsSync } from "node:fs"
+import { rename, unlink, writeFile } from "node:fs/promises"
+import { dirname, join } from "node:path"
+import { pathToFileURL } from "node:url"
 const path = Bun.argv[2]
 const kind = Bun.argv[3]
 const repo = Bun.argv[4]
@@ -869,6 +923,209 @@ if (kind === "opencode" || kind === "kilo") {
     blocked = String(error?.message || error).includes("hook-verify-transport")
   }
   if (!blocked) throw new Error("plugin did not adapt blocking transport")
+} else if (kind === "dsh") {
+  if (typeof module.apply !== "function") throw new Error("DSH extension entrypoint missing")
+  const listeners = new Map()
+  const contexts = []
+  const runtimes = []
+  let guard
+  let cleanup
+  const ctx = {
+    on: (event, listener) => { listeners.set(event, listener); return () => listeners.delete(event) },
+    tools: { guard: (listener) => { guard = listener; return () => { guard = undefined } } },
+    systemPrompt: { context: (entry) => { contexts.push(entry); return () => contexts.pop() } },
+    registry: { values: () => runtimes.values() },
+    provide: () => () => {},
+    effect: (factory) => { cleanup = factory(); return () => cleanup() },
+  }
+  module.apply(ctx)
+  const header = Object.freeze({ id: "verify-dsh", cwd: repo })
+  const agent = { id: "verify-agent", session: { header } }
+  const firstStep = await listeners.get("agent/pre-step")(
+    { agent, signal: AbortSignal.timeout(10000) }, () => ({ kind: "enter", messages: [] }),
+  )
+  if (firstStep.kind !== "enter" || !contexts[0]?.text.includes("reconc agent-intro")) {
+    throw new Error("DSH first-step setup or persistent context failed")
+  }
+  const call = (id, path) => ({
+    token: Symbol(id), agent, callId: id, rootCallId: id, name: "write",
+    arguments: Object.freeze({ file_path: path, content: "candidate" }),
+    signal: AbortSignal.timeout(10000),
+  })
+  const denied = call("blocked", "forbidden.txt")
+  const answer = await listeners.get("tools/pre-execute")(denied, () => ({ kind: "allow" }))
+  if (answer?.kind !== "deny" || !String(answer.reason).includes("hook-verify-deny-write")) {
+    throw new Error("DSH extension did not adapt a real policy denial: " + JSON.stringify(answer))
+  }
+  const skipped = call("skipped", "forbidden.txt")
+  if (!String(guard(skipped)).includes("missing")) throw new Error("DSH final guard allowed a skipped pre-decision")
+  const foreign = call("foreign", "forbidden.txt")
+  foreign.agent = { id: "foreign-agent", session: { header: Object.freeze({ id: "foreign", cwd: dirname(repo) }) } }
+  const foreignAnswer = await listeners.get("tools/pre-execute")(foreign, () => ({ kind: "allow" }))
+  if (foreignAnswer?.kind !== "deny" || !String(guard(foreign)).includes("missing")) {
+    throw new Error("DSH extension allowed a call outside its repository")
+  }
+  const subdirectory = call("subdirectory", "forbidden.txt")
+  subdirectory.agent = { id: "sub-agent", session: { header: Object.freeze({ id: "sub-session", cwd: join(repo, ".dsh") }) } }
+  if ((await listeners.get("tools/pre-execute")(subdirectory, () => ({ kind: "allow" })))?.kind !== "deny" ||
+      !String(guard(subdirectory)).includes("missing")) {
+    throw new Error("DSH extension allowed a subdirectory session with ambiguous relative paths")
+  }
+  const escapedBash = call("escaped-bash", "allowed.txt")
+  escapedBash.name = "bash"
+  escapedBash.arguments = Object.freeze({ command: "pwd", description: "Print the workdir", workdir: dirname(repo) })
+  if ((await listeners.get("tools/pre-execute")(escapedBash, () => ({ kind: "allow" })))?.kind !== "deny") {
+    throw new Error("DSH extension allowed a Bash workdir outside its repository")
+  }
+  const nestedBash = call("nested-bash", "allowed.txt")
+  nestedBash.name = "bash"
+  nestedBash.arguments = Object.freeze({ command: "pwd", description: "Print the workdir", workdir: ".dsh" })
+  if ((await listeners.get("tools/pre-execute")(nestedBash, () => ({ kind: "allow" })))?.kind !== "deny") {
+    throw new Error("DSH extension allowed a Bash workdir with ambiguous relative paths")
+  }
+  const unsupportedPwsh = call("pwsh", "allowed.txt")
+  unsupportedPwsh.name = "pwsh"
+  unsupportedPwsh.arguments = Object.freeze({ command: "pwd", description: "Print the workdir" })
+  if ((await listeners.get("tools/pre-execute")(unsupportedPwsh, () => ({ kind: "allow" })))?.kind !== "deny") {
+    throw new Error("DSH extension allowed an unsupported PowerShell policy surface")
+  }
+  const allowed = call("allowed", "allowed.txt")
+  const continuation = await listeners.get("tools/pre-execute")(allowed, () => ({ kind: "allow" }))
+  if (continuation?.kind !== "allow" || guard(allowed) !== undefined) {
+    throw new Error("DSH extension blocked a policy-allowed tool call")
+  }
+  const deniedEdit = call("denied-edit", "forbidden.txt")
+  deniedEdit.name = "edit"
+  deniedEdit.arguments = Object.freeze({ file_path: "forbidden.txt", old_string: "old", new_string: "new" })
+  if (!String((await listeners.get("tools/pre-execute")(deniedEdit, () => ({ kind: "allow" })))?.reason).includes("hook-verify-deny-write") ||
+      !String(guard(deniedEdit)).includes("missing")) {
+    throw new Error("DSH extension allowed a protected native edit")
+  }
+  const allowedEdit = call("allowed-edit", "allowed.txt")
+  allowedEdit.name = "edit"
+  allowedEdit.arguments = Object.freeze({ file_path: "allowed.txt", old_string: "old", new_string: "new" })
+  if ((await listeners.get("tools/pre-execute")(allowedEdit, () => ({ kind: "allow" })))?.kind !== "allow" ||
+      guard(allowedEdit) !== undefined) throw new Error("DSH extension blocked an ordinary native edit")
+  const deniedShell = call("denied-shell", "allowed.txt")
+  deniedShell.name = "bash"
+  deniedShell.arguments = Object.freeze({ command: "touch forbidden-command-marker", description: "Create a protected marker" })
+  if (!String((await listeners.get("tools/pre-execute")(deniedShell, () => ({ kind: "allow" })))?.reason).includes("hook-verify-deny-command") ||
+      !String(guard(deniedShell)).includes("missing")) {
+    throw new Error("DSH extension allowed a forbidden native Bash command")
+  }
+  const allowedShell = call("allowed-shell", "allowed.txt")
+  allowedShell.name = "bash"
+  allowedShell.arguments = Object.freeze({ command: "pwd", description: "Print the repository root" })
+  if ((await listeners.get("tools/pre-execute")(allowedShell, () => ({ kind: "allow" })))?.kind !== "allow" ||
+      guard(allowedShell) !== undefined) throw new Error("DSH extension blocked an ordinary native Bash command")
+  const child = call("child", "allowed.txt")
+  child.agent = { id: "child-agent", session: { header: Object.freeze({ id: "child-session", cwd: repo }) } }
+  child.parent = Symbol("parent-call")
+  child.rootCallId = "parent-call"
+  if ((await listeners.get("tools/pre-execute")(child, () => ({ kind: "allow" })))?.kind !== "allow" ||
+      guard(child) !== undefined) throw new Error("DSH extension failed to bind a nested child tool call")
+  const concurrent = [call("parallel-a", "allowed.txt"), call("parallel-b", "allowed.txt")]
+  const parallelDecisions = await Promise.all(concurrent.map(exec =>
+    listeners.get("tools/pre-execute")(exec, () => ({ kind: "allow" })),
+  ))
+  if (parallelDecisions.some(decision => decision?.kind !== "allow") ||
+      concurrent.some(exec => guard(exec) !== undefined)) {
+    throw new Error("DSH extension failed to bind concurrent tool calls independently")
+  }
+  const changedArguments = call("changed-arguments", "allowed.txt")
+  await listeners.get("tools/pre-execute")(changedArguments, () => ({ kind: "allow" }))
+  changedArguments.arguments = Object.freeze({ file_path: "forbidden.txt", content: "candidate" })
+  if (!String(guard(changedArguments)).includes("no longer matches")) {
+    throw new Error("DSH extension allowed changed tool arguments after policy evaluation")
+  }
+  const changed = call("changed", "allowed.txt")
+  await listeners.get("tools/pre-execute")(changed, () => ({ kind: "allow" }))
+  changed.agent = foreign.agent
+  if (!String(guard(changed)).includes("no longer matches")) {
+    throw new Error("DSH extension allowed changed repository identity")
+  }
+  const canceled = call("canceled", "allowed.txt")
+  const cancellation = new AbortController()
+  canceled.signal = cancellation.signal
+  await listeners.get("tools/pre-execute")(canceled, () => ({ kind: "allow" }))
+  cancellation.abort()
+  if (!String(guard(canceled)).includes("missing")) throw new Error("DSH guard allowed a canceled call")
+  const lateBridge = call("late-bridge", "allowed.txt")
+  await listeners.get("tools/pre-execute")(lateBridge, () => ({ kind: "allow" }))
+  runtimes.push({ name: "hooks-codex", fibers: { length: 1 } })
+  if (!String(guard(lateBridge)).includes("conflicts")) throw new Error("DSH guard allowed a bridge loaded after pre-decision")
+  const duplicate = call("duplicate-bridge", "allowed.txt")
+  if (!String((await listeners.get("tools/pre-execute")(duplicate, () => ({ kind: "allow" })))?.reason).includes("conflicts")) {
+    throw new Error("DSH pre hook allowed duplicate native and compatibility bridges")
+  }
+  runtimes.pop()
+  listeners.get("tools/result")(allowed, Object.freeze({ isError: false }))
+  listeners.get("tools/result")(allowedEdit, Object.freeze({ isError: false }))
+  listeners.get("tools/result")(allowedShell, Object.freeze({ isError: false }))
+  listeners.get("tools/result")(child, Object.freeze({ isError: false }))
+  for (const exec of concurrent) listeners.get("tools/result")(exec, Object.freeze({ isError: false }))
+  await cleanup()
+  const wrapper = join(repo, "tools/reconc/bin/hook")
+  const withheld = wrapper + ".verify-withheld"
+  if (!existsSync(wrapper) || existsSync(withheld)) throw new Error("DSH worker failure test requires an unmodified disposable wrapper")
+  await rename(wrapper, withheld)
+  try {
+    module.apply(ctx)
+    const failed = call("worker-failed", "allowed.txt")
+    const failure = await listeners.get("tools/pre-execute")(failed, () => ({ kind: "allow" }))
+    if (failure?.kind !== "deny" || !String(guard(failed)).includes("missing")) {
+      throw new Error("DSH worker launch failure bypassed the final guard")
+    }
+    await cleanup()
+  } finally {
+    await rename(withheld, wrapper)
+  }
+  if (existsSync(withheld)) throw new Error("DSH worker failure test did not restore its wrapper")
+  await rename(wrapper, withheld)
+  try {
+    await writeFile(wrapper, "#!/bin/sh\nexec sleep 10\n", { mode: 0o755, flag: "wx" })
+    module.apply(ctx)
+    const timedOut = call("worker-timeout", "allowed.txt")
+    const failure = await listeners.get("tools/pre-execute")(timedOut, () => ({ kind: "allow" }))
+    if (failure?.kind !== "deny" || !String(failure.reason).includes("timed out") ||
+        !String(guard(timedOut)).includes("missing")) {
+      throw new Error("DSH worker timeout bypassed the final guard")
+    }
+    await cleanup()
+  } finally {
+    if (existsSync(wrapper)) await unlink(wrapper)
+    await rename(withheld, wrapper)
+  }
+  if (existsSync(withheld)) throw new Error("DSH worker timeout test did not restore its wrapper")
+  await rename(wrapper, withheld)
+  try {
+    await writeFile(wrapper, "#!/usr/bin/env bun\nlet buffer = ''\nprocess.stdin.on('data', chunk => {\n  buffer += chunk.toString()\n  let end\n  while ((end = buffer.indexOf('\\n')) >= 0) {\n    const request = JSON.parse(buffer.slice(0, end))\n    buffer = buffer.slice(end + 1)\n    const stop = request.event === 'dsh-stop' && request.payload.stop_hook_active === false\n    const stdout = stop ? JSON.stringify({ decision: 'block', reason: 'repair before stopping' }) : ''\n    process.stdout.write(JSON.stringify({ format_version: 1, type: request.type === 'shutdown' ? 'shutdown' : 'response', id: request.id, code: 0, stdout, stderr: '' }) + '\\n')\n  }\n})\n", { mode: 0o755, flag: "wx" })
+    module.apply(ctx)
+    const steered = []
+    const stopAgent = { ...agent, steer: message => steered.push(message) }
+    const stopPayload = { agent: stopAgent, turn: 1, signal: AbortSignal.timeout(10000) }
+    await listeners.get("agent/turn-stopping")(stopPayload)
+    await listeners.get("agent/turn-stopping")(stopPayload)
+    if (steered.length !== 1 || steered[0]?.content?.[0]?.text !== "repair before stopping") {
+      throw new Error("DSH Stop did not steer exactly once per turn")
+    }
+    await cleanup()
+    module.apply(ctx)
+    const firstSteps = await Promise.all(Array.from({ length: 513 }, (_, index) =>
+      listeners.get("agent/pre-step")({
+        agent: { id: "capacity-agent-" + index, session: { header: Object.freeze({ id: "capacity-" + index, cwd: repo }) } },
+        signal: AbortSignal.timeout(10000),
+      }, () => ({ kind: "enter" })),
+    ))
+    if (firstSteps.filter(step => step.kind === "enter").length !== 512 ||
+        firstSteps.filter(step => step.kind === "reject").length !== 1) {
+      throw new Error("DSH extension failed to bound concurrent session state and worker requests")
+    }
+    await cleanup()
+  } finally {
+    if (existsSync(wrapper)) await unlink(wrapper)
+    await rename(withheld, wrapper)
+  }
 } else {
   if (typeof module.default !== "function") throw new Error("extension factory missing")
   const handlers = new Map()

@@ -72,6 +72,18 @@ func Uninstall(kind, repoRoot string) (*UninstallReport, error) {
 			}
 		}
 	}
+	if kind == KindDSH {
+		patchMutation, patchErr := planDSHPatchRemoval(root)
+		if patchErr != nil {
+			return nil, patchErr
+		}
+		if patchMutation != nil {
+			mutations = append(mutations, *patchMutation)
+			removedEntries++
+			action = "removed"
+			activationAction = "removed-managed-patch"
+		}
+	}
 	if err := applyUninstallMutations(mutations); err != nil {
 		return nil, err
 	}
@@ -275,6 +287,24 @@ func planCodexActivationRemoval(root string) (*uninstallMutation, string, error)
 	}
 	mutation := &uninstallMutation{path: path, display: relative, before: data, after: []byte(updated), mode: info.Mode().Perm()}
 	return mutation, "removed-managed-block", nil
+}
+
+func planDSHPatchRemoval(root string) (*uninstallMutation, error) {
+	path := filepath.Join(root, filepath.FromSlash(DSHPatchPath))
+	if err := requireManagedTargetWithin(root, path); err != nil {
+		return nil, err
+	}
+	snapshot, err := readManagedArtifactSnapshot(path)
+	if err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "read " + DSHPatchPath, Cause: err}
+	}
+	if !snapshot.exists {
+		return nil, nil
+	}
+	if string(snapshot.body) != GenerateDSHPatch().Content {
+		return nil, &rerrors.PolicySourceError{Message: DSHPatchPath + " differs from the current Reconc generator; refusing to delete drifted content"}
+	}
+	return &uninstallMutation{path: path, display: DSHPatchPath, before: snapshot.body, mode: snapshot.info.Mode().Perm(), remove: true}, nil
 }
 
 func applyUninstallMutations(mutations []uninstallMutation) error {

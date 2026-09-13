@@ -35,7 +35,7 @@ After `reconc init --profile advanced`, the target repository contains:
 - `tools/reconc/harness/template/repo-root-scaffold/AGENTS.md` - workflow excerpt, not necessarily the whole target AGENTS file.
 - `tools/reconc/harness/template/repo-root-scaffold/start.md` - onboarding entrypoint.
 - `tools/reconc/harness/template/repo-root-scaffold/.reconc.yml` - Reconc rules wired to `tools/reconc/harness/project/...`.
-- `tools/reconc/harness/template/repo-root-scaffold/.codex/`, `.github/`, `.cursor/`, `.agents/`, `.claude/`, `.opencode/`, `.devin/`, `.kilo/`, `.omp/`, `.pi/`, `.zcode/`, `.grok/`, `.githooks/` - generated local hook/plugin configs and source-controlled git hook twin.
+- `tools/reconc/harness/template/repo-root-scaffold/.codex/`, `.github/`, `.cursor/`, `.agents/`, `.claude/`, `.opencode/`, `.devin/`, `.kilo/`, `.omp/`, `.dsh/`, `.pi/`, `.zcode/`, `.grok/`, `.githooks/` - generated local hook/plugin configs and source-controlled git hook twin.
 - `tools/reconc/harness/template/repo-root-scaffold/.cursorindexingignore`, `.codeiumignore`, `.windsurfignore`, `.ignore`, `.vscode/settings.json` - local indexing/search/watcher load-shed surfaces only; never mirror these into `.gitignore`.
 - `tools/reconc/harness/template/repo-root-scaffold/.gitignore.excerpt` - gitignore entries to merge.
 - `tools/reconc/harness/template/repo-root-scaffold/docs/` - starter TASK/documentation files for empty repos.
@@ -247,6 +247,7 @@ Default empty repo profile:
 - `agent_hooks.require_antigravity_hooks: true`
 - `agent_hooks.require_kilo_plugin: true`
 - `agent_hooks.require_omp_extension: true`
+- `agent_hooks.require_dsh_extension: true`
 - `agent_hooks.require_pi_extension: true`
 - `agent_hooks.require_zcode_hooks: true`
 - `agent_hooks.require_grok_hooks: true`
@@ -321,7 +322,7 @@ First sync generated hook artifacts from the repo-local Reconc generator:
 tools/reconc/dist/<local-reconc-binary> hook sync-scaffold tools/reconc/harness/<project-name>/repo-root-scaffold
 ```
 
-This writes `.githooks/pre-commit`, `.codex/hooks.json`, `.github/hooks/reconc.json`, `.cursor/hooks.json`, `.agents/hooks.json`, `.claude/settings.json`, `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`, `.kilo/plugin/reconc.js`, `.omp/extensions/reconc.ts`, `.pi/extensions/reconc.ts`, `.zcode/config.json`, and `.grok/hooks/reconc.json` from the same generator used by `reconc hook install`. Do not edit these hook artifacts manually and do not copy them from any source-specific harness.
+This writes `.githooks/pre-commit`, `.codex/hooks.json`, `.github/hooks/reconc.json`, `.cursor/hooks.json`, `.agents/hooks.json`, `.claude/settings.json`, `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`, `.kilo/plugin/reconc.js`, `.omp/extensions/reconc.ts`, `.dsh/reconc.mjs`, `.dsh/reconc.patch.yml`, `.pi/extensions/reconc.ts`, `.zcode/config.json`, and `.grok/hooks/reconc.json` from the same generator used by `reconc hook install`. Do not edit these hook artifacts manually and do not copy them from any source-specific harness.
 
 Direct-copy files when the target file is missing:
 
@@ -337,6 +338,8 @@ Direct-copy files when the target file is missing:
 - `.devin/hooks.v1.json`
 - `.kilo/plugin/reconc.js`
 - `.omp/extensions/reconc.ts`
+- `.dsh/reconc.mjs`
+- `.dsh/reconc.patch.yml`
 - `.pi/extensions/reconc.ts`
 - `.zcode/config.json`
 - `.grok/hooks/reconc.json`
@@ -509,7 +512,7 @@ The scaffold hook configs must first call the repo-local wrapper:
 
 - `tools/reconc/bin/hook`
 
-Hook files in `repo-root-scaffold/` are generated with `reconc hook sync-scaffold`. The typed registry is the source of truth for Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi, ZCode, Grok Build, and the source-controlled `.githooks/pre-commit` twin. Root repo artifacts and template scaffold artifacts must never be reconciled by copying from each other; both are regenerated from the same Reconc binary. A target repo must never compare against, depend on, or copy from a source-specific harness.
+Hook files in `repo-root-scaffold/` are generated with `reconc hook sync-scaffold`. The typed registry is the source of truth for Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, DeepSeek Harness, Pi, ZCode, Grok Build, and the source-controlled `.githooks/pre-commit` twin. Root repo artifacts and template scaffold artifacts must never be reconciled by copying from each other; both are regenerated from the same Reconc binary. A target repo must never compare against, depend on, or copy from a source-specific harness.
 
 Hook installation and scaffold sync reject any target whose existing parent symlinks resolve outside the selected repository. Scaffold sync preflights every target before writing, preventing partial rollout. Forced malformed-config backups remain private and crash-durable.
 
@@ -534,6 +537,19 @@ Inferred lifecycle, such as OpenCode/Kilo `session.idle` or Pi
 native Stop claim.
 
 Claude Code generated hooks use exec-form `command` plus `args`, pass `${CLAUDE_PROJECT_DIR}` directly to the wrapper, and use the context-capable `SessionStart` `compact` matcher for recovery instead of spawning the notification-only `PostCompact` event. Codex bootstrap and direct install manage `hooks = true` under `[features]`; root-level `hooks=true` is invalid. Direct install rejects an explicit user `hooks = false` before any hook write unless `--force` is supplied. Transactional bootstrap exposes the same change as managed drift and requires explicit marker-only acceptance. Uninstall restores the exact original line. Codex routes native `SessionEnd` through Reconc cleanup while retaining saved reports. GitHub Copilot uses `.github/hooks/reconc.json`; Copilot CLI and coding agent share the version-1 repository contract, but `PermissionRequest` and `Notification` are CLI-only and every host timeout remains fail-open. A foreign file at the managed path is never overwritten, including with `--force`. Cursor's one `.cursor/hooks.json` is shared configuration, not proof of identical Agent, Cmd+K, Tab, CLI, print, or cloud event delivery. Its `postToolUse` route is successful generic evidence, `postToolUseFailure` is failure only, and `afterShellExecution` is passive because that payload has no exit status. Devin uses `.devin/hooks.v1.json`, passes `DEVIN_PROJECT_DIR`, and includes `PostCompaction`. OpenCode and Kilo Code plugins are transport adapters only: policy, session state, continuation, and context recovery remain in the Go runtime. Shell success requires integer `output.metadata.exit == 0`. Their bounded asynchronous continuation trigger is inferred from `session.idle`, not a synchronous native Stop gate, and never falls back to synchronous prompt submission. Kilo Code requires `KILO_PURE` to be unset so project plugins load. Oh My Pi loads the typed project extension `.omp/extensions/reconc.ts`. Native `tool_call` and awaited main-session `session_stop` are fail-closed boundaries; approval, outcome, compaction, and shutdown routes are observational. Tool outcome follows exact `isError`, with synthetic exit code zero only for a successful built-in `Bash` call. Stop continuation is capped at eight accepted requests per session, and task/subagent sessions never enter the Stop route. Pi loads `.pi/extensions/reconc.ts` only after project trust. Reconc never edits trust; native `tool_call` and `user_bash` are fail-closed, while outcomes, lifecycle, compaction, and shutdown are observational. Inferred `agent_settled` continuation is capped at ten requested messages per session, and `sendUserMessage` provides no delivery acknowledgement. OpenCode, Kilo Code, OMP, and Pi own one repository-scoped Reconc child per live plugin instance. They exchange bounded format-1 NDJSON requests over stdio in deterministic order. One-shot recovery is allowed only before an event request write. Transient startup failures use capped 100 ms, 500 ms, and 2.5 s backoff; after a request write, only the exact matching response acknowledges delivery, and ambiguous crash or protocol loss never replays the event. Shutdown or parent stdin closure prevents orphan workers. No daemon, socket, listener, or network call is introduced.
+
+DeepSeek Harness loads `.dsh/reconc.mjs` only when started from the repository
+root with `dsh --patch .dsh/reconc.patch.yml`; installation alone does not
+activate it. The overlay makes `agent-loop` depend on `reconcGuard`, and a
+final synchronous guard denies tool calls without a matching Go pre-tool
+decision. DSH sessions and Bash workdirs in subdirectories are denied because
+relative paths would otherwise target different files from those Reconc
+evaluated. PowerShell is denied until a PowerShell policy parser exists. Final
+DSH results are observations, not original shell or file-effect proof; Stop
+can request at most one advisory continuation per turn. Use one patched DSH
+process per repository and disable its Codex/Claude compatibility bridge while
+the native extension is active. Confirm overlay loading with DSH's
+`--dump-config` and an isolated negative tool probe before claiming enforcement.
 
 ZCode loads `.zcode/config.json` at session start. Reconc owns only its exact
 process entries across all seven native events; pre-tool, permission, and Stop
@@ -711,7 +727,7 @@ The rollout is not done until all of this is true:
 - Hooks prefer development/self-host binaries without platform probes, then the validated install-time direct target, then recovered local dist binaries on macOS/Linux/Windows, before PATH.
 - `repo-root-scaffold/` hook artifacts were synced with `reconc hook sync-scaffold` from the local generator; no hook artifact was edited by hand or copied from a source-specific harness.
 - POSIX hook routes call `tools/reconc/bin/hook` first and retain local-dist/PATH fallback; native Windows shell routes have `sh` on `PATH`, and native `.exe`/`.com` policy scripts execute directly.
-- `hook status . --json` reports every selected platform as `configured`; no platform is degraded, shadowed, unsupported, or accidentally left only installed.
+- `hook status . --json` reports every auto-discovered selected platform as `configured`; DSH reports `installed` until its explicit `--patch` overlay is loaded and independently probed. No selected platform is degraded, shadowed, or unsupported.
 - OpenCode, Kilo Code, OMP, and Pi extensions contain no project-specific run state or prompts; Antigravity contains no blanket 120-second timeout.
 - When Grok is selected, `reconc doctor --deep` proves project trust, project-owned inspect metadata, every exact native route, and whether the installed Grok guide advertises native no-leader Stop; passive distributions use optional leader fallback after protocol-1 `_x.ai/interject` verification.
 - Cursor/Windsurf/Codeium/VS Code indexing excludes are installed as local-tool performance controls only, not Git ignores.

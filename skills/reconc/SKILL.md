@@ -71,7 +71,8 @@ references are:
 - [completion and boundaries](references/completion-and-boundaries.md)
 
 The registry currently covers Claude Code, Codex, GitHub Copilot, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi Coding Agent,
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, DeepSeek Harness,
+Pi Coding Agent,
 ZCode, Grok Build, and Kimi Code CLI. Host-specific proof includes
 `surface_events`, `workspaceOpen`, `AskQuestion`, `afterShellExecution`,
 `postToolUseFailure`, `output.metadata.exit`, and `reconc why mcp`; read the

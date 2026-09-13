@@ -23,6 +23,7 @@ func TestPlatformRegistryOwnsEveryHookKind(t *testing.T) {
 		KindKilo,
 		KindGrok,
 		KindOMP,
+		KindDSH,
 		KindPi,
 		KindZCode,
 		KindKimiCode,
@@ -503,6 +504,25 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 	}
 	if len(omp.Content) > 32*1024 {
 		t.Fatalf("OMP extension is not thin: %d bytes", len(omp.Content))
+	}
+
+	dsh, err := Generate(KindDSH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{
+		`ctx.on('tools/pre-execute'`,
+		`ctx.tools.guard(`,
+		`ctx.on('tools/result'`,
+		`ctx.effect(`,
+		`ctx.provide('reconcGuard'`,
+		`dsh-pre-tool-use`,
+		`dsh-post-tool-use`,
+		`tools/reconc/bin/hook`,
+	} {
+		if !strings.Contains(dsh.Content, token) {
+			t.Fatalf("DSH adapter missing %q", token)
+		}
 	}
 
 	pi, err := Generate(KindPi)

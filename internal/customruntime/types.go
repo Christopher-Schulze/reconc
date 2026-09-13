@@ -293,7 +293,7 @@ func validName(value string, max int) bool {
 var reservedRuntimeNames = map[string]struct{}{
 	"git-pre-commit": {}, "claude-code": {}, "codex": {}, "github-copilot": {},
 	"cursor": {}, "opencode": {}, "devin-cli": {}, "antigravity": {}, "kilo": {},
-	"grok": {}, "omp": {}, "pi": {}, "zcode": {}, "kimi-code": {},
+	"grok": {}, "omp": {}, "dsh": {}, "pi": {}, "zcode": {}, "kimi-code": {},
 }
 
 func validateManifest(manifest Manifest) error {

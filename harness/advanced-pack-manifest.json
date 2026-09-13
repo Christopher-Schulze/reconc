@@ -18,8 +18,8 @@
     {
       "path": "tools/reconc/harness/template/BOOTSTRAP.md",
       "mode": 420,
-      "size": 48561,
-      "sha256": "486073abbf1ed86dda9e131c6b2de89bb14b6b5709346f870ebb6b4dde01e39f",
+      "size": 49721,
+      "sha256": "b71f3e5f6fd1dad393c666a6a7af1125a3465bc41bc45a65fa8afd301d4fa869",
       "ownership": "pack-file"
     },
     {
@@ -312,8 +312,8 @@
     {
       "path": "tools/reconc/harness/template/audits/stack_config.go",
       "mode": 420,
-      "size": 7321,
-      "sha256": "c7cb631074527540a4e7529582ab2a9abe089d7e0470063471afe640a5a79436",
+      "size": 7382,
+      "sha256": "6b472a438c68aa58415761b5e7a258cf73bdfda2f8e1a5d9def77428379ca066",
       "ownership": "pack-file"
     },
     {
@@ -375,8 +375,8 @@
     {
       "path": "tools/reconc/harness/template/audits/workflow-audit.go",
       "mode": 420,
-      "size": 84381,
-      "sha256": "18a79b252beaba3c12148be6819267b7b811bc4b46c8ea392524c830e0028d10",
+      "size": 84943,
+      "sha256": "8dfccdeba2876dc55cf066a88d3c442d2228071a1769acc9818ec0c067e1cf83",
       "ownership": "pack-file"
     },
     {
@@ -410,8 +410,8 @@
     {
       "path": "tools/reconc/harness/template/config/workflow/stack-config.yaml",
       "mode": 420,
-      "size": 1981,
-      "sha256": "980b527989480de9dac85649b99a9ee8c95629a7b71cf500c453fadf9c492c09",
+      "size": 2011,
+      "sha256": "43995518e56905ce919b2ddb13768356b918f464e6415e2adcd5c6e3e6fe3316",
       "ownership": "pack-file"
     },
     {
@@ -534,6 +534,20 @@
       "ownership": "pack-file"
     },
     {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.dsh/reconc.mjs",
+      "mode": 420,
+      "size": 17044,
+      "sha256": "324fefb6e2a801ee311bceeb6dbfa6bd0a0753456d58fd4c8563c7a7ff839cc9",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.dsh/reconc.patch.yml",
+      "mode": 420,
+      "size": 203,
+      "sha256": "a2765e01990666035f1da5aad0ccf46cdbc7184c0557be79d04fa8257e78c755",
+      "ownership": "pack-file"
+    },
+    {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.githooks/pre-commit",
       "mode": 493,
       "size": 2856,
@@ -627,8 +641,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/AGENTS.md",
       "mode": 420,
-      "size": 44521,
-      "sha256": "132114b1efe524e2729f39950cd933bf59bbdee757019370503dd21739fbe1b7",
+      "size": 44849,
+      "sha256": "453807c1a822127de4fc55857130b4082dd4e5ca5f08d6acb7b65ae15185ddfe",
       "ownership": "pack-file"
     },
     {
@@ -648,8 +662,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/docs/documentation.md",
       "mode": 420,
-      "size": 2083,
-      "sha256": "39111da3ec195173a3f1e12566b088bd15e7af63dea1cd5c6a75f0e49df3351e",
+      "size": 2092,
+      "sha256": "87c82dafec7c5a2fd1a88f0db7fc956c26a4924e4b446ab887c89fff31439ffb",
       "ownership": "pack-file"
     },
     {
@@ -676,8 +690,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/docs/tasks/TASK-0001-Bootstrap-Reconc.md",
       "mode": 420,
-      "size": 3052,
-      "sha256": "4243217306a24c787c22f7dec0eb0b079d0e266d9dcd66e36b70a311c4e37fcc",
+      "size": 3061,
+      "sha256": "8148665d82232a3073be2ff87ac46ed731c10a618b2a881872f7c26cec34f5ff",
       "ownership": "pack-file"
     },
     {
@@ -849,6 +863,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 871312,
-  "digest": "507a771c101d8dd67e2124bb38be03e6856f66af7d498ed0f0cd8a39a8d69cca"
+  "total_bytes": 890718,
+  "digest": "47b7422c5289b2766ced8ae3161ee0072be598044c84525c55677177d3ee9e23"
 }

@@ -428,6 +428,7 @@ func task499HostContracts() []task499HostContract {
 		{kind: hooks.KindKilo, transport: "bun", executeGenerated: false, prePayload: task499PluginPayload, response: "exit-block"},
 		{kind: hooks.KindGrok, transport: "native-json", executeGenerated: true, prePayload: task499GrokPayload, response: "grok-deny"},
 		{kind: hooks.KindOMP, transport: "bun", executeGenerated: false, prePayload: task499OMPPayload, response: "exit-block"},
+		{kind: hooks.KindDSH, transport: "worker", executeGenerated: false, prePayload: task499DSHPayload, response: "exit-block"},
 		{kind: hooks.KindPi, transport: "bun", executeGenerated: false, prePayload: task499PiPayload, response: "exit-block"},
 		{kind: hooks.KindZCode, transport: "native-json", executeGenerated: true, prePayload: task499ZCodePayload, response: "exit-block"},
 		{kind: hooks.KindKimiCode, transport: "global-receipt", executeGenerated: false, prePayload: task499KimiPayload, response: "exit-block"},
@@ -676,6 +677,10 @@ func task499GrokPayload(repo, sessionID, path, toolID string) string {
 
 func task499OMPPayload(repo, sessionID, path, toolID string) string {
 	return fmt.Sprintf(`{"hook_event_name":"tool_call","session_id":%q,"cwd":%q,"tool_name":"write","tool_input":{"path":%q},"tool_call_id":%q}`, sessionID, repo, path, toolID)
+}
+
+func task499DSHPayload(repo, sessionID, path, toolID string) string {
+	return fmt.Sprintf(`{"hook_event_name":"tools/pre-execute","session_id":%q,"cwd":%q,"tool_name":"write","tool_input":{"file_path":%q,"content":"candidate"},"tool_call_id":%q,"root_call_id":%q,"agent_id":"task499-agent"}`, sessionID, repo, path, toolID, toolID)
 }
 
 func task499PiPayload(repo, sessionID, path, toolID string) string {

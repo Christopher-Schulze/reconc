@@ -1,7 +1,7 @@
 # RECONC-0006: Hooks And Agent Sessions
 
 - Status: Frozen
-- Contract: git, Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, Kimi Code CLI, Oh My Pi CLI, Pi Coding Agent, ZCode, and generic-agent integration
+- Contract: git, Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, Kimi Code CLI, Oh My Pi CLI, DeepSeek Harness, Pi Coding Agent, ZCode, and generic-agent integration
 
 ## Hook Kinds
 
@@ -21,6 +21,7 @@
 | `grok` | `.grok/hooks/reconc.json` | Native lifecycle, strict PreToolUse, capability-probed no-leader Stop, compaction, permission-denial, and subagent events. |
 | `kimi-code` | `$KIMI_CODE_HOME/config.toml` | Explicit user-global integration for 16 of the host's twenty events; commands discover an initialized Reconc repository before acting. |
 | `omp` | `.omp/extensions/reconc.ts` | Project ExtensionAPI adapter for native session, input, approval, tool, user-shell, user-Python, compaction, shutdown, and awaited `session_stop` events. |
+| `dsh` | `.dsh/reconc.mjs` | Project Cordis extension activated through `.dsh/reconc.patch.yml`; pre-tool policy is guarded synchronously before execution, while transformed results are observational. |
 | `pi` | `.pi/extensions/reconc.ts` | Trust-aware project extension for native session, input, blocking tool and user-shell calls, outcomes, compaction, shutdown, and inferred settled continuation. |
 | `zcode` | `.zcode/config.json` | Project hook integration for all seven native lifecycle, prompt, tool, permission, outcome, and synchronous Stop events. |
 
@@ -39,6 +40,9 @@ only `reconc.json` and preserves every other file under `.grok/hooks/`.
 OMP owns only `.omp/extensions/reconc.ts`, preserves every sibling extension,
 and never overwrites foreign content at its dedicated path, including with
 `--force`.
+DSH owns only `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml`, refuses foreign
+content at either path, and does not modify user profiles. The overlay must be
+passed to the host explicitly; file installation alone does not prove loading.
 Pi owns only `.pi/extensions/reconc.ts`, applies the same foreign-content
 refusal, and never edits Pi's project trust or settings files.
 ZCode owns only exact Reconc process entries under `hooks.events`. It adds
@@ -80,7 +84,8 @@ source-controlled scaffold twins from the same generator:
 `.agents/hooks.json`, `.claude/settings.json`, and
 `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
 `.kilo/plugin/reconc.js`, `.grok/hooks/reconc.json`,
-`.omp/extensions/reconc.ts`, `.pi/extensions/reconc.ts`, and
+`.omp/extensions/reconc.ts`, `.dsh/reconc.mjs`, `.dsh/reconc.patch.yml`,
+`.pi/extensions/reconc.ts`, and
 `.zcode/config.json`. Template scaffolds are never synced from
 a source-specific harness.
 

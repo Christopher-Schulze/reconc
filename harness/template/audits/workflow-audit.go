@@ -1247,6 +1247,24 @@ func auditAgentHooks(root string) []string {
 			`pi.on("session_stop"`,
 		}
 	}
+	if cfg.AgentHooks.RequireDSHExtension {
+		hooks[filepath.Join(root, ".dsh/reconc.mjs")] = []string{
+			"Managed by reconc. Project-local DeepSeek Harness policy extension.",
+			"tools/reconc/bin/hook",
+			"dsh-session-start",
+			"dsh-pre-tool-use",
+			"dsh-post-tool-use",
+			"dsh-post-tool-use-failure",
+			"dsh-stop",
+			"ctx.tools.guard(",
+			"ctx.effect(",
+		}
+		hooks[filepath.Join(root, ".dsh/reconc.patch.yml")] = []string{
+			"Managed by reconc. Load with dsh --patch .dsh/reconc.patch.yml.",
+			"name: ./reconc.mjs",
+			"inject: [reconcGuard]",
+		}
+	}
 	if cfg.AgentHooks.RequirePiExtension {
 		hooks[filepath.Join(root, ".pi/extensions/reconc.ts")] = []string{
 			"Managed by reconc. Project-local Pi policy extension.",

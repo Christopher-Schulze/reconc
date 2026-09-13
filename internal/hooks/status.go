@@ -105,6 +105,9 @@ func InspectPlatforms(repoRoot string) ([]PlatformStatus, error) {
 			continue
 		}
 		report := inspectPlatform(root, platform)
+		if platform.Kind == KindDSH {
+			inspectDSHPatch(root, &report)
+		}
 		finalizePlatformStatus(platform, wrapper, &report)
 		reports = append(reports, report)
 	}
@@ -127,6 +130,9 @@ func InspectPlatform(repoRoot, kind string) (PlatformStatus, error) {
 		return inspectKimiCodePlatform(platform), nil
 	}
 	report := inspectPlatform(root, platform)
+	if platform.Kind == KindDSH {
+		inspectDSHPatch(root, &report)
+	}
 	finalizePlatformStatus(platform, inspectStatusWrapper(root), &report)
 	return report, nil
 }
@@ -483,11 +489,34 @@ func managedPlatformArtifact(kind string, data []byte) bool {
 		return json.Unmarshal(data, &document) == nil && document.ReconcManaged
 	case KindOMP:
 		return strings.HasPrefix(text, "// Managed by reconc. Project-local Oh My Pi policy extension.\n")
+	case KindDSH:
+		return strings.HasPrefix(text, "// Managed by reconc. Project-local DeepSeek Harness policy extension.\n")
 	case KindPi:
 		return strings.HasPrefix(text, "// Managed by reconc. Project-local Pi policy extension.\n")
 	default:
 		return false
 	}
+}
+
+func inspectDSHPatch(root string, report *PlatformStatus) {
+	if report.State != StateConfigured {
+		return
+	}
+	path := filepath.Join(root, filepath.FromSlash(DSHPatchPath))
+	snapshot, err := readManagedArtifactSnapshot(path)
+	if err != nil || !snapshot.exists {
+		report.State = StateDegraded
+		report.Detail = "DSH extension exists but its repo-owned profile patch is missing or unreadable"
+		return
+	}
+	if string(snapshot.body) != GenerateDSHPatch().Content {
+		report.State = StateDegraded
+		report.Detail = "DSH profile patch differs from the generated contract; inspect before reinstalling"
+		return
+	}
+	report.State = StateInstalled
+	report.Detail = "DSH extension and profile patch are ready; load the patch with dsh --patch .dsh/reconc.patch.yml and verify live execution separately"
+	report.remediation = noRemediation()
 }
 
 func wrapperManagedArtifact(data []byte) bool {

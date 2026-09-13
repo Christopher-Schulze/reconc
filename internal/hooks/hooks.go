@@ -35,6 +35,8 @@ const (
 	KiloPluginPath            = ".kilo/plugin/reconc.js"
 	GrokHooksPath             = ".grok/hooks/reconc.json"
 	OMPExtensionPath          = ".omp/extensions/reconc.ts"
+	DSHExtensionPath          = ".dsh/reconc.mjs"
+	DSHPatchPath              = ".dsh/reconc.patch.yml"
 	PiExtensionPath           = ".pi/extensions/reconc.ts"
 	ZCodeConfigPath           = ".zcode/config.json"
 	KimiCodeConfigDisplayPath = "~/.kimi-code/config.toml"
@@ -53,6 +55,7 @@ const (
 	KindKilo          = "kilo"
 	KindGrok          = "grok"
 	KindOMP           = "omp"
+	KindDSH           = "dsh"
 	KindPi            = "pi"
 	KindZCode         = "zcode"
 	KindKimiCode      = "kimi-code"
@@ -163,6 +166,8 @@ func Generate(kind string) (*Artifact, error) {
 		return generateGrok()
 	case generatorOMP:
 		return generateOMP()
+	case generatorDSH:
+		return generateDSH()
 	case generatorPi:
 		return generatePi()
 	case generatorZCode:
@@ -216,8 +221,15 @@ func installWithWrapper(kind, repoRoot string, force bool, ensure ensureWrapperF
 		return nil, err
 	}
 	var activationPlan *codexActivationPlan
+	var dshPatchSnapshot managedArtifactSnapshot
 	if definition.Kind == KindCodex {
 		activationPlan, err = planCodexActivation(root, force)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if definition.Kind == KindDSH {
+		dshPatchSnapshot, err = preflightDSHPatch(root)
 		if err != nil {
 			return nil, err
 		}
@@ -266,6 +278,15 @@ func installWithWrapper(kind, repoRoot string, force bool, ensure ensureWrapperF
 			return report, err
 		}
 	}
+	if definition.Kind == KindDSH {
+		report.ActivationPath = DSHPatchPath
+		report.ActivationAction, err = installDSHPatch(root, dshPatchSnapshot)
+		if err != nil {
+			report.Partial = true
+			report.NextAction = "Resolve the DSH patch error, then rerun `reconc hook install dsh " + root + "`."
+			return report, err
+		}
+	}
 	return report, nil
 }
 
@@ -294,6 +315,8 @@ func installPlatform(definition platformDefinition, repoRoot string, force bool)
 			return installOpenCode(repoRoot, force)
 		case KindOMP:
 			return installOMP(repoRoot, force)
+		case KindDSH:
+			return installDSH(repoRoot, force)
 		case KindPi:
 			return installPi(repoRoot, force)
 		}
@@ -390,7 +413,7 @@ func SyncRepoRootScaffold(scaffoldRoot string) (*ScaffoldSyncReport, error) {
 		target   string
 		snapshot managedArtifactSnapshot
 	}
-	planned := make([]plannedScaffoldArtifact, 0, len(ScaffoldKinds()))
+	planned := make([]plannedScaffoldArtifact, 0, len(ScaffoldKinds())+1)
 	for _, kind := range ScaffoldKinds() {
 		artifact, err := GenerateScaffoldArtifact(kind)
 		if err != nil {
@@ -405,6 +428,18 @@ func SyncRepoRootScaffold(scaffoldRoot string) (*ScaffoldSyncReport, error) {
 			return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
 		}
 		planned = append(planned, plannedScaffoldArtifact{artifact: artifact, target: target, snapshot: snapshot})
+		if kind == KindDSH {
+			patch := GenerateDSHPatch()
+			patchSnapshot, patchErr := preflightDSHPatch(root)
+			if patchErr != nil {
+				return nil, patchErr
+			}
+			planned = append(planned, plannedScaffoldArtifact{
+				artifact: patch,
+				target:   filepath.Join(root, filepath.FromSlash(patch.TargetPath)),
+				snapshot: patchSnapshot,
+			})
+		}
 	}
 	report := &ScaffoldSyncReport{
 		ScaffoldRoot: root,

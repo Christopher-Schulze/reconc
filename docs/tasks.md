@@ -2,11 +2,9 @@
 
 ## Active
 
-
+- [~] 551 Ship and install owned portable skill -> tasks/551-ship-and-install-owned-portable-skill.md
 ## Queue
 
-- [ ] 550 Add native DeepSeek Harness integration -> tasks/550-add-native-deepseek-harness-integration.md
-- [ ] 551 Ship and install owned portable skill -> tasks/551-ship-and-install-owned-portable-skill.md
 - [ ] 552 Coordinate binary and skill updates -> tasks/552-coordinate-binary-and-skill-updates.md
 - [ ] 553 Reduce agent context and command friction -> tasks/553-reduce-agent-context-and-command-friction.md
 - [ ] 554 Optimize measured agent hot paths -> tasks/554-optimize-measured-agent-hot-paths.md
@@ -15,6 +13,7 @@
 ## Blocked
 
 ## Done
+- [x] 550 Add native DeepSeek Harness integration -> tasks/done/550-add-native-deepseek-harness-integration.md
 - [x] 549 Harden OMP hook order and outcomes -> tasks/done/549-harden-omp-hook-order-and-outcomes.md
 - [x] 548 Qualify Cursor CLI event surfaces -> tasks/done/548-qualify-cursor-cli-event-surfaces.md
 - [x] 547 Close Devin tool and session gaps -> tasks/done/547-close-devin-tool-and-session-gaps.md
@@ -24,4 +23,3 @@
 - [x] 543 Clarify agent integration and verify portable guidance -> tasks/done/543-clarify-agent-integration-and-verify-portable-guidance.md
 - [x] 542 Distinguish coverage policy clauses from measurements -> tasks/done/542-distinguish-coverage-policy-clauses-from-measurements.md
 - [x] 541 Redact escaped quoted proof paths -> tasks/done/541-redact-escaped-quoted-proof-paths.md
-- [x] 540 Reject GNU Parallel option expansions -> tasks/done/540-reject-gnu-parallel-option-expansions.md

@@ -1356,8 +1356,8 @@ func TestSyncRepoRootScaffoldWritesGeneratorArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sync scaffold: %v", err)
 	}
-	if len(report.Artifacts) != len(ScaffoldKinds()) {
-		t.Fatalf("synced %d artifacts, want %d: %+v", len(report.Artifacts), len(ScaffoldKinds()), report.Artifacts)
+	if len(report.Artifacts) != len(ScaffoldKinds())+1 {
+		t.Fatalf("synced %d artifacts, want %d: %+v", len(report.Artifacts), len(ScaffoldKinds())+1, report.Artifacts)
 	}
 	for _, kind := range ScaffoldKinds() {
 		artifact, err := GenerateScaffoldArtifact(kind)
@@ -1382,6 +1382,10 @@ func TestSyncRepoRootScaffoldWritesGeneratorArtifacts(t *testing.T) {
 		if runtime.GOOS != "windows" && !artifact.Executable && info.Mode()&0o111 != 0 {
 			t.Fatalf("synced %s must not be executable, mode=%v", kind, info.Mode())
 		}
+	}
+	patch, err := os.ReadFile(filepath.Join(scaffoldRoot, filepath.FromSlash(DSHPatchPath)))
+	if err != nil || string(patch) != GenerateDSHPatch().Content {
+		t.Fatalf("synced DSH activation patch differs from generator: %v", err)
 	}
 
 	second, err := SyncRepoRootScaffold(scaffoldRoot)
@@ -1436,6 +1440,10 @@ func TestTemplateRepoRootScaffoldHooksMatchGenerator(t *testing.T) {
 		if runtime.GOOS != "windows" && !artifact.Executable && info.Mode()&0o111 != 0 {
 			t.Fatalf("template scaffold %s must not be executable, mode=%v", kind, info.Mode())
 		}
+	}
+	patch, err := os.ReadFile(filepath.Join(scaffoldRoot, filepath.FromSlash(DSHPatchPath)))
+	if err != nil || string(patch) != GenerateDSHPatch().Content {
+		t.Fatalf("template DSH activation patch differs from generator: %v", err)
 	}
 }
 

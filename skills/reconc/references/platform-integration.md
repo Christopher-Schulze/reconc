@@ -34,6 +34,7 @@ timeout policy, output budgets, artifact paths, and activation probes:
 | Antigravity CLI | `.agents/hooks.json` | Invocation, tool, evidence, and Stop adapters |
 | Kilo Code | `.kilo/plugin/reconc.js` | Thin CLI/VS Code project plugin with strict shell exits and inferred bounded async idle continuation; disabled when `KILO_PURE` is set |
 | Oh My Pi | `.omp/extensions/reconc.ts` | Typed project extension with blocking pre-tool and awaited main-session Stop; observational approval, outcome, compaction, and shutdown routes |
+| DeepSeek Harness | `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml` | Explicit profile overlay with an awaited Go pre-tool decision, final synchronous guard, passive results, and one advisory Stop continuation per turn |
 | Pi Coding Agent | `.pi/extensions/reconc.ts` | Trust-aware typed project extension with blocking tool/user-shell boundaries, observational results/lifecycle/compaction, and inferred bounded settled continuation |
 | ZCode | `.zcode/config.json` | Native seven-event process hooks with blocking pre-tool, permission, and synchronous Stop routes |
 | Grok Build | `.grok/hooks/reconc.json` | Native lifecycle and hard PreToolUse; project trust required; capability-probed native Stop or optional local leader fallback |
@@ -115,6 +116,19 @@ canonical-path trust or `defaultProjectTrust: "always"` for static
 successful built-in `Bash` result receives synthetic exit code zero. Pi has no
 native permission event, MCP discriminator, post-user-shell result,
 synchronous Stop gate, or continuation acknowledgement.
+
+DeepSeek Harness loads the repository-owned extension only when launched from
+the repository root with `dsh --patch .dsh/reconc.patch.yml`; direct install or
+bootstrap does not edit a user profile. Its `agent-loop` depends on the
+extension's `reconcGuard` service. The final synchronous guard denies a call
+without a matching completed Go pre-tool decision, including a skipped pre
+listener. Session CWD and explicit Bash workdir must resolve to the repository
+root; `pwsh` is denied because Reconc has no PowerShell command parser. A
+transformed `tools/result` is an observation, not original shell/file-effect
+proof. Static status is `installed` until the overlay is independently loaded
+and a negative tool probe proves enforcement. Use one patched process per
+repository; concurrent Codex or Claude compatibility bridges are denied.
+Provider-backed model and full subagent lifecycle claims remain unqualified.
 
 ZCode snapshots `.zcode/config.json` at session start. Reconc merges only exact
 managed process entries and preserves foreign settings, events, commands, and

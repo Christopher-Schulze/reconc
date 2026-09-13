@@ -15,7 +15,7 @@ The portable skill exists only in the source tree. Current release asset invento
 
 ## Sub-Tasks
 
-- [ ] Finalize skill payload ownership, host discovery matrix, and receipt compatibility.
+- [~] Finalize skill payload ownership, host discovery matrix, and receipt compatibility.
 - [ ] Embed and export the canonical skill through the existing release artifact pipeline.
 - [ ] Add explicit installer skill behavior and safe owned publication.
 - [ ] Extend diagnostics and ownership-aware lifecycle behavior.
