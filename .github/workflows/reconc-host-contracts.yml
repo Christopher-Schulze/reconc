@@ -1,0 +1,65 @@
+name: Host contract source watch
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-contract-source-watch
+  cancel-in-progress: false
+
+jobs:
+  sources:
+    name: Compare official host contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build source checker
+        run: go build -o "$RUNNER_TEMP/host-contracts" ./scripts/audits/host-contracts
+
+      - name: Compare sources without executing hosts
+        id: compare
+        continue-on-error: true
+        run: '"$RUNNER_TEMP/host-contracts" --check-upstream > host-contract-report.json'
+
+      - name: Upload digest report
+        if: always() && steps.compare.outcome != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: host-contract-report
+          path: host-contract-report.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Summarize source status
+        if: always() && steps.compare.outcome != 'skipped'
+        run: |
+          jq -r '
+            "## Host contract source comparison",
+            "Complete: \(.complete); review required: \(.review_required); sources checked: \(.sources_checked)",
+            "",
+            "| Host | Surface | Status |",
+            "| --- | --- | --- |",
+            (.results[] | "| \(.host) | \(.surface) | \(.status) |")
+          ' host-contract-report.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Require maintainer review when sources drift or cannot be checked
+        if: always() && steps.compare.outcome == 'failure'
+        run: |
+          echo 'Review host-contract-report.json. This maintenance result is separate from product CI and release eligibility.' >&2
+          exit 1

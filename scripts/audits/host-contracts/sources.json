@@ -1,0 +1,427 @@
+{
+  "schema": "reconc-host-contract-sources",
+  "format_version": 1,
+  "reviewed_at": "2026-09-13",
+  "hosts": [
+    {
+      "host": "antigravity",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/host-events/antigravity.json",
+          "sha256": "4592d3a8edb82340ede88dc73398466f6d4755d6e8ac6b76235c906a2544eaf4"
+        }
+      ],
+      "sources": [
+        {
+          "id": "hooks-docs",
+          "url": "https://antigravity.google/docs/hooks",
+          "baseline_url": "https://antigravity.google/docs/hooks",
+          "normalization": "html",
+          "sha256": "c70a5de1d981529a33bbee9fdc9a9169b4ffaf7300fd8d4d22f35fd3b91e6b14",
+          "required_markers": [
+            "PreToolUse",
+            "PostToolUse"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "claude-code",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/host-events/claude-code.json",
+          "sha256": "e73defca0f832449a327c939b667b3eb450363f87cabb6d5c2e376348997fc61"
+        }
+      ],
+      "sources": [
+        {
+          "id": "hooks-docs",
+          "url": "https://code.claude.com/docs/en/hooks.md",
+          "baseline_url": "https://code.claude.com/docs/en/hooks.md",
+          "normalization": "markdown",
+          "sha256": "ad52f0a7eb684da62b4ee9563a44d5efde3d0c7c512be75566f6b37122a3690d",
+          "required_markers": [
+            "PreToolUse",
+            "SessionStart"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "codex",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/host-events/codex.json",
+          "sha256": "74c25816908eeb31e3355cfc00c7887f16e211856c6420232b4ca982e324660a"
+        }
+      ],
+      "sources": [
+        {
+          "id": "hook-registry",
+          "url": "https://raw.githubusercontent.com/openai/codex/HEAD/codex-rs/hooks/src/registry.rs",
+          "baseline_url": "https://raw.githubusercontent.com/openai/codex/a505c71490885a44979df056284badbfdd75b3fb/codex-rs/hooks/src/registry.rs",
+          "normalization": "source",
+          "sha256": "997349598e4dfb958a549996f0c62303995dd4e92101b7133b7cd11283239e86",
+          "required_markers": [
+            "PreToolUseRequest",
+            "run_pre_tool_use"
+          ]
+        },
+        {
+          "id": "hooks-docs",
+          "url": "https://learn.chatgpt.com/docs/hooks.md",
+          "baseline_url": "https://learn.chatgpt.com/docs/hooks.md",
+          "normalization": "markdown",
+          "sha256": "0cf62849a1dba10d2118a948283359862fb6690d3ed7b4fd3230a8556c24a1c7",
+          "required_markers": [
+            "PreToolUse",
+            "SessionStart"
+          ]
+        },
+        {
+          "id": "payload-types",
+          "url": "https://raw.githubusercontent.com/openai/codex/HEAD/codex-rs/hooks/src/types.rs",
+          "baseline_url": "https://raw.githubusercontent.com/openai/codex/a505c71490885a44979df056284badbfdd75b3fb/codex-rs/hooks/src/types.rs",
+          "normalization": "source",
+          "sha256": "eff1ee766776a729975c9873a9ae09e9e1ba33592524509e94cfd4686e42a169",
+          "required_markers": [
+            "pub struct HookPayload",
+            "pub enum HookEvent"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "cursor",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/contracts/cursor.json",
+          "sha256": "88957a1bab4de95b2181cde74d711a7020aaaab417f7db9ccfa1ca534a7904e4"
+        },
+        {
+          "path": "internal/hooks/testdata/host-events/cursor.json",
+          "sha256": "f2b6d8211a64189d0997b0688889002832aa70b7bebc4d4610f890c6aaca1491"
+        }
+      ],
+      "sources": [
+        {
+          "id": "hooks-docs",
+          "url": "https://cursor.com/docs/hooks",
+          "baseline_url": "https://cursor.com/docs/hooks",
+          "normalization": "markdown",
+          "sha256": "321e4ade6c2a86aab24670586520d766a24f1bfba35bd2cd5a5d5ff538300c31",
+          "required_markers": [
+            "preToolUse",
+            "sessionStart"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "devin-cli",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/host-events/devin-cli.json",
+          "sha256": "47bc4e6c62ae1baa22716271f96bb2e76e344c72902e1a0633aa27c1dec97080"
+        }
+      ],
+      "sources": [
+        {
+          "id": "hooks-docs",
+          "url": "https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md",
+          "baseline_url": "https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md",
+          "normalization": "markdown",
+          "sha256": "8682f42d27cae8a35a479d90f250dde4ed2f1d745b5ad1371200529fd665fae2",
+          "required_markers": [
+            "PreToolUse",
+            "SessionStart"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "dsh",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/host-events/dsh.json",
+          "sha256": "11de8932104875f32a9520eac79648ae816949db6fe281d221e594f87ba3c859"
+        }
+      ],
+      "sources": [
+        {
+          "id": "agent-events",
+          "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/packages/core/agent/src/runtime-types.ts",
+          "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/c291e7961a515f6d7af9304e7fd1d257929aef26/packages/core/agent/src/runtime-types.ts",
+          "normalization": "source",
+          "sha256": "e7555cb62809a4bb47b1a0bb7365922a6a93fd94c88b4bbaa6d3080c91e5b13a",
+          "required_markers": [
+            "'agent/pre-step'",
+            "'agent/turn-stopping'"
+          ]
+        },
+        {
+          "id": "session-types",
+          "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/packages/core/session/src/types.ts",
+          "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/c291e7961a515f6d7af9304e7fd1d257929aef26/packages/core/session/src/types.ts",
+          "normalization": "source",
+          "sha256": "8948092a4443b92d68d7cbf3987fbc458673c0eb0062835699f82f3061e24269",
+          "required_markers": [
+            "export interface SessionHeader",
+            "readonly meta: SessionHeader"
+          ]
+        },
+        {
+          "id": "system-prompt",
+          "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/docs/subsystems/system-prompt.md",
+          "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/c291e7961a515f6d7af9304e7fd1d257929aef26/docs/subsystems/system-prompt.md",
+          "normalization": "markdown",
+          "sha256": "b2e7e377f0d4698e1b4502c74f374c10c8e51120e02a7456ec91a87de2c5257c",
+          "required_markers": [
+            "interface PromptContext",
+            "context(context: PromptContext)"
+          ]
+        },
+        {
+          "id": "tool-runtime",
+          "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/packages/core/tools/src/index.ts",
+          "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/c291e7961a515f6d7af9304e7fd1d257929aef26/packages/core/tools/src/index.ts",
+          "normalization": "source",
+          "sha256": "5b53dbfe5615ee5a8149d8155b0f8cabc22969cba4189b5ac8cd4180d7980357",
+          "required_markers": [
+            "'tools/pre-execute'",
+            "'tools/result'"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "git-pre-commit",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/host-events/git-pre-commit.json",
+          "sha256": "3b816a9187b818c4319cec25cc615089f54af8e40ca2582778dba61919937556"
+        }
+      ],
+      "sources": [
+        {
+          "id": "hooks-docs",
+          "url": "https://git-scm.com/docs/githooks",
+          "baseline_url": "https://git-scm.com/docs/githooks",
+          "normalization": "html",
+          "sha256": "5e4cb1d016dfc7b4aca2de58fadbf4f460b54f3ab59c4d211a46d161459da2ad",
+          "required_markers": [
+            "pre-commit",
+            "GIT_DIR"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "github-copilot",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/host-events/github-copilot.json",
+          "sha256": "9988a401ef0b71c821cdc211fa03d420040da8e545180a0a4199892dabd39a13"
+        }
+      ],
+      "sources": [
+        {
+          "id": "hooks-docs",
+          "url": "https://docs.github.com/en/copilot/reference/hooks-reference",
+          "baseline_url": "https://docs.github.com/en/copilot/reference/hooks-reference",
+          "normalization": "markdown",
+          "sha256": "08400aec3dab8e31e248c044c4eee623326491c9649a54f213a79f83e7ee6fd4",
+          "required_markers": [
+            "preToolUse",
+            "sessionStart"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "grok",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/host-events/grok.json",
+          "sha256": "7edf8adc6ce35ae89364663d15e28e28423e816e44afc96b5589c7a11128f84e"
+        }
+      ],
+      "sources": [
+        {
+          "id": "hooks-docs",
+          "url": "https://docs.x.ai/build/features/hooks",
+          "baseline_url": "https://docs.x.ai/build/features/hooks",
+          "normalization": "markdown",
+          "sha256": "5f11371347a24ae80648d8551b083e2ca92a93ff75e23f6ca67b096a1d64de42",
+          "required_markers": [
+            "PreToolUse",
+            "SessionStart"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "kilo",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/contracts/kilo.json",
+          "sha256": "6e556d1b712ed83c0cf94543f6407717f5a33b64b9984469032ea4b57edb4f17"
+        },
+        {
+          "path": "internal/hooks/testdata/host-events/kilo.json",
+          "sha256": "0e99ab21475c78c5b438e4011fdba986e322ebbbd5d77f89ef0d917d06405dfe"
+        }
+      ],
+      "sources": [
+        {
+          "id": "plugin-types",
+          "url": "https://raw.githubusercontent.com/Kilo-Org/kilocode/HEAD/packages/plugin/src/index.ts",
+          "baseline_url": "https://raw.githubusercontent.com/Kilo-Org/kilocode/c36e22634860e06e0aa63234fae37bbd83d3b182/packages/plugin/src/index.ts",
+          "normalization": "source",
+          "sha256": "19bce2d215ea2993e3319222a97b113dabd5de440ad119e8fb07a9d192e7d5c6",
+          "required_markers": [
+            "tool.execute.before",
+            "tool.execute.after"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "kimi-code",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/host-events/kimi-code.json",
+          "sha256": "609ba3d388ed3011978ff9bab45dca81a325ab7dd3b6f65c55ab1bc873a5cc22"
+        }
+      ],
+      "sources": [
+        {
+          "id": "hooks-docs",
+          "url": "https://moonshotai.github.io/kimi-code/en/customization/hooks",
+          "baseline_url": "https://moonshotai.github.io/kimi-code/en/customization/hooks",
+          "normalization": "html",
+          "sha256": "d011ab1d3db86e4df7a3743e306a126345a7f440c61398042c5e026729e502a9",
+          "required_markers": [
+            "PreToolUse",
+            "SessionStart"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "omp",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/contracts/omp.json",
+          "sha256": "316932f51ad11766f01003914f17372af75f1e486e06294d0a4e5a9b70a412b4"
+        },
+        {
+          "path": "internal/hooks/testdata/host-events/omp.json",
+          "sha256": "dd7d08232771ae20b2dbd2f21b1a9f70251b4f03d9401d0b2fdd6fe643e9d36b"
+        }
+      ],
+      "sources": [
+        {
+          "id": "extension-runner",
+          "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/HEAD/packages/coding-agent/src/extensibility/extensions/runner.ts",
+          "baseline_url": "https://raw.githubusercontent.com/can1357/oh-my-pi/1091f70db3a4029905c462e8cd4a80518ec490ba/packages/coding-agent/src/extensibility/extensions/runner.ts",
+          "normalization": "source",
+          "sha256": "a41ebd2ef08892ea51056cb43c62eb6b36b8433e29f47d5e92f07f0c9d2903f3",
+          "required_markers": [
+            "emitToolCall",
+            "session_stop"
+          ]
+        },
+        {
+          "id": "extension-types",
+          "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/HEAD/packages/coding-agent/src/extensibility/extensions/types.ts",
+          "baseline_url": "https://raw.githubusercontent.com/can1357/oh-my-pi/1091f70db3a4029905c462e8cd4a80518ec490ba/packages/coding-agent/src/extensibility/extensions/types.ts",
+          "normalization": "source",
+          "sha256": "acfb850330e48a1db861712cfe1bb8de3d016303e378ece138fc0196d6c35a73",
+          "required_markers": [
+            "ToolCallEvent",
+            "SessionStopEvent"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "opencode",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/contracts/opencode.json",
+          "sha256": "11d9d530061d5c162d0481a424e819ea6f8b4fdbe0deef6b8acca605bcd1ff8e"
+        },
+        {
+          "path": "internal/hooks/testdata/host-events/opencode.json",
+          "sha256": "90c059ea21c720e77f65df942150e00da517461485fbac9f641d44615f2bd74e"
+        }
+      ],
+      "sources": [
+        {
+          "id": "plugin-types",
+          "url": "https://raw.githubusercontent.com/anomalyco/opencode/HEAD/packages/plugin/src/index.ts",
+          "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/631f67a9f330e2e0b1c064db358e67133a053655/packages/plugin/src/index.ts",
+          "normalization": "source",
+          "sha256": "acb2f99579e8ff56c97fa4343c2096c0102f87ee3872069ee7002d65d47d1c51",
+          "required_markers": [
+            "tool.execute.before",
+            "tool.execute.after"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "pi",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/contracts/pi.json",
+          "sha256": "75fff5cf554fe51ec80bfbb1fdfc1ab8a863c3a39b5c9264ac5f25f1bfa9a161"
+        },
+        {
+          "path": "internal/hooks/testdata/host-events/pi.json",
+          "sha256": "a3f14d1216c755b49b30321482573fc7dfd3a366c6dd5c4bdd956653172518c0"
+        }
+      ],
+      "sources": [
+        {
+          "id": "extension-types",
+          "url": "https://raw.githubusercontent.com/earendil-works/pi/HEAD/packages/coding-agent/src/core/extensions/types.ts",
+          "baseline_url": "https://raw.githubusercontent.com/earendil-works/pi/71dca871bc80b6bc97be37f0ca3189399d651fff/packages/coding-agent/src/core/extensions/types.ts",
+          "normalization": "source",
+          "sha256": "148a6c758c3886a0551ce25a8baeb15b584b73aa2da589d58b0ca4c1af4aa9a0",
+          "required_markers": [
+            "ToolCallEventResult",
+            "agent_settled"
+          ]
+        }
+      ]
+    },
+    {
+      "host": "zcode",
+      "fixtures": [
+        {
+          "path": "internal/hooks/testdata/contracts/zcode.json",
+          "sha256": "b3421b63185add309f00e3b2f3d13967064e7c1a357bd50b95fa334bfa6a588d"
+        },
+        {
+          "path": "internal/hooks/testdata/host-events/zcode.json",
+          "sha256": "13a8f804f1298ae48f00d59a5c80ee14797e74aa687a978500d228361ac826bb"
+        }
+      ],
+      "sources": [
+        {
+          "id": "hooks-docs",
+          "url": "https://zcode.z.ai/en/docs/hooks",
+          "baseline_url": "https://zcode.z.ai/en/docs/hooks",
+          "normalization": "html",
+          "sha256": "e18641b53c1887e67b20213e4cff6726f1414f48dc03e51ab88f8d251bb739bf",
+          "required_markers": [
+            "PreToolUse",
+            "SessionStart"
+          ]
+        }
+      ]
+    }
+  ]
+}

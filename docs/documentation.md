@@ -2326,6 +2326,64 @@ identity-revalidated regular-file snapshot capped at 4 MiB. Rollback restores th
 file bytes and permission mode. Running `task recover` with no journal is a
 successful idempotent no-op and reports `recovered: false`.
 
+### Upstream Host Contract Maintenance
+
+The source repository monitors the official contracts behind all 15 registered
+hosts, including `git-pre-commit`. The catalog at
+`scripts/audits/host-contracts/sources.json` binds 21 saved event/adapter fixtures
+and 21 official documentation or API sources. Open-source probes record an
+immutable reviewed commit URL and compare the same path at upstream `HEAD`.
+Documentation probes record the reviewed URL, date, normalized content digest,
+and required contract markers. This source-review baseline is separate from
+the host-version qualification recorded in adapter fixtures.
+
+From the source root, `go run ./scripts/audits/host-contracts` checks registry
+coverage, catalog provenance, and exact local fixture digests without network
+access. `go run ./scripts/audits/host-contracts --check-upstream` additionally
+fetches the listed official sources. It never installs or executes a host,
+model, upstream program, or dependency lifecycle. Both commands accept
+`--root PATH`. Normal tests exercise local fixtures and real loopback HTTP
+boundaries only; Reconc product commands do not call this maintenance tool.
+
+The JSON report uses `schema=reconc-host-contract-report`, `format_version=1`,
+and stable host/surface ordering. Each row is `unchanged`, `changed`, or
+`unavailable`, with expected/actual SHA-256 digests and source URLs where
+applicable. Missing required markers also mean `changed`, even if a saved
+digest matches. `complete=false` distinguishes retrieval/read failures;
+`review_required=true` records observed drift independently. Reports retain
+no fetched source bodies. The compiled checker exits 0 for unchanged complete
+evidence, 2 for complete evidence requiring review, and 1 for incomplete
+evidence or command errors. `go run` maps a nonzero program exit to its own
+failure status; use JSON fields to distinguish outcomes or build the checker
+when exact exit codes are needed.
+
+Requests are sequential, allowlisted HTTPS GETs with a 15-second deadline,
+at most two followed redirects, a 2 MiB decoded body limit, and a three-minute
+overall comparison deadline. API normalization preserves interior source
+whitespace while normalizing CRLF and trailing line whitespace. Markdown
+normalization collapses whitespace; HTML normalization removes scripts,
+styles, comments and tags, prefers the main element, decodes entities, then
+collapses whitespace. Navigation or editorial changes can still trigger
+review. A digest change is a review signal, not proof of a breaking API change.
+Unmonitored implementation changes cannot be inferred from these probes.
+
+The separate **Host contract source watch** GitHub workflow runs daily at
+03:17 UTC and supports manual dispatch. It uploads a digest/status report and
+an Actions summary. Drift or unavailable sources fail that maintenance run;
+they never disable integrations or alter product CI/release requirements.
+The workflow does not create issues, send messages, modify baselines, or
+execute agent hosts.
+
+When review is required, inspect the reported official source against its
+reviewed baseline, check the affected adapter and saved fixture, and update
+code/tests/docs only where the contract actually changed. Update the relevant
+catalog digests, immutable baseline URLs and review date only after that
+review; never copy a changed digest merely to turn the monitor green. Re-run
+the offline checker, affected adapter tests, and explicit source comparison.
+An unreachable source remains `unavailable` until restored or replaced with a
+reviewed official source. New registered hosts or changed fixture inventories
+require catalog propagation and are caught by ordinary offline tests.
+
 ## Minimal Example Policy
 
 Copy this into `.reconc.yml` in a Go repository:
