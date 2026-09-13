@@ -20,8 +20,10 @@ remediation suggests them. Existing authorization remains valid within scope.
 
 When `reconc` blocks:
 
-1. Read the violation and recommended action.
-2. Run `reconc next .` for the shortest remediation.
+1. For the proposed write, run `reconc next . --write <path> --json` to get the
+   first typed remediation in one call. For an existing block, read the
+   violation and run `reconc next .` to replay it.
+2. Honor the action's `kind`, working directory, authorization, and required evidence.
 3. Fix the real missing evidence or source issue.
 4. Re-run `reconc check . ...`.
 5. Finish with `reconc done .`.

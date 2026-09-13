@@ -12,8 +12,18 @@ This one read-only response carries `format_version`, TASK/Sub-Task, policy
 delta, exact remediation, and repository-run state. Fetch static detail only
 when needed with `reconc agent-intro --section <section-id>`.
 
-Before or during edits, collect explicit evidence. At the end of a task, check
-the real touched surface:
+Before an individual edit, get the first typed remediation without a separate
+check-and-next round trip:
+
+```bash
+reconc next . --write path/changed.go --json
+```
+
+This is an iterative decision, not a complete violation list. Include only
+evidence that actually occurred; interpret an action by its `kind`, executing
+`argv` directly or `shell` as a literal script in `cwd`, subject to its
+`authorization` and `required_evidence` fields. At the end of a task, use
+`check` over the real touched surface to expose every violation:
 
 ```bash
 reconc check . \

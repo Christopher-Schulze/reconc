@@ -7,8 +7,9 @@ real agent evidence against it. It does not invent acceptance criteria,
 priorities, approvals, or test results.
 
 1. **Inspect** `reconc session-briefing . --json` and keep exact machine fields.
-2. **Select** the emitted next action, including typed `argv`, `cwd`,
-   authorization, and required evidence; never infer from display text.
+2. **Select** the emitted next action by `kind`: use its `argv` or literal
+   `shell`, plus `cwd`, authorization, and required evidence. Never parse
+   display text into a command.
 3. **Gather** only truthful reads, writes, command outcomes, and claims.
 4. **Handle** a block with its recommended action before writing or retrying.
 5. **Prove** the candidate with the final completion gate and report the real
@@ -25,6 +26,9 @@ reconc done .
 
 On a block, read `violations[].recommended_action` before retrying. Exit `0`
 is pass or warn, `1` is a runtime/input error, and `2` is a block.
+For iterative pre-write decisions, `reconc next . --write <path> --json`
+evaluates evidence and returns the first typed remediation in one call. Use
+`reconc check` for all violations and final changed-surface review.
 Use `reconc agent-intro --list-sections` followed by
 `reconc agent-intro --section <section-id>` for verified detail. Use
 `reconc hook status . --json` before claiming host enforcement.

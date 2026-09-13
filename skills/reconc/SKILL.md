@@ -12,8 +12,9 @@ real agent evidence against it. It does not invent acceptance criteria,
 priorities, approvals, or test results.
 
 1. **Inspect** the versioned machine briefing.
-2. **Select** the exact next action and its typed `argv`, `cwd`, authorization,
-   and required evidence; never reconstruct an action from display text.
+2. **Select** the exact next action by `kind`: use its `argv` or literal
+   `shell`, plus `cwd`, authorization, and required evidence. Never parse the
+   display text into a command.
 3. **Gather** only truthful reads, writes, command outcomes, and claims.
 4. **Handle** a block with the emitted remediation before writing or retrying.
 5. **Prove** the completed candidate with the final gate and report the evidence.
@@ -32,6 +33,10 @@ On a block, stop the write, read `violations[].recommended_action`, and run
 `reconc ci . --staged` for commit-bound command proof. Run
 `reconc proof . --format markdown` when a portable reviewer record is needed.
 Exit `0` is pass or warn, `1` is a runtime/input error, and `2` is a block.
+
+For an iterative pre-write decision, `reconc next . --write <path> --json`
+evaluates the evidence and returns the first typed remediation in one call.
+Use `reconc check` for the full violation set and final changed-surface review.
 
 ## Trigger and contract
 
@@ -72,11 +77,10 @@ references are:
 
 The registry currently covers Claude Code, Codex, GitHub Copilot, Cursor,
 OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, DeepSeek Harness,
-Pi Coding Agent,
-ZCode, Grok Build, and Kimi Code CLI. Host-specific proof includes
-`surface_events`, `workspaceOpen`, `AskQuestion`, `afterShellExecution`,
-`postToolUseFailure`, `output.metadata.exit`, and `reconc why mcp`; read the
-platform reference before making a stronger claim.
+Pi Coding Agent, ZCode, Grok Build, and Kimi Code CLI. Host-specific proof
+includes `surface_events`, `workspaceOpen`, `AskQuestion`,
+`afterShellExecution`, `postToolUseFailure`, `output.metadata.exit`, and
+`reconc why mcp`; read the platform reference before making a stronger claim.
 
 ## Boundaries
 

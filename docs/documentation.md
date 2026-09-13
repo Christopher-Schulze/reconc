@@ -1095,6 +1095,13 @@ snapshot, so policy parsing, lock decoding, and board inspection are not
 repeated across the compact sections. Static reference material stays on demand
 through `reconc agent-intro --section <section-id>` instead of inflating every agent
 prompt.
+For an iterative pre-write decision, `reconc next . --write <path> --json`
+evaluates the supplied evidence and returns one typed remediation without a
+separate `check` call. It does not replace `reconc check` when the agent needs
+all violations or the final changed-surface review. Execute typed `argv`
+directly or `shell` as a literal script in `cwd`, subject to the action's
+`authorization` and `required_evidence` fields; never parse display text as a
+command.
 Active-session inspection uses bounded snapshots without session or active-pointer
 locks and never repairs state or persists evidence taint. Malformed, oversized,
 replaced, or overflowed state is reported as uncertainty; enforcement loads keep
