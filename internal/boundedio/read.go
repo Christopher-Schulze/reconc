@@ -61,48 +61,63 @@ func ReadFileSnapshot(path string, maxBytes int64) ([]byte, os.FileInfo, error) 
 	return readOpenedFileSnapshot(path, file, opened, maxBytes, os.Stat)
 }
 
-func openRegularFile(path string, maxBytes int64) (*os.File, os.FileInfo, error) {
+func openRegularFile(path string, maxBytes int64) (*os.File, os.FileInfo, bool, error) {
 	if maxBytes <= 0 {
-		return nil, nil, errors.New("bounded regular-file open requires a positive byte limit")
+		return nil, nil, false, errors.New("bounded regular-file open requires a positive byte limit")
 	}
 	if maxBytes > math.MaxInt64-1 {
-		return nil, nil, errors.New("bounded regular-file open byte limit is too large")
+		return nil, nil, false, errors.New("bounded regular-file open byte limit is too large")
 	}
 	before, err := os.Lstat(path)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
-		return nil, nil, fmt.Errorf("%s must be a non-symlink regular file", path)
+		return nil, nil, true, fmt.Errorf("%s must be a non-symlink regular file", path)
 	}
 	if before.Size() > maxBytes {
-		return nil, nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
+		return nil, nil, true, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, true, err
 	}
 	opened, statErr := file.Stat()
 	after, lstatErr := os.Lstat(path)
 	if statErr != nil || lstatErr != nil {
-		return nil, nil, errors.Join(statErr, lstatErr, file.Close())
+		return nil, nil, true, errors.Join(statErr, lstatErr, file.Close())
 	}
 	if !sameRegularSnapshot(before, opened) || !sameRegularSnapshot(opened, after) || opened.Size() > maxBytes {
-		return nil, nil, errors.Join(fmt.Errorf("%s changed identity, metadata, or exceeded %d bytes while opening", path, maxBytes), file.Close())
+		return nil, nil, true, errors.Join(fmt.Errorf("%s changed identity, metadata, or exceeded %d bytes while opening", path, maxBytes), file.Close())
 	}
-	return file, opened, nil
+	return file, opened, true, nil
 }
 
 // WithRegularFileSnapshot exposes a bounded non-symlink regular file to use,
 // then rejects identity, mode, size, or modification-time drift before the
 // result can be accepted. The callback must not close the file.
 func WithRegularFileSnapshot(path string, maxBytes int64, use func(*os.File, os.FileInfo) error) error {
+	_, err := withRegularFileSnapshot(path, maxBytes, use, false)
+	return err
+}
+
+// WithRegularFileSnapshotIfExists performs the same strict snapshot checks,
+// reporting absence only when the path was missing at the first lstat. A file
+// that disappears during open or use remains an error, never an absent result.
+func WithRegularFileSnapshotIfExists(path string, maxBytes int64, use func(*os.File, os.FileInfo) error) (bool, error) {
+	return withRegularFileSnapshot(path, maxBytes, use, true)
+}
+
+func withRegularFileSnapshot(path string, maxBytes int64, use func(*os.File, os.FileInfo) error, allowAbsent bool) (bool, error) {
 	if use == nil {
-		return errors.New("bounded regular-file snapshot requires a callback")
+		return false, errors.New("bounded regular-file snapshot requires a callback")
 	}
-	file, before, err := openRegularFile(path, maxBytes)
+	file, before, presentAtStart, err := openRegularFile(path, maxBytes)
+	if allowAbsent && !presentAtStart && errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
 	if err != nil {
-		return err
+		return presentAtStart, err
 	}
 	useErr := use(file, before)
 	afterFile, statErr := file.Stat()
@@ -113,7 +128,7 @@ func WithRegularFileSnapshot(path string, maxBytes int64, use func(*os.File, os.
 		(!sameRegularSnapshot(before, afterFile) || !sameRegularSnapshot(afterFile, afterPath) || afterFile.Size() > maxBytes) {
 		stableErr = fmt.Errorf("%s changed while reading", path)
 	}
-	return errors.Join(useErr, statErr, pathStatErr, closeErr, stableErr)
+	return true, errors.Join(useErr, statErr, pathStatErr, closeErr, stableErr)
 }
 
 // ReadRegularFileSnapshot reads one non-symlink regular file within maxBytes

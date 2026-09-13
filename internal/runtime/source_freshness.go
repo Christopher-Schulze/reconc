@@ -34,7 +34,7 @@ const (
 	freshnessCopyBufferBytes = 32 << 10
 )
 
-var withFreshnessFileSnapshot = boundedio.WithRegularFileSnapshot
+var withFreshnessFileSnapshot = boundedio.WithRegularFileSnapshotIfExists
 
 type sourceFreshnessInclude struct {
 	pattern string
@@ -505,32 +505,20 @@ func observeFreshnessFileSeeded(
 		return freshnessFile{}, errors.New("runtime freshness copy buffer is empty")
 	}
 	observation := freshnessFile{Path: path}
-	_, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		if hasExpectation && expected {
-			return observation, fmt.Errorf("runtime freshness source disappeared while preparing the runtime plan: %s", path)
-		}
-		return observation, nil
-	}
-	if err != nil {
-		return observation, err
-	}
-	if hasExpectation && !expected {
-		return observation, fmt.Errorf("runtime freshness source appeared while preparing the runtime plan: %s", path)
-	}
 	var contentHash hash.Hash
-	if !hasKnownDigest {
-		contentHash = sha256.New()
-	}
 	var readBytes int64
 	var openedInfo os.FileInfo
 	var openedIdentity string
-	err = withFreshnessFileSnapshot(path, maxFreshnessFileBytes, func(file *os.File, opened os.FileInfo) error {
+	exists, err := withFreshnessFileSnapshot(path, maxFreshnessFileBytes, func(file *os.File, opened os.FileInfo) error {
+		if hasExpectation && !expected {
+			return fmt.Errorf("runtime freshness source appeared while preparing the runtime plan: %s", path)
+		}
 		if *totalBytes > maxFreshnessTotalBytes-opened.Size() {
 			return fmt.Errorf("runtime freshness files exceed bounded byte budget")
 		}
 		openedInfo = opened
 		if !hasKnownDigest {
+			contentHash = sha256.New()
 			var copyErr error
 			readBytes, copyErr = io.CopyBuffer(contentHash, io.LimitReader(file, maxFreshnessFileBytes+1), copyBuffer)
 			if copyErr != nil {
@@ -546,6 +534,12 @@ func observeFreshnessFileSeeded(
 	})
 	if err != nil {
 		return observation, err
+	}
+	if !exists {
+		if hasExpectation && expected {
+			return observation, fmt.Errorf("runtime freshness source disappeared while preparing the runtime plan: %s", path)
+		}
+		return observation, nil
 	}
 	*totalBytes += openedInfo.Size()
 	observation.Exists = true

@@ -36,9 +36,9 @@ func TestFreshnessFileReplacementBeforeOpenUsesOneCoherentSnapshot(t *testing.T)
 		t.Fatal(closeErr)
 	}
 	original := withFreshnessFileSnapshot
-	withFreshnessFileSnapshot = func(observedPath string, maximum int64, use func(*os.File, os.FileInfo) error) error {
+	withFreshnessFileSnapshot = func(observedPath string, maximum int64, use func(*os.File, os.FileInfo) error) (bool, error) {
 		if err := os.Rename(replacement, observedPath); err != nil {
-			return err
+			return false, err
 		}
 		return original(observedPath, maximum, use)
 	}
@@ -72,7 +72,7 @@ func TestFreshnessFileReplacementAfterOpenFailsClosed(t *testing.T) {
 			}
 			original := withFreshnessFileSnapshot
 			var replacementErr error
-			withFreshnessFileSnapshot = func(observedPath string, maximum int64, use func(*os.File, os.FileInfo) error) error {
+			withFreshnessFileSnapshot = func(observedPath string, maximum int64, use func(*os.File, os.FileInfo) error) (bool, error) {
 				return original(observedPath, maximum, func(file *os.File, opened os.FileInfo) error {
 					if phase == "before-read" {
 						replacementErr = os.Rename(replacement, observedPath)
@@ -118,9 +118,9 @@ func TestFreshnessFileBudgetUsesOpenedSizeAndCommitsAfterValidation(t *testing.T
 		t.Fatal(err)
 	}
 	original := withFreshnessFileSnapshot
-	withFreshnessFileSnapshot = func(observedPath string, maximum int64, use func(*os.File, os.FileInfo) error) error {
+	withFreshnessFileSnapshot = func(observedPath string, maximum int64, use func(*os.File, os.FileInfo) error) (bool, error) {
 		if err := os.Rename(replacement, observedPath); err != nil {
-			return err
+			return false, err
 		}
 		return original(observedPath, maximum, use)
 	}
@@ -146,6 +146,31 @@ func TestFreshnessFileBudgetUsesOpenedSizeAndCommitsAfterValidation(t *testing.T
 	}
 	if total != maxFreshnessTotalBytes {
 		t.Fatalf("exact aggregate boundary = %d, want %d", total, maxFreshnessTotalBytes)
+	}
+}
+
+func TestFreshnessSeededPresenceChecksRemainFailClosed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "source.yml")
+	buffer := make([]byte, 1024)
+	var total int64
+	missing, err := observeFreshnessFileSeeded(path, &total, buffer, [sha256.Size]byte{}, false, false, false, nil)
+	if err != nil || missing.Exists || total != 0 {
+		t.Fatalf("optional missing file = %+v, total %d, error %v", missing, total, err)
+	}
+	_, err = observeFreshnessFileSeeded(path, &total, buffer, [sha256.Size]byte{}, false, true, true, nil)
+	if err == nil || !strings.Contains(err.Error(), "source disappeared") || total != 0 {
+		t.Fatalf("expected missing source was accepted: total %d, error %v", total, err)
+	}
+	if err := os.WriteFile(path, []byte("rule"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = observeFreshnessFileSeeded(path, &total, buffer, [sha256.Size]byte{}, false, false, true, nil)
+	if err == nil || !strings.Contains(err.Error(), "source appeared") || total != 0 {
+		t.Fatalf("unexpected source was accepted: total %d, error %v", total, err)
+	}
+	present, err := observeFreshnessFileSeeded(path, &total, buffer, [sha256.Size]byte{}, false, true, true, nil)
+	if err != nil || !present.Exists || total != 4 {
+		t.Fatalf("expected source = %+v, total %d, error %v", present, total, err)
 	}
 }
 
