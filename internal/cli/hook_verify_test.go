@@ -59,6 +59,8 @@ func TestHookVerifyOfflineCoversSharedMatrixWithoutLiveClaims(t *testing.T) {
 }
 
 func TestManagedCLIHookVerifyCompletesMatrixWithoutChangingBinary(t *testing.T) {
+	// The fixture must remain a development build even inside a release job.
+	t.Setenv("RELEASE_TAG", "invalid-ambient-release-tag")
 	_, source, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("resolve test source")
@@ -71,7 +73,7 @@ func TestManagedCLIHookVerifyCompletesMatrixWithoutChangingBinary(t *testing.T) 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	build := exec.CommandContext(ctx, "make", "build", "BINDIR="+buildDirectory)
+	build := exec.CommandContext(ctx, "make", "build", "RELEASE_TAG=", "BINDIR="+buildDirectory)
 	build.Dir = moduleRoot
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build product CLI: %v: %s", err, output)

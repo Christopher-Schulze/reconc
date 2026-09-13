@@ -2,11 +2,13 @@
 
 ## Active
 
+
 ## Queue
 
 ## Blocked
 
 ## Done
+- [x] 565 Isolate managed hook verification from release identity -> tasks/done/565-isolate-managed-hook-verification-from-release-identity.md
 - [x] 564 Unify DSH policy and agent workflow -> tasks/done/564-unify-dsh-policy-and-agent-workflow.md
 - [x] 563 Detect upstream host contract drift automatically -> tasks/done/563-detect-upstream-host-contract-drift-automatically.md
 - [x] 562 Deduplicate DSH findings with bounded summaries -> tasks/done/562-deduplicate-dsh-findings-with-bounded-summaries.md
@@ -16,4 +18,3 @@
 - [x] 558 Bound DSH worker lifecycle and memory -> tasks/done/558-bound-dsh-worker-lifecycle-and-memory.md
 - [x] 557 Close DSH execution and provider policy gaps -> tasks/done/557-close-dsh-execution-and-provider-policy-gaps.md
 - [x] 556 Migrate checked benchmark baseline to current contract -> tasks/done/556-migrate-checked-benchmark-baseline-to-current-contract.md
-- [x] 555 Qualify five-host delivery and final gates -> tasks/done/555-qualify-five-host-delivery-and-final-gates.md
