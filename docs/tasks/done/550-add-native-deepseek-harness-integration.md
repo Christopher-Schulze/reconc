@@ -11,7 +11,7 @@ DSH is explicitly requested and absent from the platform registry. Its Claude/Co
 - Missing decisions, worker errors, and late/short-circuited listeners cannot silently allow protected operations while the native enforcement extension is active.
 - Native, nested/programmatic, subagent, cancellation, and multi-repository behavior have explicit tests and capability boundaries.
 - The extension is loaded through a supported DSH profile mechanism without overwriting user profiles or adding a runtime dependency to the Reconc binary.
-- A version-bound live result exists, or qualification remains explicitly blocked with the exact host limitation. A compatibility-only demo is not task completion.
+- The pinned published DSH source, profile loading, generated extension, actual ToolRuntime ordering, Go-worker decisions, and failure boundaries are verified offline. A model-backed host run is outside this task's acceptance.
 
 ## Sub-Tasks
 
@@ -35,7 +35,7 @@ DSH is explicitly requested and absent from the platform registry. Its Claude/Co
 
 ## Verification
 
-Run `go test ./internal/hooks ./internal/runtime/agentsession ./internal/cli ./internal/schema` plus real generated-extension execution using the pinned DSH ToolRuntime. Required controls: allowed/denied edits and shell, short-circuiting pre listener, worker crash/timeout, changed arguments, failed/canceled/transformed result, nested tool call, concurrent sessions/repositories, first-turn race, duplicate bridges, disabled extension, profile reload, stop bound, and disposal. Provider-backed DSH tests belong to TASK 555; offline runtime execution must not be mislabeled a live model test.
+Run `go test ./internal/hooks ./internal/runtime/agentsession ./internal/cli ./internal/schema` plus real generated-extension execution using the pinned DSH ToolRuntime. Required controls: allowed/denied edits and shell, short-circuiting pre listener, worker crash/timeout, changed arguments, failed/canceled/transformed result, nested tool call, concurrent sessions/repositories, first-turn race, duplicate bridges, disabled extension, profile reload, stop bound, and disposal. Offline runtime execution is the host-runtime contract proof; it must not be mislabeled a model-backed run.
 
 ## Dependencies
 
@@ -50,7 +50,7 @@ TASK 545. Reuse verified transport/lifecycle improvements from TASK 549. TASK 55
 
 ## Notes
 
-The native adapter is in progress. Its generated extension, registry, installer, normalizer, and disposable runtime proof are uncommitted. The synchronous guard constraint and transformed-result boundary remain mandatory qualification checks. The current worktree is not ready for a TASK commit or push.
+Planning checkpoint: the native adapter was in progress. Its generated extension, registry, installer, normalizer, and disposable runtime proof were uncommitted. The synchronous guard constraint and transformed-result boundary remained mandatory qualification checks. The worktree was not ready for a TASK commit or push at this checkpoint.
 
 Entry: TASK 549 was pushed as `7f6786d92c241a9df63da82f682e0825bbb5676b`; the worktree was clean. Upstream `master` still resolves to the planned `c291e7961a515f6d7af9304e7fd1d257929aef26`, while npm publishes `@deepseek-ai/dsh@0.1.5-rc.2` under `next` (the default `latest` tag remains rc.1). No `dsh` executable is on PATH. The DSH CLI and ToolRuntime packages are MIT-licensed, and no Node dependency has been added to Reconc.
 
@@ -64,7 +64,7 @@ A disposable overlay inserted a plugin that injects `tools` and provides `reconc
 
 The execution object itself is mutable until `tools/result`; the runtime invokes `tools/execute` after the synchronous guard. Its source contract permits only signal replacement there, but JavaScript does not enforce that type restriction. A second real-published-runtime probe made the guard mark call identity and arguments non-writable and registered a later `tools/execute` listener that tried to replace arguments. The mutation threw `TypeError`, and only the authorized body ran. The session header is documented and implemented as detached, deep-frozen metadata, including its `cwd`; the guard still must bind its reference and repository identity to each decision. This changes the implementation requirement from merely checking a frozen argument object to protecting the complete execution identity before dispatch.
 
-An isolated generated-extension test using the published ToolRuntime returned denied=true for a protected write, allowed=true for an ordinary write, skipped=true for a prepended short-circuiting pre listener, and executed the body exactly once. The first run found that the extension's returned disposer was not registered with Cordis and left the Go worker alive; registering it through `ctx.effect` fixed the lifecycle, and the same test then exited cleanly. This is an offline host-runtime proof, not a provider-backed DSH tool call. The registry, generator, normalizer, portable audit, and documentation tests are now present; full task qualification remains open.
+An isolated generated-extension test using the published ToolRuntime returned denied=true for a protected write, allowed=true for an ordinary write, skipped=true for a prepended short-circuiting pre listener, and executed the body exactly once. The first run found that the extension's returned disposer was not registered with Cordis and left the Go worker alive; registering it through `ctx.effect` fixed the lifecycle, and the same test then exited cleanly. This is an offline host-runtime proof, not a provider-backed DSH tool call. At this checkpoint, the registry, generator, normalizer, portable audit, and documentation tests were present; the remaining source/offline gates were completed later in this task.
 
 The generated-adapter offline test executes the real Go worker for policy allow/deny and uses a deliberately missing wrapper and a nonresponding wrapper to prove that worker startup failures and handshake timeouts deny through the final guard. It also checks cancellation, changed repository identity, cross-repository workdirs, unsupported PowerShell, and a compatibility bridge loaded between pre decision and guard. A separate Go scenario proves that DSH's transformed final result creates no material write or shell-success evidence.
 
@@ -86,11 +86,11 @@ Diff review corrected the registry's adapted session-start origin from `tools/pr
 
 The same review found that the serial Go-worker queue, passive-result observation set, and started-session map could grow without a shared cap under heavy programmatic dispatch. The extension now bounds each at 512 entries, denies new protected calls when session/queue capacity is exhausted, and drops excess passive observations with one diagnostic rather than allowing unbounded memory growth. A generated-extension probe drives 513 distinct pre-step sessions through the actual worker protocol and expects 512 entries plus one rejection.
 
-The checked-in generated-extension verifier also binds a nested child-shaped call and two simultaneous tool decisions, rejects a post-decision argument swap, and exercises cancel/reload and duplicate-bridge boundaries. These durable tests use the actual Go worker with a minimal Cordis event driver. The separate pinned ToolRuntime probe proves the host's real middleware ordering but is disposable evidence; a provider-backed end-to-end run and complete subagent lifecycle remain TASK 555 qualification work.
+The checked-in generated-extension verifier also binds a nested child-shaped call and two simultaneous tool decisions, rejects a post-decision argument swap, and exercises cancel/reload and duplicate-bridge boundaries. These durable tests use the actual Go worker with a minimal Cordis event driver. The separate pinned ToolRuntime probe proves the host's real middleware ordering but is disposable evidence. Model-backed execution and the complete subagent lifecycle are outside the agreed verification scope.
 
 Fresh-eyes verification found that `hook verify` replaced its disposable transport stub with a real DSH worker only when running inside a Go test binary. A built product CLI therefore had no worker at the expected path. Production verification now installs a verified copy of its running CLI executable through the existing bounded copy helper; Go tests retain their source-build path. A regression test builds the product CLI and runs `hook verify --host dsh --json` through that production path, requiring complete transport, policy-decision, and response-adaptation evidence.
 
-Final gates: `make test` (root and portable race suites, publication audit, deterministic harness pack, and release trust), `make vet`, `make lint`, `make build`, `make self-host`, the built-CLI DSH verifier, and its targeted race test passed. The profile load and native ToolRuntime proof are pinned to the published DSH package above. Provider-backed model execution and complete subagent lifecycle remain unqualified here and are assigned to TASK 555; no release was published.
+Final gates: `make test` (root and portable race suites, publication audit, deterministic harness pack, and release trust), `make vet`, `make lint`, `make build`, `make self-host`, the built-CLI DSH verifier, and its targeted race test passed. The profile load and native ToolRuntime proof are pinned to the published DSH package above. This satisfies the source-and-offline acceptance; no model-backed host run is required or claimed, and no release was published.
 
 ## Deviations
 

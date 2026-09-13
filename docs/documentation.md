@@ -4265,6 +4265,12 @@ different facts. Reconc uses these terms consistently:
 | `degraded` | A required artifact, activation, route, identity, API, or live proof is missing or unproven. |
 | `unsupported` | The host does not expose the required lifecycle on that surface, or Reconc intentionally has no sound behavior for it. |
 
+These are runtime diagnostic states, not integration task states. Adapter
+completion requires a pinned upstream contract, generated-artifact and offline
+runtime/worker verification, documentation, and the required repository gates.
+Agent-host or model-backed runs are optional diagnostics outside that acceptance.
+Absent native observations never become `observed` or `enforced` claims.
+
 `hook status` preserves the public activation enum `absent`, `installed`,
 `configured`, `degraded`, `shadowed`, and `unsupported`. Its
 `surface_events`, `expected_events`, `live_events`, `unseen_events`,
@@ -4366,7 +4372,7 @@ must identify itself as Cursor Agent and prefers `cursor-agent` over `agent`.
 The shared DSH discovery contract uses a resolved local `dsh` entrypoint's
 `--version` and DeepSeek Harness identity in `--help`; a numeric version alone
 is insufficient. The official `npx @deepseek-ai/dsh` launcher does not require
-a global `dsh` on PATH. For live verification, run
+a global `dsh` on PATH. Operators who choose optional live verification can run
 `npm exec --yes --package=@deepseek-ai/dsh@0.1.5-rc.2 -- reconc hook verify --live --host dsh --surface cli --allow-authenticated`
 so npm exposes that package's `dsh` entrypoint to the verifier. The verifier
 still requires a model-backed tool call before reporting native enforcement.
@@ -4416,7 +4422,7 @@ contains no second matrix.
 | Kilo Code CLI | `.kilo/plugin/reconc.js` with `KILO_PURE` unset; same lifecycle classes as OpenCode | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code VS Code host | The same canonical project plugin when that host loads external project plugins | CLI observations are never reused as VS Code proof |
 | Oh My Pi CLI | `.omp/extensions/reconc.ts`; native session, input, tool, user-shell, user-Python observation, approval, compaction, shutdown, and awaited main-session Stop routes | OMP 18.1.18 emitted Reconc session, pre-tool, final post-tool, Stop, and shutdown routes in a disposable repository; `tool_call` and `user_bash` have blocking contracts, but native policy denial was not exercised; `user_python` is observed and never decided |
-| DeepSeek Harness CLI | `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml` loaded with the explicit `--patch` overlay through the official `npx @deepseek-ai/dsh` launcher; native pre-tool guard, bounded Stop steering, and final-result observations | The published DSH ToolRuntime blocked a protected write and a skipped pre listener in a disposable repository; a profile load succeeded, but provider-backed model tool calls and Stop steering remain unproven |
+| DeepSeek Harness CLI | `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml` loaded with the explicit `--patch` overlay through the official `npx @deepseek-ai/dsh` launcher; native pre-tool guard, bounded Stop steering, and final-result observations | Pinned source/profile contract, generated extension, published ToolRuntime allow/deny and skipped-pre guard, and real Go-worker adapter paths verified offline; model-backed tool calls and native Stop behavior are outside this proof |
 | Pi Coding Agent | `.pi/extensions/reconc.ts`; trusted-project session, input, tool, user-shell, result, compaction, settled, and shutdown routes | Static extension and saved-trust contract plus per-route liveness; `tool_call` and `user_bash` can enforce before host action, while settled continuation remains inferred |
 | ZCode CLI | `.zcode/config.json`; all seven native session, prompt, tool, permission, failure, and synchronous Stop routes through the documented process executor | Static workspace contract plus per-route liveness; pre-tool, permission, and Stop can block, while host timeouts remain fail-open |
 | Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; the 16 decision- and evidence-carrying hooks of the host's twenty dispatch through receipt-bound bare `reconc` and discover the current repository | Generator-exact global configuration plus installation-receipt executable identity; no live claim without a real Kimi route observation |

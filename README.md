@@ -769,10 +769,16 @@ instead of being reported as successful partial publication.
 | Grok Build | native lifecycle and hard PreToolUse hooks, strict ACP continuation, and leader-mode TUI steering |
 | Kimi Code CLI | explicit user-global `$KIMI_CODE_HOME/config.toml` integration for the 16 decision- and evidence-carrying events of the host's twenty; repository discovery prevents global hooks from acting outside initialized Reconc repositories |
 | Oh My Pi | project-local `.omp/extensions/reconc.ts` ExtensionAPI adapter with native session, prompt, approval, tool-result, generic `session_before_compact`/`session_compact`, shutdown, and synchronous `session_stop` handling, the same policy decision for shell commands the user types, and a redacted observation for Python the user runs, which no policy can decide |
-| DeepSeek Harness | project-owned `.dsh/reconc.mjs` extension plus `.dsh/reconc.patch.yml` overlay, activated explicitly with `npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml` from the repository; asynchronous pre-tool policy and a final synchronous guard gate tool execution, while transformed final results remain observations rather than shell-success proof; one advisory Stop continuation per turn; provider-backed enforcement is not yet claimed |
+| DeepSeek Harness | project-owned `.dsh/reconc.mjs` extension plus `.dsh/reconc.patch.yml` overlay, activated explicitly with `npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml` from the repository; asynchronous pre-tool policy and a final synchronous guard gate tool execution, while transformed final results remain observations rather than shell-success proof; one advisory Stop continuation per turn; pinned source, profile loading, published ToolRuntime, and real Go-worker allow/deny paths verified offline |
 | Pi Coding Agent | trust-aware project-local `.pi/extensions/reconc.ts` extension with blocking tool and user-shell interception, exact tool outcomes, lifecycle and compaction observations, and bounded asynchronous `agent_settled` continuation |
 | ZCode | project-local `.zcode/config.json` integration for all seven native hook events, process-executor transport, hard pre-tool and permission decisions, and synchronous Stop continuation |
 | Declarative custom runtimes | repository-owned `.reconc/runtimes/*.json` manifests map exact host events and JSON Pointers into the neutral lifecycle; `hook bridge` reuses the same policy/session engine and `hook conform` proves the public adapter contract offline |
+
+Integration completion uses pinned upstream contracts, generated-artifact checks,
+offline runtime and worker tests, and the repository's required gates. Agent-host
+and model-backed runs are optional diagnostics, not integration acceptance gates.
+Without a native observation, Reconc does not claim that a route was `observed`
+or `enforced` in a host process.
 
 Integration claims use precise states:
 

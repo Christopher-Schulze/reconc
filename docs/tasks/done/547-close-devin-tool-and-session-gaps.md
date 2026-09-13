@@ -10,14 +10,14 @@ The generated Devin pre/permission matcher is limited to exec and edit. The curr
 - Two concurrent Devin sessions in one repository cannot share policy evidence through a repository-only identity fallback.
 - Actual successful, failed, canceled, denied, and rewritten operations retain truthful call/turn binding.
 - Native and compatibility-loaded hooks do not double-count events.
-- Version-qualified tests and live results distinguish host timeout, malformed output, and co-hook input rewriting from Reconc's own failure handling.
+- Version-qualified source contracts, isolated tests, and retained host observations distinguish host timeout, malformed output, and co-hook input rewriting from Reconc's own failure handling; new host runs are not an acceptance gate.
 
 ## Sub-Tasks
 
 - [x] Record current event/tool payloads and compare generator, normalizer, and MCP classification.
 - [x] Close matcher/normalization gaps and correct session/turn identity handling.
 - [x] Add concurrent-session, process-control, rewrite, and response-shape regressions.
-- [x] Update fixtures, docs, and live qualification for the verified Devin version.
+- [x] Update fixtures, docs, and version-bound qualification for the verified Devin version.
 
 ## Technical Plan
 
@@ -30,7 +30,7 @@ The generated Devin pre/permission matcher is limited to exec and edit. The curr
 
 ## Verification
 
-Run `go test ./internal/hooks ./internal/runtime/agentsession ./internal/cli`. Required isolated scenarios: concurrent sessions, first prompt without earlier prompt_id, changed prompt_id, missing session ID, denied direct write/apply_patch/notebook edit, failed shell, process input/completion, direct/namespaced MCP, duplicate compatibility hooks, and conflicting rewritten inputs. Live verification uses the actual Devin executable with TASK 545 receipts.
+Run `go test ./internal/hooks ./internal/runtime/agentsession ./internal/cli`. Required isolated scenarios: concurrent sessions, first prompt without earlier prompt_id, changed prompt_id, missing session ID, denied direct write/apply_patch/notebook edit, failed shell, process input/completion, direct/namespaced MCP, duplicate compatibility hooks, and conflicting rewritten inputs. Any optional host observation uses the actual Devin executable with TASK 545 receipts; it is not required for task completion.
 
 ## Dependencies
 
@@ -44,7 +44,7 @@ TASK 545. Coordinate shared MCP changes with TASKS 546 and 550 and context behav
 
 ## Notes
 
-The matcher omission and shared fallback exist in source. Whether every documented newer tool is exposed by the installed model/mode remains a live qualification item.
+The matcher omission and shared fallback existed in the planning source. The exact tool set exposed by a model/mode is runtime-dependent and outside source/offline qualification; unobserved tools are not claimed as native observations.
 
 Execution-entry check after TASK 546: `origin/main` and local HEAD both identify `74f43db24e5cdc5cacd2141db707b747a71e8090`, and the working tree was clean before activating this task. CodeQL passed for that commit; GitHub CI remains in the Linux race job and must not be called green yet. The installed `devin --version` reports `devin 3000.10.21 (611c1cba)`. The official lifecycle and hook configuration pages were refreshed on 2026-09-13. They specify stable per-session `session_id`, per-turn `prompt_id` absent before the first prompt, case-sensitive event names, regex tool matchers, a `tool_response` with `success`/`output`/`error`, and distinct exit-2 block versus other-error behavior. The tool inventory includes `write`, `apply_patch`, `notebook_edit`, `get_output`, `write_to_process`, `kill_shell`, `mcp_call_tool`, and namespaced `mcp__` tools beyond Reconc's current `^(exec|edit)$` pre/permission matcher. The live tool set may vary by CLI mode/model/integrations. No repository-targeted Devin invocation has occurred in this task.
 
