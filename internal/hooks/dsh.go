@@ -48,8 +48,10 @@ func preflightDSHPatch(root string) (managedArtifactSnapshot, error) {
 	if err != nil {
 		return managedArtifactSnapshot{}, &rerrors.PolicySourceError{Message: "read " + DSHPatchPath, Cause: err}
 	}
-	if snapshot.exists && string(snapshot.body) != GenerateDSHPatch().Content &&
-		!strings.HasPrefix(string(snapshot.body), "# Managed by reconc. Load with dsh --patch .dsh/reconc.patch.yml.\n") {
+	if snapshot.exists && string(snapshot.body) != GenerateDSHPatch().Content {
+		if strings.HasPrefix(string(snapshot.body), "# Managed by reconc. Load with dsh --patch .dsh/reconc.patch.yml.\n") {
+			return managedArtifactSnapshot{}, &rerrors.PolicySourceError{Message: DSHPatchPath + " has local edits; refusing to overwrite them; preserve custom configuration in a separate DSH overlay"}
+		}
 		return managedArtifactSnapshot{}, &rerrors.PolicySourceError{Message: DSHPatchPath + " is not Reconc-managed; refusing to overwrite the user's DSH patch"}
 	}
 	return snapshot, nil

@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -61,5 +62,31 @@ func TestGovernedBootstrapInstallsCompleteDSHOverlay(t *testing.T) {
 	status, err := hooks.InspectPlatform(repo, hooks.KindDSH)
 	if err != nil || status.State != hooks.StateInstalled || status.Configured || status.Live {
 		t.Fatalf("DSH bootstrap status = %+v, %v", status, err)
+	}
+	file, err := os.OpenFile(filepath.Join(repo, filepath.FromSlash(hooks.DSHPatchPath)), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addition := "\n- id: agent-loop\n  maxSteps: 12\n"
+	_, writeErr := file.WriteString(addition)
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		t.Fatalf("edit DSH patch: write=%v close=%v", writeErr, closeErr)
+	}
+	drift, err := BuildSyncPlan(repo, "test-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	action := syncActionForPath(t, drift, hooks.DSHPatchPath)
+	if action.State != SyncUserDrift || len(drift.BlockingIssues) == 0 {
+		t.Fatalf("edited DSH patch was not protected: %+v", drift)
+	}
+	refused, err := ApplySyncPlan(drift, drift.PlanDigest, "test-version")
+	if err == nil || refused.Status != SyncRefused || len(refused.Changed) != 0 {
+		t.Fatalf("edited DSH patch sync = %+v, %v", refused, err)
+	}
+	got, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(hooks.DSHPatchPath)))
+	if err != nil || !bytes.Equal(got, append(patch, []byte(addition)...)) {
+		t.Fatalf("refused sync changed DSH patch: %q, %v", got, err)
 	}
 }

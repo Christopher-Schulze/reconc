@@ -4602,6 +4602,11 @@ to load it. The CLI accepts a task after these options. A global `dsh`
 installation is not required. Installation does not edit a user profile and
 reports the extension as `installed`, not `configured`; host loading is reported
 separately as live evidence.
+Reinstall and scaffold refresh accept only the exact generated activation
+patch. Local edits are preserved and cause a conflict before other managed
+artifacts change, including with `--force`. Keep custom configuration in a
+separate DSH overlay; preserve existing edits there before restoring the generated
+patch and retrying. Repository sync and uninstall also refuse a drifted patch.
 The overlay injects a `reconcGuard` service into `agent-loop`, so the tool
 runtime cannot start that agent before the extension has mounted. The
 extension awaits the Go policy worker in `tools/pre-execute`, binds an allow

@@ -201,9 +201,10 @@ if (mode === 'composition' || mode === 'observations' || mode === 'decision-limi
       assert.equal(worker.queued, 512)
     } else if (mode === 'json') {
       const values = [null, true, false, 1, -0, 1e-8, {}, [], Array(4), { missing: undefined, array: [undefined, null] }]
+      const encoder = new TextEncoder()
       for (let code = 0; code < 65536; code += 113) values.push({ text: String.fromCharCode(code) + '\n\0"\\😀\ud800\udfff', nested: [code] })
       for (const value of values) {
-        const bytes = Buffer.byteLength(JSON.stringify(value))
+        const bytes = encoder.encode(JSON.stringify(value)).length
         assert.equal(module.jsonBytes(value, bytes), bytes)
         assert.throws(() => module.jsonBytes(value, bytes - 1), /byte budget/)
       }

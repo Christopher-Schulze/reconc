@@ -1,11 +1,72 @@
 package hooks
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestDSHEditedPatchPreservesAllArtifacts(t *testing.T) {
+	for _, action := range []string{"reinstall", "force reinstall", "scaffold sync", "uninstall"} {
+		t.Run(action, func(t *testing.T) {
+			repo := t.TempDir()
+			gitInitRepo(t, repo)
+			if _, err := Install(KindDSH, repo, false); err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range []string{DSHPatchPath, DSHExtensionPath} {
+				file, err := os.OpenFile(filepath.Join(repo, filepath.FromSlash(path)), os.O_APPEND|os.O_WRONLY, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				addition := "\n// user extension change\n"
+				if path == DSHPatchPath {
+					addition = "\n- id: agent-loop\n  maxSteps: 12\n"
+				}
+				_, writeErr := file.WriteString(addition)
+				closeErr := file.Close()
+				if writeErr != nil || closeErr != nil {
+					t.Fatalf("append %s: write=%v close=%v", path, writeErr, closeErr)
+				}
+			}
+			before := map[string][]byte{}
+			for _, path := range []string{DSHPatchPath, DSHExtensionPath, WrapperPath} {
+				body, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(path)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				before[path] = body
+			}
+			var err error
+			switch action {
+			case "scaffold sync":
+				_, err = SyncRepoRootScaffold(repo)
+			case "uninstall":
+				_, err = Uninstall(KindDSH, repo)
+			default:
+				_, err = Install(KindDSH, repo, action == "force reinstall")
+			}
+			if err == nil || !strings.Contains(err.Error(), "refusing") {
+				t.Fatalf("edited patch %s error = %v", action, err)
+			}
+			for path, want := range before {
+				got, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(path)))
+				if err != nil || !bytes.Equal(got, want) {
+					t.Fatalf("%s changed %s: %v", action, path, err)
+				}
+			}
+			other, err := GenerateScaffoldArtifact(KindOpenCode)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(other.TargetPath))); !os.IsNotExist(err) {
+				t.Fatalf("failed operation created another adapter: %v", err)
+			}
+		})
+	}
+}
 
 func TestDSHInstallStatusAndExactRemoval(t *testing.T) {
 	repo := t.TempDir()

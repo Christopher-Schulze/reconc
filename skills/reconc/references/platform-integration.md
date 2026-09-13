@@ -123,12 +123,18 @@ bootstrap does not edit a user profile. Its `agent-loop` depends on the
 extension's `reconcGuard` service. The final synchronous guard denies a call
 without a matching completed Go pre-tool decision, including a skipped pre
 listener. Session CWD and explicit Bash workdir must resolve to the repository
-root; `pwsh` is denied because Reconc has no PowerShell command parser. A
-transformed `tools/result` is an observation, not original shell/file-effect
-proof. Static status is `installed` until the overlay is independently loaded
-and a negative tool probe proves enforcement. Use one patched process per
-repository; concurrent Codex or Claude compatibility bridges are denied.
-Provider-backed model and full subagent lifecycle claims remain unqualified.
+root. Use `DSH_TOOLS_MODE=native`, native file tools, and one-shot `tool-bash`.
+`pwsh`, `run_code`, raw terminal execution, and Bash with an active persistent
+provider are denied because they lack a sound inspectable command contract.
+Delegation through subagent tools, workflow, or ralph requires a registered
+in-process spawn/fork provider; external DSH SDK, Codex, Claude, ACP, and unknown
+providers are refused because they do not inherit the parent's protection.
+Compact `tools/result` metadata is observational, never original shell/file-effect
+proof; use `reconc exec` or CI for trusted evidence. Static status is `installed`;
+host loading and enforcement evidence are reported separately. Use one patched
+process per repository; concurrent Codex or Claude compatibility bridges are
+denied. Pinned source/API review and executable offline policy/adapter tests
+define the integration's acceptance contract.
 
 ZCode snapshots `.zcode/config.json` at session start. Reconc merges only exact
 managed process entries and preserves foreign settings, events, commands, and

@@ -118,13 +118,15 @@ const jsonBytes = (value, limit, depth = 0, ancestors = new Set()) => {
   if (typeof value === 'boolean') return check(value ? 4 : 5)
   if (typeof value === 'number' && Number.isFinite(value)) return check(JSON.stringify(value).length)
   if (typeof value === 'string') {
-    let size = check(2 + Buffer.byteLength(value))
+    let size = check(2 + value.length)
     for (let i = 0; i < value.length; i++) {
       const code = value.charCodeAt(i)
       if (code === 34 || code === 92) size++
       else if (code < 32) size += [8, 9, 10, 12, 13].includes(code) ? 1 : 5
-      else if (code >= 0xd800 && code <= 0xdbff && value.charCodeAt(i + 1) >= 0xdc00 && value.charCodeAt(i + 1) <= 0xdfff) i++
-      else if (code >= 0xd800 && code <= 0xdfff) size += 3
+      else if (code >= 0x80 && code <= 0x7ff) size++
+      else if (code >= 0xd800 && code <= 0xdbff && value.charCodeAt(i + 1) >= 0xdc00 && value.charCodeAt(i + 1) <= 0xdfff) { size += 2; i++ }
+      else if (code >= 0xd800 && code <= 0xdfff) size += 5
+      else if (code > 0x7ff) size += 2
       check(size)
     }
     return size

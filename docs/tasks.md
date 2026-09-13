@@ -3,11 +3,11 @@
 ## Active
 
 ## Queue
-- [ ] 559 Preserve DSH patch edits and finish regression gates -> tasks/559-preserve-dsh-patch-edits-and-finish-regression-gates.md
 
 ## Blocked
 
 ## Done
+- [x] 559 Preserve DSH patch edits and finish regression gates -> tasks/done/559-preserve-dsh-patch-edits-and-finish-regression-gates.md
 - [x] 558 Bound DSH worker lifecycle and memory -> tasks/done/558-bound-dsh-worker-lifecycle-and-memory.md
 - [x] 557 Close DSH execution and provider policy gaps -> tasks/done/557-close-dsh-execution-and-provider-policy-gaps.md
 - [x] 556 Migrate checked benchmark baseline to current contract -> tasks/done/556-migrate-checked-benchmark-baseline-to-current-contract.md
@@ -17,4 +17,3 @@
 - [x] 552 Coordinate binary and skill updates -> tasks/done/552-coordinate-binary-and-skill-updates.md
 - [x] 551 Ship and install owned portable skill -> tasks/done/551-ship-and-install-owned-portable-skill.md
 - [x] 550 Add native DeepSeek Harness integration -> tasks/done/550-add-native-deepseek-harness-integration.md
-- [x] 549 Harden OMP hook order and outcomes -> tasks/done/549-harden-omp-hook-order-and-outcomes.md

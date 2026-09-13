@@ -60,6 +60,10 @@ DeepSeek Harness still requires an explicit launch from the repository root
 with `npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml`;
 a global `dsh` installation is not required. Installed files alone do not
 prove that its native guard is active.
+Keep DSH customization in a separate overlay. Reinstall, scaffold refresh,
+repository sync, and uninstall preserve a modified `.dsh/reconc.patch.yml` and
+refuse the operation, including forced reinstall. Preserve edits in the custom
+overlay before restoring the exact generated patch and retrying.
 Kimi Code is intentionally excluded because its hooks are user-global. Only an
 explicit operator action installs them:
 
