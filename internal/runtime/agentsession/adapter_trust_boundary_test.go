@@ -23,7 +23,7 @@ func TestCloneAdaptersStripForeignMCPEnvelopes(t *testing.T) {
 			return NormalizeCursorPayload("cursor-pre-tool-use", []byte(`{"conversation_id":"s","tool_name":"Read","tool_input":{"path":"README.md"},`+forged+`}`))
 		}},
 		{name: "Devin", normalize: func() ([]byte, error) {
-			body := fmt.Sprintf(`{"hook_event_name":"PreToolUse","session_id":"s","cwd":%q,"tool_name":"read","tool_input":{"path":"README.md"},%s}`, nested, forged)
+			body := fmt.Sprintf(`{"hook_event_name":"PreToolUse","session_id":"s","prompt_id":"turn","tool_use_id":"call","cwd":%q,"tool_name":"read","tool_input":{"path":"README.md"},%s}`, nested, forged)
 			return NormalizeDevinPayload("devin-pre-tool-use", []byte(body), repo)
 		}},
 		{name: "GitHub Copilot", normalize: func() ([]byte, error) {
@@ -65,7 +65,7 @@ func TestDevinRouteAndWorkingDirectoryBinding(t *testing.T) {
 	if err := os.Mkdir(nested, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	valid := fmt.Sprintf(`{"hook_event_name":"PreToolUse","session_id":"s","cwd":%q,"tool_name":"edit","tool_input":{"path":"a.go"}}`, nested)
+	valid := fmt.Sprintf(`{"hook_event_name":"PreToolUse","session_id":"s","prompt_id":"turn","tool_use_id":"call","cwd":%q,"tool_name":"edit","tool_input":{"path":"a.go"}}`, nested)
 	if _, err := NormalizeDevinPayload("devin-pre-tool-use", []byte(valid), repo); err != nil {
 		t.Fatalf("nested repository cwd rejected: %v", err)
 	}
@@ -73,9 +73,9 @@ func TestDevinRouteAndWorkingDirectoryBinding(t *testing.T) {
 		name string
 		body string
 	}{
-		{name: "route mismatch", body: fmt.Sprintf(`{"hook_event_name":"PostToolUse","session_id":"s","cwd":%q,"tool_name":"edit","tool_input":{}}`, repo)},
-		{name: "foreign cwd", body: fmt.Sprintf(`{"hook_event_name":"PreToolUse","session_id":"s","cwd":%q,"tool_name":"edit","tool_input":{}}`, outside)},
-		{name: "missing cwd", body: `{"hook_event_name":"PreToolUse","session_id":"s","tool_name":"edit","tool_input":{}}`},
+		{name: "route mismatch", body: fmt.Sprintf(`{"hook_event_name":"PostToolUse","session_id":"s","prompt_id":"turn","tool_use_id":"call","cwd":%q,"tool_name":"edit","tool_input":{}}`, repo)},
+		{name: "foreign cwd", body: fmt.Sprintf(`{"hook_event_name":"PreToolUse","session_id":"s","prompt_id":"turn","tool_use_id":"call","cwd":%q,"tool_name":"edit","tool_input":{}}`, outside)},
+		{name: "missing cwd", body: `{"hook_event_name":"PreToolUse","session_id":"s","prompt_id":"turn","tool_use_id":"call","tool_name":"edit","tool_input":{}}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := NormalizeDevinPayload("devin-pre-tool-use", []byte(test.body), repo); err == nil {

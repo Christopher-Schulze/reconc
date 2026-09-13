@@ -4854,9 +4854,33 @@ namespace, which is how MCP calls reach the MCP policy path. After compaction, t
 `compact` matcher restores a bounded recovery packet; native `PostCompact` is
 retained as an observation event because it cannot inject context. Devin uses
 `.devin/hooks.v1.json`, including native `UserPromptSubmit` and
-`PostCompaction`, validates each native event against its selected route,
-requires an identity-resolved `cwd` inside the selected repository, and
-suppresses compatible Claude-hook duplicates.
+`PostCompaction`, validates each native event against its selected route, and
+suppresses compatible Claude-hook duplicates. Native tool events require
+`session_id`, `prompt_id`, and `tool_use_id`; SessionStart may precede the first
+`prompt_id`. Native payloads need no `cwd` when `DEVIN_PROJECT_DIR` resolves to
+the selected repository. Generated matchers cover the documented file, shell,
+process, and MCP tool names. File writes and shell preflights use the policy
+gate for the native input it receives. `write_to_process`, `mcp_call_tool`,
+namespaced MCP, and unclassified names that reach the generated matcher are
+blocked until their exact execution and correlation envelopes are qualified.
+`get_output` and `kill_shell` remain passive. A successful post
+callback contributes file evidence only when its session, turn, call, and
+input match one allowed PreToolUse; failed, rewritten, post-only, and duplicate
+callbacks contribute no successful file evidence. On the installed
+`devin 3000.10.21 (611c1cba)`, `exec` reported `success=true` for an exact
+`exit 7` without a structured shell exit. Reconc therefore does not accept
+native direct-shell success from that boolean or output text; use `reconc exec`
+for authoritative shell-success evidence. One isolated native write-denial
+control on that version reached PreToolUse and left the protected file absent.
+Independent live controls on the same installed host showed that hook timeout
+and malformed hook JSON let a requested write execute. A correctly formed
+`hookSpecificOutput.updatedInput` changed a write path and content before
+execution. When one hook approved the original path and a later hook rewrote
+it to a blocked path, Devin wrote the blocked path; Reconc's post correlation
+rejects changed-input evidence but cannot undo that host mutation. The native
+hook is therefore an advisory pre-execution control under host timeout or
+later input rewrites; retain the git-derived checkpoint and pre-commit gate.
+Unexercised tool names remain unproven live.
 Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
 `PostToolUse`, `PostInvocation`, and `Stop`; Reconc stores Antigravity PreTool
 metadata as pending evidence so PostToolUse can record exact evidence when the
@@ -5073,8 +5097,8 @@ session-state failure and repeated-stop release stays unavailable.
 Repeated identical policy feedback shrinks to stable `RB-*` feedback IDs,
 rule IDs, and the saved report path. PreToolUse evaluates only pre-execution
 write/shell rules,
-generated Claude, Codex, GitHub Copilot, Cursor, Devin, Antigravity, and Grok configs do not spawn PreToolUse for
-read-only matchers, authoritative PostToolUse events record evidence while
+generated Claude, Codex, GitHub Copilot, Cursor, Antigravity, and Grok configs do not spawn PreToolUse for
+read-only matchers; Devin also observes read-only tool names to bind native pre/post identity. Authoritative PostToolUse events record evidence while
 Cursor `afterShellExecution` records only passive liveness,
 and repo-wide policy audits run at terminal Stop, explicit Reconc checks, or a
 bounded repository-run checkpoint. Checkpoints occur after 64 material events,

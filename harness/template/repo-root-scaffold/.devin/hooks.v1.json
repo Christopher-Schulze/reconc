@@ -8,7 +8,7 @@
           "type": "command"
         }
       ],
-      "matcher": "^(exec|edit)$"
+      "matcher": "^(exec|read|write|edit|apply_patch|notebook_edit|grep|glob|get_output|write_to_process|kill_shell|mcp_call_tool|mcp__.*)$"
     }
   ],
   "PostCompaction": [
@@ -31,7 +31,7 @@
           "type": "command"
         }
       ],
-      "matcher": "^(read|edit|grep|glob|exec|mcp__.*)$"
+      "matcher": "^(exec|read|write|edit|apply_patch|notebook_edit|grep|glob|get_output|write_to_process|kill_shell|mcp_call_tool|mcp__.*)$"
     }
   ],
   "PreToolUse": [
@@ -43,7 +43,7 @@
           "type": "command"
         }
       ],
-      "matcher": "^(exec|edit)$"
+      "matcher": "^(exec|read|write|edit|apply_patch|notebook_edit|grep|glob|get_output|write_to_process|kill_shell|mcp_call_tool|mcp__.*)$"
     }
   ],
   "SessionEnd": [

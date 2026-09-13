@@ -18,8 +18,8 @@
     {
       "path": "tools/reconc/harness/template/BOOTSTRAP.md",
       "mode": 420,
-      "size": 48395,
-      "sha256": "c642dea0ad9beb64eeba85181a5b846516c53f25de2e7e7c07a82344d46276f4",
+      "size": 48561,
+      "sha256": "486073abbf1ed86dda9e131c6b2de89bb14b6b5709346f870ebb6b4dde01e39f",
       "ownership": "pack-file"
     },
     {
@@ -529,8 +529,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.devin/hooks.v1.json",
       "mode": 420,
-      "size": 2097,
-      "sha256": "52a188ecd1cd84b6ee0f67910171d7a339c788dd4638f1738fee612871a36565",
+      "size": 2398,
+      "sha256": "f0e5edb8d0b2df6fdbcbddbd9038f66ab3da09e991d7b07d3ea90b03253755ed",
       "ownership": "pack-file"
     },
     {
@@ -849,6 +849,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 869399,
-  "digest": "e35bc5c31c0a658a426e5d123d691ff9c3ad71016e9de7b4e4ee5e7a5a230ab0"
+  "total_bytes": 869866,
+  "digest": "93044310171bbbb7056fc21d63642354a9642cdde87ff306ff5b1167f6765af1"
 }

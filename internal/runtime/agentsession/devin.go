@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -23,9 +25,13 @@ var devinNativeEvents = newNativeEventRegistry(
 	nativeEventBinding{route: "devin-post-compaction", primary: "PostCompaction"},
 )
 
+// ErrDevinUnsupportedTool lets the CLI expose a fixed, non-sensitive block
+// reason without reflecting untrusted tool arguments or names into diagnostics.
+var ErrDevinUnsupportedTool = errors.New("unsupported Devin tool is blocked")
+
 // NormalizeDevinPayload converts Devin CLI hook payloads into the internal
-// payload contract. Devin does not guarantee session_id on every event, so a
-// stable repo-scoped identity is derived when no explicit identity exists.
+// payload contract. The native session_id separates concurrent sessions in
+// one repository; prompt_id binds a tool call to its originating turn.
 func NormalizeDevinPayload(event string, payloadBytes []byte, repoRoot string) ([]byte, error) {
 	if len(bytes.TrimSpace(payloadBytes)) == 0 {
 		return nil, fmt.Errorf("devin payload is empty")
@@ -34,7 +40,7 @@ func NormalizeDevinPayload(event string, payloadBytes []byte, repoRoot string) (
 		return nil, err
 	}
 	var raw map[string]interface{}
-	if err := json.Unmarshal(payloadBytes, &raw); err != nil {
+	if err := jsonv2.Unmarshal(payloadBytes, &raw); err != nil {
 		return nil, fmt.Errorf("devin payload is not valid JSON: %w", err)
 	}
 	if raw == nil {
@@ -43,13 +49,29 @@ func NormalizeDevinPayload(event string, payloadBytes []byte, repoRoot string) (
 	if err := validateDevinEvent(event, raw); err != nil {
 		return nil, err
 	}
-	if err := validateHookPayloadCWD(cursorFirstString(raw, "cwd"), repoRoot, "Devin CLI"); err != nil {
+	if err := validateDevinProjectBinding(raw, repoRoot); err != nil {
 		return nil, err
+	}
+	sessionID, ok := raw["session_id"].(string)
+	if !ok {
+		return nil, fmt.Errorf("devin payload requires native session_id")
+	}
+	if err := validateSessionID(sessionID); err != nil {
+		return nil, fmt.Errorf("invalid Devin session_id: %w", err)
+	}
+	promptID, hasPrompt := raw["prompt_id"].(string)
+	if value, present := raw["prompt_id"]; present {
+		if !hasPrompt {
+			return nil, fmt.Errorf("invalid Devin prompt_id type %T", value)
+		}
+		if err := validateSessionID(promptID); err != nil {
+			return nil, fmt.Errorf("invalid Devin prompt_id: %w", err)
+		}
 	}
 
 	out := cloneObject(raw)
 	delete(out, "reconc_mcp")
-	out["session_id"] = devinSessionID(raw, repoRoot)
+	out["session_id"] = sessionID
 	out["reconc_runtime"] = "devin"
 	out["devin_event"] = event
 	if value, ok := cursorFirstBool(raw, "stop_hook_active", "stopHookActive", "isStopHookActive"); ok {
@@ -61,20 +83,45 @@ func NormalizeDevinPayload(event string, payloadBytes []byte, repoRoot string) (
 
 	switch event {
 	case "devin-pre-tool-use", "devin-post-tool-use", "devin-permission-request":
-		name := normalizeDevinToolName(cursorFirstString(raw, "tool_name", "toolName", "name"))
-		if name != "" {
-			out["tool_name"] = name
+		delete(out, "error")
+		delete(out, "exit_code")
+		delete(out, "exitCode")
+		delete(out, "status_code")
+		delete(out, "statusCode")
+		if !hasPrompt {
+			return nil, fmt.Errorf("devin tool event has no native prompt_id; refusing unbound tool evidence")
 		}
-		input := cursorFirstObject(raw, "tool_input", "toolInput", "input", "args")
-		cursorAddPath(raw, input)
-		if command := cursorFirstString(raw, "command", "cmd", "script"); command != "" && strings.TrimSpace(cursorString(input, "command")) == "" {
-			input["command"] = command
+		callID, ok := raw["tool_use_id"].(string)
+		if !ok {
+			return nil, fmt.Errorf("devin tool event requires native tool_use_id")
+		}
+		if err := validateSessionID(callID); err != nil {
+			return nil, fmt.Errorf("invalid Devin tool_use_id: %w", err)
+		}
+		sum := sha256.Sum256([]byte(promptID + "\x00" + callID))
+		out["tool_use_id"] = "devin-" + hex.EncodeToString(sum[:])
+		rawName, ok := raw["tool_name"].(string)
+		if !ok || rawName == "" || strings.TrimSpace(rawName) != rawName {
+			return nil, fmt.Errorf("devin tool event requires an exact native tool_name")
+		}
+		if event != "devin-post-tool-use" {
+			if err := validateDevinPreTool(rawName); err != nil {
+				return nil, err
+			}
+		}
+		input, valid := raw["tool_input"].(map[string]interface{})
+		if !valid {
+			return nil, fmt.Errorf("devin tool event requires native tool_input object")
+		}
+		out["tool_name"] = normalizeDevinToolName(rawName)
+		if event != "devin-post-tool-use" && rawName == "exec" && strings.TrimSpace(cursorString(input, "command")) == "" {
+			return nil, fmt.Errorf("devin exec has no native command and is blocked")
 		}
 		out["tool_input"] = input
-		response := cursorFirstObject(raw, "tool_response", "toolResponse", "response", "result", "output")
-		for _, key := range []string{"exit_code", "exitCode", "status_code", "statusCode", "stdout", "stderr", "error", "success"} {
-			if value, ok := raw[key]; ok {
-				response[key] = value
+		response := cursorFirstObject(raw, "tool_response")
+		if value, ok := raw["stderr"]; ok {
+			if _, present := response["stderr"]; !present {
+				response["stderr"] = value
 			}
 		}
 		if len(response) > 0 {
@@ -89,6 +136,22 @@ func NormalizeDevinPayload(event string, payloadBytes []byte, repoRoot string) (
 	return body, nil
 }
 
+func validateDevinPreTool(name string) error {
+	switch name {
+	case "exec", "read", "write", "edit", "apply_patch", "notebook_edit", "grep", "glob", "get_output", "kill_shell":
+		return nil
+	case "write_to_process":
+		return fmt.Errorf("%w: write_to_process cannot be bound to the original exec", ErrDevinUnsupportedTool)
+	case "mcp_call_tool":
+		return fmt.Errorf("%w: mcp_call_tool has no verified selector envelope", ErrDevinUnsupportedTool)
+	default:
+		if strings.HasPrefix(name, namespacedMCPPrefix) {
+			return fmt.Errorf("%w: namespaced MCP has no verified host envelope", ErrDevinUnsupportedTool)
+		}
+		return fmt.Errorf("%w: unclassified tool name", ErrDevinUnsupportedTool)
+	}
+}
+
 func validateDevinEvent(event string, raw map[string]interface{}) error {
 	binding, supported := devinNativeEvents.lookup(event)
 	if !supported {
@@ -96,6 +159,28 @@ func validateDevinEvent(event string, raw map[string]interface{}) error {
 	}
 	if cursorFirstString(raw, "hook_event_name", "hookEventName") != binding.primary {
 		return fmt.Errorf("devin CLI payload hook_event_name does not match the selected route")
+	}
+	return nil
+}
+
+func validateDevinProjectBinding(raw map[string]interface{}, repoRoot string) error {
+	projectDir := os.Getenv("DEVIN_PROJECT_DIR")
+	if projectDir != "" {
+		project, projectErr := pathidentity.ResolveExisting(projectDir)
+		root, rootErr := pathidentity.ResolveExisting(repoRoot)
+		if projectErr != nil || rootErr != nil || project != root {
+			return fmt.Errorf("devin CLI project directory does not match the resolved repository")
+		}
+	}
+	if value, present := raw["cwd"]; present {
+		cwd, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("devin CLI payload cwd must be a string")
+		}
+		return validateHookPayloadCWD(cwd, repoRoot, "Devin CLI")
+	}
+	if projectDir == "" {
+		return fmt.Errorf("devin CLI payload has no cwd and DEVIN_PROJECT_DIR is unavailable")
 	}
 	return nil
 }
@@ -125,21 +210,6 @@ func PayloadLooksLikeDevin(payloadBytes []byte, repoRoot string) bool {
 	return strings.Contains(source, "devin")
 }
 
-func devinSessionID(raw map[string]interface{}, repoRoot string) string {
-	if sessionID := cursorFirstString(raw,
-		"session_id", "sessionId", "conversation_id", "conversationId",
-		"generation_id", "generationId", "request_id", "requestId",
-		"workspace_id", "workspaceId", "project_id", "projectId",
-	); sessionID != "" {
-		return sessionID
-	}
-	if envSession := strings.TrimSpace(os.Getenv("DEVIN_SESSION_ID")); envSession != "" {
-		return envSession
-	}
-	sum := sha256.Sum256([]byte(strings.TrimSpace(repoRoot)))
-	return "devin-" + hex.EncodeToString(sum[:])[:12]
-}
-
 func normalizeDevinToolName(name string) string {
 	trimmed := strings.TrimSpace(name)
 	cleaned := strings.ToLower(strings.NewReplacer("_", "", "-", "", " ", "").Replace(trimmed))
@@ -150,6 +220,10 @@ func normalizeDevinToolName(name string) string {
 		return "Read"
 	case "edit", "write", "multiedit", "strreplace", "delete", "fileedit":
 		return "Write"
+	case "notebookedit":
+		return "NotebookEdit"
+	case "applypatch":
+		return "apply_patch"
 	default:
 		return trimmed
 	}

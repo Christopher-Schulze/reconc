@@ -2,7 +2,7 @@
   "host": "devin-cli",
   "display_name": "Devin CLI",
   "source_url": "https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks",
-  "capture_date": "2026-08-07",
+  "capture_date": "2026-09-13",
   "scope": "Every lifecycle hook event the published reference names.",
   "events": [
     {

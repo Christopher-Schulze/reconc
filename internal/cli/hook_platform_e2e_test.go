@@ -26,7 +26,7 @@ func TestHookRuntimeDevinNativeShapeBlocksDeniedWrite(t *testing.T) {
 		"hook", "runtime", "devin-session-start", repo)
 
 	_, stderr, code := runWithStdin(t,
-		fmt.Sprintf(`{"hook_event_name":"PreToolUse","session_id":"devin-1","cwd":%q,"tool_name":"edit","tool_input":{"file_path":"generated/blocked.go"}}`, repo),
+		fmt.Sprintf(`{"hook_event_name":"PreToolUse","session_id":"devin-1","prompt_id":"turn-1","tool_use_id":"call-1","cwd":%q,"tool_name":"edit","tool_input":{"file_path":"generated/blocked.go"}}`, repo),
 		"hook", "runtime", "devin-pre-tool-use", repo)
 	if code != 2 || !strings.Contains(stderr, "deny-gen") {
 		t.Fatalf("Devin native payload must block denied write, code=%d stderr=%q", code, stderr)

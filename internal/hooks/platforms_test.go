@@ -409,7 +409,7 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, token := range []string{`"UserPromptSubmit"`, "devin-user-prompt-submit", `"PostCompaction"`, "devin-post-compaction", `"timeout": 5`, `"matcher": "^(exec|edit)$"`} {
+	for _, token := range []string{`"UserPromptSubmit"`, "devin-user-prompt-submit", `"PostCompaction"`, "devin-post-compaction", `"timeout": 5`, `"matcher": "^(exec|read|write|edit|apply_patch|notebook_edit|grep|glob|get_output|write_to_process|kill_shell|mcp_call_tool|mcp__.*)$"`} {
 		if !strings.Contains(devin.Content, token) {
 			t.Fatalf("Devin artifact missing %q:\n%s", token, devin.Content)
 		}

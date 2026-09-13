@@ -13,11 +13,13 @@ const (
 	HookHandlerPassive               HookHandler = "passive"
 	HookHandlerWorkspaceOpen         HookHandler = "workspace-open"
 	HookHandlerPreToolUse            HookHandler = "pre-tool-use"
+	HookHandlerDevinPreToolUse       HookHandler = "devin-pre-tool-use"
 	HookHandlerPermissionRequest     HookHandler = "permission-request"
 	HookHandlerPostToolUse           HookHandler = "post-tool-use"
 	HookHandlerPostToolUseFailure    HookHandler = "post-tool-use-failure"
 	HookHandlerPostToolUseComplete   HookHandler = "post-tool-use-complete"
 	HookHandlerPostToolUseStrict     HookHandler = "post-tool-use-strict"
+	HookHandlerDevinPostToolUse      HookHandler = "devin-post-tool-use"
 	HookHandlerCodexPostToolUse      HookHandler = "codex-post-tool-use"
 	HookHandlerCodexPermission       HookHandler = "codex-permission"
 	HookHandlerCodexSubagentStop     HookHandler = "codex-subagent-stop"
@@ -74,6 +76,8 @@ func RunHookRequestWithEvaluatorAndStopCache(
 		return Result{}
 	case HookHandlerPreToolUse:
 		return runPreDecisionResolvedWithEvaluatorAndStopCache(root.path, payload, false, evaluator, stopCache)
+	case HookHandlerDevinPreToolUse:
+		return runDevinPreToolUseResolved(root.path, payload, evaluator, stopCache)
 	case HookHandlerPermissionRequest:
 		return runPreDecisionResolvedWithEvaluatorAndStopCache(root.path, payload, true, evaluator, stopCache)
 	case HookHandlerPostToolUse:
@@ -84,6 +88,8 @@ func RunHookRequestWithEvaluatorAndStopCache(
 		return runPostToolUseCompleteResolved(root.path, payload)
 	case HookHandlerPostToolUseStrict:
 		return runPostToolUseCompleteStrictResolved(root.path, payload)
+	case HookHandlerDevinPostToolUse:
+		return runDevinPostToolUseResolved(root.path, payload)
 	case HookHandlerCodexPostToolUse:
 		return runCodexPostToolUseResolved(root.path, payload)
 	case HookHandlerCodexPermission:

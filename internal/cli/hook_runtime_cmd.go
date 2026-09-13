@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -432,6 +433,9 @@ func emitHookRuntimeFailure(adaptation hookRuntimeFailureAdaptation, stdout, std
 }
 
 func hookRuntimeBoundaryDiagnostic(platformKind string, operation hookRuntimeFailureStage, err error) string {
+	if platformKind == hooks.KindDevinCLI && errors.Is(err, agentsession.ErrDevinUnsupportedTool) {
+		return "Reconc blocked an unsupported Devin tool; process input and MCP dispatch need a verified native envelope."
+	}
 	displayName := map[string]string{
 		hooks.KindCursor:        "Cursor",
 		hooks.KindDevinCLI:      "Devin CLI",
@@ -507,6 +511,9 @@ func hookHandlerForRoute(event string, route hooks.RuntimeRoute) (agentsession.H
 		}
 		return agentsession.HookHandlerPassive, true
 	case hooks.EventPreToolUse:
+		if route.PlatformKind == hooks.KindDevinCLI {
+			return agentsession.HookHandlerDevinPreToolUse, true
+		}
 		if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo || route.PlatformKind == hooks.KindOMP || route.PlatformKind == hooks.KindPi || route.PlatformKind == hooks.KindZCode {
 			return agentsession.HookHandlerMCPAwarePreToolUse, true
 		}
@@ -527,7 +534,7 @@ func hookHandlerForRoute(event string, route hooks.RuntimeRoute) (agentsession.H
 			return agentsession.HookHandlerCodexPostToolUse, true
 		}
 		if event == "devin-post-tool-use" {
-			return agentsession.HookHandlerPostToolUseComplete, true
+			return agentsession.HookHandlerDevinPostToolUse, true
 		}
 		return agentsession.HookHandlerPostToolUse, true
 	case hooks.EventPostToolUseFailure:

@@ -31,12 +31,13 @@ func generateDevinCLI() (*Artifact, error) {
 		}
 		return out
 	}
+	const devinToolMatcher = "^(exec|read|write|edit|apply_patch|notebook_edit|grep|glob|get_output|write_to_process|kill_shell|mcp_call_tool|mcp__.*)$"
 	template := map[string]interface{}{
 		"SessionStart":      []interface{}{entry("devin-session-start", EventSessionStart, "")},
 		"UserPromptSubmit":  []interface{}{entry("devin-user-prompt-submit", EventUserPromptSubmit, "")},
-		"PreToolUse":        []interface{}{entry("devin-pre-tool-use", EventPreToolUse, "^(exec|edit)$")},
-		"PermissionRequest": []interface{}{entry("devin-permission-request", EventPermissionRequest, "^(exec|edit)$")},
-		"PostToolUse":       []interface{}{entry("devin-post-tool-use", EventPostToolUse, "^(read|edit|grep|glob|exec|mcp__.*)$")},
+		"PreToolUse":        []interface{}{entry("devin-pre-tool-use", EventPreToolUse, devinToolMatcher)},
+		"PermissionRequest": []interface{}{entry("devin-permission-request", EventPermissionRequest, devinToolMatcher)},
+		"PostToolUse":       []interface{}{entry("devin-post-tool-use", EventPostToolUse, devinToolMatcher)},
 		"Stop":              []interface{}{entry("devin-stop", EventStop, "")},
 		"SessionEnd":        []interface{}{entry("devin-session-end", EventSessionEnd, "")},
 		"PostCompaction":    []interface{}{entry("devin-post-compaction", EventPostCompaction, "")},

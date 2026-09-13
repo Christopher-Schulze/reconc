@@ -663,7 +663,7 @@ func task499PluginPayload(repo, sessionID, path, toolID string) string {
 }
 
 func task499DevinPayload(repo, sessionID, path, toolID string) string {
-	return fmt.Sprintf(`{"hook_event_name":"PreToolUse","session_id":%q,"cwd":%q,"tool_name":"edit","tool_input":{"file_path":%q},"tool_use_id":%q}`, sessionID, repo, path, toolID)
+	return fmt.Sprintf(`{"hook_event_name":"PreToolUse","session_id":%q,"prompt_id":"scenario-turn","cwd":%q,"tool_name":"edit","tool_input":{"file_path":%q},"tool_use_id":%q}`, sessionID, repo, path, toolID)
 }
 
 func task499AntigravityPayload(repo, sessionID, path, toolID string) string {
