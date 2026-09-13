@@ -127,11 +127,14 @@ func cursorDocumentedSurfaces(nativeEvent string) []HostSurface {
 		HostSurfaceCursorDesktopCmdK,
 	}
 	switch nativeEvent {
-	case "sessionStart", "sessionEnd", "preToolUse", "postToolUse", "beforeSubmitPrompt", "stop":
+	case "sessionStart", "sessionEnd", "preToolUse", "postToolUse", "postToolUseFailure",
+		"beforeShellExecution", "afterShellExecution", "afterFileEdit", "beforeSubmitPrompt", "stop":
 		surfaces = append(surfaces,
 			HostSurfaceCursorCLIInteractive,
 			HostSurfaceCursorCLIPrint,
 		)
+	case "beforeMCPExecution", "afterMCPExecution":
+		surfaces = append(surfaces, HostSurfaceCursorCLIPrint)
 	case "workspaceOpen":
 		return append(surfaces,
 			HostSurfaceCursorCLIInteractive,

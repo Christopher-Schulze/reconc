@@ -108,6 +108,8 @@ type SessionState struct {
 	ConsumedApprovalIdentities []string `json:"consumed_approval_identities,omitempty"`
 	MaterialEvents             uint64   `json:"material_events,omitempty"`
 	LastMaterialSignature      string   `json:"last_material_signature,omitempty"`
+	CursorPendingWriteKey      string   `json:"cursor_pending_write_key,omitempty"`
+	CursorPendingWriteSource   string   `json:"cursor_pending_write_source,omitempty"`
 	GrokSteerAttempts          uint64   `json:"grok_steer_attempts,omitempty"`
 	GrokSteerContinuationKey   string   `json:"grok_steer_continuation_key,omitempty"`
 	GrokSteerMaterialEvents    uint64   `json:"grok_steer_material_events,omitempty"`

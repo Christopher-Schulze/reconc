@@ -1,10 +1,10 @@
 {
   "host": "cursor",
   "display_name": "Cursor",
-  "host_version": "desktop 3.13.21; CLI 2026.07.23-e383d2b",
+  "host_version": "desktop 3.13.21; CLI 2026.09.10-fd3934a",
   "source_url": "https://cursor.com/docs/hooks",
-  "capture_date": "2026-08-07",
-  "scope": "All twenty-one current host events across the Agent, Tab, and app-lifecycle surfaces.",
+  "capture_date": "2026-09-13",
+  "scope": "Official inventory of twenty-one host events; CLI interactive and print observations are version-bound and documented in TASK 548.",
   "events": [
     {
       "name": "sessionStart",

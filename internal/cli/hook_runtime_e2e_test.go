@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -436,7 +437,7 @@ func TestHookRuntimeCursorSuccessFailureAndPassiveShellAreSeparated(t *testing.T
 		"hook", "runtime", "cursor-session-start", repo)
 
 	_, _, code := runWithStdin(t,
-		`{"conversation_id":"cur3","tool_name":"Shell","tool_input":{"command":"go test ./..."}}`,
+		`{"conversation_id":"cur3","tool_name":"Shell","tool_input":{"command":"go test ./..."},"tool_output":"{\"exitCode\":0,\"output\":\"ok\"}"}`,
 		"hook", "runtime", "cursor-post-tool-use", repo)
 	if code != 0 {
 		t.Fatalf("Cursor post-tool success should pass, got %d", code)
@@ -468,6 +469,44 @@ func TestHookRuntimeCursorSuccessFailureAndPassiveShellAreSeparated(t *testing.T
 	}
 }
 
+func TestHookRuntimeCursorShellPostNeedsStructuredSuccess(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	_, _, _ = runWithStdin(t, `{"conversation_id":"cursor-strict"}`,
+		"hook", "runtime", "cursor-session-start", repo)
+	for _, test := range []struct {
+		name, output, want string
+	}{
+		{"valid success", `{"exitCode":0,"output":"ok"}`, "success"},
+		{"nonzero", `{"exitCode":7,"output":"failed"}`, "failure"},
+		{"missing exit", `{"output":"unknown"}`, "failure"},
+		{"invalid exit", `{"exitCode":"0"}`, "failure"},
+		{"invalid JSON", `not-json`, "failure"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			payload, err := json.Marshal(map[string]interface{}{
+				"conversation_id": "cursor-strict", "tool_name": "Shell",
+				"tool_input":  map[string]string{"command": "true"},
+				"tool_output": test.output, "tool_use_id": test.name,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, stderr, code := runWithStdin(t, string(payload), "hook", "runtime", "cursor-post-tool-use", repo)
+			if code != 0 || stderr != "" {
+				t.Fatalf("hook: exit=%d stderr=%q", code, stderr)
+			}
+			state, err := agentsession.LoadSessionState(repo, "cursor-strict")
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := state.CommandResults[len(state.CommandResults)-1]
+			if got.Outcome != test.want {
+				t.Fatalf("outcome=%q, want %q", got.Outcome, test.want)
+			}
+		})
+	}
+}
+
 func TestHookRuntimeCursorGenericAndSpecializedWritesDeduplicate(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	_, _, _ = runWithStdin(t, `{"conversation_id":"cur-dedup"}`,
@@ -492,6 +531,33 @@ func TestHookRuntimeCursorGenericAndSpecializedWritesDeduplicate(t *testing.T) {
 	}
 	if len(state.WritePaths) != 1 || state.EvidenceEpoch != 1 || state.WriteEpochs["src/app.go"] != 1 {
 		t.Fatalf("duplicate write changed evidence more than once: %#v", state)
+	}
+}
+
+func TestHookRuntimeCursorLiveOrderWritePairAndRepeatedPath(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	_, _, _ = runWithStdin(t, `{"conversation_id":"cursor-live-order"}`,
+		"hook", "runtime", "cursor-session-start", repo)
+	for i := 0; i < 2; i++ {
+		for _, step := range []struct{ event, payload string }{
+			{"cursor-after-file-edit", `{"conversation_id":"cursor-live-order","generation_id":"generation-1","file_path":"src/app.go"}`},
+			{"cursor-post-tool-use", `{"conversation_id":"cursor-live-order","generation_id":"generation-1","tool_name":"Write","tool_input":{"file_path":"src/app.go"},"tool_use_id":"reused-id","tool_output":"edited"}`},
+		} {
+			for copy := 0; copy < 2; copy++ {
+				_, stderr, code := runWithStdin(t, step.payload, "hook", "runtime", step.event, repo)
+				if code != 0 || stderr != "" {
+					t.Fatalf("%s copy %d: exit=%d stderr=%q", step.event, copy, code, stderr)
+				}
+			}
+		}
+		state, err := agentsession.LoadSessionState(repo, "cursor-live-order")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := uint64(i + 1)
+		if state.EvidenceEpoch != want || state.WriteEpochs["src/app.go"] != want || state.MaterialEvents != want {
+			t.Fatalf("write pair %d counted incorrectly: epoch=%d write=%d material=%d", i+1, state.EvidenceEpoch, state.WriteEpochs["src/app.go"], state.MaterialEvents)
+		}
 	}
 }
 

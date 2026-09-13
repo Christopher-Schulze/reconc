@@ -319,6 +319,56 @@ func TestCursorMCPOutcomeRequiresExplicitSuccess(t *testing.T) {
 	}
 }
 
+func TestCursorMCPCurrentCLIStringInputAndResultJSON(t *testing.T) {
+	for _, test := range []struct {
+		event, body, wantPhase, wantOutcome string
+	}{
+		{"cursor-before-mcp-execution", `{"conversation_id":"cli-mcp","tool_name":"reconc_probe_echo","mcp_server_name":"reconc-cursor-probe","command":"python3 /tmp/probe.py","tool_input":"{}"}`, "before", ""},
+		{"cursor-after-mcp-execution", `{"conversation_id":"cli-mcp","tool_name":"reconc_probe_echo","mcp_server_name":"reconc-cursor-probe","tool_input":"{}","result_json":"{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"isError\":false}"}`, "after", "success"},
+	} {
+		body, err := NormalizeCursorPayload(test.event, []byte(test.body))
+		if err != nil {
+			t.Fatalf("%s: %v", test.event, err)
+		}
+		payload, err := ParsePayload(body)
+		if err != nil {
+			t.Fatalf("%s parse: %v", test.event, err)
+		}
+		if payload.MCP == nil || payload.MCP.Tool != "reconc_probe_echo" || !payload.MCP.InputValid || string(payload.MCP.Phase) != test.wantPhase || payload.MCP.Outcome != test.wantOutcome {
+			t.Fatalf("%s normalized MCP = %#v", test.event, payload.MCP)
+		}
+		if test.wantPhase == "before" && payload.MCP.ServerFingerprint != fingerprintMCPServer("python3 /tmp/probe.py") {
+			t.Fatalf("stdio command fingerprint = %q", payload.MCP.ServerFingerprint)
+		}
+		if test.wantPhase == "after" && payload.MCP.ServerFingerprint != "" {
+			t.Fatalf("CLI post fabricated a server fingerprint: %q", payload.MCP.ServerFingerprint)
+		}
+	}
+}
+
+func TestCursorMCPPostWithoutLocatorCannotCreateWriteEvidence(t *testing.T) {
+	t.Setenv(StateRootEnv, t.TempDir())
+	repo := setupMCPPolicyRepo(t)
+	if result := RunSessionStart(repo, []byte(`{"session_id":"cursor-unbound-mcp"}`)); result.ExitCode != 0 {
+		t.Fatalf("session start: %+v", result)
+	}
+	raw := []byte(`{"conversation_id":"cursor-unbound-mcp","tool_name":"write_repo","mcp_server_name":"test-server","tool_input":"{\"path\":\"src/unsafe.go\"}","result_json":"{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"isError\":false}"}`)
+	normalized, err := NormalizeCursorPayload("cursor-after-mcp-execution", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := RunMCPAfter(repo, normalized); result.ExitCode != 0 {
+		t.Fatalf("post observer: %+v", result)
+	}
+	state, err := LoadSessionState(repo, "cursor-unbound-mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.WritePaths) != 0 || state.EvidenceEpoch != 0 {
+		t.Fatalf("unbound CLI MCP result became write evidence: %#v", state)
+	}
+}
+
 func setupMCPPolicyRepo(t *testing.T) string {
 	t.Helper()
 	repo := setupPolicyRepo(t)

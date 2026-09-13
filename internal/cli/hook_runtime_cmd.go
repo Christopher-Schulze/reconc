@@ -527,6 +527,9 @@ func hookHandlerForRoute(event string, route hooks.RuntimeRoute) (agentsession.H
 		}
 		return agentsession.HookHandlerPermissionRequest, true
 	case hooks.EventPostToolUse:
+		if event == "cursor-post-tool-use" {
+			return agentsession.HookHandlerPostToolUseStrict, true
+		}
 		if event == "opencode-post-tool-use" || event == "kilo-post-tool-use" || event == "omp-post-tool-use" || event == "pi-post-tool-use" || event == "zcode-post-tool-use" {
 			return agentsession.HookHandlerMCPAwarePostToolUse, true
 		}

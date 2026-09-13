@@ -122,6 +122,12 @@ func runMCPAfterResolvedWithEvaluator(root string, payloadBytes []byte, hostIden
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): " + err.Error()}
 	}
+	if payload.Raw["cursor_event"] == "cursor-after-mcp-execution" && payload.MCP.ServerFingerprint == "" {
+		// Cursor CLI's post event omits the server locator present at pre.
+		// Without a native call ID, an unpinned policy must not turn that
+		// unbound observation into successful repository evidence.
+		return observeUnclassifiedMCP(root, contract, payload, "unbound-result")
+	}
 	classification, classified := classifyMCP(contract, payload)
 	if !classified && !hostIdentified {
 		return runPostToolUseCompleteStrictResolved(root, payloadBytes)

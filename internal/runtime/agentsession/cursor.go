@@ -344,7 +344,20 @@ func cursorToolInput(raw map[string]interface{}) map[string]interface{} {
 
 func cursorToolResponse(raw map[string]interface{}) map[string]interface{} {
 	response := cursorFirstObject(raw, "tool_response", "toolResponse", "response", "result", "output")
+	parsedExit := false
+	if encoded, ok := raw["tool_output"].(string); ok {
+		var toolOutput map[string]interface{}
+		if json.Unmarshal([]byte(encoded), &toolOutput) == nil {
+			if exitCode, present := toolOutput["exitCode"]; present {
+				response["exitCode"] = exitCode
+				parsedExit = true
+			}
+		}
+	}
 	for _, key := range []string{"exit_code", "exitCode", "status_code", "statusCode", "stdout", "stderr", "error"} {
+		if parsedExit && (key == "exit_code" || key == "exitCode" || key == "status_code" || key == "statusCode") {
+			continue
+		}
 		if value, ok := raw[key]; ok {
 			response[key] = value
 		}

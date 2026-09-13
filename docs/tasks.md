@@ -5,7 +5,6 @@
 
 ## Queue
 
-- [ ] 548 Qualify Cursor CLI event surfaces -> tasks/548-qualify-cursor-cli-event-surfaces.md
 - [ ] 549 Harden OMP hook order and outcomes -> tasks/549-harden-omp-hook-order-and-outcomes.md
 - [ ] 550 Add native DeepSeek Harness integration -> tasks/550-add-native-deepseek-harness-integration.md
 - [ ] 551 Ship and install owned portable skill -> tasks/551-ship-and-install-owned-portable-skill.md
@@ -17,6 +16,7 @@
 ## Blocked
 
 ## Done
+- [x] 548 Qualify Cursor CLI event surfaces -> tasks/done/548-qualify-cursor-cli-event-surfaces.md
 - [x] 547 Close Devin tool and session gaps -> tasks/done/547-close-devin-tool-and-session-gaps.md
 - [x] 546 Qualify current Codex hook contract -> tasks/done/546-qualify-current-codex-hook-contract.md
 - [x] 545 Bind live hook proof to host execution -> tasks/done/545-bind-live-hook-proof-to-host-execution.md
@@ -26,4 +26,3 @@
 - [x] 541 Redact escaped quoted proof paths -> tasks/done/541-redact-escaped-quoted-proof-paths.md
 - [x] 540 Reject GNU Parallel option expansions -> tasks/done/540-reject-gnu-parallel-option-expansions.md
 - [x] 539 Reduce session pre-hook allocations without weakening cache identity -> tasks/done/539-reduce-session-pre-hook-allocations-without-weakening-cache-identity.md
-- [x] 538 Verify review fixes and current performance evidence -> tasks/done/538-verify-review-fixes-and-current-performance-evidence.md

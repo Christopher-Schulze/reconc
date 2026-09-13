@@ -233,10 +233,21 @@ func TestCursorDocumentedSurfacesStayEventSpecific(t *testing.T) {
 			surfaces: []HostSurface{
 				HostSurfaceCursorDesktopAgent,
 				HostSurfaceCursorDesktopCmdK,
+				HostSurfaceCursorCLIPrint,
 			},
 		},
 		{
 			event: "postToolUse",
+			surfaces: []HostSurface{
+				HostSurfaceCursorDesktopAgent,
+				HostSurfaceCursorDesktopCmdK,
+				HostSurfaceCursorCLIInteractive,
+				HostSurfaceCursorCLIPrint,
+				HostSurfaceCursorCloud,
+			},
+		},
+		{
+			event: "afterFileEdit",
 			surfaces: []HostSurface{
 				HostSurfaceCursorDesktopAgent,
 				HostSurfaceCursorDesktopCmdK,
@@ -288,7 +299,11 @@ func TestCursorSurfaceEventsAreDerivedFromBindings(t *testing.T) {
 		"cursor-session-start",
 		"cursor-user-prompt-submit",
 		"cursor-pre-tool-use",
+		"cursor-before-shell-execution",
 		"cursor-post-tool-use",
+		"cursor-after-file-edit",
+		"cursor-post-tool-use-failure",
+		"cursor-after-shell-execution",
 		"cursor-stop",
 		"cursor-session-end",
 		"cursor-workspace-open",
@@ -296,8 +311,11 @@ func TestCursorSurfaceEventsAreDerivedFromBindings(t *testing.T) {
 	if !reflect.DeepEqual(surfaces[HostSurfaceCursorCLIInteractive], cliWant) {
 		t.Fatalf("Cursor interactive CLI routes = %v, want %v", surfaces[HostSurfaceCursorCLIInteractive], cliWant)
 	}
-	if !reflect.DeepEqual(surfaces[HostSurfaceCursorCLIPrint], cliWant) {
-		t.Fatalf("Cursor print CLI routes = %v, want %v", surfaces[HostSurfaceCursorCLIPrint], cliWant)
+	printWant := append([]string(nil), cliWant[:8]...)
+	printWant = append(printWant, "cursor-before-mcp-execution", "cursor-after-mcp-execution")
+	printWant = append(printWant, cliWant[8:]...)
+	if !reflect.DeepEqual(surfaces[HostSurfaceCursorCLIPrint], printWant) {
+		t.Fatalf("Cursor print CLI routes = %v, want %v", surfaces[HostSurfaceCursorCLIPrint], printWant)
 	}
 }
 

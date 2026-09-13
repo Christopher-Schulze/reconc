@@ -726,13 +726,23 @@ func TestRunHookStatusJSONReportsCursorSurfaceEvents(t *testing.T) {
 			"cursor-session-start",
 			"cursor-user-prompt-submit",
 			"cursor-pre-tool-use",
+			"cursor-before-shell-execution",
 			"cursor-post-tool-use",
+			"cursor-after-file-edit",
+			"cursor-post-tool-use-failure",
+			"cursor-after-shell-execution",
 			"cursor-stop",
 			"cursor-session-end",
 			"cursor-workspace-open",
 		}
 		if !slices.Equal(report.SurfaceEvents[hooks.HostSurfaceCursorCLIInteractive], want) {
 			t.Fatalf("Cursor CLI surface events = %v, want %v", report.SurfaceEvents[hooks.HostSurfaceCursorCLIInteractive], want)
+		}
+		printWant := append([]string(nil), want[:8]...)
+		printWant = append(printWant, "cursor-before-mcp-execution", "cursor-after-mcp-execution")
+		printWant = append(printWant, want[8:]...)
+		if !slices.Equal(report.SurfaceEvents[hooks.HostSurfaceCursorCLIPrint], printWant) {
+			t.Fatalf("Cursor print CLI surface events = %v, want %v", report.SurfaceEvents[hooks.HostSurfaceCursorCLIPrint], printWant)
 		}
 		return
 	}

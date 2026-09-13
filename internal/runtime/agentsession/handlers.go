@@ -751,6 +751,10 @@ func recordToolUse(state SessionState, payload *HookPayload) (SessionState, erro
 	if state.EvidenceOverflow {
 		return state, nil
 	}
+	if payload.Raw["cursor_event"] == "cursor-post-tool-use" && !payload.IsWriteTool() {
+		state.CursorPendingWriteKey = ""
+		state.CursorPendingWriteSource = ""
+	}
 	switch {
 	case payload.IsReadTool():
 		path := payload.FilePath()
@@ -766,6 +770,15 @@ func recordToolUse(state SessionState, payload *HookPayload) (SessionState, erro
 			if signatureErr != nil {
 				return state, signatureErr
 			}
+			var paired bool
+			var pairErr error
+			state, paired, pairErr = pairCursorWriteEvent(state, payload, paths, signature)
+			if pairErr != nil {
+				return state, pairErr
+			}
+			if paired {
+				return state, nil
+			}
 			if signature != "" && signature == state.LastMaterialSignature {
 				return state, nil
 			}
@@ -774,6 +787,8 @@ func recordToolUse(state SessionState, payload *HookPayload) (SessionState, erro
 		}
 		return state, nil
 	case payload.IsCommandTool():
+		state.CursorPendingWriteKey = ""
+		state.CursorPendingWriteSource = ""
 		cmd := payload.Command()
 		if cmd == "" {
 			return state, nil
@@ -792,12 +807,51 @@ func recordToolUse(state SessionState, payload *HookPayload) (SessionState, erro
 	return state, nil
 }
 
+// Cursor emits afterFileEdit and postToolUse for one write, but only the
+// generic event has a tool_use_id. Pair adjacent opposite events by the
+// generation and exact path set; each new pair can still advance the epoch.
+func pairCursorWriteEvent(state SessionState, payload *HookPayload, paths []string, signature string) (SessionState, bool, error) {
+	event, _ := payload.Raw["cursor_event"].(string)
+	if event != "cursor-after-file-edit" && event != "cursor-post-tool-use" {
+		state.CursorPendingWriteKey = ""
+		state.CursorPendingWriteSource = ""
+		return state, false, nil
+	}
+	generation, _ := payload.Raw["generation_id"].(string)
+	ordered := append([]string(nil), paths...)
+	sort.Strings(ordered)
+	body, err := json.Marshal(struct {
+		Generation string   `json:"generation"`
+		Paths      []string `json:"paths"`
+	}{Generation: generation, Paths: ordered})
+	if err != nil {
+		return state, false, fmt.Errorf("marshal cursor write pair: %w", err)
+	}
+	sum := sha256.Sum256(body)
+	key := hex.EncodeToString(sum[:])
+	if state.CursorPendingWriteKey == key && state.CursorPendingWriteSource != event {
+		state.CursorPendingWriteKey = ""
+		state.CursorPendingWriteSource = ""
+		state.LastMaterialSignature = signature
+		return state, true, nil
+	}
+	if signature != state.LastMaterialSignature {
+		state.CursorPendingWriteKey = key
+		state.CursorPendingWriteSource = event
+	}
+	return state, false, nil
+}
+
 // recordToolFailure appends a command-result with outcome "failure"
 // if the payload describes a Bash tool failure. Non-Bash failures are
 // ignored (reads / writes don't have a success/failure binary).
 func recordToolFailure(state SessionState, payload *HookPayload) (SessionState, error) {
 	if state.EvidenceOverflow {
 		return state, nil
+	}
+	if payload.Raw["cursor_event"] == "cursor-post-tool-use-failure" {
+		state.CursorPendingWriteKey = ""
+		state.CursorPendingWriteSource = ""
 	}
 	if !payload.IsCommandTool() {
 		return state, nil

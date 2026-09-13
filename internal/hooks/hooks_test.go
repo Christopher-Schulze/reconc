@@ -898,6 +898,43 @@ func TestInstallCursorPreservesUserOwnedStaleEventEntries(t *testing.T) {
 	}
 }
 
+func TestInstallCursorPreservesUserHooksAcrossRepeatedInstall(t *testing.T) {
+	repo := t.TempDir()
+	target := filepath.Join(repo, CursorHooksPath)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte(`{"version":1,"user_setting":{"enabled":true},"hooks":{"preToolUse":[{"command":"echo user-pre"}],"beforeReadFile":[{"command":"echo user-read"}]}}`)
+	if err := os.WriteFile(target, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := Install(KindCursor, repo, false); err != nil {
+			t.Fatalf("install %d: %v", i+1, err)
+		}
+	}
+	installed, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		UserSetting map[string]bool `json:"user_setting"`
+		Hooks       map[string][]struct {
+			Command string `json:"command"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(installed, &document); err != nil {
+		t.Fatal(err)
+	}
+	if !document.UserSetting["enabled"] || len(document.Hooks["beforeReadFile"]) != 1 || document.Hooks["beforeReadFile"][0].Command != "echo user-read" {
+		t.Fatalf("unrelated Cursor configuration was changed: %s", installed)
+	}
+	pre := document.Hooks["preToolUse"]
+	if len(pre) != 2 || pre[0].Command != "echo user-pre" || !strings.Contains(pre[1].Command, "cursor-pre-tool-use") {
+		t.Fatalf("repeated install duplicated or replaced pre-tool hooks: %s", installed)
+	}
+}
+
 func TestInstallAntigravityCreatesFreshFile(t *testing.T) {
 	repo := t.TempDir()
 	report, err := Install(KindAntigravity, repo, false)

@@ -63,13 +63,23 @@ continuation. Child evidence survives turn stops; SessionEnd is root-only.
 Cursor uses one project file, but desktop Agent, Cmd+K, Tab, interactive CLI,
 print CLI, and cloud agents do not promise identical event delivery. Use the
 same Reconc semantics when the same event fires and keep every unseen route
-unproven. `postToolUse` is success, `postToolUseFailure` is failure, and
-`afterShellExecution` is liveness only because it has no authoritative exit
-status. Cursor CLI uses `agent`; `cursor-agent` is its compatibility alias.
-`surface_events` lists the documented routes for each CLI mode.
-`workspaceOpen` is sessionless loading evidence only. Cursor currently emits
-no generic tool hooks for `AskQuestion`, so never claim Reconc gated that host
-action.
+unproven. Shell `postToolUse` carries a JSON-stringified `tool_output` with an
+exit code; Reconc requires a valid zero exit for command-success evidence.
+`postToolUseFailure` is failure, and `afterShellExecution` is liveness only.
+Cursor CLI discovery prefers `cursor-agent`; `agent` is accepted only
+after version and help identity checks. `surface_events` lists eligible routes,
+not proof that each route fired. On CLI `2026.09.10-fd3934a`, interactive
+shell/file/failure and prompt/Stop routes fired; print shell/file/MCP/failure
+routes fired, while prompt and Stop remain unproven. A generic write and its
+`afterFileEdit` callback count once even when the specialized callback arrives
+first without a tool ID. The captured print-mode deny was from an isolated
+custom hook, not a Reconc live enforcement claim. Cursor CLI MCP pre events
+carry a server locator and can be classified; post events omit both locator
+and call ID, so Reconc treats them as observations without positive repository
+evidence. `workspaceOpen` is
+sessionless loading evidence only. `AskQuestion` and native
+subagent denial were not exercised in the CLI probe; never claim Reconc gated
+either action from static configuration or earlier host reports.
 
 Kimi Code hook installation is always explicit and global:
 `reconc hook install kimi-code`, without a repository path. It atomically

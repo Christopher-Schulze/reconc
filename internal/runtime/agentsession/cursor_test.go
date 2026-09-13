@@ -136,6 +136,25 @@ func TestNormalizeCursorPayloadPostToolUseFailure(t *testing.T) {
 	}
 }
 
+func TestNormalizeCursorShellOutputUsesStructuredExitCode(t *testing.T) {
+	body, err := NormalizeCursorPayload("cursor-post-tool-use", []byte(`{
+		"conversation_id":"cursor-shell",
+		"tool_name":"Shell",
+		"tool_input":{"command":"true"},
+		"tool_output":"{\"exitCode\":0,\"output\":\"ok\"}"
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := ParsePayload(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.ExitCode() == nil || *payload.ExitCode() != 0 {
+		t.Fatalf("structured shell exit was lost: %#v", payload.ToolResponse)
+	}
+}
+
 func TestNormalizeCursorPayloadRequiresSessionIdentity(t *testing.T) {
 	if _, err := NormalizeCursorPayload("cursor-post-tool-use", []byte(`{
 		"tool_name":"Write",

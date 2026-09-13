@@ -4337,13 +4337,13 @@ Text output includes the same host and probe objects as one escaped compact
 `scripts/tests/host-integration-probe.sh` delegates to that product command and
 contains no second matrix.
 
-| Surface | Project artifact and eligible contract | Strongest truthful guarantee before a live probe |
+| Surface | Project artifact and eligible contract | Evidence boundary |
 | --- | --- | --- |
 | Cursor desktop Agent | `.cursor/hooks.json`; installed Agent lifecycle, tool, shell, MCP, subagent, compaction, Stop, and sessionless workspace routes | `configured` and `discoverable`; each route becomes `observed` or `enforced` independently |
 | Cursor desktop Cmd+K | The same Agent-hook entries plus sessionless `workspaceOpen` when Cursor emits the corresponding lifecycle | Shared Reconc route semantics, not blanket Agent parity |
 | Cursor inline Tab | `afterTabFileEdit` only; read-prevention and Agent lifecycle are intentionally absent | Successful Tab-write evidence only after that exact route is observed |
-| Cursor CLI interactive | The same project file under `agent`; documented routes are session start/end, prompt decision, generic pre/post tool, Stop, and sessionless workspace liveness | Registry-derived eligibility only; no IDE/CLI parity claim without event-by-event live evidence |
-| Cursor CLI print mode | The same project file under `agent --print`; documented route set matches interactive CLI | No interactive/print delivery claim; structured CLI output is not substituted for missing pre-action hooks |
+| Cursor CLI interactive | `.cursor/hooks.json` under verified `cursor-agent`; session, prompt, generic tool, specialized shell/file, failure, Stop, and workspace routes | CLI `2026.09.10-fd3934a` observed prompt, Stop, shell failure, file edit, read, and lifecycle routes in a disposable repository; MCP, subagent, and compaction remain unproven |
+| Cursor CLI print mode | The same project file under verified `cursor-agent --print`; session, generic tool, specialized shell/file/MCP, failure, and workspace routes | CLI `2026.09.10-fd3934a` observed these routes with `--force` for writes and a local approved MCP server; prompt and Stop are registry-eligible but not observed in the captured print runs; subagent and compaction remain unproven |
 | Cursor cloud agents | Repository hooks after a writable environment exists; session start/end, dedicated MCP, and Tab routes are unavailable | Only documented eligible routes; no live claim without approved cloud execution |
 | OpenCode CLI | `.opencode/plugins/reconc.js`; prompt, permission, tool, session, compaction, terminal failure, and inferred idle continuation | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code CLI | `.kilo/plugin/reconc.js` with `KILO_PURE` unset; same lifecycle classes as OpenCode | Static plugin contract plus per-route liveness; continuation remains inferred |
@@ -4352,6 +4352,49 @@ contains no second matrix.
 | Pi Coding Agent | `.pi/extensions/reconc.ts`; trusted-project session, input, tool, user-shell, result, compaction, settled, and shutdown routes | Static extension and saved-trust contract plus per-route liveness; `tool_call` and `user_bash` can enforce before host action, while settled continuation remains inferred |
 | ZCode CLI | `.zcode/config.json`; all seven native session, prompt, tool, permission, failure, and synchronous Stop routes through the documented process executor | Static workspace contract plus per-route liveness; pre-tool, permission, and Stop can block, while host timeouts remain fail-open |
 | Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; the 16 decision- and evidence-carrying hooks of the host's twenty dispatch through receipt-bound bare `reconc` and discover the current repository | Generator-exact global configuration plus installation-receipt executable identity; no live claim without a real Kimi route observation |
+
+The installed Cursor CLI `2026.09.10-fd3934a` has this per-event inventory.
+“Observed” means that exact native event fired in a disposable repository;
+“configured, unproven” means the Reconc project hook exists but delivery in
+that CLI mode was not seen. “Excluded” means Reconc deliberately installs no
+route. No route is marked Reconc-enforced by these captures: the successful
+print-mode denial used an isolated custom hook to test the host response.
+
+| Native event | Interactive CLI | Print CLI | Reconc route |
+| --- | --- | --- | --- |
+| `sessionStart` | observed | observed | installed |
+| `sessionEnd` | observed | observed | installed |
+| `preToolUse` | observed | observed; host deny control | installed |
+| `postToolUse` | observed | observed | installed |
+| `postToolUseFailure` | observed | observed | installed |
+| `subagentStart` | configured, unproven | configured, unproven | installed |
+| `subagentStop` | configured, unproven | configured, unproven | installed |
+| `beforeShellExecution` | observed | observed | installed |
+| `afterShellExecution` | observed | observed | installed, passive |
+| `beforeMCPExecution` | configured, unproven | observed; host deny control | installed |
+| `afterMCPExecution` | configured, unproven | observed; no locator | installed, unbound result is passive |
+| `beforeReadFile` | host observed | host observed | excluded; no successful-read evidence |
+| `afterFileEdit` | observed | observed | installed |
+| `beforeSubmitPrompt` | observed | configured, unproven | installed |
+| `preCompact` | configured, unproven | configured, unproven | installed |
+| `stop` | observed | configured, unproven | installed |
+| `afterAgentResponse` | host observed | unproven | excluded; private model output |
+| `afterAgentThought` | host observed | host observed | excluded; private model output |
+| `beforeTabFileRead` | not applicable | not applicable | excluded; Tab-only read hook |
+| `afterTabFileEdit` | not applicable | not applicable | installed for Tab only |
+| `workspaceOpen` | observed | observed | installed, sessionless |
+
+The CLI MCP pre-event includes the stdio command locator, tool name, server
+name, and JSON-stringified input. Its post-event includes the same server/tool
+names and input plus `result_json`, but no locator or native call ID. Reconc can
+classify and block the pre-action against an exact server fingerprint; a
+locatorless post remains an unbound observation and never creates positive
+repository evidence, even when an unpinned tool policy could otherwise match.
+The captured native MCP deny prevented the local server effect on each attempted
+call, but the whole run ended in Cursor's transport failure. Neither the
+custom-hook deny nor these payload captures proves a Reconc policy denial on
+the installed CLI. The test server's project-specific approval was removed
+after the probe; the user's unrelated MCP configuration was unchanged.
 
 Cursor's registry classifies all 21 current host events exactly once. Reconc
 installs 17: `sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`,
@@ -4371,22 +4414,29 @@ evidence, and returns `{}` without plugin paths.
 Cursor records positive generic tool evidence only from `postToolUse`.
 `postToolUseFailure` records failure without positive read, write, or command
 evidence. `afterShellExecution` contains output and duration but no
-authoritative exit status, so it records liveness only. `afterFileEdit` and
-`afterTabFileEdit` are successful write fallbacks deduplicated against generic
-tool delivery. Tool and subagent decisions return `permission`; prompt
-submission returns `continue`; observation and workspace routes return `{}`.
+authoritative exit status, so it records liveness only. A successful Shell
+`postToolUse` supplies a JSON-stringified `tool_output`; Reconc extracts its
+numeric `exitCode` and rejects missing, invalid, or nonzero exits as positive
+command evidence. `afterFileEdit` and `afterTabFileEdit` are successful write
+fallbacks. Cursor Agent can emit
+`afterFileEdit` before `postToolUse` for one write, with no tool ID on the
+specialized event; Reconc pairs opposite events by generation and exact path
+set before advancing write evidence. Repeated writes to the same path can
+advance separately, while repeated delivery of one event does not. Tool and
+subagent decisions return `permission`; prompt submission returns `continue`;
+observation and workspace routes return `{}`.
 Stop and subagent Stop use Cursor's bounded `followup_message` response. A
 malformed or outcome-unknown post event cannot satisfy command freshness,
 completion, or proof.
 
-The CLI probe prefers the official `agent` command and accepts
-`cursor-agent` only as a backward-compatible alias. It verifies the help
-contract before treating either executable as Cursor, so an unrelated `agent`
-binary cannot create a false host claim. Cursor's confirmed `AskQuestion`
-host bug currently emits none of the generic pre/post tool hooks in IDE or
-CLI; Reconc cannot reconstruct that missing pre-action boundary. Cursor has
-also reported host-side `subagentStart` deny enforcement gaps. These are host
-limitations, not adapter parity, and remain outside strict Reconc guarantees:
+The CLI probe prefers `cursor-agent` and accepts `agent` only when its reported
+version and help identify Cursor; this machine's `agent` is Grok. It verifies
+the help contract before treating either executable as Cursor, so an unrelated `agent`
+binary cannot create a false host claim. The current CLI probes did not
+exercise `AskQuestion` or native `subagentStart` denial, so neither boundary
+has a live enforcement guarantee. Earlier Cursor reports describe missing
+generic hooks for `AskQuestion` and ignored subagent denials; those reports
+remain useful risk evidence, not proof of this CLI version's behavior:
 `https://forum.cursor.com/t/cursor-cli-askquestion-tool-skips-pretooluse-and-posttooluse-hooks/161836/6`
 and
 `https://forum.cursor.com/t/subagentstart-hook-deny-is-not-enforced/166143/4`.
