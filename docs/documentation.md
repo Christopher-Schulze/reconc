@@ -4639,6 +4639,20 @@ session setup before each agent step, supplies compact guidance in prompt
 assembly after compaction, and can steer a blocked Stop once per agent turn.
 Pinned source/API review and executable offline policy/adapter regressions
 define this integration's acceptance contract.
+The DSH worker admits at most 512 active/queued calls and 128 MiB of serialized
+request data in total. The single-frame limit is 64 MiB plus 64 KiB of envelope
+space; bounded JSON measurement rejects oversized, cyclic, accessor-backed, or
+over-deep data before frame serialization. These are transport bounds, not a
+whole-process RSS limit. Request deadlines include admission, queue wait, and
+worker startup. Cancellation removes queued frames immediately; queued policy
+decisions take precedence over passive observations. Shutdown cancels the backlog
+and active exchange, with at most 200 ms for an idle worker's graceful shutdown.
+Worker callbacks are bound to their owning process and ambiguous failed requests
+are never replayed. Session setup waiters are capped at 512 and honor cancellation.
+Post observations carry identity/outcome metadata with an empty input object and
+a bounded error message; they never retransmit complete file contents or create
+material write/command evidence. Older full-input observation envelopes remain
+accepted for compatibility.
 An extension loaded for one repository rejects calls from another repository
 in that DSH process; use a separate patched process for each repository.
 

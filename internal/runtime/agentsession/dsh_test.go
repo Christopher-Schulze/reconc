@@ -27,6 +27,8 @@ func TestNormalizeDSHNativeToolAndObservationBoundaries(t *testing.T) {
 		{name: "bash", route: "dsh-pre-tool-use", native: "bash", input: `{"command":"go test ./...","description":"Test the project"}`, wantTool: "Bash", wantMCP: true},
 		{name: "observed success", route: "dsh-post-tool-use", native: "str_replace_editor", input: `{"command":"create","path":"generated/out.go"}`, extra: `,"is_error":false,"result_observed":true`, wantTool: "Write", wantPath: "generated/out.go"},
 		{name: "observed failure", route: "dsh-post-tool-use-failure", native: "bash", input: `{"command":"false"}`, extra: `,"is_error":true,"result_observed":true`, wantTool: "Bash"},
+		{name: "compact editor observation", route: "dsh-post-tool-use", native: "str_replace_editor", input: `{}`, extra: `,"is_error":false,"result_observed":true`, wantTool: "str_replace_editor"},
+		{name: "compact shell failure", route: "dsh-post-tool-use-failure", native: "bash", input: `{}`, extra: `,"is_error":true,"result_observed":true`, wantTool: "Bash"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			payload := fmt.Sprintf(`{"hook_event_name":%q,"session_id":"dsh-session","cwd":%q,"tool_name":%q,"tool_input":%s,"tool_call_id":"call-1","root_call_id":"root-1","agent_id":"agent-1"%s}`, map[string]string{"dsh-pre-tool-use": "tools/pre-execute", "dsh-post-tool-use": "tools/result", "dsh-post-tool-use-failure": "tools/result"}[test.route], repo, test.native, test.input, test.extra)

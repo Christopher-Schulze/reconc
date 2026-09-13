@@ -14,9 +14,9 @@ Audit findings 4-6 reproduce stale-process restart failure, delayed queue cancel
 
 ## Sub-Tasks
 
-- [ ] Implement generation-bound callbacks and explicit bounded admission/queue lifecycle.
-- [ ] Compact passive observation envelopes and retain compatible normalization.
-- [ ] Add durable transport/resource regressions, document limits, verify tests/build, and archive.
+- [x] Implement generation-bound callbacks and explicit bounded admission/queue lifecycle.
+- [x] Compact passive observation envelopes and retain compatible normalization.
+- [x] Add durable transport/resource regressions, document limits, verify tests/build, and archive.
 
 ## Notes
 
@@ -24,4 +24,6 @@ Use one worker with explicit queued entries, cancellation ownership, and admissi
 
 ## Deviations
 
-None.
+The deterministic harness pack and scaffold were propagated using a reviewed temporary manifest/archive candidate and byte-identical publication, as in TASK 557. The JSON measurement rejects serialization hooks and accessors before serialization, including non-enumerable hooks. A final capacity check also closes a concurrent-admission race in the existing decision map.
+
+Regression evidence: 13 worker/resource modes cover replacement-process isolation, ambiguous crash without replay, queued cancellation, admission deadlines, shutdown, policy priority, aggregate bytes, queue count, exact UTF-8/JSON byte sizes, compact observations, decision admission, and session waiter cancellation/capacity. With a 1 MiB body the captured pre frame was 1,049,135 bytes and the compact post frame 555 bytes; error observations cap their message at 2,048 characters. This is a measured transport-volume reduction, not a whole-product throughput claim. Final `make test-fast build vet lint TEST_PARALLELISM=4` passed on the consolidated source/scaffold/pack; the real-worker offline matrix and all targeted DSH regressions also passed. Intentional disposal does not emit one warning per discarded observation.

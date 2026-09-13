@@ -147,7 +147,7 @@ func NormalizeDSHPayload(event string, payloadBytes []byte, repoRoot string) ([]
 		}
 	}
 	name := normalizePiOMPToolName(raw.ToolName)
-	if raw.ToolName == "str_replace_editor" {
+	if raw.ToolName == "str_replace_editor" && (event == "dsh-pre-tool-use" || !bytes.Equal(bytes.TrimSpace(raw.ToolInput), []byte("{}"))) {
 		var input struct {
 			Command string `json:"command"`
 		}

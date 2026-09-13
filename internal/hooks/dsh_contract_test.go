@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -11,6 +12,12 @@ import (
 // Real policy decisions are separately covered by internal/cli/dsh_e2e_test.go.
 func TestDSHGeneratedCompositionContract(t *testing.T) {
 	runDSHContract(t, "composition")
+}
+
+func TestDSHWorkerLifecycleAndResourceContracts(t *testing.T) {
+	for _, mode := range []string{"restart", "crash", "cancel", "deadline", "shutdown", "priority", "bytes", "count", "json", "observations", "decision-limit", "session-cancel", "session-limit"} {
+		t.Run(mode, func(t *testing.T) { runDSHContract(t, mode) })
+	}
 }
 
 func runDSHContract(t *testing.T, mode string) {
@@ -24,8 +31,22 @@ func runDSHContract(t *testing.T, mode string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	content := artifact.Content
+	if mode == "deadline" {
+		content = strings.Replace(content, `"dsh-post-tool-use":{"timeoutMilliseconds":5000`, `"dsh-post-tool-use":{"timeoutMilliseconds":150`, 1)
+		if content == artifact.Content {
+			t.Fatal("deadline fixture did not find the generated budget")
+		}
+	}
+	if mode == "bytes" {
+		content = strings.Replace(content, "const maxQueuedBytes = 128 * 1024 * 1024", "const maxQueuedBytes = 64 * 1024", 1)
+		content = strings.Replace(content, "const maxRequestBytes = 64 * 1024 * 1024 + 64 * 1024", "const maxRequestBytes = 32 * 1024", 1)
+		if strings.Contains(content, "128 * 1024 * 1024") || strings.Contains(content, "64 * 1024 * 1024") {
+			t.Fatal("byte fixture did not replace the generated budgets")
+		}
+	}
 	for path, content := range map[string]string{
-		artifact.TargetPath: artifact.Content + "\nexport { WorkerTransport }\n",
+		artifact.TargetPath: content + "\nexport { WorkerTransport, jsonBytes }\n",
 		WrapperPath:         "#!/bin/sh\nexec \"$RECONC_DSH_TEST_BUN\" \"$RECONC_DSH_TEST_PEER\"\n",
 	} {
 		target := filepath.Join(repo, filepath.FromSlash(path))
@@ -44,6 +65,13 @@ func runDSHContract(t *testing.T, mode string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runBunContractDriver(t, []string{"RECONC_DSH_TEST_BUN=" + bun, "RECONC_DSH_TEST_PEER=" + peer},
+	runBunContractDriver(t, []string{"RECONC_DSH_TEST_BUN=" + bun, "RECONC_DSH_TEST_PEER=" + peer, "RECONC_DSH_TEST_LOG=" + filepath.Join(repo, "worker.jsonl"), "RECONC_DSH_TEST_MODE=" + mode},
 		bun, driver, filepath.Join(repo, filepath.FromSlash(artifact.TargetPath)), repo, mode)
+	if mode == "observations" {
+		body, err := os.ReadFile(filepath.Join(repo, "worker.jsonl"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("DSH wire measurements (metadata only):\n%s", body)
+	}
 }
