@@ -15,7 +15,7 @@ func TestDSHGeneratedCompositionContract(t *testing.T) {
 }
 
 func TestDSHWorkerLifecycleAndResourceContracts(t *testing.T) {
-	for _, mode := range []string{"restart", "crash", "cancel", "deadline", "shutdown", "priority", "bytes", "count", "json", "observations", "decision-limit", "session-cancel", "session-limit"} {
+	for _, mode := range []string{"restart", "crash", "cancel", "deadline", "shutdown", "priority", "bytes", "count", "json", "observations", "decision-limit", "session-cancel", "session-limit", "advisory-setup", "advisory-evaluation", "advisory-stop", "advisory-combined"} {
 		t.Run(mode, func(t *testing.T) { runDSHContract(t, mode) })
 	}
 }

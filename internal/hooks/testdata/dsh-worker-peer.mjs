@@ -10,6 +10,11 @@ for await (const line of createInterface({ input: process.stdin })) {
     errorBytes: Buffer.byteLength(request.payload?.error || ''),
   }) + '\n')
   if (request.payload?.hang) continue
+  const mode = process.env.RECONC_DSH_TEST_MODE
+  if ((mode === 'advisory-setup' && request.event === 'dsh-session-start') ||
+      (mode === 'advisory-evaluation' && request.event === 'dsh-pre-tool-use') ||
+      (mode === 'advisory-stop' && request.event === 'dsh-stop')) continue
+  if (mode === 'advisory-combined' && request.event) await new Promise(resolve => setTimeout(resolve, 450))
   if (request.payload?.crash) process.exit(17)
   if (process.env.RECONC_DSH_TEST_MODE?.startsWith('session-') && request.event === 'dsh-session-start') {
     await new Promise(resolve => setTimeout(resolve, 400))

@@ -4645,7 +4645,12 @@ request data in total. The single-frame limit is 64 MiB plus 64 KiB of envelope
 space; bounded JSON measurement rejects oversized, cyclic, accessor-backed, or
 over-deep data before frame serialization. These are transport bounds, not a
 whole-process RSS limit. Request deadlines include admission, queue wait, and
-worker startup. Cancellation removes queued frames immediately; queued policy
+worker startup. DSH step, pre-tool, and Stop callbacks use a shared 500 ms
+advisory deadline covering session setup and evaluation together. Shared session
+setup also has its own 500 ms bound; canceling one waiter does not cancel other
+waiters. Expired advisory work is canceled and host dispatch continues. These
+budgets bound asynchronous waiting, not host event-loop stalls or synchronous
+input serialization. Cancellation removes queued frames immediately; queued policy
 decisions take precedence over passive observations. Shutdown cancels the backlog
 and active exchange, with at most 200 ms for an idle worker's graceful shutdown.
 Worker callbacks are bound to their owning process and ambiguous failed requests

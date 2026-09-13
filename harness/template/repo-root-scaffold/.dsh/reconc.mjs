@@ -13,6 +13,7 @@ const maxFrameBytes = 128 * 1024
 const maxRequestBytes = 64 * 1024 * 1024 + 64 * 1024
 const maxQueuedBytes = 128 * 1024 * 1024
 const maxPendingCalls = 512
+const advisoryMilliseconds = 500
 
 const text = (value, fallback) => typeof value === 'string' && value.trim() ? value.trim() : fallback
 
@@ -227,12 +228,12 @@ class WorkerTransport {
     }
   }
 
-  run(event, payload, signal) {
+  run(event, payload, signal, deadlineLimit = Infinity) {
     if (this.closed) return Promise.reject(new Error('Reconc DSH extension is disposing'))
     if (signal?.aborted) return Promise.reject(new Error('Reconc worker request canceled'))
     if (this.queued >= maxPendingCalls) return Promise.reject(new Error('Reconc DSH worker queue is full'))
     if (!Object.hasOwn(routeBudgets, event)) return Promise.reject(new Error('Unknown Reconc DSH worker event'))
-    const deadline = performance.now() + routeBudgets[event].timeoutMilliseconds
+    const deadline = Math.min(deadlineLimit, performance.now() + routeBudgets[event].timeoutMilliseconds)
     const id = `request-${++this.nextId}`
     let frame, bytes
     try {
@@ -346,7 +347,7 @@ export function apply(ctx) {
       if (started.size >= maxPendingCalls) return Promise.reject(new Error('Reconc DSH session capacity exceeded'))
       pending = transport.run('dsh-session-start', {
         hook_event_name: 'session_start', session_id: identity.session, cwd: identity.cwd,
-      }).catch(error => {
+      }, undefined, performance.now() + advisoryMilliseconds).catch(error => {
         if (started.get(identity.session) === pending) started.delete(identity.session)
         throw error
       })
@@ -372,6 +373,20 @@ export function apply(ctx) {
     })
   }
 
+  const withinAdvisoryDeadline = async (signal, work) => {
+    const controller = new AbortController()
+    const abort = () => controller.abort(signal.reason)
+    const timer = setTimeout(() => controller.abort(new Error('Reconc DSH advisory timed out')), advisoryMilliseconds)
+    if (signal?.aborted) abort()
+    else signal?.addEventListener('abort', abort, { once: true })
+    try { return await work(controller.signal) }
+    catch (error) { throw controller.signal.aborted ? controller.signal.reason : error }
+    finally {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', abort)
+    }
+  }
+
   const context = ctx.systemPrompt.context({
     name: 'reconc-policy',
     order: 125,
@@ -381,7 +396,7 @@ export function apply(ctx) {
   const preStep = ctx.on('agent/pre-step', async (step, next) => {
     const header = step.agent?.session?.header
     if (!disposing && header && isRepoDirectory(header.cwd) && typeof header.id === 'string' && header.id) {
-      try { await waitForSession({ session: header.id, cwd: header.cwd }, step.signal) }
+      try { await withinAdvisoryDeadline(step.signal, signal => waitForSession({ session: header.id, cwd: header.cwd }, signal)) }
       catch (error) { report('session', error?.message) }
     }
     return next()
@@ -391,13 +406,15 @@ export function apply(ctx) {
     const identity = executionIdentity(exec)
     if (!disposing && identity) {
       try {
-        await waitForSession(identity, exec.signal)
-        const output = await transport.run('dsh-pre-tool-use', {
-          hook_event_name: 'tools/pre-execute', session_id: identity.session, cwd: identity.cwd,
-          tool_name: identity.name, tool_input: identity.arguments, tool_call_id: identity.call,
-          root_call_id: identity.rootCall, agent_id: identity.agentId,
-          bash_stateful: identity.name === 'bash' && statefulBash(),
-        }, exec.signal)
+        const output = await withinAdvisoryDeadline(exec.signal, async signal => {
+          await waitForSession(identity, signal)
+          return transport.run('dsh-pre-tool-use', {
+            hook_event_name: 'tools/pre-execute', session_id: identity.session, cwd: identity.cwd,
+            tool_name: identity.name, tool_input: identity.arguments, tool_call_id: identity.call,
+            root_call_id: identity.rootCall, agent_id: identity.agentId,
+            bash_stateful: identity.name === 'bash' && statefulBash(),
+          }, signal)
+        })
         if (output) {
           const decision = JSON.parse(output)
           report('policy', decision?.reason || decision?.additionalContext || 'Review the repository policy with reconc check')
@@ -441,11 +458,13 @@ export function apply(ctx) {
     if (disposing || !header || !Object.isFrozen(header) || !isRepoDirectory(header.cwd) ||
         typeof header.id !== 'string' || !header.id || signal?.aborted) return
     try {
-      await waitForSession({ session: header.id, cwd: header.cwd }, signal)
-      const output = await transport.run('dsh-stop', {
-        hook_event_name: 'agent/turn-stopping', session_id: header.id, cwd: header.cwd,
-        agent_id: agent.id, stop_hook_active: false,
-      }, signal)
+      const output = await withinAdvisoryDeadline(signal, async advisorySignal => {
+        await waitForSession({ session: header.id, cwd: header.cwd }, advisorySignal)
+        return transport.run('dsh-stop', {
+          hook_event_name: 'agent/turn-stopping', session_id: header.id, cwd: header.cwd,
+          agent_id: agent.id, stop_hook_active: false,
+        }, advisorySignal)
+      })
       if (!output || signal?.aborted) return
       const decision = JSON.parse(output)
       const reason = decision?.advisory === true || decision?.decision === 'block' ? decision.reason :

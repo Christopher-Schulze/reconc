@@ -45,10 +45,20 @@ const bounded = async (promise, ms = 1500) => {
 const records = () => existsSync(process.env.RECONC_DSH_TEST_LOG)
   ? readFileSync(process.env.RECONC_DSH_TEST_LOG, 'utf8').trim().split('\n').map(JSON.parse) : []
 
-if (mode === 'composition' || mode === 'observations' || mode === 'decision-limit' || mode.startsWith('session-')) {
+if (mode === 'composition' || mode === 'observations' || mode === 'decision-limit' || mode.startsWith('session-') || mode.startsWith('advisory-')) {
   module.apply(ctx)
   try {
-    if (mode === 'decision-limit') {
+    if (mode.startsWith('advisory-')) {
+      const step = () => listeners.get('agent/pre-step')({ agent }, () => ({ kind: 'enter' }))
+      if (mode === 'advisory-evaluation' || mode === 'advisory-stop') await step()
+      const startedAt = performance.now()
+      const answer = await bounded(mode === 'advisory-setup' ? step() : mode === 'advisory-stop'
+        ? listeners.get('agent/turn-stopping')({ agent }) : pre(call('read')), 1000)
+      const elapsed = performance.now() - startedAt
+      assert.ok(elapsed >= 400 && elapsed < 800, `shared advisory budget: ${elapsed} ms`)
+      if (mode !== 'advisory-stop') assert.equal(answer.kind, mode === 'advisory-setup' ? 'enter' : 'allow')
+      console.log(JSON.stringify({ mode, elapsedMilliseconds: Math.round(elapsed) }))
+    } else if (mode === 'decision-limit') {
       assert.equal((await pre(call('read'))).kind, 'allow')
       const burst = Array.from({ length: 512 }, () => pre(call('read')))
       const results = await Promise.all(burst)
