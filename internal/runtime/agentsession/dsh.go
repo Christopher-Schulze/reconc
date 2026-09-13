@@ -173,7 +173,6 @@ func NormalizeDSHPayload(event string, payloadBytes []byte, repoRoot string) ([]
 		// The schema-backed built-in platform list is immutable under its
 		// published identity; custom:dsh is the explicit selector namespace.
 		normalized.MCP = newNativeMCPEnvelope(policy.MCPPlatform("custom:dsh"), raw.ToolName, raw.ToolInput, event, "", "")
-		normalized.MCP.BlockingPreHook = false
 	}
 	body, err := json.Marshal(normalized)
 	if err != nil {
@@ -209,39 +208,4 @@ func rebaseDSHFileInput(input json.RawMessage, root, cwd string) (json.RawMessag
 		}
 	}
 	return json.Marshal(fields)
-}
-
-// AdaptDSHResult preserves policy feedback as an advisory envelope. DSH owns
-// dispatch and turn continuation; a finding never becomes a host veto.
-func AdaptDSHResult(result Result) Result {
-	reason := strings.TrimSpace(result.Stderr)
-	if result.Stdout != "" {
-		var output struct {
-			Reason            string `json:"reason"`
-			AdditionalContext string `json:"additionalContext"`
-		}
-		if err := json.Unmarshal([]byte(result.Stdout), &output); err != nil {
-			reason += " Reconc returned an unreadable advisory result: " + err.Error()
-		} else {
-			reason += " " + output.Reason + " " + output.AdditionalContext
-		}
-	}
-	if result.Err != nil && !strings.Contains(reason, result.Err.Error()) {
-		reason += " " + result.Err.Error()
-	}
-	result.ExitCode, result.Stdout, result.Stderr = 0, "", ""
-	reason = strings.TrimSpace(strings.ReplaceAll(reason, "reconc blocked", "reconc policy would reject"))
-	if reason == "" {
-		return result
-	}
-	body, err := json.Marshal(struct {
-		Advisory bool   `json:"advisory"`
-		Reason   string `json:"reason"`
-	}{Advisory: true, Reason: reason})
-	if err != nil {
-		result.Stderr = "reconc dsh advisory encoding: " + err.Error()
-		return result
-	}
-	result.Stdout = string(body)
-	return result
 }

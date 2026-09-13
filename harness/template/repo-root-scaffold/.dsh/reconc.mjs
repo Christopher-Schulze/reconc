@@ -1,20 +1,19 @@
 // Managed by reconc. Project-local DeepSeek Harness policy extension.
-// Advisory only: Go evaluates policy; Reconc never blocks DSH dispatch.
+// Go owns policy decisions; this extension maps them to native host events.
 
 import { spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repo = realpathSync(join(dirname(fileURLToPath(import.meta.url)), '..'))
-const routeBudgets = {"dsh-post-tool-use":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"dsh-post-tool-use-failure":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"dsh-pre-tool-use":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"dsh-session-start":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"dsh-stop":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"}}
+const routeBudgets = {"dsh-post-tool-use":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"dsh-post-tool-use-failure":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"dsh-pre-tool-use":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"dsh-session-start":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"dsh-stop":{"timeoutMilliseconds":30000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow","maxContinuations":1}}
 const decoder = new TextDecoder('utf-8', { fatal: true })
 const maxFrameBytes = 128 * 1024
 const maxRequestBytes = 64 * 1024 * 1024 + 64 * 1024
 const maxQueuedBytes = 128 * 1024 * 1024
 const maxPendingCalls = 512
-const advisoryMilliseconds = 500
 const diagnosticWindowMilliseconds = 30000
 
 const text = (value, fallback) => typeof value === 'string' && value.trim() ? value.trim() : fallback
@@ -32,7 +31,7 @@ const isRepoDirectory = (cwd) => {
     const path = relative(repo, realpathSync(cwd))
     return path !== '..' && !path.startsWith('../') && !path.startsWith('..\\') && !isAbsolute(path)
   } catch {
-    return false
+    return undefined
   }
 }
 
@@ -115,7 +114,8 @@ const jsonBytes = (value, limit, depth = 0, ancestors = new Set()) => {
 }
 
 class WorkerTransport {
-  constructor() {
+  constructor(report = () => {}) {
+    this.report = report
     this.child = undefined
     this.pending = undefined
     this.buffer = Buffer.alloc(0)
@@ -292,7 +292,7 @@ class WorkerTransport {
         await this.start(entry.controller.signal)
         const response = await this.send(entry.frame, entry.id, Math.max(1, entry.deadline - performance.now()), entry.controller.signal)
         if (response.error || response.code !== 0) throw new Error(text(response.error || response.stderr, `Reconc ${entry.event} failed`))
-        if (response.stderr && !response.stdout) throw new Error(response.stderr)
+        if (response.stderr) this.report(entry.event, response.stderr)
         this.finish(entry, undefined, response.stdout || '')
       } catch (error) {
         this.finish(entry, error)
@@ -343,7 +343,7 @@ class DSHDiagnostics {
       const message = raw.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').slice(0, 2048)
       if (this.sent < 16) {
         this.sent++
-        this.write(`reconc dsh advisory (${kind}): ${message}\n`)
+        this.write(`reconc dsh (${kind}): ${message}\n`)
         return
       }
       this.overflow = Math.min(Number.MAX_SAFE_INTEGER, this.overflow + 1)
@@ -358,7 +358,7 @@ class DSHDiagnostics {
     this.timer = undefined
     if (this.repeats || this.overflow) {
       const examples = this.examples.length ? `; latest overflow examples: ${this.examples.join(' | ')}` : ''
-      this.write(`reconc dsh advisory summary: ${this.repeats} repeats coalesced; ${this.overflow} new findings exceeded the output budget${examples}\n`)
+      this.write(`reconc dsh summary: ${this.repeats} repeats coalesced; ${this.overflow} new findings exceeded the output budget${examples}\n`)
     }
     this.repeats = 0
     this.overflow = 0
@@ -378,8 +378,8 @@ class DSHDiagnostics {
 export const inject = ['tools', 'systemPrompt']
 
 export function apply(ctx) {
-  const transport = new WorkerTransport()
   const started = new Map()
+  const continued = new WeakMap()
   const observations = new Set()
   let disposing = false
   let observationOverloadReported = false
@@ -398,6 +398,7 @@ export function apply(ctx) {
     if (disposing) return
     diagnostics.report(kind, reason)
   }
+  const transport = new WorkerTransport(report)
 
   const startSession = (identity) => {
     let pending = started.get(identity.session)
@@ -405,7 +406,7 @@ export function apply(ctx) {
       if (started.size >= maxPendingCalls) return Promise.reject(new Error('Reconc DSH session capacity exceeded'))
       pending = transport.run('dsh-session-start', {
         hook_event_name: 'session_start', session_id: identity.session, cwd: identity.cwd,
-      }, undefined, performance.now() + advisoryMilliseconds).catch(error => {
+      }).catch(error => {
         if (started.get(identity.session) === pending) started.delete(identity.session)
         throw error
       })
@@ -431,10 +432,10 @@ export function apply(ctx) {
     })
   }
 
-  const withinAdvisoryDeadline = async (signal, work) => {
+  const withinRouteDeadline = async (event, signal, work) => {
     const controller = new AbortController()
     const abort = () => controller.abort(signal.reason)
-    const timer = setTimeout(() => controller.abort(new Error('Reconc DSH advisory timed out')), advisoryMilliseconds)
+    const timer = setTimeout(() => controller.abort(new Error('Reconc hook timed out')), routeBudgets[event].timeoutMilliseconds)
     if (signal?.aborted) abort()
     else signal?.addEventListener('abort', abort, { once: true })
     try { return await work(controller.signal) }
@@ -448,13 +449,13 @@ export function apply(ctx) {
   const context = ctx.systemPrompt.context({
     name: 'reconc-policy',
     order: 125,
-    text: 'This repository uses Reconc policy. Run `reconc agent-intro` for its compact command guide before making changes. This DSH integration provides advisory policy feedback and observations without blocking tools or turns. Use explicit Reconc CLI and repository CI checks for authoritative validation.',
+    text: 'This repository uses Reconc policy. Run `reconc agent-intro` for its compact command guide before making changes. Resolve policy findings and run the required Reconc CLI and repository checks before declaring completion.',
   })
 
   const preStep = ctx.on('agent/pre-step', async (step, next) => {
     const header = step.agent?.session?.header
     if (!disposing && header && isRepoDirectory(header.cwd) && typeof header.id === 'string' && header.id) {
-      try { await withinAdvisoryDeadline(step.signal, signal => waitForSession({ session: header.id, cwd: header.cwd }, signal)) }
+      try { await withinRouteDeadline('dsh-session-start', step.signal, signal => waitForSession({ session: header.id, cwd: header.cwd }, signal)) }
       catch (error) { report('session', error?.message) }
     }
     return next()
@@ -462,9 +463,11 @@ export function apply(ctx) {
 
   const pre = ctx.on('tools/pre-execute', async (exec, next) => {
     const identity = executionIdentity(exec)
-    if (!disposing && identity) {
+    if (identity && isRepoDirectory(identity.cwd) === false) return next()
+    if (disposing) return { kind: 'deny', reason: 'Reconc extension is disposing' }
+    if (identity) {
       try {
-        const output = await withinAdvisoryDeadline(exec.signal, async signal => {
+        const output = await withinRouteDeadline('dsh-pre-tool-use', exec.signal, async signal => {
           await waitForSession(identity, signal)
           return transport.run('dsh-pre-tool-use', {
             hook_event_name: 'tools/pre-execute', session_id: identity.session, cwd: identity.cwd,
@@ -475,16 +478,19 @@ export function apply(ctx) {
         })
         if (output) {
           const decision = JSON.parse(output)
-          report('policy', decision?.reason || decision?.additionalContext || 'Review the repository policy with reconc check')
+          if (decision?.decision !== 'block' || typeof decision.reason !== 'string' || !decision.reason.trim()) {
+            throw new Error('Invalid Reconc pre-tool decision')
+          }
+          return { kind: 'deny', reason: decision.reason.trim() }
         }
-      } catch (error) { report('evaluation', error?.message) }
-    } else if (!disposing) report('identity', 'Tool event could not be associated with a Reconc observation; DSH continues')
+      } catch (error) { return { kind: 'deny', reason: text(error?.message, 'Reconc policy evaluation failed') } }
+    } else return { kind: 'deny', reason: 'Invalid Reconc tool execution identity' }
     return next()
   })
 
   const result = ctx.on('tools/result', (exec, outcome) => {
     const identity = executionIdentity(exec)
-    if (!identity || disposing) return
+    if (!identity || !isRepoDirectory(identity.cwd) || disposing) return
     if (observations.size >= maxPendingCalls) {
       if (!observationOverloadReported) {
         process.stderr.write('reconc dsh observation: pending result limit reached\n')
@@ -511,24 +517,30 @@ export function apply(ctx) {
     observations.add(pending)
   })
 
-  const stop = ctx.on('agent/turn-stopping', async ({ agent, signal }) => {
+  const stop = ctx.on('agent/turn-stopping', async ({ agent, turn, signal }) => {
     const header = agent?.session?.header
     if (disposing || !header || !Object.isFrozen(header) || !isRepoDirectory(header.cwd) ||
         typeof header.id !== 'string' || !header.id || signal?.aborted) return
     try {
-      const output = await withinAdvisoryDeadline(signal, async advisorySignal => {
-        await waitForSession({ session: header.id, cwd: header.cwd }, advisorySignal)
+      const active = continued.has(agent) && continued.get(agent) === turn
+      const output = await withinRouteDeadline('dsh-stop', signal, async stopSignal => {
+        await waitForSession({ session: header.id, cwd: header.cwd }, stopSignal)
         return transport.run('dsh-stop', {
           hook_event_name: 'agent/turn-stopping', session_id: header.id, cwd: header.cwd,
-          agent_id: agent.id, stop_hook_active: false,
-        }, advisorySignal)
+          agent_id: agent.id, stop_hook_active: active,
+        }, stopSignal)
       })
       if (!output || signal?.aborted) return
       const decision = JSON.parse(output)
-      const reason = decision?.advisory === true || decision?.decision === 'block' ? decision.reason :
+      const reason = decision?.decision === 'block' ? decision.reason :
         decision?.continue === true ? decision.additionalContext : undefined
       if (typeof reason !== 'string' || !reason.trim()) throw new Error('invalid Reconc DSH stop decision')
-      report('stop', reason)
+      if (active) return
+      agent.steer({
+        id: randomUUID(), role: 'user', content: [{ type: 'text', text: reason.trim() }],
+        source: { kind: 'plugin', plugin: 'reconc', form: 'notice', summary: 'Reconc requires another check' },
+      })
+      continued.set(agent, turn)
     } catch (error) {
       report('stop', error?.message)
     }
@@ -537,9 +549,10 @@ export function apply(ctx) {
   const disposed = ctx.on('agent/disposed', ({ agent }) => {
     const session = agent?.session?.header?.id
     if (typeof session === 'string') started.delete(session)
+    continued.delete(agent)
   })
 
-  const service = ctx.provide('reconcGuard', { repo, mode: 'advisory' })
+  const service = ctx.provide('reconcGuard', { repo })
   ctx.effect(() => async () => {
     disposing = true
     diagnostics.close()

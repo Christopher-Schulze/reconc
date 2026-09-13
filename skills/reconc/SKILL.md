@@ -10,6 +10,8 @@ description: Operate Reconc policy and evidence in a repository that uses it, or
 `reconc` compiles repository policy into a deterministic contract and checks
 real agent evidence against it. It does not invent acceptance criteria,
 priorities, approvals, or test results.
+The same policy, evidence, and completion workflow applies to every supported
+host. Adapter details change configuration and event delivery, not these rules.
 
 1. **Inspect** the versioned machine briefing.
 2. **Select** the exact next action by `kind`: use its `argv` or literal

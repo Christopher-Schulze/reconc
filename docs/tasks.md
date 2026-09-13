@@ -7,6 +7,7 @@
 ## Blocked
 
 ## Done
+- [x] 564 Unify DSH policy and agent workflow -> tasks/done/564-unify-dsh-policy-and-agent-workflow.md
 - [x] 563 Detect upstream host contract drift automatically -> tasks/done/563-detect-upstream-host-contract-drift-automatically.md
 - [x] 562 Deduplicate DSH findings with bounded summaries -> tasks/done/562-deduplicate-dsh-findings-with-bounded-summaries.md
 - [x] 561 Reduce DSH advisory wait times -> tasks/done/561-reduce-dsh-advisory-wait-times.md
@@ -16,4 +17,3 @@
 - [x] 557 Close DSH execution and provider policy gaps -> tasks/done/557-close-dsh-execution-and-provider-policy-gaps.md
 - [x] 556 Migrate checked benchmark baseline to current contract -> tasks/done/556-migrate-checked-benchmark-baseline-to-current-contract.md
 - [x] 555 Qualify five-host delivery and final gates -> tasks/done/555-qualify-five-host-delivery-and-final-gates.md
-- [x] 554 Optimize measured agent hot paths -> tasks/done/554-optimize-measured-agent-hot-paths.md

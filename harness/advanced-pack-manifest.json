@@ -536,8 +536,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.dsh/reconc.mjs",
       "mode": 420,
-      "size": 23609,
-      "sha256": "59ec7e77270cfac8341a802510e23eee45f634cd6628f5ac6e4c7cfc5c700eb4",
+      "size": 24228,
+      "sha256": "846e683601e5900fcc6000323747c197636626a29d4686c952df04af96b328d5",
       "ownership": "pack-file"
     },
     {
@@ -863,6 +863,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 897283,
-  "digest": "d2137c67ba14dec8766087fc4d92a6117e8b3f35c0232496b5baf865f071b0f8"
+  "total_bytes": 897902,
+  "digest": "d86d9bb8fd3c2965f06f8ce7884475e4948d68e32f5c985c5a257c24be52232d"
 }

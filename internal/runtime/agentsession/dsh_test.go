@@ -1,8 +1,6 @@
 package agentsession
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,42 +9,6 @@ import (
 
 	"reconc.dev/reconc/internal/policy"
 )
-
-func TestAdaptDSHResultNeverVetoesDispatch(t *testing.T) {
-	for _, test := range []struct {
-		name  string
-		input Result
-		want  string
-	}{
-		{"allowed", Result{}, ""},
-		{"policy finding", Result{ExitCode: 2, Stderr: "reconc blocked: protected path"}, "reconc policy would reject: protected path"},
-		{"stop finding", Result{Stdout: `{"decision":"block","reason":"run required checks"}`}, "run required checks"},
-		{"context", Result{Stdout: `{"additionalContext":"review the policy"}`}, "review the policy"},
-		{"worker failure", Result{ExitCode: 2, Err: errors.New("worker unavailable")}, "worker unavailable"},
-		{"malformed response", Result{Stdout: `{`}, "unreadable advisory result"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			result := AdaptDSHResult(test.input)
-			if result.ExitCode != 0 || result.Stderr != "" || !errors.Is(result.Err, test.input.Err) {
-				t.Fatalf("advisory result lost error identity or vetoed dispatch: %+v", result)
-			}
-			if test.want == "" {
-				if result.Stdout != "" {
-					t.Fatalf("allowed result created feedback: %q", result.Stdout)
-				}
-				return
-			}
-			var output struct {
-				Advisory bool   `json:"advisory"`
-				Reason   string `json:"reason"`
-				Decision string `json:"decision"`
-			}
-			if err := json.Unmarshal([]byte(result.Stdout), &output); err != nil || !output.Advisory || output.Decision != "" || !strings.Contains(output.Reason, test.want) {
-				t.Fatalf("advisory envelope = %s, error = %v", result.Stdout, err)
-			}
-		})
-	}
-}
 
 func TestNormalizeDSHNativeToolAndObservationBoundaries(t *testing.T) {
 	repo, err := filepath.EvalSymlinks(t.TempDir())
@@ -82,7 +44,7 @@ func TestNormalizeDSHNativeToolAndObservationBoundaries(t *testing.T) {
 				t.Fatalf("normalized DSH tool = %+v", parsed)
 			}
 			if test.wantMCP {
-				if parsed.MCP == nil || parsed.MCP.Platform != policy.MCPPlatform("custom:dsh") || parsed.MCP.Tool != test.native || parsed.MCP.BlockingPreHook {
+				if parsed.MCP == nil || parsed.MCP.Platform != policy.MCPPlatform("custom:dsh") || parsed.MCP.Tool != test.native || !parsed.MCP.BlockingPreHook {
 					t.Fatalf("DSH pre MCP selector = %+v", parsed.MCP)
 				}
 			} else if parsed.MCP != nil {
@@ -144,8 +106,8 @@ func TestNormalizeDSHWorkingDirectoriesAndOpaqueTools(t *testing.T) {
 			if err != nil || parsed.ToolName != test.wantTool || parsed.FilePath() != test.wantPath {
 				t.Fatalf("normalization = %+v, %v", parsed, err)
 			}
-			if parsed.MCP == nil || parsed.MCP.Tool != test.tool || parsed.MCP.BlockingPreHook {
-				t.Fatalf("advisory selector = %+v", parsed.MCP)
+			if parsed.MCP == nil || parsed.MCP.Tool != test.tool || !parsed.MCP.BlockingPreHook {
+				t.Fatalf("native selector = %+v", parsed.MCP)
 			}
 		})
 	}

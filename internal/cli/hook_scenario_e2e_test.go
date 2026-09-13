@@ -428,7 +428,7 @@ func task499HostContracts() []task499HostContract {
 		{kind: hooks.KindKilo, transport: "bun", executeGenerated: false, prePayload: task499PluginPayload, response: "exit-block"},
 		{kind: hooks.KindGrok, transport: "native-json", executeGenerated: true, prePayload: task499GrokPayload, response: "grok-deny"},
 		{kind: hooks.KindOMP, transport: "bun", executeGenerated: false, prePayload: task499OMPPayload, response: "exit-block"},
-		{kind: hooks.KindDSH, transport: "worker", executeGenerated: false, prePayload: task499DSHPayload, response: "dsh-advisory"},
+		{kind: hooks.KindDSH, transport: "worker", executeGenerated: false, prePayload: task499DSHPayload, response: "exit-block"},
 		{kind: hooks.KindPi, transport: "bun", executeGenerated: false, prePayload: task499PiPayload, response: "exit-block"},
 		{kind: hooks.KindZCode, transport: "native-json", executeGenerated: true, prePayload: task499ZCodePayload, response: "exit-block"},
 		{kind: hooks.KindKimiCode, transport: "global-receipt", executeGenerated: false, prePayload: task499KimiPayload, response: "exit-block"},
@@ -469,10 +469,6 @@ func mustTask499PreRoute(t *testing.T, kind string) string {
 func assertTask499PreResponse(t *testing.T, contract task499HostContract, stdout, stderr string, code int) {
 	t.Helper()
 	switch contract.response {
-	case "dsh-advisory":
-		if code != 0 || stderr != "" || !strings.Contains(stdout, `"advisory":true`) || !strings.Contains(stdout, "deny-generated") || strings.Contains(stdout, `"decision":"block"`) {
-			t.Fatalf("DSH advisory envelope = code %d stdout=%q stderr=%q", code, stdout, stderr)
-		}
 	case "copilot-deny":
 		if code != 0 || stderr != "" || !strings.Contains(stdout, `"permissionDecision":"deny"`) || !strings.Contains(stdout, "deny-generated") {
 			t.Fatalf("Copilot envelope = code %d stdout=%q stderr=%q", code, stdout, stderr)

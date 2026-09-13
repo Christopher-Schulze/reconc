@@ -91,7 +91,7 @@ func TestDSHInstallStatusAndExactRemoval(t *testing.T) {
 		t.Fatalf("idempotent DSH install: %v", err)
 	}
 	status, err := InspectPlatform(repo, KindDSH)
-	if err != nil || status.State != StateInstalled || !status.Installed || status.Configured || status.Live {
+	if err != nil || status.State != StateConfigured || !status.Installed || !status.Configured || status.Live {
 		t.Fatalf("DSH static status = %+v, %v", status, err)
 	}
 	removed, err := Uninstall(KindDSH, repo)

@@ -37,12 +37,11 @@ func TestHookVerifyOfflineCoversSharedMatrixWithoutLiveClaims(t *testing.T) {
 		t.Fatalf("offline report = complete=%t mode=%s results=%d degraded=%+v", report.Complete, report.Mode, len(report.Results), degradedHookVerificationResults(report.Results))
 	}
 	for _, result := range report.Results {
-		wantEnforced := result.Kind != hooks.KindDSH
-		if !result.Configured || !result.Discoverable || result.SyntheticEnforced != wantEnforced || result.Loaded || result.Observed || result.Enforced || result.Degraded {
+		if !result.Configured || !result.Discoverable || !result.SyntheticEnforced || result.Loaded || result.Observed || result.Enforced || result.Degraded {
 			t.Fatalf("offline facts for %s/%s = %+v", result.Kind, result.Surface, result)
 		}
-		if result.Kind == hooks.KindDSH && result.ResultClass != "synthetic-advisory" {
-			t.Fatalf("DSH advisory proof mislabeled: %+v", result)
+		if result.Kind != hooks.KindGitPreCommit && result.ResultClass != "synthetic-block" {
+			t.Fatalf("Synthetic policy proof mislabeled: %+v", result)
 		}
 		if result.Transport != "verified" || result.PolicyDecision != "verified" || result.ResponseAdaptation != "verified" {
 			t.Fatalf("offline stages for %s/%s = %+v", result.Kind, result.Surface, result)

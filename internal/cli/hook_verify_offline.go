@@ -148,9 +148,6 @@ func offlineSurfaceResult(surface hooks.VerificationSurface, source offlineHookK
 	if surface.Kind == hooks.KindGitPreCommit {
 		resultClass = "synthetic-commit-block"
 	}
-	if surface.Kind == hooks.KindDSH {
-		resultClass = "synthetic-advisory"
-	}
 	return hookVerificationResult{
 		Kind: surface.Kind, Surface: surface.Surface,
 		ArtifactGeneration: source.artifactGeneration, Configuration: source.configuration,
@@ -579,7 +576,7 @@ func verifyOfflineHookKind(kind, repo string) offlineHookKindResult {
 		return result
 	}
 	result.policyDecision, result.responseAdaptation = "verified", "verified"
-	result.syntheticEnforced = kind != hooks.KindDSH
+	result.syntheticEnforced = true
 	transport, adapter, unsupported, detail := verifyGeneratedHookTransport(kind, repo)
 	applyOfflineTransportResult(&result, transport, adapter, unsupported, detail)
 	return result
@@ -656,15 +653,9 @@ func verifyOfflineAgentDecision(kind, repo string, started time.Time) syntheticH
 		return syntheticHookDecision{durationMillis: elapsedMillis(started), detail: "synthetic agent decision output exceeded the hook limit"}
 	}
 	verified := hookVerificationBlocked(kind, runtimeErr, stdout.String(), stderr.String())
-	if kind == hooks.KindDSH {
-		verified = ExitCode(runtimeErr) == 0 && strings.Contains(stdout.String(), `"advisory":true`) && strings.Contains(stdout.String(), "hook-verify-deny-write")
-	}
 	detail := ""
 	if !verified {
 		detail = fmt.Sprintf("synthetic denied write was not blocked (exit %d)", ExitCode(runtimeErr))
-		if kind == hooks.KindDSH {
-			detail = fmt.Sprintf("synthetic policy finding was not delivered as a non-blocking advisory (exit %d)", ExitCode(runtimeErr))
-		}
 	}
 	return syntheticHookDecision{verified: verified, durationMillis: elapsedMillis(started), detail: detail}
 }
@@ -965,15 +956,8 @@ if (kind === "opencode" || kind === "kilo") {
     provide: () => () => {},
     effect: (factory) => { cleanup = factory(); return () => cleanup() },
   }
-  const diagnostics = []
-  const originalWrite = process.stderr.write
-  process.stderr.write = function(chunk, ...args) {
-    diagnostics.push(String(chunk))
-    return originalWrite.call(this, chunk, ...args)
-  }
-  const heard = text => diagnostics.some(line => line.includes(text))
   module.apply(ctx)
-  if (guard !== undefined) throw new Error("DSH advisory extension registered a dispatch guard")
+  if (guard !== undefined) throw new Error("DSH extension registered a dispatch guard")
   const header = Object.freeze({ id: "verify-dsh", cwd: repo })
   const agent = { id: "verify-agent", session: { header } }
   const firstStep = await listeners.get("agent/pre-step")(
@@ -988,9 +972,9 @@ if (kind === "opencode" || kind === "kilo") {
     signal: AbortSignal.timeout(10000),
   })
   const denied = call("blocked", "forbidden.txt")
-  const answer = await listeners.get("tools/pre-execute")(denied, () => ({ kind: "allow" }))
-  if (answer?.kind !== "allow" || !heard("hook-verify-deny-write")) {
-    throw new Error("DSH extension did not report a real policy finding while continuing: " + JSON.stringify(answer))
+  const answer = await listeners.get("tools/pre-execute")(denied, () => { throw new Error("denied write dispatched") })
+  if (answer?.kind !== "deny" || !answer.reason.includes("hook-verify-deny-write")) {
+    throw new Error("DSH extension did not deliver a real policy denial: " + JSON.stringify(answer))
   }
   const skipped = call("skipped", "forbidden.txt")
   listeners.get("tools/result")(skipped, Object.freeze({ isError: false }))
@@ -1032,8 +1016,9 @@ if (kind === "opencode" || kind === "kilo") {
   const deniedEdit = call("denied-edit", "forbidden.txt")
   deniedEdit.name = "edit"
   deniedEdit.arguments = Object.freeze({ file_path: "forbidden.txt", old_string: "old", new_string: "new" })
-  if ((await listeners.get("tools/pre-execute")(deniedEdit, () => ({ kind: "allow" })))?.kind !== "allow" || !heard("hook-verify-deny-write")) {
-    throw new Error("DSH advisory edit evaluation failed")
+  const deniedEditDecision = await listeners.get("tools/pre-execute")(deniedEdit, () => { throw new Error("denied tool dispatched") })
+  if (deniedEditDecision?.kind !== "deny" || !deniedEditDecision.reason.includes("hook-verify-deny-write")) {
+    throw new Error("DSH edit policy denial failed")
   }
   const allowedEdit = call("allowed-edit", "allowed.txt")
   allowedEdit.name = "edit"
@@ -1042,8 +1027,9 @@ if (kind === "opencode" || kind === "kilo") {
   const deniedShell = call("denied-shell", "allowed.txt")
   deniedShell.name = "bash"
   deniedShell.arguments = Object.freeze({ command: "touch forbidden-command-marker", description: "Create a protected marker" })
-  if ((await listeners.get("tools/pre-execute")(deniedShell, () => ({ kind: "allow" })))?.kind !== "allow" || !heard("hook-verify-deny-command")) {
-    throw new Error("DSH advisory command evaluation failed")
+  const deniedShellDecision = await listeners.get("tools/pre-execute")(deniedShell, () => { throw new Error("denied tool dispatched") })
+  if (deniedShellDecision?.kind !== "deny" || !deniedShellDecision.reason.includes("hook-verify-deny-command")) {
+    throw new Error("DSH command policy denial failed")
   }
   const allowedShell = call("allowed-shell", "allowed.txt")
   allowedShell.name = "bash"
@@ -1065,13 +1051,13 @@ if (kind === "opencode" || kind === "kilo") {
   await listeners.get("tools/pre-execute")(changedArguments, () => ({ kind: "allow" }))
   changedArguments.arguments = Object.freeze({ file_path: "forbidden.txt", content: "candidate" })
   if (!Object.getOwnPropertyDescriptor(changedArguments, "arguments").writable) {
-    throw new Error("DSH advisory extension locked host tool arguments")
+    throw new Error("DSH extension locked host tool arguments")
   }
   const changed = call("changed", "allowed.txt")
   await listeners.get("tools/pre-execute")(changed, () => ({ kind: "allow" }))
   changed.agent = foreign.agent
   if (!Object.getOwnPropertyDescriptor(changed, "agent").writable) {
-    throw new Error("DSH advisory extension locked host agent identity")
+    throw new Error("DSH extension locked host agent identity")
   }
   const canceled = call("canceled", "allowed.txt")
   const cancellation = new AbortController()
@@ -1082,7 +1068,7 @@ if (kind === "opencode" || kind === "kilo") {
   const lateBridge = call("late-bridge", "allowed.txt")
   await listeners.get("tools/pre-execute")(lateBridge, () => ({ kind: "allow" }))
   runtimes.push({ name: "hooks-codex", fibers: { length: 1 } })
-  if (guard !== undefined) throw new Error("DSH advisory extension registered a bridge gate")
+  if (guard !== undefined) throw new Error("DSH extension registered a bridge gate")
   const duplicate = call("duplicate-bridge", "allowed.txt")
   if ((await listeners.get("tools/pre-execute")(duplicate, () => ({ kind: "allow" })))?.kind !== "allow") {
     throw new Error("DSH pre hook blocked a compatibility bridge")
@@ -1102,8 +1088,8 @@ if (kind === "opencode" || kind === "kilo") {
     module.apply(ctx)
     const failed = call("worker-failed", "allowed.txt")
     const failure = await listeners.get("tools/pre-execute")(failed, () => ({ kind: "allow" }))
-    if (failure?.kind !== "allow") {
-      throw new Error("DSH worker launch failure blocked host dispatch")
+    if (failure?.kind !== "deny" || !failure.reason) {
+      throw new Error("DSH worker launch failure did not deny dispatch")
     }
     await cleanup()
   } finally {
@@ -1116,8 +1102,8 @@ if (kind === "opencode" || kind === "kilo") {
     module.apply(ctx)
     const timedOut = call("worker-timeout", "allowed.txt")
     const failure = await listeners.get("tools/pre-execute")(timedOut, () => ({ kind: "allow" }))
-    if (failure?.kind !== "allow" || !heard("timed out")) {
-      throw new Error("DSH worker timeout did not continue with an advisory diagnostic")
+    if (failure?.kind !== "deny" || !failure.reason.includes("timed out")) {
+      throw new Error("DSH worker timeout did not deny dispatch")
     }
     await cleanup()
   } finally {
@@ -1134,9 +1120,16 @@ if (kind === "opencode" || kind === "kilo") {
     const stopPayload = { agent: stopAgent, turn: 1, signal: AbortSignal.timeout(10000) }
     await listeners.get("agent/turn-stopping")(stopPayload)
     await listeners.get("agent/turn-stopping")(stopPayload)
-    if (steered.length !== 0 || !heard("repair before stopping")) {
-      throw new Error("DSH Stop changed host continuation or lost its advisory finding")
+    if (steered.length !== 1 || steered[0].content[0].text !== "repair before stopping") {
+      throw new Error("DSH Stop failed to request one bounded policy continuation")
     }
+    await listeners.get("agent/turn-stopping")({ ...stopPayload, turn: 2, signal: AbortSignal.abort() })
+    if (steered.length !== 1) throw new Error("DSH Stop ignored host cancellation")
+    await listeners.get("agent/turn-stopping")({ ...stopPayload, turn: 2 })
+    if (steered.length !== 2) throw new Error("DSH Stop did not reset continuation for the next turn")
+    listeners.get("agent/disposed")({ agent: stopAgent })
+    await listeners.get("agent/turn-stopping")(stopPayload)
+    if (steered.length !== 3) throw new Error("DSH Stop retained disposed agent state")
     await cleanup()
     module.apply(ctx)
     const firstSteps = await Promise.all(Array.from({ length: 513 }, (_, index) =>
@@ -1153,7 +1146,6 @@ if (kind === "opencode" || kind === "kilo") {
     if (existsSync(wrapper)) await unlink(wrapper)
     await rename(withheld, wrapper)
   }
-  process.stderr.write = originalWrite
 } else {
   if (typeof module.default !== "function") throw new Error("extension factory missing")
   const handlers = new Map()

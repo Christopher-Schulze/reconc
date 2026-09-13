@@ -48,7 +48,7 @@ func TestDSHPreDecisionAndFinalResultObservation(t *testing.T) {
 	pre := func(path string) string {
 		return fmt.Sprintf(`{"hook_event_name":"tools/pre-execute","session_id":"dsh-observed","cwd":%q,"agent_id":"agent-1","tool_name":"write","tool_input":{"file_path":%q,"content":"candidate"},"tool_call_id":"call-1","root_call_id":"call-1"}`, repo, path)
 	}
-	if out, diagnostic, code := runWithStdin(t, pre("generated/blocked.go"), "hook", "runtime", "dsh-pre-tool-use", repo); code != 0 || !strings.Contains(out, `"advisory":true`) || !strings.Contains(out, "deny-generated") || diagnostic != "" {
+	if out, diagnostic, code := runWithStdin(t, pre("generated/blocked.go"), "hook", "runtime", "dsh-pre-tool-use", repo); code != 2 || out != "" || !strings.Contains(diagnostic, "deny-generated") {
 		t.Fatalf("DSH protected write: code=%d stdout=%q stderr=%q", code, out, diagnostic)
 	}
 	if out, diagnostic, code := runWithStdin(t, pre("docs/allowed.md"), "hook", "runtime", "dsh-pre-tool-use", repo); code != 0 || out != "" || diagnostic != "" {

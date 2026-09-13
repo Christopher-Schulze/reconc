@@ -34,7 +34,7 @@ timeout policy, output budgets, artifact paths, and activation probes:
 | Antigravity CLI | `.agents/hooks.json` | Invocation, tool, evidence, and Stop adapters |
 | Kilo Code | `.kilo/plugin/reconc.js` | Thin CLI/VS Code project plugin with strict shell exits and inferred bounded async idle continuation; disabled when `KILO_PURE` is set |
 | Oh My Pi | `.omp/extensions/reconc.ts` | Typed project extension with blocking pre-tool and awaited main-session Stop; observational approval, outcome, compaction, and shutdown routes |
-| DeepSeek Harness | `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml` | Explicit profile overlay with advisory Go policy feedback, passive results, and diagnostic Stop findings; no Reconc dispatch gate |
+| DeepSeek Harness | `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml` | Explicit profile overlay with blocking pre-tool decisions, passive results, and awaited bounded Stop continuation |
 | Pi Coding Agent | `.pi/extensions/reconc.ts` | Trust-aware typed project extension with blocking tool/user-shell boundaries, observational results/lifecycle/compaction, and inferred bounded settled continuation |
 | ZCode | `.zcode/config.json` | Native seven-event process hooks with blocking pre-tool, permission, and synchronous Stop routes |
 | Grok Build | `.grok/hooks/reconc.json` | Native lifecycle and hard PreToolUse; project trust required; capability-probed native Stop or optional local leader fallback |
@@ -119,16 +119,16 @@ synchronous Stop gate, or continuation acknowledgement.
 
 DeepSeek Harness loads `.dsh/reconc.patch.yml` with the selected profile, for
 example `npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml`.
-Reconc provides advisory policy feedback and passive observations only. It never
-denies a tool, rejects a step, locks execution input, or forces a Stop
-continuation. Worker failures and unknown events produce bounded diagnostics
-while the host continues. Native/PTC modes, PowerShell, persistent Bash,
-terminals, renamed delegation, external providers, and compatibility bridges
-remain available. Subdirectory file paths are rebased; opaque shell state and
-external children do not create assumed effects or inherited-protection claims.
-Use explicit Reconc CLI/CI checks for authoritative validation. Static status
-is `installed`; it does not claim host interception. Source/API review and
-executable offline regressions define acceptance; no qualification run is required.
+`tools/pre-execute` returns native denials for policy blocks, invalid decisions,
+worker errors, and timeouts. `agent/turn-stopping` awaits policy evaluation and
+uses `agent.steer` for one remediation per turn, honoring cancellation and
+reentry. Lifecycle failures produce bounded diagnostics. Native/PTC modes,
+shells, terminals, delegation, and bridges use the same configured policy
+without execution-mode blacklists. Subdirectory file paths are rebased; opaque
+shell state and external children do not create assumed evidence or inherited
+protection. Later plugins can replace execution input; Reconc does not lock
+host-owned fields. Final transformed `tools/result` outcomes remain passive
+observations. Use `reconc exec` for authoritative command proof.
 
 ZCode snapshots `.zcode/config.json` at session start. Reconc merges only exact
 managed process entries and preserves foreign settings, events, commands, and
@@ -144,7 +144,7 @@ MCP repository effects are opt-in exact mappings in `.reconc.yml`. Use
 identity, malformed selector value, unknown outcome, or `external` effect as
 repository evidence. Cursor can strictly deny unclassified calls through its
 dedicated MCP pre-hook. OpenCode/Kilo generic hooks cannot identify
-unconfigured MCP calls soundly; OMP, Pi, and ZCode have the same generic-tool identity limit.
+unconfigured MCP calls soundly; OMP, DSH, Pi, and ZCode have the same generic-tool identity limit.
 Report strict unclassified deny as unavailable on those surfaces while exact
 configured tool identities remain enforceable.
 

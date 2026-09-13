@@ -396,7 +396,7 @@ func verifyRepository(repoRoot, expectedProductVersion string, allowPendingTrans
 			}
 			for _, kind := range receipt.Hooks {
 				status := statusByKind[kind]
-				verification.add("hook:"+kind, hookStaticReady(kind, status), string(status.State)+": "+status.Detail)
+				verification.add("hook:"+kind, status.State == hooks.StateConfigured, string(status.State)+": "+status.Detail)
 			}
 		}
 	}

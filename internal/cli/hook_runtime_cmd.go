@@ -331,9 +331,6 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	case hooks.KindKimiCode:
 		result = agentsession.AdaptKimiCodeResult(event, result)
 		timing.mark("kimi_code_adapt")
-	case hooks.KindDSH:
-		result = agentsession.AdaptDSHResult(result)
-		timing.mark("dsh_adapt")
 	}
 	if result.Err != nil {
 		if !strings.Contains(result.Stderr, result.Err.Error()) {

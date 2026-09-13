@@ -381,13 +381,13 @@ weaker host lifecycle respectively.
   successful built-in `Bash` result receives synthetic exit code zero.
 - **DeepSeek Harness**: `reconc hook install dsh .` owns `.dsh/reconc.mjs`
   and `.dsh/reconc.patch.yml`. Load the overlay with the selected DSH profile.
-  Policy findings and Stop feedback are advisory; Reconc never denies host
-  tools, locks their inputs, or forces another turn. Native/PTC tools,
-  persistent shells, PowerShell, terminals, external delegation, and compatibility
-  bridges remain available. Worker failure or uncertain coverage does not block
-  dispatch. Results are observations, not command/file-success proof. Use explicit
-  Reconc CLI and CI checks for authoritative validation. No qualification run is
-  required; installation alone reports `installed`, not host interception.
+  Native `tools/pre-execute` delivers policy denials and fails closed on worker
+  errors, invalid decisions, or timeouts. Awaited `agent/turn-stopping` requests
+  one remediation per turn through `agent.steer`, honoring cancellation and
+  reentry. Native/PTC tools, shells, terminals, delegation, and bridges remain
+  available under the configured policy. Results are observations, not
+  command/file-success proof; use `reconc exec` for command evidence. The same
+  CLI/CI completion workflow applies to every host.
 - **Pi Coding Agent**: `reconc hook install pi .` owns `.pi/extensions/reconc.ts` and
   never edits project trust. Status requires saved canonical-path trust or
   `defaultProjectTrust: "always"` before reporting `configured`. Native

@@ -5,7 +5,7 @@
   "source_url": "https://github.com/deepseek-ai/deepseek-harness/blob/fb2c4b9e698e30edb738bca4cf0618587db7d203/packages/core/tools/src/index.ts",
   "source_revision": "fb2c4b9e698e30edb738bca4cf0618587db7d203",
   "capture_date": "2026-09-13",
-  "scope": "Native ToolRuntime execution events and monotonic guard; agent/pre-step and agent/turn-stopping are published at the same revision in packages/core/agent/src/runtime-types.ts.",
+  "scope": "Native ToolRuntime pre-tool decisions and final result observations; agent/pre-step and awaited agent/turn-stopping steering are published at the same revision in packages/core/agent/src/runtime-types.ts.",
   "events": [
     {
       "name": "agent/pre-step",

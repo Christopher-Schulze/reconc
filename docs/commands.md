@@ -1250,9 +1250,9 @@ non-reconc hook groups; and Kilo Code owns
 and `.dsh/reconc.patch.yml`; start it from the repository with
 `dsh --patch .dsh/reconc.patch.yml`. Installation does not change user
 profiles, and status cannot treat an installed overlay as proof that the
-current DSH process loaded it. Run DSH from the repository root: the native
-adapter denies subdirectory sessions and Bash workdirs because DSH resolves
-relative paths against the session or shell workdir. Pi owns only
+current DSH process loaded it. Native file paths from subdirectory sessions
+are rebased to the policy root; stateful shells retain their named tool identity
+without assumed repository-root command effects. Pi owns only
 `.pi/extensions/reconc.ts`. ZCode merges Reconc-owned process entries into
 `.zcode/config.json` under `hooks.events` and enables that hook section while
 preserving unrelated settings, hook events, and commands. These integrations
@@ -1329,7 +1329,7 @@ artifacts, the repo-local wrapper, Codex's enable flag, Git `core.hooksPath`,
 Kilo Code pure mode, legacy Kilo Code plugin placement, Grok's native
 project-hook artifact, OMP's generator-exact ExtensionAPI module, and Pi's
 generator-exact extension plus project trust. DSH status checks both owned
-files and reports `installed`; real patched-host liveness is a separate fact.
+files and reports `configured`; host loading remains a separate fact.
 Each platform generator runs once
 per status inspection. The target bytes and mode come from one stable snapshot,
 and the shared wrapper is inspected once for the complete multi-platform report
@@ -1450,9 +1450,7 @@ missing shell produces an explicit incomplete result.
 
 Offline `configured`, `discoverable`, and `synthetic_enforced` facts refer only
 to that disposable repository. `loaded`, `observed`, and `enforced` remain
-false, and every expected live route remains in `unproven_events`. DSH reports
-`result_class=synthetic-advisory` with `synthetic_enforced=false`; its successful
-offline check verifies feedback and continued dispatch. Bun is used
+false, and every expected live route remains in `unproven_events`. Bun is used
 only when present to execute generated OpenCode, Kilo, OMP, DSH, and Pi adapters; a
 missing Bun produces an explicit incomplete result rather than a pass. Text and
 JSON are ordered by the registry matrix and never include the temporary path,
@@ -1578,7 +1576,7 @@ continuation through all fourteen registered agent runtimes. Claude Code, Codex,
 GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, Kimi Code CLI, OMP, and ZCode expose
 synchronous Stop gates; OpenCode and Kilo Code use inferred `session.idle`
 adapters whose host boundary is best-effort and fail-open. DSH offers one
-advisory `agent/turn-stopping` continuation per turn. Reconc emits exact Grok
+awaited `agent/turn-stopping` remediation through `agent.steer` per turn. Reconc emits exact Grok
 Stop block JSON
 without a leader; synchronous stock-TUI enforcement and its continuation bound
 are accepted only when the installed Grok guide explicitly advertises the

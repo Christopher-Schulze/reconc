@@ -1,5 +1,5 @@
 // Source contract: deepseek-ai/deepseek-harness fb2c4b9e698e30edb738bca4cf0618587db7d203.
-// Advisory integration: native continuation, passive results, and source-shaped provider composition.
+// Native policy decisions, bounded continuation, passive results, and provider composition.
 import assert from 'node:assert/strict'
 import { pathToFileURL } from 'node:url'
 import { existsSync, readFileSync } from 'node:fs'
@@ -107,18 +107,35 @@ if (mode === 'diagnostics-timer') {
     diagnostics.report('policy', 'after close')
     assert.equal(output.length, closedLength)
   } finally { diagnostics.close() }
-} else if (mode === 'composition' || mode === 'observations' || mode === 'decision-limit' || mode.startsWith('session-') || mode.startsWith('advisory-')) {
+} else if (mode === 'composition' || mode === 'decisions' || mode === 'observations' || mode === 'decision-limit' || mode.startsWith('session-') || mode.startsWith('route-')) {
   module.apply(ctx)
   try {
-    if (mode.startsWith('advisory-')) {
+    if (mode === 'decisions') {
+      for (const response of ['denied', 'failed', 'block-json', 'malformed', 'unknown']) {
+        let dispatched = false
+        const answer = await listeners.get('tools/pre-execute')(call('read', { response }), () => {
+          dispatched = true; return { kind: 'allow' }
+        })
+        assert.equal(answer.kind, 'deny', response)
+        assert.equal(dispatched, false, response)
+        assert.ok(answer.reason.length > 0, response)
+      }
+      await allowed(call('read', { response: 'warning' }))
+      await allowed(call('read'))
+      const canceled = call('read')
+      canceled.signal = AbortSignal.abort(new Error('host canceled'))
+      assert.equal((await pre(canceled)).kind, 'deny')
+      const result = await listeners.get('tools/pre-execute')(call('read'), () => ({ kind: 'deny', reason: 'another plugin' }))
+      assert.deepEqual(result, { kind: 'deny', reason: 'another plugin' })
+    } else if (mode.startsWith('route-')) {
       const step = () => listeners.get('agent/pre-step')({ agent }, () => ({ kind: 'enter' }))
-      if (mode === 'advisory-evaluation' || mode === 'advisory-stop') await step()
+      if (mode === 'route-evaluation' || mode === 'route-stop') await step()
       const startedAt = performance.now()
-      const answer = await bounded(mode === 'advisory-setup' ? step() : mode === 'advisory-stop'
+      const answer = await bounded(mode === 'route-setup' ? step() : mode === 'route-stop'
         ? listeners.get('agent/turn-stopping')({ agent }) : pre(call('read')), 1000)
       const elapsed = performance.now() - startedAt
-      assert.ok(elapsed >= 400 && elapsed < 800, `shared advisory budget: ${elapsed} ms`)
-      if (mode !== 'advisory-stop') assert.equal(answer.kind, mode === 'advisory-setup' ? 'enter' : 'allow')
+      assert.ok(elapsed >= 400 && elapsed < 800, `shared route budget: ${elapsed} ms`)
+      if (mode !== 'route-stop') assert.equal(answer.kind, mode === 'route-setup' ? 'enter' : 'deny')
       console.log(JSON.stringify({ mode, elapsedMilliseconds: Math.round(elapsed) }))
     } else if (mode === 'decision-limit') {
       assert.equal((await pre(call('read'))).kind, 'allow')
@@ -205,7 +222,7 @@ if (mode === 'diagnostics-timer') {
       const foreign = call('write'); foreign.agent = { id: 'other', session: { header: Object.freeze({ id: 'outside', cwd: '/tmp' }) } }
       await allowed(foreign)
       const missing = call('read'); delete missing.agent
-      assert.equal((await pre(missing)).kind, 'allow')
+      assert.equal((await pre(missing)).kind, 'deny')
       await allowed(call('bash', { command: 'pwd', workdir: '/tmp' }))
     }
   } finally { await bounded(cleanup()) }

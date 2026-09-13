@@ -144,7 +144,7 @@
       "fixtures": [
         {
           "path": "internal/hooks/testdata/host-events/dsh.json",
-          "sha256": "11de8932104875f32a9520eac79648ae816949db6fe281d221e594f87ba3c859"
+          "sha256": "7c1b1d6eec26f54c83c4cddfe1d6ccc7467fc5ef06395796d87f94d2360f4c90"
         }
       ],
       "sources": [

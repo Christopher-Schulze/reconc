@@ -60,7 +60,7 @@ func TestGovernedBootstrapInstallsCompleteDSHOverlay(t *testing.T) {
 		t.Fatalf("installed DSH profile overlay differs from generator: %q, %v", patch, err)
 	}
 	status, err := hooks.InspectPlatform(repo, hooks.KindDSH)
-	if err != nil || status.State != hooks.StateInstalled || status.Configured || status.Live {
+	if err != nil || status.State != hooks.StateConfigured || !status.Configured || status.Live {
 		t.Fatalf("DSH bootstrap status = %+v, %v", status, err)
 	}
 	file, err := os.OpenFile(filepath.Join(repo, filepath.FromSlash(hooks.DSHPatchPath)), os.O_APPEND|os.O_WRONLY, 0)
