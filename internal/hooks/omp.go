@@ -305,6 +305,7 @@ const toolPayload = (
 
 export default function ReconcOMPExtension(pi: ExtensionAPI): void {
   const workerTransports = new Map<string, ReturnType<typeof createReconcWorkerTransport>>()
+  const pendingResults = new Map<string, { toolName: string; input: JsonObject } | null>()
   const workerTransport = (repo: string): ReturnType<typeof createReconcWorkerTransport> => {
     const existing = workerTransports.get(repo)
     if (existing) return existing
@@ -406,21 +407,45 @@ export default function ReconcOMPExtension(pi: ExtensionAPI): void {
     }), ctx)
   })
 
-  pi.on("tool_result", async (event, ctx) => {
+  // tool_result is middleware: later extensions can still rewrite isError.
+  // Its input is the argument set that actually reached the tool. Correlate
+  // that input with the final, post-middleware tool_execution_end outcome.
+  pi.on("tool_result", (event, ctx) => {
+    const key = JSON.stringify([ctx.sessionManager.getSessionId(), event.toolCallId])
+    if (pendingResults.has(key)) {
+      pendingResults.set(key, null)
+      return
+    }
+    if (pendingResults.size >= 512 || !isRecord(event.input)) return
+    pendingResults.set(key, { toolName: event.toolName, input: event.input })
+  })
+
+  pi.on("tool_execution_end", async (event, ctx) => {
+    const key = JSON.stringify([ctx.sessionManager.getSessionId(), event.toolCallId])
+    const pending = pendingResults.get(key)
+    pendingResults.delete(key)
+    if (!pending || pending.toolName !== event.toolName || !isRecord(event.result) || !Array.isArray(event.result.content)) return
     const route = event.isError ? "omp-post-tool-use-failure" : "omp-post-tool-use"
-    const details = isRecord(event.details) ? event.details : {}
+    const result = event.result
+    const details = isRecord(result.details) ? result.details : {}
+    const asyncDetails = isRecord(details.async) ? details.async : {}
+    const pendingBash = event.toolName === "bash" && asyncDetails.state === "running"
     const exitCode = event.toolName === "bash" && typeof details.exitCode === "number"
       ? details.exitCode
-      : event.toolName === "bash" && !event.isError ? 0 : undefined
+      : event.toolName === "bash" && !event.isError && !pendingBash ? 0 : undefined
+    const content = Array.isArray(result.content) ? result.content : []
     const errorText = event.isError
-      ? event.content.filter((item) => item.type === "text").map((item) => item.text).join("\n") || "OMP tool execution failed"
+      ? content.map((item: unknown) => isRecord(item) && item.type === "text" && typeof item.text === "string" ? item.text : "").filter(Boolean).join("\n") || "OMP tool execution failed"
       : ""
-    await observe(route, toolPayload(ctx, event, "tool_result", {
+    await observe(route, sessionPayload(ctx, "tool_execution_end", {
+      tool_name: event.toolName,
+      tool_input: pending.input,
+      tool_call_id: event.toolCallId,
       is_error: event.isError,
       error: errorText,
       tool_response: {
-        content: event.content,
-        details: event.details,
+        content,
+        details: result.details,
         success: !event.isError,
         ...(exitCode === undefined ? {} : { exit_code: exitCode }),
         ...(errorText === "" ? {} : { error: errorText }),
@@ -454,6 +479,7 @@ export default function ReconcOMPExtension(pi: ExtensionAPI): void {
 
   pi.on("session_shutdown", async (_event, ctx) => {
     await observe("omp-session-end", sessionPayload(ctx, "session_shutdown"), ctx)
+    pendingResults.clear()
     await closeWorkerTransports()
   })
 }

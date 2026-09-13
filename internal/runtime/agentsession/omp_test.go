@@ -84,7 +84,7 @@ func TestNormalizeOMPPayloadPreservesToolAndMCPIdentity(t *testing.T) {
 	}
 
 	success := fmt.Sprintf(`{
-		"hook_event_name":"tool_result",
+		"hook_event_name":"tool_execution_end",
 		"session_id":"omp-s1",
 		"cwd":%q,
 		"tool_name":"bash",
@@ -120,6 +120,39 @@ func TestNormalizeOMPPayloadPreservesToolAndMCPIdentity(t *testing.T) {
 	}
 }
 
+func TestOMPBackgroundBashStartDoesNotCreateCommandEvidence(t *testing.T) {
+	t.Setenv(StateRootEnv, t.TempDir())
+	repo := setupMCPPolicyRepo(t)
+	if result := RunSessionStart(repo, []byte(`{"session_id":"omp-background"}`)); result.ExitCode != 0 {
+		t.Fatalf("session start: %+v", result)
+	}
+	for _, test := range []struct {
+		name, details, callID string
+		wantResults           int
+	}{
+		{"background start", `{"async":{"state":"running","jobId":"job-1","type":"bash"}}`, "call-1", 0},
+		{"foreground completion", `{}`, "call-2", 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			raw := fmt.Sprintf(`{"hook_event_name":"tool_execution_end","session_id":"omp-background","cwd":%q,"tool_name":"bash","tool_input":{"command":"true"},"tool_response":{"details":%s,"success":true,"exit_code":0},"tool_call_id":%q,"is_error":false}`, repo, test.details, test.callID)
+			normalized, err := NormalizeOMPPayload("omp-post-tool-use", []byte(raw), repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result := RunPostToolUseMCPAware(repo, normalized); result.ExitCode != 0 {
+				t.Fatalf("post: %+v", result)
+			}
+			state, err := LoadSessionState(repo, "omp-background")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(state.CommandResults) != test.wantResults || len(state.Commands) != test.wantResults {
+				t.Fatalf("command evidence after %s: %+v", test.name, state)
+			}
+		})
+	}
+}
+
 func TestNormalizeOMPPayloadRejectsUnsafeShapes(t *testing.T) {
 	repo := t.TempDir()
 	outside := t.TempDir()
@@ -142,9 +175,9 @@ func TestNormalizeOMPPayloadRejectsUnsafeShapes(t *testing.T) {
 		{name: "missing tool call ID", route: "omp-pre-tool-use", body: fmt.Sprintf(`{"hook_event_name":"tool_call","session_id":"s1","cwd":%q,"tool_name":"write","tool_input":{}}`, repo), want: "missing tool_call_id"},
 		{name: "missing tool input", route: "omp-pre-tool-use", body: fmt.Sprintf(`{"hook_event_name":"tool_call","session_id":"s1","cwd":%q,"tool_name":"write","tool_call_id":"call-1"}`, repo), want: "tool_input"},
 		{name: "non-object tool input", route: "omp-pre-tool-use", body: fmt.Sprintf(`{"hook_event_name":"tool_call","session_id":"s1","cwd":%q,"tool_name":"write","tool_call_id":"call-1","tool_input":[]}`, repo), want: "must be a JSON object"},
-		{name: "missing is error", route: "omp-post-tool-use", body: fmt.Sprintf(`{"hook_event_name":"tool_result","session_id":"s1","cwd":%q,"tool_name":"read","tool_call_id":"call-1","tool_input":{},"tool_response":{}}`, repo), want: "missing is_error"},
-		{name: "wrong result route", route: "omp-post-tool-use", body: fmt.Sprintf(`{"hook_event_name":"tool_result","session_id":"s1","cwd":%q,"tool_name":"read","tool_call_id":"call-1","tool_input":{},"tool_response":{},"is_error":true}`, repo), want: "does not match route"},
-		{name: "non-object tool response", route: "omp-post-tool-use", body: fmt.Sprintf(`{"hook_event_name":"tool_result","session_id":"s1","cwd":%q,"tool_name":"read","tool_call_id":"call-1","tool_input":{},"tool_response":[],"is_error":false}`, repo), want: "tool_response"},
+		{name: "missing is error", route: "omp-post-tool-use", body: fmt.Sprintf(`{"hook_event_name":"tool_execution_end","session_id":"s1","cwd":%q,"tool_name":"read","tool_call_id":"call-1","tool_input":{},"tool_response":{}}`, repo), want: "missing is_error"},
+		{name: "wrong result route", route: "omp-post-tool-use", body: fmt.Sprintf(`{"hook_event_name":"tool_execution_end","session_id":"s1","cwd":%q,"tool_name":"read","tool_call_id":"call-1","tool_input":{},"tool_response":{},"is_error":true}`, repo), want: "does not match route"},
+		{name: "non-object tool response", route: "omp-post-tool-use", body: fmt.Sprintf(`{"hook_event_name":"tool_execution_end","session_id":"s1","cwd":%q,"tool_name":"read","tool_call_id":"call-1","tool_input":{},"tool_response":[],"is_error":false}`, repo), want: "tool_response"},
 		{name: "missing approval", route: "omp-permission-result", body: fmt.Sprintf(`{"hook_event_name":"tool_approval_resolved","session_id":"s1","cwd":%q,"tool_name":"bash","tool_call_id":"call-1"}`, repo), want: "missing approved decision"},
 		{name: "missing stop active", route: "omp-stop", body: fmt.Sprintf(`{"hook_event_name":"session_stop","session_id":"s1","cwd":%q}`, repo), want: "missing stop_hook_active"},
 		{name: "trailing value", route: "omp-stop", body: fmt.Sprintf(`{"hook_event_name":"session_stop","session_id":"s1","cwd":%q,"stop_hook_active":false} {}`, repo), want: "multiple JSON values"},

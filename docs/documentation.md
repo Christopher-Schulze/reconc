@@ -4348,7 +4348,7 @@ contains no second matrix.
 | OpenCode CLI | `.opencode/plugins/reconc.js`; prompt, permission, tool, session, compaction, terminal failure, and inferred idle continuation | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code CLI | `.kilo/plugin/reconc.js` with `KILO_PURE` unset; same lifecycle classes as OpenCode | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code VS Code host | The same canonical project plugin when that host loads external project plugins | CLI observations are never reused as VS Code proof |
-| Oh My Pi CLI | `.omp/extensions/reconc.ts`; native session, input, tool, user-shell, user-Python observation, approval, compaction, shutdown, and awaited main-session Stop routes | Static extension contract plus per-route liveness; `tool_call`, `user_bash`, and `session_stop` can enforce before host action, while `user_python` is observed and never decided |
+| Oh My Pi CLI | `.omp/extensions/reconc.ts`; native session, input, tool, user-shell, user-Python observation, approval, compaction, shutdown, and awaited main-session Stop routes | OMP 18.1.18 emitted Reconc session, pre-tool, final post-tool, Stop, and shutdown routes in a disposable repository; `tool_call` and `user_bash` have blocking contracts, but native policy denial was not exercised; `user_python` is observed and never decided |
 | Pi Coding Agent | `.pi/extensions/reconc.ts`; trusted-project session, input, tool, user-shell, result, compaction, settled, and shutdown routes | Static extension and saved-trust contract plus per-route liveness; `tool_call` and `user_bash` can enforce before host action, while settled continuation remains inferred |
 | ZCode CLI | `.zcode/config.json`; all seven native session, prompt, tool, permission, failure, and synchronous Stop routes through the documented process executor | Static workspace contract plus per-route liveness; pre-tool, permission, and Stop can block, while host timeouts remain fail-open |
 | Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; the 16 decision- and evidence-carrying hooks of the host's twenty dispatch through receipt-bound bare `reconc` and discover the current repository | Generator-exact global configuration plus installation-receipt executable identity; no live claim without a real Kimi route observation |
@@ -4480,7 +4480,8 @@ Oh My Pi loads the generated project extension from
 marker-owned file and refuses to replace foreign content, including with
 `--force`; uninstall removes only the generator-exact managed extension. The
 extension registers the current typed `ExtensionAPI` routes for session start,
-user input, pre-tool, post-tool, tool failure, approval requested/resolved,
+user input, pre-tool, `tool_result` input correlation, final
+`tool_execution_end` success/failure, approval requested/resolved,
 generic `session_before_compact`/`session_compact`, awaited main-session Stop,
 and session shutdown. The generic pair covers manual, automatic, and
 extension-supplied successful compaction without also registering the
@@ -4499,15 +4500,25 @@ OMP `tool_call` and `session_stop` are blocking boundaries. A deny decision,
 malformed decision, Reconc failure, or timeout fails closed in the host-native
 response contract. A host-aborted Stop yields immediately without starting a
 continuation. Approval, post-tool, compaction, and shutdown routes are
-observational and fail open after bounded diagnostics. `tool_result`
-uses the host's exact `isError` outcome; only a successful built-in `Bash` call
-without an explicit exit status receives synthetic exit code zero. Tool output
-never decides success. The adapter drains stdout and stderr concurrently under
+observational and fail open after bounded diagnostics. `tool_call` handlers all
+see the original input, and a later extension's input replacement wins. OMP
+18.1.18 has no final pre-execution gate after those replacements; a live
+two-extension probe executed the later replacement after the earlier hook saw
+the original command. Reconc cannot promise policy enforcement over changed
+input when another extension runs later. The adapter correlates actual
+`tool_result.input` with the final `tool_execution_end.isError` and result, so
+later result middleware cannot create premature success evidence. A missing,
+ambiguous, or unmatched correlation produces no positive evidence. A built-in
+foreground `Bash` result with final `isError:false` and no explicit exit status
+receives synthetic zero; an `async.state:"running"` background start never does.
+Its later completion is not the initial tool's success. Tool output never
+decides success. The adapter drains stdout and stderr concurrently under
 one 8 KiB budget, rejects invalid UTF-8, kills and awaits timed-out subprocesses,
 and gives shutdown observation one second inside OMP's two-second handler
-budget. OMP's installed runtime and source declarations are not live hook proof;
-only exact per-route liveness or an isolated negative probe can establish
-observation or enforcement.
+budget. A disposable OMP 18.1.18 print run with Reconc loaded explicitly
+observed session start, pre-tool, final post-tool, Stop, and shutdown. This is
+route liveness, not a demonstrated Reconc policy denial or general extension-order
+enforcement guarantee.
 
 Pi discovers project extensions under `.pi/extensions/` only after project
 trust. `reconc hook install pi` owns exactly `.pi/extensions/reconc.ts`, never
@@ -4552,7 +4563,7 @@ which is how "the host cannot do this" stays distinguishable from "Reconc
 chooses not to". Contract fixtures pin Pi
 source revision `ac4ac9eaf69f2b01ca3af984a5c48f3b99b84278` at
 `@earendil-works/pi-coding-agent` v0.84.1 and OMP revision
-`b8ce33a58911c26bed1d84f0db9a5e2e727c49a2` at v18.0.11. That Pi revision widened
+`00085d4e7dfdcfbf302c122fa2682b410a0f43d1` at v18.1.18. That Pi revision widened
 the blocking tool result with `terminate`, a hint the host honors only when
 every finalized call in a tool batch sets it. Reconc has no policy mode that
 ends a session, so the adapter keeps returning `{block, reason}` and leaves the
@@ -4982,6 +4993,7 @@ generic payload retain adapter-specific validation and diagnostics while
 sharing the same strict single-value JSON decoder and trailing-data rejection.
 Oh My Pi uses the typed Bun extension at `.omp/extensions/reconc.ts`. It
 registers native `session_start`, `input`, `tool_call`, `tool_result`,
+`tool_execution_end`,
 `user_bash`, `user_python`, `tool_approval_requested`,
 `tool_approval_resolved`, `session_before_compact`, `session_compact`,
 `session_stop`, and `session_shutdown` handlers. The

@@ -578,8 +578,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.omp/extensions/reconc.ts",
       "mode": 420,
-      "size": 29353,
-      "sha256": "9f781e57cf50787159b2579fd1fe8b96a4e12cab62ac4033048a1a471cb4d55b",
+      "size": 30799,
+      "sha256": "94c899dae4167492dcff01c2e50e409f593bed6767881a759b4cd0be470e6fba",
       "ownership": "pack-file"
     },
     {
@@ -849,6 +849,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 869866,
-  "digest": "93044310171bbbb7056fc21d63642354a9642cdde87ff306ff5b1167f6765af1"
+  "total_bytes": 871312,
+  "digest": "507a771c101d8dd67e2124bb38be03e6856f66af7d498ed0f0cd8a39a8d69cca"
 }

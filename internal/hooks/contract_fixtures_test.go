@@ -100,13 +100,14 @@ func TestOfficialHostContractFixturesPreserveSecurityRelevantStates(t *testing.T
 	}
 
 	omp := readHostContractFixture(t, KindOMP)
-	toolResult := omp.Events["tool_result"].Payload
-	if toolResult["isError"] != false {
-		t.Fatalf("OMP tool-result fixture lacks authoritative isError=false: %#v", toolResult)
+	toolEnd := omp.Events["tool_execution_end"].Payload
+	if toolEnd["isError"] != false {
+		t.Fatalf("OMP final tool-end fixture lacks authoritative isError=false: %#v", toolEnd)
 	}
-	details := toolResult["details"].(map[string]interface{})
+	result := toolEnd["result"].(map[string]interface{})
+	details := result["details"].(map[string]interface{})
 	if _, fabricated := details["exitCode"]; fabricated {
-		t.Fatalf("OMP successful Bash fixture fabricates a host exit code: %#v", toolResult)
+		t.Fatalf("OMP successful Bash fixture fabricates a host exit code: %#v", toolEnd)
 	}
 	stop := omp.Events["session_stop"]
 	stopPayload := stop.Payload

@@ -96,8 +96,13 @@ asynchronous `promptAsync`, is generation-deduplicated and capped, and remains
 fail-open/inferred. A missing API, rejected request, or invalid response is not
 delivered continuation.
 
-Oh My Pi uses exact `isError` tool outcomes; only successful built-in `Bash`
-receives synthetic exit code zero. `tool_call` and `session_stop` fail closed on
+Oh My Pi binds executed arguments from `tool_result` to the final
+`tool_execution_end.isError` outcome by session and call ID. A pending background
+`Bash` start creates no command-success evidence; only a settled successful
+built-in `Bash` without a native exit code receives synthetic zero. A later
+extension can replace tool input after Reconc's pre-gate because OMP gives all
+pre-handlers the original input and the last replacement wins. Treat that as
+an enforcement limit when other extensions are active. `tool_call` and `session_stop` fail closed on
 deny, malformed decision, Reconc failure, or timeout. A host-aborted Stop yields
 immediately without continuation. Observational routes fail open after bounded
 diagnostics. Never infer live enforcement from the generated extension alone.

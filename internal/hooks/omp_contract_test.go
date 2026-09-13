@@ -72,7 +72,7 @@ const pi = {
 module.default(pi)
 const expected = [
   "session_start", "input", "tool_call", "user_bash", "user_python", "tool_approval_requested",
-  "tool_approval_resolved", "tool_result", "session_stop",
+  "tool_approval_resolved", "tool_result", "tool_execution_end", "session_stop",
   "session_before_compact", "session_compact", "session_shutdown",
 ]
 if (JSON.stringify([...handlers.keys()]) !== JSON.stringify(expected)) {
@@ -97,6 +97,10 @@ const denied = await handlers.get("tool_call")({
 if (denied?.block !== true || !denied.reason.includes("policy denied write")) {
   throw new Error("OMP tool denial drift: " + JSON.stringify(denied))
 }
+const originalShell = await handlers.get("tool_call")({
+  type: "tool_call", toolCallId: "call-bash-ok", toolName: "bash", input: { command: "printf ORIGINAL" },
+}, ctx)
+if (originalShell !== undefined) throw new Error("OMP Bash pre-tool unexpectedly blocked")
 const shellAllowed = await handlers.get("user_bash")({
   type: "user_bash", command: "ls", excludeFromContext: false, cwd: repo,
 }, ctx)
@@ -122,11 +126,38 @@ await handlers.get("tool_approval_resolved")({
 }, ctx)
 await handlers.get("tool_result")({
   type: "tool_result", toolCallId: "call-bash-ok", toolName: "bash",
-  input: { command: "true" }, content: [{ type: "text", text: "ok" }], details: undefined, isError: false,
+  input: { command: "printf REWRITTEN" }, content: [{ type: "text", text: "ok" }], details: undefined, isError: false,
+}, ctx)
+await handlers.get("tool_execution_end")({
+  type: "tool_execution_end", toolCallId: "call-bash-ok", toolName: "bash",
+  result: { content: [{ type: "text", text: "ok" }], details: undefined }, isError: false,
+}, ctx)
+await handlers.get("tool_result")({
+  type: "tool_result", toolCallId: "call-bash-running", toolName: "bash",
+  input: { command: "sleep 2" }, content: [{ type: "text", text: "Background job started" }],
+  details: { async: { state: "running", jobId: "job-1", type: "bash" } }, isError: false,
+}, ctx)
+await handlers.get("tool_execution_end")({
+  type: "tool_execution_end", toolCallId: "call-bash-running", toolName: "bash",
+  result: { content: [{ type: "text", text: "Background job started" }], details: { async: { state: "running", jobId: "job-1", type: "bash" } } }, isError: false,
 }, ctx)
 await handlers.get("tool_result")({
   type: "tool_result", toolCallId: "call-bash-fail", toolName: "bash",
-  input: { command: "false" }, content: [{ type: "text", text: "failed" }], details: { exitCode: 1 }, isError: true,
+  input: { command: "false" }, content: [{ type: "text", text: "failed" }], details: { exitCode: 1 }, isError: false,
+}, ctx)
+await handlers.get("tool_execution_end")({
+  type: "tool_execution_end", toolCallId: "call-bash-fail", toolName: "bash",
+  result: { content: [{ type: "text", text: "failed" }], details: { exitCode: 1 }, isError: true }, isError: true,
+}, ctx)
+const duplicate = {
+  type: "tool_result", toolCallId: "reused-call", toolName: "write",
+  input: { path: "first.txt" }, content: [{ type: "text", text: "ok" }], details: undefined, isError: false,
+}
+await handlers.get("tool_result")(duplicate, ctx)
+await handlers.get("tool_result")({ ...duplicate, input: { path: "second.txt" } }, ctx)
+await handlers.get("tool_execution_end")({
+  type: "tool_execution_end", toolCallId: "reused-call", toolName: "write",
+  result: { content: [{ type: "text", text: "ok" }], details: undefined }, isError: false,
 }, ctx)
 const stop = await handlers.get("session_stop")({
   type: "session_stop", session_id: "omp-contract", session_file: repo + "/session.jsonl",
@@ -168,8 +199,9 @@ if (canceled !== undefined) throw new Error("aborted OMP Stop must yield to the 
 	for _, event := range platformRuntimeEvents(platform) {
 		expectedCounts[event] = 1
 	}
-	expectedCounts["omp-pre-tool-use"] = 2
+	expectedCounts["omp-pre-tool-use"] = 3
 	expectedCounts["omp-user-bash"] = 2
+	expectedCounts["omp-post-tool-use"] = 2
 	for event, want := range expectedCounts {
 		assertBunHookCount(t, records, event, want)
 	}
@@ -192,6 +224,14 @@ if (canceled !== undefined) throw new Error("aborted OMP Stop must yield to the 
 	success := bunHookPayload(t, records, "omp-post-tool-use")["tool_response"].(map[string]interface{})
 	if success["success"] != true || success["exit_code"] != float64(0) {
 		t.Fatalf("OMP successful Bash evidence = %#v", success)
+	}
+	actual := bunHookPayload(t, records, "omp-post-tool-use")["tool_input"].(map[string]interface{})
+	if actual["command"] != "printf REWRITTEN" {
+		t.Fatalf("OMP post event used pre-revision arguments: %#v", actual)
+	}
+	running := bunHookPayloads(records, "omp-post-tool-use")[1]["tool_response"].(map[string]interface{})
+	if _, hasExit := running["exit_code"]; hasExit || running["details"].(map[string]interface{})["async"].(map[string]interface{})["state"] != "running" {
+		t.Fatalf("OMP background start claimed settled Bash success: %#v", running)
 	}
 	failure := bunHookPayload(t, records, "omp-post-tool-use-failure")
 	response := failure["tool_response"].(map[string]interface{})

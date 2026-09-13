@@ -112,6 +112,11 @@ func runMCPAfterResolvedWithEvaluator(root string, payloadBytes []byte, hostIden
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): " + err.Error()}
 	}
+	if ompBashBackgroundPending(payload) {
+		// OMP reports a started background job as a non-error tool result.
+		// Completion arrives later; this callback cannot prove command success.
+		return Result{ExitCode: 0}
+	}
 	if payload.MCP == nil {
 		if hostIdentified {
 			return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): host event has no MCP identity"}

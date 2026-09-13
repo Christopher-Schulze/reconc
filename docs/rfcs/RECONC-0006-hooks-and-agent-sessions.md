@@ -142,10 +142,16 @@ context-exclusion flag. The code itself never leaves the host, and the
 user-shell guarantee is stated as covering shell commands only. OMP's
 `tool_approval_requested` and `tool_approval_resolved` events are observation
 events and are never misrepresented as a permission-decision surface.
-`tool_result` always routes success or failure from the authoritative
-`isError` field. Successful built-in Bash results synthesize exit code zero;
-failed Bash results never receive a fabricated exit status. Output text is
-never interpreted as process status.
+`tool_result` supplies the actual input that reached execution. Reconc binds
+it by session and native call ID to the final `tool_execution_end` result and
+`isError` after all result middleware. Unmatched or ambiguous calls produce no
+positive evidence. A settled successful built-in Bash result may synthesize
+exit code zero; an `async.state:"running"` background start never does. Output
+text is never interpreted as process status. Later `tool_call` handlers can
+replace input after Reconc's pre-gate because OMP passes the original input to
+each handler and applies the last replacement. That host order prevents a
+guarantee that Reconc gated the exact arguments executed when a later
+extension changes them.
 
 Native awaited `session_stop` maps Reconc block or continuation output to
 OMP's `decision`/`reason` or `continue`/`additionalContext` result. OMP invokes
@@ -173,7 +179,7 @@ evaluates saved canonical-path trust using Pi's nearest-parent rule plus
 store. The contract fixture pins official source revision
 `ac4ac9eaf69f2b01ca3af984a5c48f3b99b84278`, package
 `@earendil-works/pi-coding-agent` v0.84.1. The companion OMP fixture remains at
-revision `b8ce33a58911c26bed1d84f0db9a5e2e727c49a2`, v18.0.11.
+revision `00085d4e7dfdcfbf302c122fa2682b410a0f43d1`, v18.1.18.
 
 The generated typed extension registers `session_start`, `input`, `tool_call`,
 `tool_result`, `user_bash`, `session_before_compact`, `session_compact`,

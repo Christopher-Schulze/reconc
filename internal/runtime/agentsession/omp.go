@@ -18,8 +18,8 @@ var ompNativeEvents = newNativeEventRegistry(
 	nativeEventBinding{route: "omp-user-python", primary: "user_python"},
 	nativeEventBinding{route: "omp-permission-request", primary: "tool_approval_requested"},
 	nativeEventBinding{route: "omp-permission-result", primary: "tool_approval_resolved"},
-	nativeEventBinding{route: "omp-post-tool-use", primary: "tool_result"},
-	nativeEventBinding{route: "omp-post-tool-use-failure", primary: "tool_result"},
+	nativeEventBinding{route: "omp-post-tool-use", primary: "tool_execution_end"},
+	nativeEventBinding{route: "omp-post-tool-use-failure", primary: "tool_execution_end"},
 	nativeEventBinding{route: "omp-stop", primary: "session_stop"},
 	nativeEventBinding{route: "omp-session-end", primary: "session_shutdown"},
 	nativeEventBinding{route: "omp-pre-compaction", primary: "session_before_compact"},
@@ -202,14 +202,14 @@ func validateOMPEventPayload(event string, raw ompPayload, repoRoot string) erro
 		}
 	case "omp-post-tool-use", "omp-post-tool-use-failure":
 		if raw.IsError == nil {
-			return errors.New("missing is_error in OMP tool_result payload")
+			return errors.New("missing is_error in OMP tool_execution_end payload")
 		}
 		wantError := event == "omp-post-tool-use-failure"
 		if *raw.IsError != wantError {
 			return fmt.Errorf("is_error=%t in OMP payload does not match route %q", *raw.IsError, event)
 		}
 		if !jsonObject(raw.ToolResponse) {
-			return errors.New("tool_response in OMP tool_result payload must be a JSON object")
+			return errors.New("tool_response in OMP tool_execution_end payload must be a JSON object")
 		}
 	case "omp-permission-result":
 		if raw.Approved == nil {
@@ -230,6 +230,18 @@ func ompToolEvent(event string) bool {
 	default:
 		return false
 	}
+}
+
+func ompBashBackgroundPending(payload *HookPayload) bool {
+	if payload == nil || payload.Raw["omp_event"] != "omp-post-tool-use" || !payload.IsCommandTool() {
+		return false
+	}
+	details, ok := payload.ToolResponse["details"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	async, ok := details["async"].(map[string]interface{})
+	return ok && async["state"] == "running"
 }
 
 func jsonObject(raw json.RawMessage) bool {
