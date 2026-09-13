@@ -4306,6 +4306,9 @@ identity, size, mode, modification time, close result, and digest remain valid;
 every failed copy removes only the target it created.
 The offline `synthetic_enforced` fact is not promoted to `loaded`, `observed`,
 or live `enforced`; all expected host routes remain explicitly unproven.
+DSH instead reports `result_class=synthetic-advisory` and
+`synthetic_enforced=false`: successful verification proves policy feedback and
+continued host dispatch, not tool prevention.
 Complete hook-verification reports exit 0. Incomplete reports are fully rendered
 and exit 2 so shell and CI consumers can use the command as a gate. Input,
 runtime, report-generation, and output failures exit 1.
@@ -4422,7 +4425,7 @@ contains no second matrix.
 | Kilo Code CLI | `.kilo/plugin/reconc.js` with `KILO_PURE` unset; same lifecycle classes as OpenCode | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code VS Code host | The same canonical project plugin when that host loads external project plugins | CLI observations are never reused as VS Code proof |
 | Oh My Pi CLI | `.omp/extensions/reconc.ts`; native session, input, tool, user-shell, user-Python observation, approval, compaction, shutdown, and awaited main-session Stop routes | OMP 18.1.18 emitted Reconc session, pre-tool, final post-tool, Stop, and shutdown routes in a disposable repository; `tool_call` and `user_bash` have blocking contracts, but native policy denial was not exercised; `user_python` is observed and never decided |
-| DeepSeek Harness CLI | `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml` loaded with the explicit `--patch` overlay through the official `npx @deepseek-ai/dsh` launcher; native pre-tool guard, bounded Stop steering, and final-result observations | Pinned source/profile contract, generated extension, published ToolRuntime allow/deny and skipped-pre guard, and real Go-worker adapter paths verified offline; model-backed tool calls and native Stop behavior are outside this proof |
+| DeepSeek Harness CLI | `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml` loaded with the selected profile; advisory pre-tool/Stop evaluation and passive results, without Reconc dispatch restrictions | Pinned source/profile contracts and executable offline tests prove policy feedback, continued dispatch, worker failure handling, and observational evidence; no qualification run is required |
 | Pi Coding Agent | `.pi/extensions/reconc.ts`; trusted-project session, input, tool, user-shell, result, compaction, settled, and shutdown routes | Static extension and saved-trust contract plus per-route liveness; `tool_call` and `user_bash` can enforce before host action, while settled continuation remains inferred |
 | ZCode CLI | `.zcode/config.json`; all seven native session, prompt, tool, permission, failure, and synchronous Stop routes through the documented process executor | Static workspace contract plus per-route liveness; pre-tool, permission, and Stop can block, while host timeouts remain fail-open |
 | Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; the 16 decision- and evidence-carrying hooks of the host's twenty dispatch through receipt-bound bare `reconc` and discover the current repository | Generator-exact global configuration plus installation-receipt executable identity; no live claim without a real Kimi route observation |
@@ -4607,41 +4610,34 @@ patch. Local edits are preserved and cause a conflict before other managed
 artifacts change, including with `--force`. Keep custom configuration in a
 separate DSH overlay; preserve existing edits there before restoring the generated
 patch and retrying. Repository sync and uninstall also refuse a drifted patch.
-The overlay injects a `reconcGuard` service into `agent-loop`, so the tool
-runtime cannot start that agent before the extension has mounted. The
-extension awaits the Go policy worker in `tools/pre-execute`, binds an allow
-decision to the host execution token, and verifies it in the final synchronous
-`tools.guard`. The guard denies missing or changed decisions and locks the
-execution identity before later `tools/execute` listeners run. A published
-`dsh-v0.1.5-rc.2` ToolRuntime test denied a protected write and a call whose
-earlier listener skipped the Reconc pre hook; a permitted write ran once.
-If an active DSH Codex or Claude compatibility bridge is registered alongside
-the native extension, both pre and final guard deny tool calls until one route
-is disabled.
-The built-in `read`, `write`, `edit`, and `bash` tools retain their typed
-inputs; `str_replace_editor` is supported when a profile enables it. DSH
-sessions and Bash workdirs must resolve to the repository root; subdirectories
-are denied because DSH resolves relative file paths against its session or
-shell workdir while Reconc policy resolves them against the repository root.
-The supported shell provider is one-shot `tool-bash`. An active
-`tool-bash-persistent` provider makes Bash calls fail closed because its cwd,
-variables, and functions survive between calls. `pwsh`, `run_code`, and raw
-`terminal_open`/`terminal_send`/`terminal_signal` calls are denied: these routes
-have no inspectable Reconc command contract. Use `DSH_TOOLS_MODE=native` and
-the native file tools or one-shot Bash; terminal read/list/close remain available.
-Delegation through `tool-subagent` (including renamed tools), `workflow`, and
-`ralph` requires a registered in-process spawn/fork provider. The extension
-checks active provider configurations again at the final guard. External DSH
-SDK, Codex, Claude, ACP, or unknown providers are refused for those delegation
-routes: a parent profile patch does not establish a protected child runtime.
-Custom tools still require explicit policy classification under `custom:dsh`;
-the native adapter is not a sandbox for arbitrary custom plugin implementations.
+The overlay's `reconcGuard` service signals extension readiness; it installs no
+tool guard. Reconc's DSH integration is advisory: pre-tool and Stop evaluation
+produce bounded diagnostics, never a tool denial, rejected agent step, forced
+continuation, or locked execution property. The extension delegates to the
+host's next handler even when the worker is missing, times out, reaches capacity,
+returns a policy finding, or cannot interpret an event. DSH retains its own
+cancellation, permission, and plugin behavior.
+The built-in read/write/edit tools retain typed input. Relative native file
+paths in repository subdirectories are rebased to the policy root. Both native
+and PTC modes remain available. `run_code`, PowerShell, persistent Bash, all
+terminal operations, renamed delegation tools, workflow, Ralph, external DSH
+SDK/Codex/Claude/ACP providers, and compatibility bridges are not restricted by
+Reconc. PTC nested tool calls traverse the normal DSH tool pipeline and can be
+observed individually. In-process children share the loaded services; a parent
+event does not prove that an external child loaded Reconc. No provider selection
+or execution-mode change is required.
+Persistent Bash and commands with another workdir retain their original named
+selector but are not interpreted as stateless repository-root Bash. Unknown
+tools and future editor commands retain their tool identity. Explicit
+`custom:dsh` selectors can supply advisory classification; uncertain effects
+remain unproven instead of becoming execution restrictions.
 Its `tools/result` event exposes a frozen result after host result transforms,
 which is useful for observation but cannot prove the original shell exit or
 file effect. Reconc therefore records DSH post routes passively and requires
 trusted `reconc exec` or CI evidence for such claims. The extension awaits
-session setup before each agent step, supplies compact guidance in prompt
-assembly after compaction, and can steer a blocked Stop once per agent turn.
+session setup before each agent step and supplies compact guidance in prompt
+assembly after compaction. Stop findings are diagnostic only. Direct Reconc CLI
+and repository CI checks retain their independent policy enforcement.
 Pinned source/API review and executable offline policy/adapter regressions
 define this integration's acceptance contract.
 The DSH worker admits at most 512 active/queued calls and 128 MiB of serialized
@@ -4654,12 +4650,15 @@ decisions take precedence over passive observations. Shutdown cancels the backlo
 and active exchange, with at most 200 ms for an idle worker's graceful shutdown.
 Worker callbacks are bound to their owning process and ambiguous failed requests
 are never replayed. Session setup waiters are capped at 512 and honor cancellation.
+Capacity limits reject only advisory work; DSH tools and steps still continue.
+Diagnostics are limited to eight per category per extension instance, with each
+reason capped at 2,048 characters, preventing repeated failures from flooding context.
 Post observations carry identity/outcome metadata with an empty input object and
 a bounded error message; they never retransmit complete file contents or create
 material write/command evidence. Older full-input observation envelopes remain
 accepted for compatibility.
-An extension loaded for one repository rejects calls from another repository
-in that DSH process; use a separate patched process for each repository.
+An extension records repository evidence only for its own repository. Calls
+associated with another repository continue without being credited to this one.
 
 Pi discovers project extensions under `.pi/extensions/` only after project
 trust. `reconc hook install pi` owns exactly `.pi/extensions/reconc.ts`, never

@@ -515,7 +515,7 @@ func inspectDSHPatch(root string, report *PlatformStatus) {
 		return
 	}
 	report.State = StateInstalled
-	report.Detail = "DSH extension and profile patch are ready; load them with npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml and verify live execution separately"
+	report.Detail = "DSH extension and profile patch are ready; load them with npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml for non-blocking policy feedback; no qualification run is required"
 	report.remediation = noRemediation()
 }
 

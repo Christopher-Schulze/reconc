@@ -1,5 +1,5 @@
 // Source contract: deepseek-ai/deepseek-harness fb2c4b9e698e30edb738bca4cf0618587db7d203.
-// Cordis Registry.Runtime.name/fibers and Fiber.config; Tools.guard is synchronous.
+// Advisory integration: native continuation, passive results, and source-shaped provider composition.
 import assert from 'node:assert/strict'
 import { pathToFileURL } from 'node:url'
 import { existsSync, readFileSync } from 'node:fs'
@@ -27,8 +27,12 @@ const call = (name, args = {}) => ({
 const runtime = (name, config = {}) => ({ name, fibers: [{ config }] })
 const pre = exec => listeners.get('tools/pre-execute')(exec, () => ({ kind: 'allow' }))
 const allowed = async exec => {
-  assert.equal((await pre(exec)).kind, 'allow', exec.name)
-  assert.equal(guard(exec), undefined, exec.name)
+  let dispatches = 0
+  const answer = await listeners.get('tools/pre-execute')(exec, () => { dispatches++; return { kind: 'allow' } })
+  assert.equal(answer.kind, 'allow', exec.name)
+  assert.equal(dispatches, 1, exec.name)
+  assert.equal(guard, undefined, 'Reconc registered a blocking final guard')
+  assert.equal(Object.getOwnPropertyDescriptor(exec, 'arguments').writable, true)
   listeners.get('tools/result')(exec, { isError: false })
 }
 
@@ -48,18 +52,17 @@ if (mode === 'composition' || mode === 'observations' || mode === 'decision-limi
       assert.equal((await pre(call('read'))).kind, 'allow')
       const burst = Array.from({ length: 512 }, () => pre(call('read')))
       const results = await Promise.all(burst)
-      assert.equal(results.filter(result => result.kind === 'allow').length, 511)
-      assert.equal(results.filter(result => result.kind === 'deny').length, 1)
-      assert.match(results.find(result => result.kind === 'deny').reason, /decision capacity/)
+      assert.equal(results.filter(result => result.kind === 'allow').length, 512)
+      assert.equal(results.filter(result => result.kind === 'deny').length, 0)
     } else if (mode.startsWith('session-')) {
       const controller = new AbortController()
       const step = () => listeners.get('agent/pre-step')({ agent, signal: controller.signal }, () => ({ kind: 'enter' }))
       const pending = []
       for (let i = 0; i < (mode === 'session-limit' ? 512 : 1); i++) pending.push(step())
-      if (mode === 'session-limit') assert.equal((await bounded(step(), 300)).kind, 'reject')
+      if (mode === 'session-limit') assert.equal((await bounded(step(), 300)).kind, 'enter')
       controller.abort()
       const settled = await bounded(Promise.all(pending), 300)
-      assert.ok(settled.every(result => result.kind === 'reject'))
+      assert.ok(settled.every(result => result.kind === 'enter'))
     } else if (mode === 'observations') {
       const exec = call('write', { file_path: 'docs/large.md', content: 'x'.repeat(1024 * 1024) })
       await allowed(exec)
@@ -72,7 +75,7 @@ if (mode === 'composition' || mode === 'observations' || mode === 'decision-limi
       console.log(JSON.stringify({ preBytes: before.bytes, postBytes: after.bytes }))
       const failed = call('str_replace_editor', { command: 'create', path: 'docs/large.md', file_text: 'x'.repeat(1024 * 1024) })
       assert.equal((await pre(failed)).kind, 'allow')
-      assert.equal(guard(failed), undefined)
+      assert.equal(guard, undefined)
       listeners.get('tools/result')(failed, { isError: true, error: new Error('x'.repeat(10000)) })
       await bounded((async () => { while (!records().some(row => row.event === 'dsh-post-tool-use-failure')) await sleep(5) })())
       const failure = records().find(row => row.event === 'dsh-post-tool-use-failure')
@@ -80,18 +83,18 @@ if (mode === 'composition' || mode === 'observations' || mode === 'decision-limi
       assert.equal(failure.errorBytes, 2048)
     } else {
       for (const name of ['run_code', 'terminal_open', 'terminal_send', 'terminal_signal', 'pwsh']) {
-        assert.equal((await pre(call(name))).kind, 'deny', name)
-        assert.equal(typeof guard(call(name)), 'string', name)
+        await allowed(call(name))
       }
       for (const name of ['read', 'write', 'edit', 'terminal_read', 'terminal_list', 'terminal_close']) await allowed(call(name))
       await allowed(call('bash', { command: 'pwd' }))
       runtimes.push(runtime('tool-bash-persistent'))
-      assert.match((await pre(call('bash', { command: 'pwd' }))).reason, /one-shot/)
+      await allowed(call('bash', { command: 'pwd' }))
       runtimes.pop()
       const shell = call('bash', { command: 'pwd' })
       assert.equal((await pre(shell)).kind, 'allow')
       runtimes.push(runtime('tool-bash-persistent'))
-      assert.match(guard(shell), /persistent/)
+      assert.equal(guard, undefined)
+      shell.arguments = Object.freeze({ command: 'echo changed' })
       runtimes.pop()
 
       runtimes.push(runtime('subagent-spawn-in-process', { providerName: 'local' }))
@@ -104,26 +107,34 @@ if (mode === 'composition' || mode === 'observations' || mode === 'decision-limi
       await allowed(child)
       for (const provider of ['dsh-sdk', 'codex', 'claude-code', 'acp', 'unknown']) {
         delegation.fibers[0].config.provider = provider
-        assert.match((await pre(call('delegate'))).reason, /in-process/)
+        await allowed(call('delegate'))
       }
       delegation.fibers[0].config.provider = 'local'
       const late = call('delegate')
       assert.equal((await pre(late)).kind, 'allow')
       delegation.fibers[0].config.provider = 'dsh-sdk'
-      assert.match(guard(late), /in-process/)
+      assert.equal(guard, undefined)
+      await allowed(late)
       runtimes.push(runtime('tool-workflow', { toolName: 'orchestrate' }))
       const engine = runtime('WorkerThreadWorkflowEngine', { provider: 'local' })
       runtimes.push(engine)
       await allowed(call('orchestrate'))
       engine.fibers[0].config.provider = 'dsh-sdk'
-      assert.match((await pre(call('orchestrate'))).reason, /in-process/)
+      await allowed(call('orchestrate'))
       const ralph = runtime('tool-ralph', { subagentProvider: 'local' })
       runtimes.push(ralph)
       await allowed(call('ralph'))
       ralph.fibers[0].config.subagentProvider = 'dsh-sdk'
-      assert.match((await pre(call('ralph'))).reason, /in-process/)
+      await allowed(call('ralph'))
       runtimes.push(runtime('hooks-codex'))
-      assert.match((await pre(call('read'))).reason, /conflicts/)
+      await allowed(call('read'))
+      runtimes.push(runtime('hooks-claude-code'))
+      await allowed(call('run_code'))
+      const foreign = call('write'); foreign.agent = { id: 'other', session: { header: Object.freeze({ id: 'outside', cwd: '/tmp' }) } }
+      await allowed(foreign)
+      const missing = call('read'); delete missing.agent
+      assert.equal((await pre(missing)).kind, 'allow')
+      await allowed(call('bash', { command: 'pwd', workdir: '/tmp' }))
     }
   } finally { await bounded(cleanup()) }
 } else {

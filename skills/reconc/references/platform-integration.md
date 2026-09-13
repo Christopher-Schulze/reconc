@@ -34,7 +34,7 @@ timeout policy, output budgets, artifact paths, and activation probes:
 | Antigravity CLI | `.agents/hooks.json` | Invocation, tool, evidence, and Stop adapters |
 | Kilo Code | `.kilo/plugin/reconc.js` | Thin CLI/VS Code project plugin with strict shell exits and inferred bounded async idle continuation; disabled when `KILO_PURE` is set |
 | Oh My Pi | `.omp/extensions/reconc.ts` | Typed project extension with blocking pre-tool and awaited main-session Stop; observational approval, outcome, compaction, and shutdown routes |
-| DeepSeek Harness | `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml` | Explicit profile overlay with an awaited Go pre-tool decision, final synchronous guard, passive results, and one advisory Stop continuation per turn |
+| DeepSeek Harness | `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml` | Explicit profile overlay with advisory Go policy feedback, passive results, and diagnostic Stop findings; no Reconc dispatch gate |
 | Pi Coding Agent | `.pi/extensions/reconc.ts` | Trust-aware typed project extension with blocking tool/user-shell boundaries, observational results/lifecycle/compaction, and inferred bounded settled continuation |
 | ZCode | `.zcode/config.json` | Native seven-event process hooks with blocking pre-tool, permission, and synchronous Stop routes |
 | Grok Build | `.grok/hooks/reconc.json` | Native lifecycle and hard PreToolUse; project trust required; capability-probed native Stop or optional local leader fallback |
@@ -117,24 +117,18 @@ successful built-in `Bash` result receives synthetic exit code zero. Pi has no
 native permission event, MCP discriminator, post-user-shell result,
 synchronous Stop gate, or continuation acknowledgement.
 
-DeepSeek Harness loads the repository-owned extension only when launched from
-the repository root with `npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml`; direct install or
-bootstrap does not edit a user profile. Its `agent-loop` depends on the
-extension's `reconcGuard` service. The final synchronous guard denies a call
-without a matching completed Go pre-tool decision, including a skipped pre
-listener. Session CWD and explicit Bash workdir must resolve to the repository
-root. Use `DSH_TOOLS_MODE=native`, native file tools, and one-shot `tool-bash`.
-`pwsh`, `run_code`, raw terminal execution, and Bash with an active persistent
-provider are denied because they lack a sound inspectable command contract.
-Delegation through subagent tools, workflow, or ralph requires a registered
-in-process spawn/fork provider; external DSH SDK, Codex, Claude, ACP, and unknown
-providers are refused because they do not inherit the parent's protection.
-Compact `tools/result` metadata is observational, never original shell/file-effect
-proof; use `reconc exec` or CI for trusted evidence. Static status is `installed`;
-host loading and enforcement evidence are reported separately. Use one patched
-process per repository; concurrent Codex or Claude compatibility bridges are
-denied. Pinned source/API review and executable offline policy/adapter tests
-define the integration's acceptance contract.
+DeepSeek Harness loads `.dsh/reconc.patch.yml` with the selected profile, for
+example `npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml`.
+Reconc provides advisory policy feedback and passive observations only. It never
+denies a tool, rejects a step, locks execution input, or forces a Stop
+continuation. Worker failures and unknown events produce bounded diagnostics
+while the host continues. Native/PTC modes, PowerShell, persistent Bash,
+terminals, renamed delegation, external providers, and compatibility bridges
+remain available. Subdirectory file paths are rebased; opaque shell state and
+external children do not create assumed effects or inherited-protection claims.
+Use explicit Reconc CLI/CI checks for authoritative validation. Static status
+is `installed`; it does not claim host interception. Source/API review and
+executable offline regressions define acceptance; no qualification run is required.
 
 ZCode snapshots `.zcode/config.json` at session start. Reconc merges only exact
 managed process entries and preserves foreign settings, events, commands, and

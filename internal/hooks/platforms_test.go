@@ -512,16 +512,21 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 	}
 	for _, token := range []string{
 		`ctx.on('tools/pre-execute'`,
-		`ctx.tools.guard(`,
 		`ctx.on('tools/result'`,
 		`ctx.effect(`,
 		`ctx.provide('reconcGuard'`,
 		`dsh-pre-tool-use`,
 		`dsh-post-tool-use`,
 		`tools/reconc/bin/hook`,
+		`"dsh-pre-tool-use":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"}`,
 	} {
 		if !strings.Contains(dsh.Content, token) {
 			t.Fatalf("DSH adapter missing %q", token)
+		}
+	}
+	for _, token := range []string{`ctx.tools.guard(`, `kind: 'deny'`, `kind: 'reject'`, `Object.defineProperty(exec`, `agent.steer(`, `maxContinuations`} {
+		if strings.Contains(dsh.Content, token) {
+			t.Fatalf("DSH advisory adapter contains execution restriction %q", token)
 		}
 	}
 

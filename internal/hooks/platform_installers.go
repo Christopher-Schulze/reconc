@@ -138,7 +138,7 @@ func installDSH(repoRoot string, force bool) (*InstallReport, error) {
 		force,
 		func(data []byte) bool { return managedPlatformArtifact(KindDSH, data) },
 		false,
-		"Start DSH from this repository with `npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml`; verify a live guarded tool call before treating the integration as active.",
+		"Start DSH from this repository with `npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml` for non-blocking policy feedback; no qualification run is required.",
 	)
 }
 

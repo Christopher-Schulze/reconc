@@ -1450,8 +1450,10 @@ missing shell produces an explicit incomplete result.
 
 Offline `configured`, `discoverable`, and `synthetic_enforced` facts refer only
 to that disposable repository. `loaded`, `observed`, and `enforced` remain
-false, and every expected live route remains in `unproven_events`. Bun is used
-only when present to execute generated OpenCode, Kilo, OMP, and Pi adapters; a
+false, and every expected live route remains in `unproven_events`. DSH reports
+`result_class=synthetic-advisory` with `synthetic_enforced=false`; its successful
+offline check verifies feedback and continued dispatch. Bun is used
+only when present to execute generated OpenCode, Kilo, OMP, DSH, and Pi adapters; a
 missing Bun produces an explicit incomplete result rather than a pass. Text and
 JSON are ordered by the registry matrix and never include the temporary path,
 payload, tool arguments, prompt, output, or session identity.

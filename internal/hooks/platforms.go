@@ -384,13 +384,13 @@ var platformRegistry = []platformDefinition{
 		Platform: Platform{Kind: KindDSH, DisplayName: "DeepSeek Harness", TargetPath: DSHExtensionPath, ScaffoldPath: DSHExtensionPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationProfilePatch, ConfigDirs: []string{".dsh"}, RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "agent/pre-step", SupportAdapted, FailureAllow, FailureAllow, 5, "dsh-session-start"),
 			unsupported(EventUserPromptSubmit),
-			capability(EventPreToolUse, "tools/pre-execute", SupportNative, FailureBlock, FailureBlock, 10, "dsh-pre-tool-use"),
+			capability(EventPreToolUse, "tools/pre-execute", SupportNative, FailureAllow, FailureAllow, 10, "dsh-pre-tool-use"),
 			fallback(EventPermissionRequest, EventPreToolUse),
 			capability(EventPostToolUse, "tools/result", SupportNative, FailureAllow, FailureAllow, 5, "dsh-post-tool-use"),
 			capability(EventPostToolUseFailure, "tools/result", SupportNative, FailureAllow, FailureAllow, 5, "dsh-post-tool-use-failure"),
-			adaptedFallback(EventMCPBefore, EventPreToolUse, FailureBlock, FailureBlock, 10),
+			adaptedFallback(EventMCPBefore, EventPreToolUse, FailureAllow, FailureAllow, 10),
 			adaptedFallback(EventMCPAfter, EventPostToolUse, FailureAllow, FailureAllow, 5),
-			dshStopCapability(),
+			capability(EventStop, "agent/turn-stopping", SupportNative, FailureAllow, FailureAllow, 5, "dsh-stop"),
 			unsupported(EventSessionEnd),
 			unsupported(EventPostCompaction),
 		}},
@@ -530,12 +530,6 @@ func bunStopCapability(prefix string) Capability {
 func ompStopCapability() Capability {
 	capability := capability(EventStop, "session_stop", SupportNative, FailureBlock, FailureBlock, 29, "omp-stop")
 	capability.MaxContinuations = 8
-	return capability
-}
-
-func dshStopCapability() Capability {
-	capability := capability(EventStop, "agent/turn-stopping", SupportNative, FailureAllow, FailureAllow, 5, "dsh-stop")
-	capability.MaxContinuations = 1
 	return capability
 }
 

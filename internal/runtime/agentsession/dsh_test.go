@@ -1,6 +1,8 @@
 package agentsession
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +11,42 @@ import (
 
 	"reconc.dev/reconc/internal/policy"
 )
+
+func TestAdaptDSHResultNeverVetoesDispatch(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		input Result
+		want  string
+	}{
+		{"allowed", Result{}, ""},
+		{"policy finding", Result{ExitCode: 2, Stderr: "reconc blocked: protected path"}, "reconc policy would reject: protected path"},
+		{"stop finding", Result{Stdout: `{"decision":"block","reason":"run required checks"}`}, "run required checks"},
+		{"context", Result{Stdout: `{"additionalContext":"review the policy"}`}, "review the policy"},
+		{"worker failure", Result{ExitCode: 2, Err: errors.New("worker unavailable")}, "worker unavailable"},
+		{"malformed response", Result{Stdout: `{`}, "unreadable advisory result"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := AdaptDSHResult(test.input)
+			if result.ExitCode != 0 || result.Stderr != "" || !errors.Is(result.Err, test.input.Err) {
+				t.Fatalf("advisory result lost error identity or vetoed dispatch: %+v", result)
+			}
+			if test.want == "" {
+				if result.Stdout != "" {
+					t.Fatalf("allowed result created feedback: %q", result.Stdout)
+				}
+				return
+			}
+			var output struct {
+				Advisory bool   `json:"advisory"`
+				Reason   string `json:"reason"`
+				Decision string `json:"decision"`
+			}
+			if err := json.Unmarshal([]byte(result.Stdout), &output); err != nil || !output.Advisory || output.Decision != "" || !strings.Contains(output.Reason, test.want) {
+				t.Fatalf("advisory envelope = %s, error = %v", result.Stdout, err)
+			}
+		})
+	}
+}
 
 func TestNormalizeDSHNativeToolAndObservationBoundaries(t *testing.T) {
 	repo, err := filepath.EvalSymlinks(t.TempDir())
@@ -44,7 +82,7 @@ func TestNormalizeDSHNativeToolAndObservationBoundaries(t *testing.T) {
 				t.Fatalf("normalized DSH tool = %+v", parsed)
 			}
 			if test.wantMCP {
-				if parsed.MCP == nil || parsed.MCP.Platform != policy.MCPPlatform("custom:dsh") || parsed.MCP.Tool != test.native || !parsed.MCP.BlockingPreHook {
+				if parsed.MCP == nil || parsed.MCP.Platform != policy.MCPPlatform("custom:dsh") || parsed.MCP.Tool != test.native || parsed.MCP.BlockingPreHook {
 					t.Fatalf("DSH pre MCP selector = %+v", parsed.MCP)
 				}
 			} else if parsed.MCP != nil {
@@ -72,16 +110,53 @@ func TestNormalizeDSHNativeToolAndObservationBoundaries(t *testing.T) {
 	}
 }
 
+func TestNormalizeDSHWorkingDirectoriesAndOpaqueTools(t *testing.T) {
+	repo, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(repo, "nested")
+	if err := os.Mkdir(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, cwd, tool, input, extra, wantTool, wantPath string
+	}{
+		{"nested read", nested, "read", `{"file_path":"read.md"}`, "", "Read", "nested/read.md"},
+		{"nested edit", nested, "edit", `{"file_path":"../root.md"}`, "", "Edit", "root.md"},
+		{"nested editor", nested, "str_replace_editor", `{"command":"create","path":"out.go"}`, "", "Write", "nested/out.go"},
+		{"future editor command", repo, "str_replace_editor", `{"command":"undo_edit","path":"out.go"}`, "", "str_replace_editor", "out.go"},
+		{"PowerShell", repo, "pwsh", `{"command":"Write-Output test"}`, "", "pwsh", ""},
+		{"PTC", repo, "run_code", `{"code":"await tools.read({file_path:'read.md'})"}`, "", "run_code", ""},
+		{"terminal", repo, "terminal_send", `{"sessionId":"shell","text":"pwd"}`, "", "terminal_send", ""},
+		{"persistent Bash", repo, "bash", `{"command":"pwd"}`, `,"bash_stateful":true`, "dsh:bash", ""},
+		{"nested Bash", nested, "bash", `{"command":"pwd"}`, "", "dsh:bash", ""},
+		{"Bash nested workdir", repo, "bash", `{"command":"pwd","workdir":"nested"}`, "", "dsh:bash", ""},
+		{"Bash external workdir", repo, "bash", fmt.Sprintf(`{"command":"pwd","workdir":%q}`, filepath.Dir(repo)), "", "dsh:bash", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			payload := fmt.Sprintf(`{"hook_event_name":"tools/pre-execute","session_id":"s","cwd":%q,"tool_name":%q,"tool_input":%s,"tool_call_id":"c","root_call_id":"r"%s}`, test.cwd, test.tool, test.input, test.extra)
+			body, err := NormalizeDSHPayload("dsh-pre-tool-use", []byte(payload), repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := ParsePayload(body)
+			if err != nil || parsed.ToolName != test.wantTool || parsed.FilePath() != test.wantPath {
+				t.Fatalf("normalization = %+v, %v", parsed, err)
+			}
+			if parsed.MCP == nil || parsed.MCP.Tool != test.tool || parsed.MCP.BlockingPreHook {
+				t.Fatalf("advisory selector = %+v", parsed.MCP)
+			}
+		})
+	}
+}
+
 func TestNormalizeDSHRejectsUnboundOrMisleadingEvents(t *testing.T) {
 	repo, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	valid := fmt.Sprintf(`{"hook_event_name":"tools/pre-execute","session_id":"s","cwd":%q,"tool_name":"str_replace_editor","tool_input":{"command":"create","path":"generated/out.go"},"tool_call_id":"c","root_call_id":"r"}`, repo)
-	subdir := filepath.Join(repo, "nested")
-	if err := os.Mkdir(subdir, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	for _, test := range []struct {
 		name, route, payload, want string
 	}{
@@ -90,14 +165,9 @@ func TestNormalizeDSHRejectsUnboundOrMisleadingEvents(t *testing.T) {
 		{name: "event mismatch", route: "dsh-post-tool-use", payload: valid, want: "does not match route"},
 		{name: "missing root call", route: "dsh-pre-tool-use", payload: strings.Replace(valid, `"root_call_id":"r"`, `"root_call_id":""`, 1), want: "requires name, call ID, and root call ID"},
 		{name: "nonobject input", route: "dsh-pre-tool-use", payload: strings.Replace(valid, `"tool_input":{"command":"create","path":"generated/out.go"}`, `"tool_input":"create"`, 1), want: "JSON object"},
-		{name: "unknown edit command", route: "dsh-pre-tool-use", payload: strings.Replace(valid, `"command":"create"`, `"command":"undo_edit"`, 1), want: "unsupported DSH str_replace_editor command"},
 		{name: "post lacks observed marker", route: "dsh-post-tool-use", payload: strings.Replace(valid, `"tools/pre-execute"`, `"tools/result"`, 1), want: "final result observation"},
 		{name: "outside cwd", route: "dsh-pre-tool-use", payload: strings.Replace(valid, repo, filepath.Dir(repo), 1), want: "outside repository root"},
-		{name: "subdirectory cwd", route: "dsh-pre-tool-use", payload: strings.Replace(valid, repo, subdir, 1), want: "session cwd must equal repository root"},
 		{name: "stop missing active", route: "dsh-stop", payload: fmt.Sprintf(`{"hook_event_name":"agent/turn-stopping","session_id":"s","cwd":%q}`, repo), want: "requires stop_hook_active"},
-		{name: "unsupported PowerShell", route: "dsh-pre-tool-use", payload: strings.Replace(strings.Replace(valid, `"tool_name":"str_replace_editor"`, `"tool_name":"pwsh"`, 1), `"tool_input":{"command":"create","path":"generated/out.go"}`, `"tool_input":{"command":"Write-Output test"}`, 1), want: "no Reconc command-policy parser"},
-		{name: "bash outside workdir", route: "dsh-pre-tool-use", payload: strings.Replace(strings.Replace(valid, `"tool_name":"str_replace_editor"`, `"tool_name":"bash"`, 1), `"tool_input":{"command":"create","path":"generated/out.go"}`, fmt.Sprintf(`"tool_input":{"command":"pwd","workdir":%q}`, filepath.Dir(repo)), 1), want: "outside repository root"},
-		{name: "bash subdirectory workdir", route: "dsh-pre-tool-use", payload: strings.Replace(strings.Replace(valid, `"tool_name":"str_replace_editor"`, `"tool_name":"bash"`, 1), `"tool_input":{"command":"create","path":"generated/out.go"}`, `"tool_input":{"command":"pwd","workdir":"nested"}`, 1), want: "bash workdir must equal repository root"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := NormalizeDSHPayload(test.route, []byte(test.payload), repo); err == nil || !strings.Contains(err.Error(), test.want) {

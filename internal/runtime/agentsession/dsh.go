@@ -35,6 +35,7 @@ type dshPayload struct {
 	ToolCallID     string          `json:"tool_call_id"`
 	RootCallID     string          `json:"root_call_id"`
 	AgentID        string          `json:"agent_id"`
+	BashStateful   bool            `json:"bash_stateful,omitempty"`
 	IsError        *bool           `json:"is_error"`
 	Error          string          `json:"error"`
 	Observed       *bool           `json:"result_observed"`
@@ -93,9 +94,6 @@ func NormalizeDSHPayload(event string, payloadBytes []byte, repoRoot string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("resolve DSH cwd: %w", err)
 	}
-	if relative, err := filepath.Rel(root, current); err != nil || relative != "." {
-		return nil, errors.New("DSH session cwd must equal repository root")
-	}
 	if event != "dsh-session-start" && event != "dsh-stop" {
 		if strings.TrimSpace(raw.ToolName) == "" || strings.TrimSpace(raw.ToolCallID) == "" || strings.TrimSpace(raw.RootCallID) == "" {
 			return nil, errors.New("DSH tool event requires name, call ID, and root call ID")
@@ -113,14 +111,6 @@ func NormalizeDSHPayload(event string, payloadBytes []byte, repoRoot string) ([]
 		return nil, errors.New("DSH turn-stopping requires stop_hook_active")
 	}
 	if event == "dsh-pre-tool-use" {
-		switch raw.ToolName {
-		case "pwsh":
-			return nil, errors.New("DSH PowerShell has no Reconc command-policy parser")
-		case "run_code":
-			return nil, errors.New("DSH run_code has no inspectable command contract; set DSH_TOOLS_MODE=native and use read/write/edit/bash")
-		case "terminal_open", "terminal_send", "terminal_signal":
-			return nil, errors.New("DSH raw terminal state has no inspectable command contract; use one-shot bash from the repository root")
-		}
 		if raw.ToolName == "bash" {
 			var input struct {
 				Workdir *string `json:"workdir"`
@@ -133,20 +123,17 @@ func NormalizeDSHPayload(event string, payloadBytes []byte, repoRoot string) ([]
 				if !filepath.IsAbs(working) {
 					working = filepath.Join(raw.CWD, working)
 				}
-				if err := validateHookPayloadCWD(working, repoRoot, "DSH bash workdir"); err != nil {
-					return nil, err
-				}
 				resolved, err := pathidentity.ResolveExisting(working)
-				if err != nil {
-					return nil, fmt.Errorf("resolve DSH bash workdir: %w", err)
-				}
-				if relative, err := filepath.Rel(root, resolved); err != nil || relative != "." {
-					return nil, errors.New("DSH bash workdir must equal repository root")
-				}
+				raw.BashStateful = raw.BashStateful || err != nil || resolved != root
 			}
 		}
 	}
 	name := normalizePiOMPToolName(raw.ToolName)
+	if raw.ToolName == "bash" && (raw.BashStateful || current != root) {
+		// Preserve the named tool for explicit selectors without pretending its
+		// command runs in a stateless repository-root Bash environment.
+		name = "dsh:bash"
+	}
 	if raw.ToolName == "str_replace_editor" && (event == "dsh-pre-tool-use" || !bytes.Equal(bytes.TrimSpace(raw.ToolInput), []byte("{}"))) {
 		var input struct {
 			Command string `json:"command"`
@@ -159,8 +146,12 @@ func NormalizeDSHPayload(event string, payloadBytes []byte, repoRoot string) ([]
 			name = "Read"
 		case "create", "str_replace", "insert":
 			name = "Write"
-		default:
-			return nil, fmt.Errorf("unsupported DSH str_replace_editor command %q", input.Command)
+		}
+	}
+	if current != root && (name == "Read" || name == "Write" || name == "Edit") {
+		raw.ToolInput, err = rebaseDSHFileInput(raw.ToolInput, root, current)
+		if err != nil {
+			return nil, err
 		}
 	}
 	normalized := dshNormalizedPayload{
@@ -182,10 +173,75 @@ func NormalizeDSHPayload(event string, payloadBytes []byte, repoRoot string) ([]
 		// The schema-backed built-in platform list is immutable under its
 		// published identity; custom:dsh is the explicit selector namespace.
 		normalized.MCP = newNativeMCPEnvelope(policy.MCPPlatform("custom:dsh"), raw.ToolName, raw.ToolInput, event, "", "")
+		normalized.MCP.BlockingPreHook = false
 	}
 	body, err := json.Marshal(normalized)
 	if err != nil {
 		return nil, fmt.Errorf("normalize DSH payload: %w", err)
 	}
 	return body, nil
+}
+
+func rebaseDSHFileInput(input json.RawMessage, root, cwd string) (json.RawMessage, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(input, &fields); err != nil {
+		return nil, fmt.Errorf("decode DSH file input: %w", err)
+	}
+	for _, key := range []string{"file_path", "path"} {
+		value, exists := fields[key]
+		if !exists {
+			continue
+		}
+		var path string
+		if err := json.Unmarshal(value, &path); err != nil {
+			return nil, fmt.Errorf("decode DSH %s: %w", key, err)
+		}
+		if path == "" || filepath.IsAbs(path) {
+			continue
+		}
+		relative, err := filepath.Rel(root, filepath.Join(cwd, path))
+		if err != nil {
+			return nil, fmt.Errorf("resolve DSH %s: %w", key, err)
+		}
+		fields[key], err = json.Marshal(filepath.ToSlash(relative))
+		if err != nil {
+			return nil, fmt.Errorf("encode DSH %s: %w", key, err)
+		}
+	}
+	return json.Marshal(fields)
+}
+
+// AdaptDSHResult preserves policy feedback as an advisory envelope. DSH owns
+// dispatch and turn continuation; a finding never becomes a host veto.
+func AdaptDSHResult(result Result) Result {
+	reason := strings.TrimSpace(result.Stderr)
+	if result.Stdout != "" {
+		var output struct {
+			Reason            string `json:"reason"`
+			AdditionalContext string `json:"additionalContext"`
+		}
+		if err := json.Unmarshal([]byte(result.Stdout), &output); err != nil {
+			reason += " Reconc returned an unreadable advisory result: " + err.Error()
+		} else {
+			reason += " " + output.Reason + " " + output.AdditionalContext
+		}
+	}
+	if result.Err != nil && !strings.Contains(reason, result.Err.Error()) {
+		reason += " " + result.Err.Error()
+	}
+	result.ExitCode, result.Stdout, result.Stderr = 0, "", ""
+	reason = strings.TrimSpace(strings.ReplaceAll(reason, "reconc blocked", "reconc policy would reject"))
+	if reason == "" {
+		return result
+	}
+	body, err := json.Marshal(struct {
+		Advisory bool   `json:"advisory"`
+		Reason   string `json:"reason"`
+	}{Advisory: true, Reason: reason})
+	if err != nil {
+		result.Stderr = "reconc dsh advisory encoding: " + err.Error()
+		return result
+	}
+	result.Stdout = string(body)
+	return result
 }
