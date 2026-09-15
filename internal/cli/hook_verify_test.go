@@ -627,6 +627,41 @@ func TestLiveHookOperatorConfirmationIsBounded(t *testing.T) {
 	}
 }
 
+func TestHookVerificationWorkspaceCleanupRemovesReadOnlyTrees(t *testing.T) {
+	workspace, err := newHookVerificationWorkspace("reconc-hook-verify-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	probeRoot := filepath.Dir(workspace.repo)
+	cacheRoot := filepath.Join(probeRoot, "home", "go", "pkg", "mod", "example.com", "dep@v1.0.0")
+	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheRoot, "dep.go"), []byte("package dep\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	for directory := cacheRoot; directory != probeRoot; directory = filepath.Dir(directory) {
+		if err := os.Chmod(directory, 0o555); err != nil {
+			t.Fatal(err)
+		}
+	}
+	workspace.cleanup()
+	if _, err := os.Stat(probeRoot); !os.IsNotExist(err) {
+		t.Fatalf("read-only verification workspace survived cleanup: %v", err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o100 == 0 {
+		t.Fatalf("workspace cleanup mutated the shared executable inode: mode %v", info.Mode())
+	}
+}
+
 func TestLiveHookProbeRecordRejectsContradictoryExitStatus(t *testing.T) {
 	for _, test := range []struct {
 		class string

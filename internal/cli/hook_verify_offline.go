@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -218,7 +219,7 @@ func newHookVerificationWorkspace(prefix string) (hookVerificationWorkspace, err
 	if err != nil {
 		return hookVerificationWorkspace{}, fmt.Errorf("create disposable root: %w", err)
 	}
-	cleanup := func() { _ = os.RemoveAll(probeRoot) }
+	cleanup := func() { _ = removeHookVerificationWorkspace(probeRoot) }
 	repo := filepath.Join(probeRoot, "repo")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		cleanup()
@@ -253,6 +254,23 @@ func newHookVerificationWorkspace(prefix string) (hookVerificationWorkspace, err
 		environment: hookVerificationEnvironment(values),
 		cleanup:     cleanup,
 	}, nil
+}
+
+// removeHookVerificationWorkspace deletes the disposable root. Sandboxed
+// toolchains can leave read-only directories — `go build` marks a fresh module
+// cache under the isolated HOME read-only by design — which plain os.RemoveAll
+// cannot unlink on POSIX. Only directories are made writable: regular files
+// may be hardlinks to the running executable, so chmod would mutate a shared
+// inode, and Windows read-only files are already handled inside os.RemoveAll.
+func removeHookVerificationWorkspace(root string) error {
+	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || !entry.IsDir() {
+			return nil
+		}
+		_ = os.Chmod(path, 0o700)
+		return nil
+	})
+	return os.RemoveAll(root)
 }
 
 func installHookVerificationBareExecutable(binDir string) error {
@@ -785,7 +803,7 @@ func installDSHVerificationWorker(repo, target string) string {
 	defer cancel()
 	command := exec.CommandContext(ctx, "go", "build", "-o", target, "./cmd/reconc")
 	command.Dir = moduleRoot
-	command.Env = os.Environ()
+	command.Env = append(os.Environ(), "GOFLAGS=-modcacherw")
 	if output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput); err != nil {
 		return fmt.Sprintf("build real DSH verification worker: %v: %s", err, strings.TrimSpace(string(output)))
 	}
