@@ -629,6 +629,12 @@ func verifyOfflinePolicyDecision(kind, repo string) syntheticHookDecision {
 }
 
 func verifyOfflineGitDecision(repo string, started time.Time) syntheticHookDecision {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	command := gitexec.CommandContext(ctx, repo, nil, "add", "--all", "--", ".")
+	if output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput); err != nil {
+		return syntheticHookDecision{durationMillis: elapsedMillis(started), detail: fmt.Sprintf("stage disposable verification candidate: %v: %s", err, strings.TrimSpace(string(output)))}
+	}
 	stdout, err := boundedexec.NewBuffer(maxHookRuntimeCapture)
 	if err != nil {
 		return syntheticHookDecision{durationMillis: elapsedMillis(started), detail: err.Error()}

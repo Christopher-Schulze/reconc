@@ -129,6 +129,7 @@ func writeCIHelp(output io.Writer) {
 	fmt.Fprintln(output, "  --staged                 git diff --cached --no-renames --name-only (pre-commit)")
 	fmt.Fprintln(output, "  --base REF [--head REF]  git diff base...head --no-renames --name-only (PR/CI)")
 	fmt.Fprintln(output, "  --staged rejects explicit command outcome flags; use reconc exec --staged")
+	fmt.Fprintln(output, "  --staged requires a worktree matching the index, with no unstaged or untracked changes")
 	fmt.Fprintln(output, "  --format sarif|junit emits a bounded, deterministic CI-native report")
 	fmt.Fprintln(output, "  --claim and --auto-claim are acknowledgments, not authenticated CI results")
 	fmt.Fprintln(output, "  verify-evidence authenticates an offline signed CI snapshot for an exact candidate")

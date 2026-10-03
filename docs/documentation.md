@@ -3086,9 +3086,13 @@ the `require_command_success` write-epoch freshness contract binds instead of
 silently reading zero. In `ci --staged`, `require_command_success` violations
 name the exact index-bound remediation (`reconc exec <repo> --staged --shell
 -- '<command>'`) because the staged gate accepts only index-bound proofs,
-never session command history. The command
-kinds accept an additive `command_match: prefix` opt-in that also matches a
-recorded command extending an expected command at a token boundary
+never session command history. The staged gate also requires readable Git status
+and a worktree matching the index, with no unstaged or untracked changes, so live
+content checks evaluate the same
+contents as the staged candidate. Partial staging therefore blocks until the
+worktree matches the intended index. Range CI retains its worktree semantics.
+The command kinds accept an additive `command_match: prefix` opt-in that also
+matches a recorded command extending an expected command at a token boundary
 (`pip install` matches `pip install requests`, never `pip installer`); for
 `require_command_success` that includes runs with extra arguments such as a
 `-run` filter, so authors opt in deliberately. Ordering semantics differ by

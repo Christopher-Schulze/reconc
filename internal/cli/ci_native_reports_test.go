@@ -83,7 +83,7 @@ func TestCIEmitsGitBoundJUnitReport(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "src", "main.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command("git", "add", "src/main.go")
+	command := exec.Command("git", "add", ".")
 	command.Dir = repo
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git add: %v\n%s", err, output)

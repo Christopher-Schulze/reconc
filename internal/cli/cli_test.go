@@ -3167,7 +3167,7 @@ func TestRunCIStagedInheritsReadButRejectsUnboundCommandEvidence(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "docs", "architecture.md"), []byte("# Architecture\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("git", "add", "src/main.go")
+	cmd := exec.Command("git", "add", ".")
 	cmd.Dir = repo
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git add failed: %v\n%s", err, string(out))
@@ -3267,7 +3267,7 @@ func TestRunCIWritesOutputFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "src", "main.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("git", "add", "src/main.go")
+	cmd := exec.Command("git", "add", ".")
 	cmd.Dir = repo
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git add failed: %v\n%s", err, string(out))

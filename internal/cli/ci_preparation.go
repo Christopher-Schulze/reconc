@@ -35,6 +35,9 @@ func prepareCIEvaluation(repo string, staged bool, base, head string, inputs run
 	if result.candidate.EvidenceOverflow {
 		return result, 2, evidenceOverflowError(result.candidate)
 	}
+	if staged && (!result.candidate.GitAvailable || !result.candidate.GitStatusOK || !result.candidate.WorktreeMatchesIndex) {
+		return result, 2, fmt.Errorf("staged candidate requires readable Git status and a worktree matching the index; prepare a staged-only worktree with no unstaged or untracked changes, then rerun reconc ci --staged")
+	}
 	active, err := agentsession.ActiveEvidence(discovery.RepoRoot)
 	if err != nil {
 		return result, 1, fmt.Errorf("active evidence: %w", err)
