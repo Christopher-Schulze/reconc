@@ -261,7 +261,7 @@ func (s *Store) transitionState(expected string) (State, State, bool, ClockSnaps
 		return State{}, State{}, false, ClockSnapshot{}, err
 	}
 	if expected != state.Digest {
-		return State{}, State{}, false, ClockSnapshot{}, stateError(action.ReasonStateUnavailable, "action state changed before transition", nil)
+		return State{}, State{}, false, ClockSnapshot{}, stateError(action.ReasonStateUnavailable, "action state changed before transition", ErrStateVersionChanged)
 	}
 	clock, err := s.trustedNow(state)
 	if err != nil {

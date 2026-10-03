@@ -387,20 +387,14 @@ func approvalBudgetPresent(snapshot action.BudgetSnapshot) bool {
 }
 
 func (g *Gateway) commitDispatch(ctx context.Context, call *gatewayCall) error {
-	if err := g.resampleCallBoundary(
-		ctx, call.snapshot, call.contract, call.generation, call.repositoryPaths,
-	); err != nil {
-		g.releaseCall(ctx, call, action.ReasonPolicyStale, call.approvalCommitted)
+	version, err := g.markDispatchWithRetry(ctx, call)
+	if err != nil {
+		g.releaseCall(ctx, call, gatewayReason(err, action.ReasonStateUnavailable), call.approvalCommitted)
 		return err
 	}
 	dispatchDecision := approvedDispatchDecision(call.decision, call.approvalCommitted)
 	reservation := "absent"
 	if call.reservation != nil {
-		version, err := g.state.MarkDispatched(ctx, call.reservation.Identity, call.stateVersion)
-		if err != nil {
-			g.releaseCall(ctx, call, gatewayReason(err, action.ReasonStateUnavailable), call.approvalCommitted)
-			return err
-		}
 		call.stateVersion = version
 		reservation = call.reservation.Identity
 		if err := call.ledger.budget(

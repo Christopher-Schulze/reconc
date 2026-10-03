@@ -23,11 +23,11 @@ boundary lacks equivalent recovery.
 
 ## Sub-Tasks
 
-- [ ] Reproduce the reserve/dispatch interleaving with real action state and a deterministic barrier.
-- [ ] Expose only genuine transition-version conflicts as the existing typed sentinel.
-- [ ] Refresh and reevaluate the approval-free state-bound input before bounded dispatch retry.
-- [ ] Cover exhaustion, stale identity/window, approval fencing, accounting, and cancellation; flush docs.
-- [ ] Run validation, review all changes, archive, commit, and push.
+- [x] Reproduce the reserve/dispatch interleaving with real action state and a deterministic barrier.
+- [x] Expose only genuine transition-version conflicts as the existing typed sentinel.
+- [x] Refresh and reevaluate the approval-free state-bound input before bounded dispatch retry.
+- [x] Cover exhaustion, stale identity/window, approval fencing, accounting, and cancellation; flush docs.
+- [x] Run validation, review all changes, archive, commit, and push.
 
 ## Technical Plan
 
@@ -37,7 +37,9 @@ approval-free pre-dispatch boundary, reuse the existing reservation identity and
 Reserve's same-call retry snapshot to validate governing generation, exact charges,
 current budgets, repository/server/context identities, and fixed windows. Rebuild
 state-version/budget-dependent evaluator input and its identity snapshot, then
-record the fresh decision before MarkDispatched. Preserve observed evidence only
+use the fresh decision for the existing dispatch/budget records. The ledger
+requires exactly one pre-call decision, so no duplicate decision event is added.
+Preserve observed evidence only
 under its existing identity boundary; changed decisions cannot silently bypass
 approval or block requirements.
 
@@ -53,6 +55,17 @@ Source owners: internal/mcpgateway/call.go, request.go,
 internal/actionstate/budget_transition.go, budget_store.go.
 Existing pre-dispatch concurrency coverage uses no budgets; reservation-conflict
 coverage mutates before Reserve, not between Reserve and MarkDispatched.
+The new real-state loader interleaving reproduced state_unavailable on 4913ef96.
+Recovery uses one existing same-call reservation and records one dispatch and
+one charged call under a required, verified, complete ledger. Repeated conflicts
+exhaust the eight-retry limit; policy drift and cancellation remain blocked with
+zero charged calls and no live reservations. A real pending approval retains its
+bound state after conflict. The typed sentinel excludes expired windows and
+missing reservations. No ledger schema or lifecycle relaxation is introduced.
+Race checks are omitted at the user's request.
+Targeted budget/gateway tests, the complete isolated-HOME root/template
+test-fast gate, vet, lint, and development build passed. Final source/diff
+review confirmed the retry boundary is pre-dispatch only and retains CAS.
 
 ## Deviations
 

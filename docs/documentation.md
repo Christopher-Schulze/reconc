@@ -3769,6 +3769,14 @@ their durable transitions. A reservation conflict refreshes only the request's
 state version and retries at most eight times; policy loading, request
 normalization, repository evidence, action inspection, and ledger work are not
 repeated and are never held behind the approval-transition mutex.
+An approval-free reservation also recovers at most eight typed state-version
+conflicts before dispatch. Each retry reuses its exact reservation, checks the
+current governing budget generation/window, reevaluates current state-bound
+inputs, and resamples policy/server/tool/path identities before commitment.
+The existing dispatch record carries the fresh decision and state version;
+the ledger retains one pre-call decision. Approval-bound calls do not rebind
+authorization across changed state. No downstream operation is retried after
+dispatch, and failed recovery uses the existing reservation cleanup path.
 Progress uses a 16-event per-call work queue inside the existing 128-event and
 1 MiB budgets. Notifications remain source-ordered, a slow upstream sink cannot
 block the transport reader, and queue admission plus non-blocking enqueue is
