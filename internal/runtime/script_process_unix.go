@@ -31,16 +31,28 @@ func configureScriptProcess(cmd *exec.Cmd, killGrace time.Duration) {
 	cmd.WaitDelay = killGrace
 }
 
-func monitorScriptProcess(ctx context.Context, pid int, done <-chan struct{}, killGrace time.Duration) {
+func monitorScriptProcess(ctx context.Context, pid int, done <-chan struct{}, killGrace time.Duration) <-chan error {
+	finished := make(chan error, 1)
 	go func() {
+		defer close(finished)
 		select {
 		case <-ctx.Done():
+			timer := time.NewTimer(killGrace)
+			defer timer.Stop()
 			select {
-			case <-time.After(killGrace):
-				_ = syscall.Kill(-pid, syscall.SIGKILL)
+			case <-timer.C:
 			case <-done:
 			}
 		case <-done:
+			if ctx.Err() == nil {
+				return
+			}
+		}
+		// Wait can reap a TERM-sensitive leader while resistant descendants
+		// have closed their inherited streams. They still own this group.
+		if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+			finished <- err
 		}
 	}()
+	return finished
 }

@@ -19,4 +19,8 @@ func configureScriptProcess(cmd *exec.Cmd, killGrace time.Duration) {
 	cmd.WaitDelay = killGrace
 }
 
-func monitorScriptProcess(context.Context, int, <-chan struct{}, time.Duration) {}
+func monitorScriptProcess(context.Context, int, <-chan struct{}, time.Duration) <-chan error {
+	finished := make(chan error)
+	close(finished)
+	return finished
+}

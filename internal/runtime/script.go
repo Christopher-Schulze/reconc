@@ -184,12 +184,16 @@ func runScriptContext(caller context.Context, repoRoot, scriptPath string, args 
 	}
 
 	start := time.Now()
+	var processCleanupErr error
 	err = cmd.Start()
 	if err == nil {
-		monitorScriptProcess(ctx, cmd.Process.Pid, done, killGrace)
+		monitorFinished := monitorScriptProcess(ctx, cmd.Process.Pid, done, killGrace)
 		err = cmd.Wait()
+		close(done)
+		if cleanupErr := <-monitorFinished; cleanupErr != nil {
+			processCleanupErr = fmt.Errorf("clean script process group: %w", cleanupErr)
+		}
 	}
-	close(done)
 	duration := time.Since(start)
 
 	outcome = ScriptOutcome{
@@ -202,13 +206,18 @@ func runScriptContext(caller context.Context, repoRoot, scriptPath string, args 
 		outcome.Canceled = true
 		outcome.Status = "error"
 		outcome.ExitCode = -1
-		return outcome, fmt.Errorf("script canceled by caller: %w", callerErr)
+		return outcome, errors.Join(fmt.Errorf("script canceled by caller: %w", callerErr), processCleanupErr)
 	}
 	if ctx.Err() == context.DeadlineExceeded {
 		outcome.Status = "error"
 		outcome.TimedOut = true
 		outcome.ExitCode = -1
-		return outcome, nil
+		return outcome, processCleanupErr
+	}
+	if processCleanupErr != nil {
+		outcome.Status = "error"
+		outcome.ExitCode = -1
+		return outcome, errors.Join(err, processCleanupErr)
 	}
 
 	if err != nil {

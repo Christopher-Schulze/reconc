@@ -3,12 +3,12 @@
 ## Active
 
 ## Queue
-- [ ] 571 Clean surviving script descendants after cancellation -> tasks/571-clean-surviving-script-descendants-after-cancellation.md
 - [ ] 572 Reuse the policy evaluator within completion gates -> tasks/572-reuse-the-policy-evaluator-within-completion-gates.md
 
 ## Blocked
 
 ## Done
+- [x] 571 Clean surviving script descendants after cancellation -> tasks/done/571-clean-surviving-script-descendants-after-cancellation.md
 - [x] 570 Retry safe MCP dispatch state conflicts -> tasks/done/570-retry-safe-mcp-dispatch-state-conflicts.md
 - [x] 569 Enforce module-scoped causal freshness in native assurance -> tasks/done/569-enforce-module-scoped-causal-freshness-in-native-assurance.md
 - [x] 568 Bind Reconc command evidence to execution start -> tasks/done/568-bind-reconc-command-evidence-to-execution-start.md
@@ -18,4 +18,3 @@
 - [x] 564 Unify DSH policy and agent workflow -> tasks/done/564-unify-dsh-policy-and-agent-workflow.md
 - [x] 563 Detect upstream host contract drift automatically -> tasks/done/563-detect-upstream-host-contract-drift-automatically.md
 - [x] 562 Deduplicate DSH findings with bounded summaries -> tasks/done/562-deduplicate-dsh-findings-with-bounded-summaries.md
-- [x] 561 Reduce DSH advisory wait times -> tasks/done/561-reduce-dsh-advisory-wait-times.md

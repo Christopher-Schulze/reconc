@@ -21,10 +21,10 @@ The existing MCP process boundary already addresses leaderless descendants.
 
 ## Sub-Tasks
 
-- [ ] Reproduce a leader-exits/child-ignores-TERM script with deterministic readiness.
-- [ ] Add bounded group cleanup to the existing script lifecycle using the MCP boundary's proven pattern.
-- [ ] Verify monitor ownership, grace timing, no late signals, and unchanged outcome contracts; flush docs.
-- [ ] Run validation, review all changes, archive, commit, and push.
+- [x] Reproduce a leader-exits/child-ignores-TERM script with deterministic readiness.
+- [x] Add bounded group cleanup to the existing script lifecycle using the MCP boundary's proven pattern.
+- [x] Verify monitor ownership, grace timing, no late signals, and unchanged outcome contracts; flush docs.
+- [x] Run validation, review all changes, archive, commit, and push.
 
 ## Technical Plan
 
@@ -46,6 +46,17 @@ extra dependency, or automatic Windows suite is needed.
 Source owners: internal/runtime/script_process_unix.go, script.go,
 script_context_unix_test.go; reference pattern:
 internal/mcpgateway/process_unix.go and process_unix_test.go.
+Against 1b80f8e4 both real caller-cancel and policy-timeout regressions left a
+TERM-resistant descendant alive after Wait returned. Child streams are redirected
+and readiness/PID files order cancellation after the handler is installed.
+The monitor now stops its timer and completes group cleanup on leader completion,
+and RunScriptContext joins it. Absent groups are harmless; other signal errors
+remain explicit. Existing resistant-parent grace timing still passes. Windows
+keeps its native kill and supplies an already-completed monitor result; no
+Windows suite is run. Race checks are omitted at the user's request.
+The targeted real-process/script contract tests, isolated-HOME make test-fast
+(complete root and portable-template modules), make vet, make lint, and the
+development make build passed. All modified files and the final diff were reviewed.
 
 ## Deviations
 
