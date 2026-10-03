@@ -23,9 +23,9 @@ the canonical user documentation consistent without changing runtime behavior.
 
 ## Sub-Tasks
 
-- [ ] Verify affected architecture paragraphs against code and user documentation.
-- [ ] Patch only stale contract wording and review semantic consistency.
-- [ ] Run reference checks, archive, commit, and push.
+- [x] Verify affected architecture paragraphs against code and user documentation.
+- [x] Patch only stale contract wording and review semantic consistency.
+- [x] Run reference checks, archive, commit, and push.
 
 ## Technical Plan
 
@@ -44,6 +44,14 @@ Discovered while propagating TASK 573's architecture package-map entry. The
 existing architecture epoch claim is at the causal command-success section;
 docs/documentation.md already contains the updated execution binding contract.
 This is required propagation of TASKs 567 and 568, not a new feature.
+Architecture now states the actual start binding, post-only observation limit,
+static argument-extension boundary, and staged worktree/index precondition.
+The text was checked against the real capture/record code, CLI ordering, shell
+matcher, existing regressions, and canonical user documentation. The full
+architecture file and final modified paragraphs were read. Generated references
+and focused publication-surface tests pass. No code or generated block changed.
+Central final races, vet/staticcheck, release trust, and isolated self-hosting
+follow this TASK's commit and push; none is claimed passed by this TASK.
 
 ## Deviations
 

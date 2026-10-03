@@ -1606,11 +1606,12 @@ wall-clock gate.
 ### Causal command-success evidence
 
 Session state advances a monotonic evidence epoch for each write tool event.
-Every written path stores its latest epoch, and each command outcome stores the
-current epoch. `require_command_success` accepts a matching success only when
-its epoch is at least the newest epoch among the rule-triggering writes. A
-later relevant write therefore requires a rerun, while an unrelated later
-write does not. Legacy session state with unordered writes and command results
+Every written path stores its latest epoch, and command outcomes carry their
+causal epoch. Post-only host observations use the epoch at observation; they do
+not prove process-start freshness. `require_command_success` accepts a matching
+success only when its epoch is at least the newest epoch among the rule-triggering
+writes. A later relevant write therefore requires a rerun, while an unrelated
+later write does not. Legacy session state with unordered writes and command results
 is upgraded fail-closed by placing its writes one epoch ahead. Explicit
 `--command-success` evidence uses the maximum epoch because it asserts the
 complete evaluation snapshot.
@@ -1619,10 +1620,17 @@ Staged commit gates use a stricter boundary. `reconc exec --staged` owns the
 real child process and publishes a tamper-evident success receipt bound to the
 canonical repository, HEAD, index tree, exact command, execution mode, exit
 code, and timestamps. `ci --staged` accepts only a current receipt for that
-same Git candidate and ignores mutable agent-session command outcomes. Parallel
+same Git candidate and ignores mutable agent-session command outcomes. It also
+requires readable Git status and an index-matching worktree with no unstaged or
+untracked changes, so live content gates evaluate the staged candidate. Parallel
 snapshot capture is cross-process serialized and transient Git index locks are
-retried for two seconds. When an active session exists, `reconc exec` records
-the outcome at the current causal evidence epoch with `reconc-exec` provenance.
+retried for two seconds. Before process start, `reconc exec` captures the active
+session identity, its generation, and causal epoch. It records the outcome at
+that captured epoch with `reconc-exec` provenance. A later write cannot refresh
+the result, and a session switch cannot reassign it. Restarted or removed owners
+reject the late result instead of creating replacement state. No active session
+at start is valid and cannot attach to one created later. The generation marker
+is created lazily on the first owned execution and cleared by SessionStart.
 For `--staged`, the clean postcondition is verified before a zero-exit success
 is recorded; a dirty zero-exit command records a failure instead. Non-staged
 execution retains its immediate process-outcome recording boundary.
@@ -1646,9 +1654,13 @@ and extra arguments are not stripped by default, so the matched command is
 the same command that succeeded. Rules may opt into token-boundary prefix
 matching via `command_match: prefix` (RECONC-0004); without it,
 `forbid_command`/`require_command` (`matchingCommands`) keep exact
-normalized matching. An unqualified expected executable also matches the
-basename of an absolute executable path, while explicitly path-qualified rules
-remain exact. PreToolUse command prevention additionally walks quote-
+normalized matching. Prefix success extensions accept only static arguments
+appended to the expected invocation, with supported trailing redirects handled
+separately. Added shell control flow, pipelines, background jobs, and dynamic
+substitutions cannot qualify by prefix alone; explicit exact contracts and
+presence/deny matching retain their semantics. An unqualified expected executable
+also matches the basename of an absolute executable path, while explicitly
+path-qualified rules remain exact. PreToolUse command prevention additionally walks quote-
 aware executable shell segments including groups and process substitutions,
 folds unquoted backslash-newline continuations, skips leading redirections,
 resolves common wrappers (`env`, `sudo`, `taskset`, `bwrap`, `unshare`,

@@ -3,11 +3,11 @@
 ## Active
 
 ## Queue
-- [ ] 574 Align architecture command evidence contracts -> tasks/574-align-architecture-command-evidence-contracts.md
 
 ## Blocked
 
 ## Done
+- [x] 574 Align architecture command evidence contracts -> tasks/done/574-align-architecture-command-evidence-contracts.md
 - [x] 573 Handle zombie-only Darwin process groups -> tasks/done/573-handle-zombie-only-darwin-process-groups.md
 - [x] 572 Reuse the policy evaluator within completion gates -> tasks/done/572-reuse-the-policy-evaluator-within-completion-gates.md
 - [x] 571 Clean surviving script descendants after cancellation -> tasks/done/571-clean-surviving-script-descendants-after-cancellation.md
@@ -17,4 +17,3 @@
 - [x] 567 Preserve command success semantics in prefix matching -> tasks/done/567-preserve-command-success-semantics-in-prefix-matching.md
 - [x] 566 Bind staged CI checks to matching worktree contents -> tasks/done/566-bind-staged-ci-checks-to-matching-worktree-contents.md
 - [x] 565 Isolate managed hook verification from release identity -> tasks/done/565-isolate-managed-hook-verification-from-release-identity.md
-- [x] 564 Unify DSH policy and agent workflow -> tasks/done/564-unify-dsh-policy-and-agent-workflow.md
