@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"syscall"
 	"time"
+
+	"reconc.dev/reconc/internal/processgroup"
 )
 
 func configureScriptProcess(cmd *exec.Cmd, killGrace time.Duration) {
@@ -20,7 +22,7 @@ func configureScriptProcess(cmd *exec.Cmd, killGrace time.Duration) {
 		if cmd.Process == nil {
 			return os.ErrProcessDone
 		}
-		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM); err != nil {
+		if err := processgroup.Signal(cmd.Process.Pid, syscall.SIGTERM); err != nil {
 			if err == syscall.ESRCH {
 				return os.ErrProcessDone
 			}
@@ -50,7 +52,7 @@ func monitorScriptProcess(ctx context.Context, pid int, done <-chan struct{}, ki
 		}
 		// Wait can reap a TERM-sensitive leader while resistant descendants
 		// have closed their inherited streams. They still own this group.
-		if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+		if err := processgroup.Signal(pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
 			finished <- err
 		}
 	}()

@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"reconc.dev/reconc/internal/processgroup"
 )
 
 func TestRunScriptCleansLeaderlessResistantDescendant(t *testing.T) {
@@ -39,7 +41,7 @@ wait
 				}
 				pid, err := strconv.Atoi(strings.TrimSpace(string(body)))
 				if err == nil && pid > 0 {
-					if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+					if err := processgroup.Signal(pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
 						t.Errorf("cleanup fixture group: %v", err)
 					}
 				}

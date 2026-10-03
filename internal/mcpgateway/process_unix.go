@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"sync"
 	"syscall"
+
+	"reconc.dev/reconc/internal/processgroup"
 )
 
 type unixProcessBoundaryState uint8
@@ -143,11 +145,11 @@ func (b *unixProcessBoundary) Close() error {
 }
 
 func signalUnixProcessGroup(pid int, signal syscall.Signal) error {
-	return syscall.Kill(-pid, signal)
+	return processgroup.Signal(pid, signal)
 }
 
 func unixProcessGroupExists(pid int) (bool, error) {
-	err := syscall.Kill(-pid, 0)
+	err := processgroup.Signal(pid, 0)
 	if err == nil || err == syscall.EPERM {
 		return true, nil
 	}

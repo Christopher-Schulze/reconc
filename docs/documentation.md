@@ -5603,9 +5603,12 @@ sends SIGTERM to the group and escalates to SIGKILL after the configured kill
 grace period, so shell grandchildren such as `go build` compiler workers cannot
 survive as orphans after a blocked hook. If the script leader exits during
 cancellation, Reconc immediately kills the surviving group and joins the monitor
-before returning. Cleanup signal errors remain operational failures, and no
-delayed monitor can signal after the lifecycle has closed. The evaluator admits
-only a consistent `pass` outcome with exit code 0. Exit code 2 remains an attributed policy block;
+before returning. Script and MCP signaling normalize Darwin's `EPERM` to an
+absent-group result only when a fresh native process-group snapshot contains no
+live member. A live member or inspection failure preserves the operational
+error. Cleanup remains joined, and no delayed monitor can signal after the
+lifecycle has closed. The evaluator admits only a consistent `pass` outcome with
+exit code 0. Exit code 2 remains an attributed policy block;
 timeouts, launch or process failures, every other exit, and contradictory or
 unknown statuses fail closed. Timeout diagnostics use the effective configured
 duration and matched path without trusting partial script output. A failed or

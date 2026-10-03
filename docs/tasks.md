@@ -3,10 +3,12 @@
 ## Active
 
 ## Queue
+- [ ] 574 Align architecture command evidence contracts -> tasks/574-align-architecture-command-evidence-contracts.md
 
 ## Blocked
 
 ## Done
+- [x] 573 Handle zombie-only Darwin process groups -> tasks/done/573-handle-zombie-only-darwin-process-groups.md
 - [x] 572 Reuse the policy evaluator within completion gates -> tasks/done/572-reuse-the-policy-evaluator-within-completion-gates.md
 - [x] 571 Clean surviving script descendants after cancellation -> tasks/done/571-clean-surviving-script-descendants-after-cancellation.md
 - [x] 570 Retry safe MCP dispatch state conflicts -> tasks/done/570-retry-safe-mcp-dispatch-state-conflicts.md
@@ -16,4 +18,3 @@
 - [x] 566 Bind staged CI checks to matching worktree contents -> tasks/done/566-bind-staged-ci-checks-to-matching-worktree-contents.md
 - [x] 565 Isolate managed hook verification from release identity -> tasks/done/565-isolate-managed-hook-verification-from-release-identity.md
 - [x] 564 Unify DSH policy and agent workflow -> tasks/done/564-unify-dsh-policy-and-agent-workflow.md
-- [x] 563 Detect upstream host contract drift automatically -> tasks/done/563-detect-upstream-host-contract-drift-automatically.md
