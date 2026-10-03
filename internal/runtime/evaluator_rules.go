@@ -121,31 +121,20 @@ func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode polic
 	if err != nil {
 		return nil, err
 	}
-	successful := newStableStringCollector([]string{})
 	reportedSuccessful := newStableStringCollector([]string{})
-	if ctx.commandEvidence != nil {
-		for _, result := range ctx.commandEvidence.results {
-			if result.outcome != CommandOutcomeSuccess {
-				continue
-			}
+	evidenceIndex := ctx.commandEvidence
+	if evidenceIndex == nil {
+		evidenceIndex = newCommandEvidenceIndex(inputs, ctx.repoRoot)
+	}
+	for _, result := range evidenceIndex.results {
+		if result.outcome == CommandOutcomeSuccess {
 			reportedSuccessful.add(result.raw)
-			successful.add(result.raw)
-			successful.add(result.normalized)
-		}
-	} else {
-		for _, result := range inputs.CommandResults {
-			if result.Outcome != CommandOutcomeSuccess {
-				continue
-			}
-			reportedSuccessful.add(result.Command)
-			successful.add(result.Command)
-			successful.add(normalizeCommandSemantics(result.Command, ctx.repoRoot))
 		}
 	}
 	findings, err := assurance.Evaluate(ctx.repoRoot, gates, assurance.Inputs{
-		ChangedPaths:       inputs.WritePaths,
-		SuccessfulCommands: successful.values(),
-		Now:                time.Now().UTC(),
+		ChangedPaths: inputs.WritePaths, WriteEpochs: inputs.WriteEpochs,
+		SuccessfulCommandEvidence: successfulAssuranceEvidence(evidenceIndex),
+		Now:                       time.Now().UTC(),
 	})
 	if err != nil {
 		return nil, err

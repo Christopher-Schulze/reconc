@@ -341,9 +341,10 @@ func scopeCommandEvidence(repoRoot string, inputs Inputs, scope *moduleScope) ma
 		repoRoot = scope.repoRootAbs
 	}
 	commands := map[string]bool{}
+	minimumEpoch := minimumCommandEpoch(inputs, scope)
 	for _, item := range commandEvidenceForInputs(inputs) {
 		command := normalizeScopedCommand(item.Command)
-		if command == "" || !commandEvidenceCoversScope(repoRoot, item, scope) {
+		if command == "" || item.EvidenceEpoch < minimumEpoch || !commandEvidenceCoversScope(repoRoot, item, scope) {
 			continue
 		}
 		commands[command] = true
@@ -351,11 +352,25 @@ func scopeCommandEvidence(repoRoot string, inputs Inputs, scope *moduleScope) ma
 	return commands
 }
 
-func scopePackageScriptEvidence(repoRoot string, inputs Inputs, scope *moduleScope) map[string]bool {
+func minimumCommandEpoch(inputs Inputs, scope *moduleScope) uint64 {
+	paths := inputs.ChangedPaths
+	if scope != nil {
+		paths = scope.effectivePaths
+	}
+	var minimum uint64
+	for _, path := range paths {
+		if epoch := inputs.WriteEpochs[path]; epoch > minimum {
+			minimum = epoch
+		}
+	}
+	return minimum
+}
+
+func scopePackageScriptEvidence(repoRoot string, inputs Inputs, scope *moduleScope) map[string]uint64 {
 	if scope != nil && scope.repoRootAbs != "" {
 		repoRoot = scope.repoRootAbs
 	}
-	commands := map[string]bool{}
+	commands := map[string]uint64{}
 	for _, item := range commandEvidenceForInputs(inputs) {
 		if !commandEvidenceCoversScope(repoRoot, item, scope) {
 			continue
@@ -365,7 +380,11 @@ func scopePackageScriptEvidence(repoRoot string, inputs Inputs, scope *moduleSco
 			if scope != nil && scope.rootRel != "." {
 				command = stripCommandDirectoryFlag(command)
 			}
-			commands[normalizePackageScriptEvidence(command)] = true
+			command = normalizePackageScriptEvidence(command)
+			previous, exists := commands[command]
+			if !exists || item.EvidenceEpoch > previous {
+				commands[command] = item.EvidenceEpoch
+			}
 		}
 	}
 	return commands

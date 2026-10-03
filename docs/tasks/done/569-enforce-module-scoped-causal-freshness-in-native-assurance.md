@@ -23,11 +23,11 @@ reuse successes preceding a relevant write.
 
 ## Sub-Tasks
 
-- [ ] Add stale/fresh and independent-module regressions against real native gates.
-- [ ] Carry command epochs and write epochs through existing assurance inputs.
-- [ ] Filter command-backed gates at the effective module scope and align completion identity.
-- [ ] Verify all importing callers and compatible trusted proofs; flush docs and run gates.
-- [ ] Review all changes, archive, commit, and push.
+- [x] Add stale/fresh and independent-module regressions against real native gates.
+- [x] Carry command epochs and write epochs through existing assurance inputs.
+- [x] Filter command-backed gates at the effective module scope and align completion identity.
+- [x] Verify all importing callers and compatible trusted proofs; flush docs and run gates.
+- [x] Review all changes, archive, commit, and push.
 
 ## Technical Plan
 
@@ -50,6 +50,18 @@ schema change, clock threshold, new policy option, dependency, or global cache.
 Source owners: internal/runtime/evaluator_rules.go,
 internal/runtime/agentsession/completion_state.go,
 internal/assurance/assurance.go, module_scope.go, gates.go, facts.go.
+Against 9e8b6589 the runtime regression falsely passed both legacy and stale
+successes after epoch-2 writes. Live/generated/substantive proof regressions now
+check stale/equal/fresh/legacy/trusted epochs. Independent Go modules, Rust
+workspace commands, deepest JavaScript package ownership, duplicate successes,
+and causal input identities are covered. Epoch-bearing conversion reuses the
+runtime's existing normalized evidence index and is shared by completion capture.
+No new dependency or policy option is introduced. Race checks are omitted at the
+user's request.
+Targeted assurance/runtime/completion/session checks and the full isolated-HOME
+root/template test-fast gate passed. Vet, lint, and development build passed.
+All modified code and the final diff were reviewed; existing source gates and
+raw command reporting remain unchanged.
 
 ## Deviations
 

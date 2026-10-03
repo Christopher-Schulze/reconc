@@ -3447,6 +3447,15 @@ applicable manifests are likewise errors. Changed manifests that stack detection
 would never visit, including ignored dependency/build trees and paths deeper
 than six levels, are not treated as module roots.
 
+Command-backed gates retain successful-result epochs and compare them with the
+latest write in the affected module's effective scope. Package-script checks use
+the nearest matching package owner, so a later write in another package does not
+expire independent evidence. Root gates use the supplied changed paths. Legacy
+zero-epoch successes remain valid only when the required write epoch is zero;
+exact index-bound proofs retain their explicit trusted epoch. Runtime evaluation
+and completion input identity share this causal evidence, including normalized
+command equivalents.
+
 | Gate type | Contract | Authority surface |
 |---|---|---|
 | `repository_layout` | Allowed, required, forbidden, hidden, and reserved root ownership | Full repository root |

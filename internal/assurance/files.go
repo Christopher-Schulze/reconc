@@ -21,6 +21,7 @@ type evaluationState struct {
 	scopePrefix               string
 	scoped                    []*evaluationState
 	commandEvidence           []CommandEvidence
+	writeEpochs               map[string]uint64
 	paths                     map[string]resolvedPath
 	facts                     map[string]*fileFacts
 	changedPaths              []normalizedChangedPath

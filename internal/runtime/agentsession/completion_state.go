@@ -93,14 +93,9 @@ func CaptureCompletionState(repoRoot string) (CompletionStateSnapshot, error) {
 	worktreeTrusted := completionDirtyFilesTrusted(dirtyFiles) && completionPolicyInputsTrusted(completionPolicyInputs)
 	assuranceInputIdentity := ""
 	if len(policyScan.Assurance) > 0 {
-		successfulCommands := make([]string, 0, len(inputs.CommandResults))
-		for _, result := range inputs.CommandResults {
-			if result.Outcome == runtime.CommandOutcomeSuccess {
-				successfulCommands = append(successfulCommands, result.Command)
-			}
-		}
 		_, assuranceInputIdentity, err = assurance.EvaluateWithInputIdentity(root, policyScan.Assurance, assurance.Inputs{
-			ChangedPaths: inputs.WritePaths, SuccessfulCommands: successfulCommands, Now: capturedAt,
+			ChangedPaths: inputs.WritePaths, WriteEpochs: inputs.WriteEpochs, Now: capturedAt,
+			SuccessfulCommandEvidence: runtime.SuccessfulAssuranceCommandEvidence(inputs.CommandResults, root),
 		})
 		if err != nil {
 			return CompletionStateSnapshot{}, fmt.Errorf("capture native assurance inputs: %w", err)

@@ -28,6 +28,7 @@ const (
 // Inputs is the runtime evidence available to native gates.
 type Inputs struct {
 	ChangedPaths              []string
+	WriteEpochs               map[string]uint64
 	SuccessfulCommands        []string
 	SuccessfulCommandEvidence []CommandEvidence
 	Now                       time.Time
@@ -37,9 +38,11 @@ type Inputs struct {
 // runner executed it. Empty WorkingDirectory keeps legacy root-scoped command
 // evidence compatible; nested module scopes require an explicit directory or
 // an equivalent command prefix such as `cd services/api && ...`.
+// EvidenceEpoch must cover the latest write in the effective scope.
 type CommandEvidence struct {
 	Command          string
 	WorkingDirectory string
+	EvidenceEpoch    uint64
 }
 
 // Finding is one precise gate failure and its direct remediation.
@@ -100,6 +103,7 @@ func evaluateWithState(repoRoot string, gates []policy.AssuranceGate, inputs Inp
 	}
 	state := newEvaluationState(inputs.ChangedPaths, workerLimit)
 	state.commandEvidence = commandEvidenceForInputs(inputs)
+	state.writeEpochs = inputs.WriteEpochs
 	detection, err := stackdetect.Detect(root)
 	if err != nil {
 		return nil, state, fmt.Errorf("detect assurance module roots: %w", err)
@@ -115,6 +119,7 @@ func evaluateWithState(repoRoot string, gates []policy.AssuranceGate, inputs Inp
 				scopedState := newEvaluationState(scope.changedPaths, workerLimit)
 				scopedState.budget = state.budget
 				scopedState.commandEvidence = append([]CommandEvidence(nil), state.commandEvidence...)
+				scopedState.writeEpochs = inputs.WriteEpochs
 				scopedState.scopePrefix = scope.rootRel
 				scopedInputs := inputs
 				scopedInputs.ChangedPaths = scope.changedPaths
@@ -202,11 +207,13 @@ type assuranceIdentityChangedPath struct {
 type assuranceIdentityCommandEvidence struct {
 	Command          string `json:"command"`
 	WorkingDirectory string `json:"working_directory,omitempty"`
+	EvidenceEpoch    uint64 `json:"evidence_epoch"`
 }
 
 type assuranceIdentityInput struct {
 	ScopePrefix      string                             `json:"scope_prefix,omitempty"`
 	ChangedPaths     []assuranceIdentityChangedPath     `json:"changed_paths"`
+	WriteEpochs      map[string]uint64                  `json:"write_epochs,omitempty"`
 	CommandEvidence  []assuranceIdentityCommandEvidence `json:"command_evidence"`
 	Paths            []assuranceIdentityPath            `json:"paths"`
 	Files            []assuranceIdentityFile            `json:"files"`
@@ -256,7 +263,10 @@ func (state *evaluationState) inputIdentity(findings []Finding) (string, error) 
 		if commandEvidence[i].Command != commandEvidence[j].Command {
 			return commandEvidence[i].Command < commandEvidence[j].Command
 		}
-		return commandEvidence[i].WorkingDirectory < commandEvidence[j].WorkingDirectory
+		if commandEvidence[i].WorkingDirectory != commandEvidence[j].WorkingDirectory {
+			return commandEvidence[i].WorkingDirectory < commandEvidence[j].WorkingDirectory
+		}
+		return commandEvidence[i].EvidenceEpoch < commandEvidence[j].EvidenceEpoch
 	})
 	scoped := make([]string, 0, len(state.scoped))
 	for _, child := range state.scoped {
@@ -271,6 +281,7 @@ func (state *evaluationState) inputIdentity(findings []Finding) (string, error) 
 	body, err := json.Marshal(assuranceIdentityInput{
 		ScopePrefix:     state.scopePrefix,
 		ChangedPaths:    changedPaths,
+		WriteEpochs:     state.writeEpochs,
 		CommandEvidence: commandEvidence,
 		Paths:           paths, Files: files,
 		Applicability: cloneBoolMap(state.applicability), PackageManifests: manifests,

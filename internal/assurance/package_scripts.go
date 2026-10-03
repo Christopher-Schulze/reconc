@@ -12,6 +12,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/stackdetect"
 )
 
 var packageScriptIgnoredDirectories = map[string]bool{
@@ -73,6 +74,7 @@ func evaluatePackageScripts(root string, gate policy.AssuranceGate, inputs Input
 		return nil, err
 	}
 	successSet := scopePackageScriptEvidence(root, inputs, scope)
+	minimumEpochs := packageScriptWriteEpochs(manifests, inputs, scope)
 	findings := []Finding{}
 	for _, manifest := range manifests {
 		document, err := state.packageDocument(manifest.full)
@@ -143,7 +145,7 @@ func evaluatePackageScripts(root string, gate policy.AssuranceGate, inputs Input
 			candidates := packageScriptCandidates(root, manifest.full, commandsByScript[script], owner)
 			matched := false
 			for _, candidate := range candidates {
-				if successSet[normalizePackageScriptEvidence(candidate)] {
+				if epoch, exists := successSet[normalizePackageScriptEvidence(candidate)]; exists && epoch >= minimumEpochs[manifest.relative] {
 					matched = true
 					break
 				}
@@ -163,6 +165,28 @@ func evaluatePackageScripts(root string, gate policy.AssuranceGate, inputs Input
 		}
 	}
 	return findings, nil
+}
+
+func packageScriptWriteEpochs(manifests []changedFile, inputs Inputs, scope *moduleScope) map[string]uint64 {
+	minimums := make(map[string]uint64, len(manifests))
+	if scope != nil {
+		minimum := minimumCommandEpoch(inputs, scope)
+		for _, manifest := range manifests {
+			minimums[manifest.relative] = minimum
+		}
+		return minimums
+	}
+	owners := make([]stackdetect.Module, 0, len(manifests))
+	for _, manifest := range manifests {
+		owners = append(owners, stackdetect.Module{Root: filepath.ToSlash(filepath.Dir(manifest.relative)), Manifest: manifest.relative})
+	}
+	for _, path := range inputs.ChangedPaths {
+		owner, exists := nearestModuleOwner(path, owners)
+		if epoch := inputs.WriteEpochs[path]; exists && epoch > minimums[owner.Manifest] {
+			minimums[owner.Manifest] = epoch
+		}
+	}
+	return minimums
 }
 
 func (state *evaluationState) matchingPackageManifests(root string, patterns, excludePatterns []string) ([]changedFile, error) {
