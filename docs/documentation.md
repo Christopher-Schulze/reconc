@@ -3911,6 +3911,12 @@ allocs/op to 103,640 B/op and 1,027 allocs/op. The source-load median moved from
 8.410 ms to 3.338 ms in the recorded run; filesystem latency remains
 environment-sensitive, so the allocation reductions are the portable claim.
 
+A completion attempt owns one local runtime evaluator for lock validation and
+full policy evaluation. The second access reuses its immutable plan only after
+rechecking lock bytes and live source freshness. Each retry creates a fresh
+owner; candidate snapshots, receipt binding, and fail-closed drift checks retain
+their existing boundaries. No cache is shared across completion attempts.
+
 Context-aware runtime-plan loads coalesce per repository without binding every
 waiter to another caller's cancellation: a canceled waiter returns immediately
 while surviving callers continue. The last caller marks its generation

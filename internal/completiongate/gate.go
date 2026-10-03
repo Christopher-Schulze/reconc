@@ -204,8 +204,9 @@ func evaluateOnce(repo string, options Options) (*Report, error) {
 		add("git/status", StatusPass, "Git HEAD, index, and worktree status are readable", "")
 	}
 
+	evaluator := runtime.NewEvaluator()
 	lockfileValid := true
-	if err := runtime.ValidatePolicyLockfile(stateBefore.RepoRoot); err != nil {
+	if err := evaluator.ValidatePolicyLockfile(stateBefore.RepoRoot); err != nil {
 		lockfileValid = false
 		add("policy/lockfile", StatusFail, err.Error(), "Run `reconc refresh .`, then rerun the blocked policy check and `reconc done .`.")
 	} else {
@@ -238,7 +239,7 @@ func evaluateOnce(repo string, options Options) (*Report, error) {
 		if inputErr != nil {
 			return nil, inputErr
 		}
-		policyReport, err = runtime.CheckRepoPolicy(stateBefore.RepoRoot, inputs)
+		policyReport, err = evaluator.CheckRepoPolicy(stateBefore.RepoRoot, inputs)
 		if err != nil {
 			return nil, fmt.Errorf("evaluate current completion policy: %w", err)
 		}
