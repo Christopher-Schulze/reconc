@@ -17,7 +17,11 @@ func TestRecordCommandOutcomeAddsRealActiveSessionEvidence(t *testing.T) {
 	if result := RunPostToolUse(repo, []byte(writePayload)); result.ExitCode != 0 || result.Stderr != "" {
 		t.Fatalf("write evidence: exit=%d stderr=%s", result.ExitCode, result.Stderr)
 	}
-	if err := RecordCommandOutcome(repo, "go test ./...", "success", 0); err != nil {
+	binding, err := CaptureCommandExecution(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordCommandOutcome(binding, "go test ./...", "success", 0); err != nil {
 		t.Fatal(err)
 	}
 	evidence, err := ActiveEvidence(repo)
@@ -34,8 +38,89 @@ func TestRecordCommandOutcomeAddsRealActiveSessionEvidence(t *testing.T) {
 
 func TestRecordCommandOutcomeNeedsNoActiveSession(t *testing.T) {
 	t.Setenv(StateRootEnv, filepath.Join(t.TempDir(), "state"))
-	if err := RecordCommandOutcome(t.TempDir(), "go test ./...", "success", 0); err != nil {
+	binding, err := CaptureCommandExecution(t.TempDir())
+	if err != nil {
 		t.Fatal(err)
+	}
+	if err := RecordCommandOutcome(binding, "go test ./...", "success", 0); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCommandExecutionRejectsUnavailableOrTaintedBoundState(t *testing.T) {
+	for _, name := range []string{"ended", "corrupt", "tainted"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(StateRootEnv, filepath.Join(t.TempDir(), "state"))
+			repo := t.TempDir()
+			if _, err := InitializeSessionState(repo, "original"); err != nil {
+				t.Fatal(err)
+			}
+			binding, err := CaptureCommandExecution(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := sessionStatePath(binding.root.Path(), "original")
+			switch name {
+			case "ended":
+				if err := CleanupSessionState(repo, "original"); err != nil {
+					t.Fatal(err)
+				}
+			case "corrupt":
+				if err := os.WriteFile(path, []byte("{invalid"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "tainted":
+				if _, err := MutateSessionState(repo, "original", func(state SessionState) SessionState {
+					state.EvidenceOverflow = true
+					state.EvidenceOverflowReason = "commands"
+					return state
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := RecordCommandOutcome(binding, "go version", "success", 0); err == nil {
+				t.Fatal("unavailable or tainted execution owner accepted a result")
+			}
+			if name == "ended" {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("ended session was recreated: %v", err)
+				}
+			} else if name == "corrupt" {
+				body, err := os.ReadFile(path)
+				if err != nil || string(body) != "{invalid" {
+					t.Fatalf("corrupt owner was overwritten: %q, %v", body, err)
+				}
+			} else {
+				state, err := LoadSessionState(repo, "original")
+				if err != nil || len(state.CommandResults) != 0 {
+					t.Fatalf("tainted owner accepted command results: %+v, %v", state.CommandResults, err)
+				}
+			}
+		})
+	}
+}
+
+func TestCommandExecutionsShareOneSessionGeneration(t *testing.T) {
+	t.Setenv(StateRootEnv, filepath.Join(t.TempDir(), "state"))
+	repo := t.TempDir()
+	if _, err := InitializeSessionState(repo, "original"); err != nil {
+		t.Fatal(err)
+	}
+	bindings := make([]CommandExecution, 2)
+	for index := range bindings {
+		binding, err := CaptureCommandExecution(repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bindings[index] = binding
+	}
+	if bindings[0].generation == "" || bindings[0].generation != bindings[1].generation {
+		t.Fatal("overlapping executions did not share their session generation")
+	}
+	for _, binding := range bindings {
+		if err := RecordCommandOutcome(binding, "go version", "success", 0); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

@@ -85,6 +85,9 @@ type SessionState struct {
 	Commands       []string          `json:"commands"`
 	Claims         []string          `json:"claims"`
 	CommandResults []CommandResult   `json:"command_results"`
+	// A lazy execution binding is cleared by SessionStart and retained across
+	// ordinary writes and evidence rotation, even when the host reuses its ID.
+	CommandEvidenceGeneration string `json:"command_evidence_generation,omitempty"`
 	// CommandResultBytes caches the JSON-encoded byte total of
 	// CommandResults so the append budget check is O(1) instead of
 	// re-marshaling every stored result. Legacy states load with it zero
@@ -569,8 +572,19 @@ func MutateSessionState(repoRoot, sessionID string, mutate func(SessionState) Se
 }
 
 func mutateSessionStateResolved(root, sessionID string, mutate func(SessionState) SessionState) (SessionState, error) {
+	return mutateSessionStateResolvedMode(root, sessionID, mutate, true)
+}
+
+// Bound execution results update an existing session without making it active.
+// Ordinary hook mutations retain their create-and-activate behavior.
+func mutateSessionStateResolvedMode(root, sessionID string, mutate func(SessionState) SessionState, createAndActivate bool) (SessionState, error) {
 	var updated SessionState
 	err := withSessionLock(root, sessionID, func() error {
+		if !createAndActivate {
+			if err := requireExistingSessionStateResolved(root, sessionID); err != nil {
+				return err
+			}
+		}
 		state, err := loadSessionStateResolved(root, sessionID)
 		if err != nil {
 			return err
@@ -626,7 +640,10 @@ func mutateSessionStateResolved(root, sessionID string, mutate func(SessionState
 				if err := persistEvidenceTaint(root, updated); err != nil {
 					return err
 				}
-				return writeActiveSession(root, sessionID)
+				if createAndActivate {
+					return writeActiveSession(root, sessionID)
+				}
+				return nil
 			}
 			if _, err := writeSessionStateLockedIfChanged(updated, data); err != nil {
 				return err
@@ -637,12 +654,26 @@ func mutateSessionStateResolved(root, sessionID string, mutate func(SessionState
 				return err
 			}
 		}
-		return writeActiveSession(root, sessionID)
+		if createAndActivate {
+			return writeActiveSession(root, sessionID)
+		}
+		return nil
 	})
 	if err != nil {
 		return SessionState{}, err
 	}
 	return updated, nil
+}
+
+func requireExistingSessionStateResolved(root, sessionID string) error {
+	_, err := os.Stat(sessionStatePath(root, sessionID))
+	if errors.Is(err, os.ErrNotExist) {
+		_, err = os.Stat(legacySessionStatePath(root, sessionID))
+	}
+	if err != nil {
+		return fmt.Errorf("bound session state is unavailable: %w", err)
+	}
+	return nil
 }
 
 // marshalStateDeterministic serialises SessionState with sorted keys

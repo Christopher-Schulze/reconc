@@ -87,6 +87,10 @@ func runExec(args []string, stdout, stderr io.Writer) error {
 	command.Stdin = os.Stdin
 	command.Stdout = stdout
 	command.Stderr = stderr
+	binding, err := agentsession.CaptureCommandExecution(discovery.RepoRoot)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc exec: record active-session evidence: capture start binding: " + err.Error()}
+	}
 	startedAt := time.Now().UTC()
 	runErr := command.Run()
 	completedAt := time.Now().UTC()
@@ -102,7 +106,7 @@ func runExec(args []string, stdout, stderr io.Writer) error {
 			outcome = "failure"
 		}
 	}
-	if recordErr := agentsession.RecordCommandOutcome(discovery.RepoRoot, commandText, outcome, exitCode); recordErr != nil {
+	if recordErr := agentsession.RecordCommandOutcome(binding, commandText, outcome, exitCode); recordErr != nil {
 		message := fmt.Sprintf("reconc exec: record active-session evidence: %v", recordErr)
 		if runErr != nil {
 			message += fmt.Sprintf("; command also failed with exit code %d", exitCode)
