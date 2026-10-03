@@ -165,7 +165,7 @@ func matchingCommandResultsSinceWithEvidence(evidence *commandEvidenceIndex, cac
 		if result.outcome != outcome || result.epoch < minimumEpoch {
 			continue
 		}
-		if commandMatchesExpected(result.normalized, normalizedExpected, match) {
+		if successfulCommandMatchesExpected(result.normalized, normalizedExpected, match) {
 			out = append(out, result.raw)
 			continue
 		}
@@ -178,12 +178,21 @@ func matchingCommandResultsSinceWithEvidence(evidence *commandEvidenceIndex, cac
 		// record success even when the test failed - tolerating it would
 		// weaken require_command_success.
 		if stripped := stripTrailingRedirects(result.normalized); stripped != result.normalized {
-			if commandMatchesExpected(stripped, normalizedExpected, match) {
+			if successfulCommandMatchesExpected(stripped, normalizedExpected, match) {
 				out = append(out, result.raw)
 			}
 		}
 	}
 	return out
+}
+
+func successfulCommandMatchesExpected(command string, expected []string, match policy.CommandMatch) bool {
+	for _, candidate := range expected {
+		if command == candidate || match == policy.CommandMatchPrefix && shellcommand.ExtendsSuccessArguments(command, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeExpectedCommands(expected []string, repoRoot string) []string {

@@ -3095,7 +3095,10 @@ The command kinds accept an additive `command_match: prefix` opt-in that also
 matches a recorded command extending an expected command at a token boundary
 (`pip install` matches `pip install requests`, never `pip installer`); for
 `require_command_success` that includes runs with extra arguments such as a
-`-run` filter, so authors opt in deliberately. Ordering semantics differ by
+`-run` filter. Success extensions accept static arguments and supported trailing
+redirects; added shell operators, pipelines, background jobs, and dynamic arguments
+cannot qualify by prefix alone. Explicit exact command contracts retain their
+semantics, so authors opt in deliberately. Ordering semantics differ by
 design: `require_command` is presence-only (the command may have run before
 the triggering write), while `require_command_success` additionally enforces
 the write-epoch freshness contract. After upgrading, existing repositories

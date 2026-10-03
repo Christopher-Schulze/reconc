@@ -21,10 +21,10 @@ authorization to substitute the exit status of unrelated shell operations.
 
 ## Sub-Tasks
 
-- [ ] Reproduce failure laundering through the real prefix success evaluator.
-- [ ] Bound success extension with the existing shell AST parser and preserve safe forms.
-- [ ] Add positive, quoting, compound, and exact/deny compatibility coverage; flush docs.
-- [ ] Run validation, review all changes, archive, commit, and push.
+- [x] Reproduce failure laundering through the real prefix success evaluator.
+- [x] Bound success extension with the existing shell AST parser and preserve safe forms.
+- [x] Add positive, quoting, compound, and exact/deny compatibility coverage; flush docs.
+- [x] Run validation, review all changes, archive, commit, and push.
 
 ## Technical Plan
 
@@ -48,6 +48,12 @@ Source owners: internal/runtime/evaluator_match.go,
 internal/runtime/evaluator_normalize.go, internal/shellcommand/shellcommand.go.
 The existing TestCommandMatchPrefixSatisfiesRequireCommandSuccess covers only
 ordinary extra arguments and needs adversarial counterparts.
+Baseline e70bc796 reproduced eight false passes through the real evaluator,
+including OR lists, pipes, sequential/background suffixes, and dynamic extensions.
+The repair checks AST argument boundaries and static extension words, preserving
+exact equality, the existing redirect path, presence matching, and deny matching.
+Full runtime/shell tests and isolated-HOME make test-fast passed; make vet,
+make lint, and make build passed. No race check was run after the user's instruction.
 
 ## Deviations
 
