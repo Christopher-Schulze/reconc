@@ -6155,7 +6155,8 @@ current-state documentation.
 Development source has no assigned product release version.
 Only Christopher's explicit instruction assigns a release tag to a chosen
 commit. Creating a tag and publishing a release require explicit authorization.
-The latest published release is `reconc-v0.9.8`.
+The latest published stable release is available at
+[GitHub Releases](https://github.com/Christopher-Schulze/reconc/releases/latest).
 Changed schemas use content-addressed identities independent of product releases;
 previously published identities remain accepted inputs, and unchanged schema
 contracts retain their existing publication identities. Schema identities, tag commit,
