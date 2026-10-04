@@ -4,13 +4,16 @@ package processgroup
 
 import (
 	"errors"
-	"os"
 	"syscall"
 	"testing"
 )
 
 func TestSignalRejectsUnsafeGroupIDsAndPreservesInvalidSignal(t *testing.T) {
 	const invalidSignal syscall.Signal = 1 << 30
+	groupID := syscall.Getpgrp()
+	if groupID <= 1 {
+		t.Fatalf("test requires an existing explicit process group, got %d", groupID)
+	}
 	for _, test := range []struct {
 		name    string
 		groupID int
@@ -19,7 +22,7 @@ func TestSignalRejectsUnsafeGroupIDsAndPreservesInvalidSignal(t *testing.T) {
 		{name: "negative group", groupID: -1},
 		{name: "current group shorthand", groupID: 0},
 		{name: "broadcast shorthand", groupID: 1},
-		{name: "invalid signal", groupID: os.Getpid(), signal: invalidSignal},
+		{name: "invalid signal", groupID: groupID, signal: invalidSignal},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if err := Signal(test.groupID, test.signal); !errors.Is(err, syscall.EINVAL) {

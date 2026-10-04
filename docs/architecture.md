@@ -150,7 +150,7 @@ internal/
   policyauthor/   schema-backed preview, effective explanation, and transactional adoption
   policyproof/    tamper-evident unresolved policy-decision receipts
   presets/        bundled policy packs (embed.FS) + user overlays
-  processgroup/   owned Unix group signaling with native Darwin zombie-only classification
+  processgroup/   owned Unix group signaling with native Darwin terminal-state classification
   proofbundle/    deterministic portable JSON and Markdown completion evidence
   repositorycontrol/ repository-scoped control-directory permissions and platform ownership
   repositoryignore/ canonical target-repository runtime-ignore contract

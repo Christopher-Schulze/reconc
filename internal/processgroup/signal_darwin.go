@@ -11,9 +11,12 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const darwinProcessZombie int8 = 5 // SZOMB in sys/proc.h.
+const (
+	darwinProcessZombie  int8  = 5      // SZOMB in sys/proc.h.
+	darwinProcessExiting int32 = 0x2000 // P_WEXIT in sys/proc.h.
+)
 
-// Signal targets a positive owned group ID. Absent or zombie-only groups
+// Signal targets a positive owned group ID. Absent or terminal-only groups
 // return ESRCH so lifecycle owners can apply their existing completion semantics.
 func Signal(groupID int, signal syscall.Signal) error {
 	if groupID <= 1 {
@@ -32,11 +35,11 @@ func classifyDarwinGroupPermissionError(groupID int) error {
 		return errors.Join(syscall.EPERM, fmt.Errorf("inspect process group %d: %w", groupID, err))
 	}
 	for _, member := range members {
-		if member.Proc.P_stat != darwinProcessZombie {
+		if member.Proc.P_stat != darwinProcessZombie && member.Proc.P_flag&darwinProcessExiting == 0 {
 			return syscall.EPERM
 		}
 	}
-	// Darwin excludes zombies from killpg's eligible members, returning EPERM
-	// for a group with no live targets. No member here can execute more work.
+	// Darwin can exclude an exiting process before it reaches SZOMB. P_WEXIT
+	// marks irreversible kernel exit; no member here can resume user code.
 	return syscall.ESRCH
 }

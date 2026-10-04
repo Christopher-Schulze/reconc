@@ -5604,8 +5604,9 @@ grace period, so shell grandchildren such as `go build` compiler workers cannot
 survive as orphans after a blocked hook. If the script leader exits during
 cancellation, Reconc immediately kills the surviving group and joins the monitor
 before returning. Script and MCP signaling normalize Darwin's `EPERM` to an
-absent-group result only when a fresh native process-group snapshot contains no
-live member. A live member or inspection failure preserves the operational
+absent-group result only when a fresh native process-group snapshot contains
+only zombies or processes marked for irreversible kernel exit (`P_WEXIT`). A
+non-terminal member or inspection failure preserves the operational
 error. Cleanup remains joined, and no delayed monitor can signal after the
 lifecycle has closed. The evaluator admits only a consistent `pass` outcome with
 exit code 0. Exit code 2 remains an attributed policy block;
