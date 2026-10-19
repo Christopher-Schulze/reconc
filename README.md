@@ -275,7 +275,7 @@ state exactly what remains outside the boundary.
 
 ## Install and Bootstrap
 
-The following immutable installation example selects the published v0.10.2
+The following immutable installation example selects the published v0.10.3
 release. Later changes on `main` remain unreleased; use the source-build path
 below when those development changes are required.
 
@@ -284,8 +284,8 @@ below when those development changes are required.
 macOS or Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.10.2/install.sh \
-  | sh -s -- --version 0.10.2
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.10.3/install.sh \
+  | sh -s -- --version 0.10.3
 export PATH="$HOME/.local/bin:$PATH"
 reconc --version
 ```
@@ -294,14 +294,14 @@ Windows x64:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.10.2/install.ps1 -OutFile $installer
-& $installer -Version 0.10.2
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.10.3/install.ps1 -OutFile $installer
+& $installer -Version 0.10.3
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
 reconc --version
 ```
 
-The protected `reconc-v0.10.2` tag contains both installer scripts, so these
+The protected `reconc-v0.10.3` tag contains both installer scripts, so these
 commands do not fetch executable installation logic from mutable `main`. The
 installers:
 
@@ -1265,7 +1265,7 @@ through the private route in
 ## Status
 
 Development source has no assigned product release version.
-The latest published release is `reconc-v0.10.2`.
+The latest published release is `reconc-v0.10.3`.
 Only Christopher's explicit instruction assigns a release tag to a chosen
 commit. Development builds report `dev` with available VCS metadata; managed
 builds include the commit and dirty state. Changed schemas use content-addressed
