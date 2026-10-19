@@ -218,7 +218,7 @@ const kind = Bun.argv[3]
 const repo = Bun.argv[4]
 const module = await import("file://" + artifactPath + "?worker=" + Date.now())
 if (kind === "opencode" || kind === "kilo") {
-  const factory = kind === "opencode" ? module.ReconcOpenCodePlugin : module.default.server
+  const factory = module.default.server
   const hooks = await factory({ directory: repo, worktree: repo, client: {} })
   await hooks["chat.message"]({ sessionID: "ses_worker", messageID: "msg-1" }, { parts: [{ type: "text", text: "go" }] })
   await hooks["tool.execute.after"](
@@ -282,7 +282,7 @@ for await (const chunk of Bun.stdin.stream()) {
 
 const workerCrashDriver = `const module = await import("file://" + Bun.argv[2] + "?crash=" + Date.now())
 const repo = Bun.argv[3]
-const hooks = await module.ReconcOpenCodePlugin({ directory: repo, worktree: repo, client: {} })
+const hooks = await module.default.server({ directory: repo, worktree: repo, client: {} })
 await hooks["chat.message"]({ sessionID: "ses_crash", messageID: "msg-1" }, { parts: [{ type: "text", text: "go" }] })
 let blocked = false
 try {

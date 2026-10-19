@@ -142,3 +142,30 @@ func containsString(values []string, want string) bool {
 	}
 	return false
 }
+
+func TestCodexActivationStatusHonorsTheDeprecatedAlias(t *testing.T) {
+	repo := t.TempDir()
+	writeExecutableWrapper(t, repo)
+	if _, err := Install(KindCodex, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(repo, ".codex", "config.toml")
+	cases := []struct {
+		name   string
+		config string
+		want   ActivationState
+	}{
+		{name: "alias alone disables", config: "[features]\ncodex_hooks = false\n", want: StateInstalled},
+		{name: "canonical key overrides the alias", config: "[features]\ncodex_hooks = false\nhooks = true\n", want: StateConfigured},
+		{name: "alias alone enables", config: "[features]\ncodex_hooks = true\n", want: StateConfigured},
+		{name: "default without either key", config: "model = \"o4\"\n", want: StateConfigured},
+	}
+	for _, testCase := range cases {
+		if err := os.WriteFile(config, []byte(testCase.config), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if status := statusForKind(t, repo, KindCodex); status.State != testCase.want {
+			t.Errorf("%s: status = %s (%s), want %s", testCase.name, status.State, status.Detail, testCase.want)
+		}
+	}
+}

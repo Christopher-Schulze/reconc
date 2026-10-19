@@ -133,6 +133,27 @@ func TestOfficialHostContractFixturesPreserveSecurityRelevantStates(t *testing.T
 	if settled["deliveryAcknowledged"] != false || settled["sendUserMessageReturn"] != nil {
 		t.Fatalf("Pi settled fixture invents a continuation acknowledgement: %#v", settled)
 	}
+	beforeSettle := pi.Events["agent_before_settle"].Result.(map[string]interface{})
+	settleEntries, _ := beforeSettle["entries"].([]interface{})
+	if beforeSettle["continue"] != true || len(settleEntries) != 1 {
+		t.Fatalf("Pi native settle fixture lacks the boundary continuation result: %#v", beforeSettle)
+	}
+	// BoundaryResult and CustomMessageEntryDraft in
+	// packages/coding-agent/src/core/extensions/types.ts.
+	for field := range beforeSettle {
+		if field != "entries" && field != "continue" {
+			t.Fatalf("Pi native settle result declares %q, which BoundaryResult does not accept", field)
+		}
+	}
+	entry := settleEntries[0].(map[string]interface{})
+	for _, field := range []string{"type", "customType", "content", "display"} {
+		if _, present := entry[field]; !present {
+			t.Fatalf("Pi native settle entry omits required draft field %q: %#v", field, entry)
+		}
+	}
+	if entry["type"] != "custom_message" || entry["display"] != false {
+		t.Fatalf("Pi native settle entry is not a hidden custom message: %#v", entry)
+	}
 
 	zcode := readHostContractFixture(t, KindZCode)
 	preToolResult := zcode.Events["PreToolUse"].Result.(map[string]interface{})

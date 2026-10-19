@@ -173,7 +173,11 @@ Runtime:
   instead of the redacted first token (may capture secrets in arguments)
 - `RECONC_CLAUDE_STATE_DIR` -- override the global session-state root
 - `CLAUDE_CONFIG_DIR` (default `~/.claude`) -- absolute Claude configuration
-  root used to recognize the current project's persistent-memory state
+  root used to recognize the current project's persistent-memory state and,
+  read-only, the user `settings.json` whose `disableAllHooks` hook status and
+  the Claude `ConfigChange` gate evaluate
+- `COPILOT_HOME` (default `~/.copilot`) -- GitHub Copilot CLI user root whose
+  `settings.json` hook status reads, read-only, for `disableAllHooks`
 - `RECONC_SCHEMA_BASE_URL` -- enterprise override resolved through the typed
   per-artifact registry at `/schemas/<artifact>/v<schema-version>`; without an
   override, current contracts use their release-pinned v1, v2, v3, v4, or v6
@@ -195,7 +199,13 @@ Runtime:
   lifecycle and status operations; tests must always override it
 - `PI_CODING_AGENT_DIR` (default `~/.pi/agent`) -- Pi's agent state root used
   read-only by hook status to evaluate `trust.json` and
-  `defaultProjectTrust`; Reconc never changes those files
+  `defaultProjectTrust`; Reconc never changes those files. For OMP's default
+  profile it also overrides the agent directory whose `config.yml` hook status
+  reads for `disabledExtensions`
+- `PI_CONFIG_DIR` (default `.omp`), `OMP_PROFILE`, `PI_PROFILE` -- OMP's
+  config root under the home directory and its active profile; hook status
+  uses them, read-only, to locate the user `config.yml` (or `config.yaml`) that
+  may list `extension-module:reconc` in `disabledExtensions`
 - `GROK_LEADER_SOCKET` -- authoritative Grok leader socket or named-pipe
   endpoint for optional TUI steering
 - `XAI_API_KEY` -- optional credential used only by the hidden Grok ACP
@@ -1185,7 +1195,8 @@ declared capabilities when present.
 ### `reconc template list [--json]` / `reconc template show <name> [--json]`
 Rule shape templates (`tests-follow-source`, `docs-follow-code`,
 `no-generated-writes`, `ci-green-before-merge`, `authority-change-approval`,
-`custom-gate-on-change`, `local-secret-state-read-only`, `verified-change`,
+`custom-gate-on-change`, `host-hook-config-read-only`,
+`local-secret-state-read-only`, `verified-change`,
 `public-api-compatibility`, `schema-migration-safety`,
 `generated-artifact-consistency`, `performance-budget`).
 User overrides in `$RECONC_HOME/templates/*.yml`.

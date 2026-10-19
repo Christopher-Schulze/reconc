@@ -45,7 +45,7 @@ func TestNativeEventRegistriesPreserveContracts(t *testing.T) {
 		"Pi": {registry: piNativeEvents, want: map[string]string{
 			"pi-session-start": "session_start", "pi-user-prompt-submit": "input", "pi-pre-tool-use": "tool_call",
 			"pi-user-bash": "user_bash", "pi-post-tool-use": "tool_result", "pi-post-tool-use-failure": "tool_result",
-			"pi-stop": "agent_settled", "pi-continuation-requested": "agent_settled", "pi-continuation-failed": "agent_settled",
+			"pi-stop": "agent_settled", "pi-before-settle": "agent_before_settle", "pi-continuation-requested": "agent_settled", "pi-continuation-failed": "agent_settled",
 			"pi-continuation-suppressed": "agent_settled", "pi-session-end": "session_shutdown",
 			"pi-pre-compaction": "session_before_compact", "pi-post-compaction": "session_compact",
 		}},

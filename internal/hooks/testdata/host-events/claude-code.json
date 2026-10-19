@@ -2,7 +2,7 @@
   "host": "claude-code",
   "display_name": "Claude Code",
   "source_url": "https://code.claude.com/docs/en/hooks",
-  "capture_date": "2026-08-07",
+  "capture_date": "2026-10-19",
   "scope": "Every event Claude Code accepts in settings.json.",
   "events": [
     {
@@ -107,8 +107,7 @@
     },
     {
       "name": "ConfigChange",
-      "bound": false,
-      "reason": "host configuration change; carries no decision Reconc can make and no evidence it can attribute to an agent session"
+      "bound": true
     },
     {
       "name": "CwdChanged",
@@ -144,6 +143,16 @@
       "name": "ElicitationResult",
       "bound": false,
       "reason": "the user's answer to an interactive prompt; carries no decision Reconc can make and no evidence it can attribute to an agent session"
+    },
+    {
+      "name": "PreModelSwitch",
+      "bound": false,
+      "reason": "model selection; carries no repository-policy decision Reconc can make"
+    },
+    {
+      "name": "PostModelSwitch",
+      "bound": false,
+      "reason": "model selection; carries no repository-policy decision Reconc can make"
     }
   ]
 }

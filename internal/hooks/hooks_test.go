@@ -223,7 +223,8 @@ func TestGenerateClaudeCodeIsValidJSON(t *testing.T) {
 	if strings.Contains(a.Content, "tools/reconc/dist/reconc-0.6.0-darwin-arm64") {
 		t.Errorf("Claude Code hooks should delegate binary fallback to the repo-local wrapper")
 	}
-	writeMatchers := "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
+	// PowerShell is Claude Code's shell tool on Windows without Git Bash.
+	writeMatchers := "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash|PowerShell"
 	if !strings.Contains(a.Content, `"matcher": "`+writeMatchers+`"`) {
 		t.Errorf("expected Claude Code PreToolUse/PermissionRequest to cover write/shell matchers")
 	}
@@ -247,6 +248,36 @@ func TestGenerateClaudeCodeIsValidJSON(t *testing.T) {
 	if !strings.Contains(a.Content, "claude-mcp-before") || !strings.Contains(a.Content, "claude-mcp-after") {
 		t.Errorf("Claude template misses the MCP namespace routes")
 	}
+	if got := matchersForEvent(t, a.Content, "hooks", "SessionStart"); strings.Join(got, " ") != "startup|resume|clear|fork compact" {
+		t.Errorf("Claude SessionStart matcher = %v; forked sessions need the start route", got)
+	}
+	var settings struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command   string   `json:"command"`
+				Args      []string `json:"args"`
+				OnFailure string   `json:"onFailure"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(a.Content), &settings); err != nil {
+		t.Fatal(err)
+	}
+	blocking := map[string]bool{"claude-pre-tool-use": true, "claude-mcp-before": true, "claude-permission-request": true, "claude-config-change": true}
+	for event, groups := range settings.Hooks {
+		for _, group := range groups {
+			for _, hook := range group.Hooks {
+				// Exec form needs a real executable on Windows; sh runs the
+				// wrapper script with the same process cost on POSIX.
+				if hook.Command != "sh" || len(hook.Args) != 3 || hook.Args[0] != "${CLAUDE_PROJECT_DIR}/tools/reconc/bin/hook" {
+					t.Errorf("%s hook is not the sh exec form: %+v", event, hook)
+				}
+				if want := blocking[hook.Args[1]]; (hook.OnFailure == "block") != want {
+					t.Errorf("%s route %s onFailure=%q, want block=%v", event, hook.Args[1], hook.OnFailure, want)
+				}
+			}
+		}
+	}
 }
 
 func TestGenerateCodexIsValidJSON(t *testing.T) {
@@ -260,6 +291,9 @@ func TestGenerateCodexIsValidJSON(t *testing.T) {
 	}
 	if !strings.Contains(a.Content, "codex-pre-tool-use") {
 		t.Errorf("expected codex routes in template")
+	}
+	if got := matchersForEvent(t, a.Content, "hooks", "SessionStart"); strings.Join(got, " ") != "startup|resume|clear|fork compact" {
+		t.Errorf("Codex SessionStart matcher = %v; forked threads need the start route", got)
 	}
 	// SessionEnd remains native in the pinned Codex contract.
 	if !strings.Contains(a.Content, "codex-session-end") || !strings.Contains(a.Content, `"SessionEnd"`) {
@@ -442,7 +476,7 @@ func TestGenerateAntigravityIsValidJSON(t *testing.T) {
 		`"PostInvocation"`,
 		`"Stop"`,
 		`"matcher": "view_file|write_to_file|replace_file_content|multi_replace_file_content|list_dir|find_by_name|grep_search|run_command"`,
-		`"matcher": "write_to_file|replace_file_content|multi_replace_file_content|run_command"`,
+		`"matcher": "write_to_file|replace_file_content|multi_replace_file_content|run_command|manage_task"`,
 		"antigravity-pre-invocation",
 		"antigravity-pre-tool-use",
 		"antigravity-post-tool-use",
@@ -454,7 +488,7 @@ func TestGenerateAntigravityIsValidJSON(t *testing.T) {
 			t.Fatalf("Antigravity hook template missing %q:\n%s", token, a.Content)
 		}
 	}
-	if got := matchersForEvent(t, a.Content, "reconc", "PreToolUse"); strings.Join(got, "|") != "write_to_file|replace_file_content|multi_replace_file_content|run_command" {
+	if got := matchersForEvent(t, a.Content, "reconc", "PreToolUse"); strings.Join(got, "|") != "write_to_file|replace_file_content|multi_replace_file_content|run_command|manage_task" {
 		t.Errorf("Antigravity PreToolUse matcher = %v", got)
 	}
 	if got := matchersForEvent(t, a.Content, "reconc", "PostToolUse"); strings.Join(got, "|") != "view_file|write_to_file|replace_file_content|multi_replace_file_content|list_dir|find_by_name|grep_search|run_command" {
@@ -782,6 +816,16 @@ func TestInstallCodexCreatesFreshFile(t *testing.T) {
 	}
 	if report.Action != "created" {
 		t.Errorf("expected action=created, got %s", report.Action)
+	}
+	if !strings.Contains(report.NextAction, "/hooks") {
+		t.Errorf("a changed Codex hook file must point at the /hooks trust review: %q", report.NextAction)
+	}
+	again, err := Install(KindCodex, repo, false)
+	if err != nil {
+		t.Fatalf("reinstall codex: %v", err)
+	}
+	if again.Action != "unchanged" || strings.Contains(again.NextAction, "/hooks") {
+		t.Errorf("an unchanged Codex hook file needs no new trust review: %+v", again)
 	}
 	data, _ := os.ReadFile(filepath.Join(repo, CodexHooksPath))
 	if !strings.Contains(string(data), "tools/reconc/bin/hook") ||
@@ -1257,7 +1301,9 @@ func TestGenerateOpenCodePluginDelegatesStateToGoRuntime(t *testing.T) {
 			t.Fatalf("OpenCode adapter must not own %q; the Go runtime owns policy and state", forbidden)
 		}
 	}
-	if len(content) > 36*1024 {
+	// The budget covers the shared 1.x adapter plus the OpenCode 2.x setup()
+	// that maps 2.x domain hooks onto it; neither owns policy or state.
+	if len(content) > 44*1024 {
 		t.Fatalf("OpenCode adapter is not thin: %d bytes", len(content))
 	}
 	for _, forbidden := range []string{"new Response(proc.stdout).text()", "new Response(proc.stderr).text()"} {

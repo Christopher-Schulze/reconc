@@ -952,7 +952,7 @@ const kind = Bun.argv[3]
 const repo = Bun.argv[4]
 const module = await import(pathToFileURL(path).href + "?verify=" + Date.now())
 if (kind === "opencode" || kind === "kilo") {
-  const factory = kind === "opencode" ? module.ReconcOpenCodePlugin : module.default?.server
+  const factory = module.default?.server
   if (typeof factory !== "function") throw new Error("plugin factory missing")
   const hooks = await factory({ directory: repo, worktree: repo, client: {} })
   let blocked = false

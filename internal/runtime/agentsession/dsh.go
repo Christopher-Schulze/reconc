@@ -27,19 +27,22 @@ var dshJSONDiagnostics = singleJSONDiagnostics{
 }
 
 type dshPayload struct {
-	HookEventName  string          `json:"hook_event_name"`
-	SessionID      string          `json:"session_id"`
-	CWD            string          `json:"cwd"`
-	ToolName       string          `json:"tool_name"`
-	ToolInput      json.RawMessage `json:"tool_input"`
-	ToolCallID     string          `json:"tool_call_id"`
-	RootCallID     string          `json:"root_call_id"`
-	AgentID        string          `json:"agent_id"`
-	BashStateful   bool            `json:"bash_stateful,omitempty"`
-	IsError        *bool           `json:"is_error"`
-	Error          string          `json:"error"`
-	Observed       *bool           `json:"result_observed"`
-	StopHookActive *bool           `json:"stop_hook_active"`
+	HookEventName string `json:"hook_event_name"`
+	SessionID     string `json:"session_id"`
+	CWD           string `json:"cwd"`
+	// WorkingDirectory is the session's current directory, where relative
+	// file operations and new processes run; CWD stays the original project.
+	WorkingDirectory string          `json:"working_directory,omitempty"`
+	ToolName         string          `json:"tool_name"`
+	ToolInput        json.RawMessage `json:"tool_input"`
+	ToolCallID       string          `json:"tool_call_id"`
+	RootCallID       string          `json:"root_call_id"`
+	AgentID          string          `json:"agent_id"`
+	BashStateful     bool            `json:"bash_stateful,omitempty"`
+	IsError          *bool           `json:"is_error"`
+	Error            string          `json:"error"`
+	Observed         *bool           `json:"result_observed"`
+	StopHookActive   *bool           `json:"stop_hook_active"`
 }
 
 type dshNormalizedPayload struct {
@@ -94,6 +97,15 @@ func NormalizeDSHPayload(event string, payloadBytes []byte, repoRoot string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("resolve DSH cwd: %w", err)
 	}
+	if raw.WorkingDirectory != "" {
+		if !filepath.IsAbs(raw.WorkingDirectory) {
+			return nil, errors.New("DSH working_directory must be absolute")
+		}
+		current, err = pathidentity.ResolveExisting(raw.WorkingDirectory)
+		if err != nil {
+			return nil, fmt.Errorf("resolve DSH working directory: %w", err)
+		}
+	}
 	if event != "dsh-session-start" && event != "dsh-stop" {
 		if strings.TrimSpace(raw.ToolName) == "" || strings.TrimSpace(raw.ToolCallID) == "" || strings.TrimSpace(raw.RootCallID) == "" {
 			return nil, errors.New("DSH tool event requires name, call ID, and root call ID")
@@ -121,7 +133,7 @@ func NormalizeDSHPayload(event string, payloadBytes []byte, repoRoot string) ([]
 			if input.Workdir != nil {
 				working := *input.Workdir
 				if !filepath.IsAbs(working) {
-					working = filepath.Join(raw.CWD, working)
+					working = filepath.Join(current, working)
 				}
 				resolved, err := pathidentity.ResolveExisting(working)
 				raw.BashStateful = raw.BashStateful || err != nil || resolved != root
@@ -181,6 +193,9 @@ func NormalizeDSHPayload(event string, payloadBytes []byte, repoRoot string) ([]
 	return body, nil
 }
 
+// rebaseDSHFileInput resolves relative file paths against the directory the
+// tool runs in: repository-relative inside the repository, absolute outside
+// it, so a path never appears to name a different repository file.
 func rebaseDSHFileInput(input json.RawMessage, root, cwd string) (json.RawMessage, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(input, &fields); err != nil {
@@ -198,9 +213,13 @@ func rebaseDSHFileInput(input json.RawMessage, root, cwd string) (json.RawMessag
 		if path == "" || filepath.IsAbs(path) {
 			continue
 		}
-		relative, err := filepath.Rel(root, filepath.Join(cwd, path))
+		target := filepath.Join(cwd, path)
+		relative, err := filepath.Rel(root, target)
 		if err != nil {
 			return nil, fmt.Errorf("resolve DSH %s: %w", key, err)
+		}
+		if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			relative = target
 		}
 		fields[key], err = json.Marshal(filepath.ToSlash(relative))
 		if err != nil {

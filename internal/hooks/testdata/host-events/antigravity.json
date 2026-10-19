@@ -2,7 +2,7 @@
   "host": "antigravity",
   "display_name": "Antigravity CLI",
   "source_url": "https://antigravity.google/docs/hooks",
-  "capture_date": "2026-08-07",
+  "capture_date": "2026-10-19",
   "scope": "All five hook events the published reference names.",
   "events": [
     {
@@ -24,6 +24,11 @@
     {
       "name": "PostInvocation",
       "bound": true
+    },
+    {
+      "name": "SessionStart",
+      "bound": false,
+      "reason": "PreInvocation already initializes the Reconc session before the first model call"
     }
   ]
 }

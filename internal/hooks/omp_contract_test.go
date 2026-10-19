@@ -163,7 +163,7 @@ const stop = await handlers.get("session_stop")({
   type: "session_stop", session_id: "omp-contract", session_file: repo + "/session.jsonl",
   turn_id: 7, stop_hook_active: false, signal: new AbortController().signal,
 }, ctx)
-if (stop?.decision !== "block" || stop.reason !== "finish the Reconc run") {
+if (stop?.continue !== true || stop.decision !== undefined || stop.additionalContext !== "finish the Reconc run") {
   throw new Error("OMP Stop decision drift: " + JSON.stringify(stop))
 }
 await handlers.get("session_before_compact")({
@@ -419,10 +419,10 @@ const stop = await handlers.get("session_stop")({
   type: "session_stop", session_id: "omp-transport", turn_id: 1,
   stop_hook_active: false, signal: new AbortController().signal,
 }, ctx)
-if (stop?.decision !== "block" || typeof stop.reason !== "string" || stop.reason.length === 0) {
-  throw new Error("OMP Stop transport failure did not block: " + JSON.stringify(stop))
+if (stop?.continue !== true || stop.decision !== undefined || typeof stop.additionalContext !== "string" || stop.additionalContext.length === 0) {
+  throw new Error("OMP Stop transport failure did not continue under the host cap: " + JSON.stringify(stop))
 }
-if (new TextEncoder().encode(stop.reason).length > 8192) throw new Error("OMP Stop failure exceeded output budget")
+if (new TextEncoder().encode(stop.additionalContext).length > 8192) throw new Error("OMP Stop failure exceeded output budget")
 if (Bun.argv[4] === "timeout" && Date.now() - started > 1500) throw new Error("OMP timeouts did not kill promptly")
 // The extension owns a session worker until the session ends. Releasing it
 // here keeps the driver from exiting its own work and then waiting on a live

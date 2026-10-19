@@ -1115,6 +1115,7 @@ func auditAgentHooks(root string) []string {
 			"claude-subagent-stop",
 			"claude-stop",
 			"claude-stop-failure",
+			"claude-config-change",
 			`"compact"`,
 			`"timeout"`,
 			"CLAUDE_PROJECT_DIR",
@@ -1169,7 +1170,7 @@ func auditAgentHooks(root string) []string {
 			"antigravity-post-tool-use",
 			"antigravity-post-invocation",
 			"antigravity-stop",
-			"write_to_file|replace_file_content|multi_replace_file_content|run_command",
+			"write_to_file|replace_file_content|multi_replace_file_content|run_command|manage_task",
 			"view_file|write_to_file|replace_file_content|multi_replace_file_content|list_dir|find_by_name|grep_search|run_command",
 		}
 	}
@@ -1282,12 +1283,14 @@ func auditAgentHooks(root string) []string {
 			"pi-post-tool-use",
 			"pi-post-tool-use-failure",
 			"pi-stop",
+			"pi-before-settle",
 			"pi-continuation-requested",
 			"pi-continuation-failed",
 			"pi-continuation-suppressed",
 			"pi-session-end",
 			"pi-pre-compaction",
 			"pi-post-compaction",
+			`pi.on("agent_before_settle"`,
 			`pi.on("agent_settled"`,
 		}
 	}
@@ -1486,8 +1489,8 @@ func auditGitHubCopilotContract(relative string, content string) []string {
 		{event: "UserPromptSubmit", route: "copilot-user-prompt-submit"},
 		{event: "PreToolUse", route: "copilot-pre-tool-use", matcher: "Bash|Edit|Write"},
 		{event: "PermissionRequest", route: "copilot-permission-request", matcher: "Bash|Edit|Write"},
-		{event: "PostToolUse", route: "copilot-post-tool-use", matcher: "Read|Bash|Edit|Write"},
-		{event: "PostToolUseFailure", route: "copilot-post-tool-use-failure", matcher: "Read|Bash|Edit|Write"},
+		{event: "PostToolUse", route: "copilot-post-tool-use", matcher: "view|bash|powershell|create|edit|str_replace_editor|apply_patch|Read|Bash|Edit|Write"},
+		{event: "PostToolUseFailure", route: "copilot-post-tool-use-failure", matcher: "view|bash|powershell|create|edit|str_replace_editor|apply_patch|Read|Bash|Edit|Write"},
 		{event: "Stop", route: "copilot-stop"},
 		{event: "SessionEnd", route: "copilot-session-end"},
 		{event: "Notification", route: "copilot-notification"},

@@ -26,12 +26,14 @@ func TestGeneratePiExtensionUsesPinnedTypedContract(t *testing.T) {
 		`pi.on("user_bash"`,
 		`pi.on("session_before_compact"`,
 		`pi.on("session_compact"`,
+		`pi.on("agent_before_settle"`,
 		`pi.on("agent_settled"`,
 		`pi.on("session_shutdown"`,
 		`"pi-pre-tool-use":{"timeoutMilliseconds":10000`,
 		`"pi-stop":{"timeoutMilliseconds":30000`,
 		`"maxContinuations":10`,
-		`pi.sendUserMessage(continuation.reason)`,
+		`pi.sendUserMessage(reason)`,
+		`type: "custom_message", customType: "reconc-stop"`,
 		`"pi-continuation-requested"`,
 	} {
 		if !strings.Contains(artifact.Content, required) {

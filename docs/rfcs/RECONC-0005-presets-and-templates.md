@@ -86,6 +86,7 @@ Current builtin templates:
 - `custom-gate-on-change`
 - `docs-follow-code`
 - `generated-artifact-consistency`
+- `host-hook-config-read-only`
 - `local-secret-state-read-only`
 - `no-generated-writes`
 - `performance-budget`

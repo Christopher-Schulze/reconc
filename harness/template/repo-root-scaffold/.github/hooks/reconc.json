@@ -23,7 +23,7 @@
       {
         "bash": "tools/reconc/bin/hook copilot-post-tool-use .",
         "cwd": ".",
-        "matcher": "Read|Bash|Edit|Write",
+        "matcher": "view|bash|powershell|create|edit|str_replace_editor|apply_patch|Read|Bash|Edit|Write",
         "powershell": "& sh \"tools/reconc/bin/hook\" \"copilot-post-tool-use\" \".\"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
         "timeoutSec": 5,
         "type": "command"
@@ -33,7 +33,7 @@
       {
         "bash": "tools/reconc/bin/hook copilot-post-tool-use-failure .",
         "cwd": ".",
-        "matcher": "Read|Bash|Edit|Write",
+        "matcher": "view|bash|powershell|create|edit|str_replace_editor|apply_patch|Read|Bash|Edit|Write",
         "powershell": "& sh \"tools/reconc/bin/hook\" \"copilot-post-tool-use-failure\" \".\"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
         "timeoutSec": 5,
         "type": "command"

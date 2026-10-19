@@ -70,6 +70,39 @@ func TestCatalogRejectsInvalidCoverageAndProvenance(t *testing.T) {
 		{"unofficial URL", func(c *sourceCatalog) { c.Hosts[0].Sources[0].URL = "https://example.com/hooks" }},
 		{"missing markers", func(c *sourceCatalog) { c.Hosts[0].Sources[0].RequiredMarkers = nil }},
 		{"invalid mode", func(c *sourceCatalog) { c.Hosts[0].Sources[0].Normalization = "execute" }},
+		{"undeclared branch", func(c *sourceCatalog) {
+			for h := range c.Hosts {
+				for s := range c.Hosts[h].Sources {
+					p := &c.Hosts[h].Sources[s]
+					if strings.Contains(p.URL, "/HEAD/") {
+						p.URL = strings.Replace(p.URL, "/HEAD/", "/v1/", 1)
+						return
+					}
+				}
+			}
+		}},
+		{"tracked ref with HEAD URL", func(c *sourceCatalog) {
+			for h := range c.Hosts {
+				for s := range c.Hosts[h].Sources {
+					p := &c.Hosts[h].Sources[s]
+					if strings.Contains(p.URL, "/HEAD/") {
+						p.TrackedRef = "v1"
+						return
+					}
+				}
+			}
+		}},
+		{"tracked ref on documentation", func(c *sourceCatalog) {
+			for h := range c.Hosts {
+				for s := range c.Hosts[h].Sources {
+					p := &c.Hosts[h].Sources[s]
+					if !strings.Contains(p.URL, "raw.githubusercontent.com") {
+						p.TrackedRef = "v1"
+						return
+					}
+				}
+			}
+		}},
 		{"mutable baseline", func(c *sourceCatalog) {
 			for h := range c.Hosts {
 				for s := range c.Hosts[h].Sources {

@@ -18,6 +18,7 @@ var piNativeEvents = newNativeEventRegistry(
 	nativeEventBinding{route: "pi-post-tool-use", primary: "tool_result"},
 	nativeEventBinding{route: "pi-post-tool-use-failure", primary: "tool_result"},
 	nativeEventBinding{route: "pi-stop", primary: "agent_settled"},
+	nativeEventBinding{route: "pi-before-settle", primary: "agent_before_settle"},
 	nativeEventBinding{route: "pi-continuation-requested", primary: "agent_settled"},
 	nativeEventBinding{route: "pi-continuation-failed", primary: "agent_settled"},
 	nativeEventBinding{route: "pi-continuation-suppressed", primary: "agent_settled"},
@@ -168,9 +169,9 @@ func validatePiEventPayload(event string, raw piPayload, repoRoot string) error 
 		if err := validateHookPayloadCWD(raw.UserBashCWD, repoRoot, "Pi user_bash"); err != nil {
 			return err
 		}
-	case "pi-stop":
+	case "pi-stop", "pi-before-settle":
 		if raw.StopHookActive == nil || *raw.StopHookActive {
-			return errors.New("pi agent_settled payload must declare stop_hook_active=false")
+			return fmt.Errorf("pi %s payload must declare stop_hook_active=false", raw.HookEventName)
 		}
 	case "pi-continuation-requested", "pi-continuation-failed", "pi-continuation-suppressed":
 		want := strings.TrimPrefix(event, "pi-continuation-")

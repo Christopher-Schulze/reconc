@@ -110,7 +110,7 @@
             "type": "command"
           }
         ],
-        "matcher": "startup|resume|clear"
+        "matcher": "startup|resume|clear|fork"
       },
       {
         "hooks": [

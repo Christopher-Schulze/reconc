@@ -254,6 +254,46 @@ func TestHookRuntimeGrokCompatibilityRouteDeduplicatesOnlyWhenNativeInstalled(t 
 	}
 }
 
+func TestHookRuntimeCopilotCompatibilityRouteDeduplicatesOnlyWhenNativeInstalled(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	// Copilot runs .claude/settings.json hooks with its VS Code compatible input.
+	payload := fmt.Sprintf(`{
+		"hook_event_name":"PreToolUse",
+		"session_id":"copilot-dedup",
+		"timestamp":"2026-10-19T12:00:00.000Z",
+		"cwd":%q,
+		"tool_name":"Write",
+		"tool_input":{"file_path":"generated/blocked.go","content":"x"}
+	}`, repo)
+	_, stderr, code := runWithStdin(t, payload,
+		"hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 2 || strings.Contains(stderr, "deduplicated") {
+		t.Fatalf("without the native Copilot hook, the Claude route must still gate: code=%d stderr=%q", code, stderr)
+	}
+	if _, err := hooks.Install(hooks.KindGitHubCopilot, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := runWithStdin(t, payload,
+		"hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 0 || stdout != "" || !strings.Contains(stderr, "deduplicated") {
+		t.Fatalf("native Copilot hook must own the duplicate route: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	claudePayload := strings.Replace(payload, `"timestamp":"2026-10-19T12:00:00.000Z",`, `"transcript_path":"/tmp/t.jsonl",`, 1)
+	_, stderr, code = runWithStdin(t, claudePayload,
+		"hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 2 || strings.Contains(stderr, "deduplicated") {
+		t.Fatalf("a Claude Code input must never defer to Copilot: code=%d stderr=%q", code, stderr)
+	}
+	if err := os.Remove(filepath.Join(repo, filepath.FromSlash(hooks.WrapperPath))); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, code = runWithStdin(t, payload,
+		"hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 2 || strings.Contains(stderr, "deduplicated") {
+		t.Fatalf("Copilot without an executable wrapper suppressed compatibility enforcement: code=%d stderr=%q", code, stderr)
+	}
+}
+
 func TestRepositoryRunControlReturnsContinuationForEveryAgentAdapter(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	writeHookRuntimeTaskFixture(t, repo)
@@ -274,6 +314,7 @@ func TestRepositoryRunControlReturnsContinuationForEveryAgentAdapter(t *testing.
 		{name: "Kilo", event: "kilo-stop", payload: `{"session_id":"kilo-run","reconc_runtime":"kilo"}`, want: `"decision":"block"`},
 		{name: "Oh My Pi", event: "omp-stop", payload: fmt.Sprintf(`{"hook_event_name":"session_stop","session_id":"omp-run","cwd":%q,"stop_hook_active":false}`, repo), want: `"decision":"block"`},
 		{name: "Pi", event: "pi-stop", payload: fmt.Sprintf(`{"hook_event_name":"agent_settled","session_id":"pi-run","cwd":%q,"stop_hook_active":false}`, repo), want: `"decision":"block"`},
+		{name: "Pi native settle", event: "pi-before-settle", payload: fmt.Sprintf(`{"hook_event_name":"agent_before_settle","session_id":"pi-native-run","cwd":%q,"stop_hook_active":false}`, repo), want: `"decision":"block"`},
 		{name: "ZCode", event: "zcode-stop", payload: fmt.Sprintf(`{"hook_event_name":"Stop","session_id":"zcode-run","cwd":%q,"stop_hook_active":false}`, repo), want: `"decision":"block"`},
 	}
 	for _, test := range tests {
@@ -290,6 +331,39 @@ func TestRepositoryRunControlReturnsContinuationForEveryAgentAdapter(t *testing.
 			}
 			if !strings.Contains(stdout, test.want) || !strings.Contains(stdout, "Reconc run is ON") {
 				t.Fatalf("adapter continuation missing: want=%q stdout=%q", test.want, stdout)
+			}
+		})
+	}
+}
+
+func TestRepositoryRunWaitsWhileClaudeBackgroundWorkIsPending(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	writeHookRuntimeTaskFixture(t, repo)
+	if _, err := agentsession.SetRepositoryRun(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name         string
+		payload      string
+		wantContinue bool
+	}{
+		{name: "background shell", payload: `{"session_id":"claude-bg","stop_hook_active":false,"background_tasks":[{"id":"task-1","type":"shell","status":"running","command":"go test ./..."}],"session_crons":[]}`},
+		{name: "one-shot wakeup", payload: `{"session_id":"claude-wake","stop_hook_active":false,"background_tasks":[],"session_crons":[{"id":"cron-1","schedule":"30 14 19 10 *","recurring":false,"prompt":"check"}]}`},
+		{name: "recurring cron only", payload: `{"session_id":"claude-cron","stop_hook_active":false,"background_tasks":[],"session_crons":[{"id":"cron-2","schedule":"0 9 * * 1-5","recurring":true,"prompt":"check"}]}`, wantContinue: true},
+		{name: "nothing pending", payload: `{"session_id":"claude-idle","stop_hook_active":false,"background_tasks":[],"session_crons":[]}`, wantContinue: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, stderr, code := runWithStdin(t, test.payload, "hook", "runtime", "claude-stop", repo)
+			if code != 0 {
+				t.Fatalf("Stop failed: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+			}
+			continued := strings.Contains(stdout, "Reconc run is ON")
+			if continued != test.wantContinue {
+				t.Fatalf("continuation=%v, want %v: stdout=%q stderr=%q", continued, test.wantContinue, stdout, stderr)
+			}
+			if !test.wantContinue && !strings.Contains(stderr, "still pending") {
+				t.Fatalf("paused Stop does not explain the wait: stderr=%q", stderr)
 			}
 		})
 	}

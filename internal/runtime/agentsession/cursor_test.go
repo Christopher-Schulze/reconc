@@ -221,6 +221,31 @@ func TestNormalizeCursorSubagentUsesChildIdentity(t *testing.T) {
 	}
 }
 
+func TestNormalizeCursorSubagentStopWithoutChildIDUsesCommonIdentity(t *testing.T) {
+	// The documented subagentStop input has no subagent_id; Cursor CLI
+	// 2026.09.18 gives a subagent's own tool events their own conversation_id.
+	normalized, err := NormalizeCursorPayload("cursor-subagent-stop", []byte(`{
+		"conversation_id":"subagent-conversation",
+		"hook_event_name":"subagentStop",
+		"subagent_type":"generalPurpose",
+		"status":"completed",
+		"loop_count":0
+	}`))
+	if err != nil {
+		t.Fatalf("documented subagentStop input was rejected: %v", err)
+	}
+	payload, err := ParsePayload(normalized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.SessionID != "subagent-conversation" {
+		t.Fatalf("subagentStop session identity = %q", payload.SessionID)
+	}
+	if _, err := NormalizeCursorPayload("cursor-subagent-start", []byte(`{"conversation_id":"parent","hook_event_name":"subagentStart"}`)); err == nil {
+		t.Fatal("subagentStart without subagent_id must stay rejected")
+	}
+}
+
 func TestAdaptCursorPreDecisionDeny(t *testing.T) {
 	result := AdaptCursorResult("cursor-pre-tool-use", Result{ExitCode: 2, Stderr: "blocked"})
 	if result.ExitCode != 0 {
@@ -323,5 +348,39 @@ func TestAdaptCursorStopFollowup(t *testing.T) {
 	}
 	if !strings.Contains(result.Stdout, `"followup_message":"fix it"`) {
 		t.Fatalf("expected followup message, got %s", result.Stdout)
+	}
+}
+
+func TestAdaptCursorStopFailureKeepsTheSessionOpen(t *testing.T) {
+	for _, event := range []string{"cursor-stop", "cursor-subagent-stop"} {
+		result := AdaptCursorResult(event, Result{ExitCode: 2, Stderr: "reconc hook (stop): check failed"})
+		var payload map[string]interface{}
+		if err := json.Unmarshal([]byte(result.Stdout), &payload); err != nil {
+			t.Fatalf("%s stdout is not JSON: %v", event, err)
+		}
+		if result.ExitCode != 0 || len(payload) != 1 || payload["followup_message"] != "reconc hook (stop): check failed" {
+			t.Fatalf("%s failure must continue through followup_message only: %#v", event, payload)
+		}
+	}
+}
+
+func TestCursorStopAbortedStatusIsAnInterrupt(t *testing.T) {
+	normalized, err := NormalizeCursorPayload("cursor-stop", []byte(`{"conversation_id":"conv-1","generation_id":"gen-1","status":"aborted","loop_count":0}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(normalized, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["is_interrupt"] != true {
+		t.Fatalf("aborted stop must be an interrupt: %#v", payload)
+	}
+	completed, err := NormalizeCursorPayload("cursor-stop", []byte(`{"conversation_id":"conv-1","generation_id":"gen-1","status":"completed","loop_count":0}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(completed), "is_interrupt") {
+		t.Fatalf("completed stop must not be an interrupt: %s", completed)
 	}
 }

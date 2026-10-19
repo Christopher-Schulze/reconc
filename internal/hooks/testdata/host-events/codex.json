@@ -1,11 +1,11 @@
 {
   "host": "codex",
   "display_name": "Codex",
-  "host_version": "codex-cli 0.154.0",
-  "source_url": "https://github.com/openai/codex/tree/6b9826e3aa83b1a5947db50f4332cb9c65f1b340/codex-rs/hooks",
-  "source_revision": "6b9826e3aa83b1a5947db50f4332cb9c65f1b340",
-  "capture_date": "2026-09-12",
-  "scope": "The twelve native event groups in the installed Codex source contract, including advisory Interrupt; compact SessionStart supplies model-visible recovery. Child agent_id separates evidence from the shared session_id; SubagentStop checks child policy and SessionEnd is root-only.",
+  "host_version": "codex-cli 0.163.0",
+  "source_url": "https://github.com/openai/codex/tree/7c073196a1673a0b248b2e5edfb7548d2c2290ac/codex-rs/hooks",
+  "source_revision": "7c073196a1673a0b248b2e5edfb7548d2c2290ac",
+  "capture_date": "2026-10-19",
+  "scope": "The twelve native event groups of the Codex CLI 0.163.0 source contract, including advisory Interrupt, plus the two observation-only model-request groups on main at the source revision; compact SessionStart supplies model-visible recovery. Child agent_id separates evidence from the shared session_id; SubagentStop checks child policy and SessionEnd is root-only.",
   "events": [
     {
       "name": "SessionStart",
@@ -54,6 +54,16 @@
     {
       "name": "PostCompact",
       "bound": true
+    },
+    {
+      "name": "PreModelRequest",
+      "bound": false,
+      "reason": "observation-only model-request lifecycle hook: Codex logs its output and never interprets it as control flow, so it carries no decision Reconc can make"
+    },
+    {
+      "name": "PostModelRequest",
+      "bound": false,
+      "reason": "observation-only model-request lifecycle hook: Codex logs its output and never interprets it as control flow, so it carries no decision Reconc can make"
     }
   ]
 }

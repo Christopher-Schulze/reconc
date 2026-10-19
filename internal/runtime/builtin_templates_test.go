@@ -46,6 +46,30 @@ func TestBuiltinGuardrailTemplatesEnforceBehavior(t *testing.T) {
 		}
 	})
 
+	t.Run("host hook config", func(t *testing.T) {
+		withRECONCHome(t)
+		repo := makeRepo(t, "# project\n", "", "rules:\n  - id: hook-config\n    template: host-hook-config-read-only\n")
+		for _, test := range []struct {
+			path     string
+			decision Decision
+		}{
+			{path: ".claude/settings.json", decision: DecisionBlock},
+			{path: ".claude/settings.local.json", decision: DecisionBlock},
+			{path: ".github/copilot/settings.local.json", decision: DecisionBlock},
+			{path: ".omp/config.yml", decision: DecisionBlock},
+			{path: "tools/reconc/bin/hook", decision: DecisionBlock},
+			{path: ".claude/agents/reviewer.md", decision: DecisionPass},
+			{path: "src/main.go", decision: DecisionPass},
+		} {
+			t.Run(test.path, func(t *testing.T) {
+				report, err := CheckRepoPolicy(repo, ExecutionInputs{WritePaths: []string{test.path}})
+				if err != nil || report.Decision != test.decision {
+					t.Fatalf("write %q decision=%v want=%v err=%v", test.path, report.Decision, test.decision, err)
+				}
+			})
+		}
+	})
+
 	t.Run("local secret state", func(t *testing.T) {
 		withRECONCHome(t)
 		repo := makeRepo(t, "# project\n", "", "rules:\n  - id: local-state\n    template: local-secret-state-read-only\n")

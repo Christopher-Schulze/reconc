@@ -3,6 +3,7 @@
 
 const fallbackSessionID = globalThis.crypto?.randomUUID?.() ?? "kilo-" + Date.now()
 const startedSessions = new Set()
+const startingSessions = new Map()
 const terminalToolFailures = new Set()
 const maxRememberedToolFailures = 1024
 const routeBudgets = {"kilo-continuation-accepted":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow","maxContinuations":10},"kilo-continuation-failed":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow","maxContinuations":10},"kilo-continuation-suppressed":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow","maxContinuations":10},"kilo-continuation-unavailable":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow","maxContinuations":10},"kilo-permission-request":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"kilo-post-compaction":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-post-tool-use":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-post-tool-use-failure":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-pre-compaction":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-pre-tool-use":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"kilo-session-end":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-session-start":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-stop":{"timeoutMilliseconds":30000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"allow","maxContinuations":10},"kilo-user-prompt-submit":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"}}
@@ -41,6 +42,8 @@ const normalizeTool = (tool) => {
     case "write": return "Write"
     case "edit": return "Edit"
     case "multiedit": return "MultiEdit"
+    case "patch":
+    case "apply_patch": return "apply_patch"
     case "bash":
     case "shell": return "Bash"
     default: return tool || ""
@@ -497,20 +500,35 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
     return result.code !== 0 && budget.errorPolicy === "block"
   }
 
+  // Concurrent hooks and lifecycle events for one session share a single
+  // in-flight start instead of each starting the session.
   const ensureSession = async (sessionID) => {
     const id = sessionID || fallbackSessionID
     if (startedSessions.has(id)) return id
-    const event = "kilo-session-start"
-    const result = await run(event, { session_id: id, reconc_runtime: "kilo" })
-    if (shouldBlockFailure(event, result)) throw new Error(result.stderr || result.stdout || "reconc session start failed")
-    if (result.code === 0) startedSessions.add(id)
+    let start = startingSessions.get(id)
+    if (!start) {
+      start = (async () => {
+        const event = "kilo-session-start"
+        const result = await run(event, { session_id: id, reconc_runtime: "kilo" })
+        if (shouldBlockFailure(event, result)) throw new Error(result.stderr || result.stdout || "reconc session start failed")
+        if (result.code === 0) startedSessions.add(id)
+      })()
+      startingSessions.set(id, start)
+      start.then(() => startingSessions.delete(id), () => startingSessions.delete(id))
+    }
+    await start
     return id
   }
 
   const toolPayload = (input, output, phase) => {
     const toolName = normalizeTool(input?.tool || output?.tool)
     const hostTool = typeof input?.tool === "string" ? input.tool : typeof output?.tool === "string" ? output.tool : ""
-    const toolInput = output?.args || input?.args || {}
+    let toolInput = output?.args || input?.args || {}
+    // The patch tool carries every add/update/delete path inside patchText;
+    // the runtime reads apply_patch paths from the command field.
+    if (toolName === "apply_patch" && typeof toolInput?.patchText === "string" && toolInput.command === undefined) {
+      toolInput = { ...toolInput, command: toolInput.patchText }
+    }
     const metadata = output?.metadata && typeof output.metadata === "object" && !Array.isArray(output.metadata) ? output.metadata : {}
     const response = {
       title: output?.title || "",
@@ -766,6 +784,9 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
   }
 
   return {
+    dispose: async () => {
+      await workerTransport.close()
+    },
     "chat.message": async (input, output) => {
       const sessionID = await ensureSession(input?.sessionID)
       const state = continuationState(sessionID)

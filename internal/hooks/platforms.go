@@ -29,6 +29,7 @@ const (
 	EventPostCompaction     Event = "post-compaction"
 	EventContinuation       Event = "continuation-observation"
 	EventWorkspaceOpen      Event = "workspace-open"
+	EventConfigChange       Event = "config-change"
 )
 
 // SupportMode describes how a platform exposes a neutral lifecycle event.
@@ -134,15 +135,18 @@ type NativeBinding struct {
 // ActivationProbe is the declarative input used by status inspection and
 // bootstrap auto-detection.
 type ActivationProbe struct {
-	Mode               ActivationMode `json:"mode"`
-	ConfigDirs         []string       `json:"config_dirs"`
-	EnablePath         string         `json:"enable_path,omitempty"`
-	EnableSection      string         `json:"enable_section,omitempty"`
-	EnableKey          string         `json:"enable_key,omitempty"`
-	EnabledByDefault   bool           `json:"enabled_by_default,omitempty"`
-	DisabledByEnv      string         `json:"disabled_by_env,omitempty"`
-	LegacyArtifactPath string         `json:"legacy_artifact_path,omitempty"`
-	RequiresWrapper    bool           `json:"requires_wrapper"`
+	Mode          ActivationMode `json:"mode"`
+	ConfigDirs    []string       `json:"config_dirs"`
+	EnablePath    string         `json:"enable_path,omitempty"`
+	EnableSection string         `json:"enable_section,omitempty"`
+	EnableKey     string         `json:"enable_key,omitempty"`
+	// LegacyEnableKey is a deprecated alias the host still honors when
+	// EnableKey is absent.
+	LegacyEnableKey    string `json:"legacy_enable_key,omitempty"`
+	EnabledByDefault   bool   `json:"enabled_by_default,omitempty"`
+	DisabledByEnv      string `json:"disabled_by_env,omitempty"`
+	LegacyArtifactPath string `json:"legacy_artifact_path,omitempty"`
+	RequiresWrapper    bool   `json:"requires_wrapper"`
 }
 
 // Platform is the stable, serializable platform contract. Generator and
@@ -211,11 +215,12 @@ var platformRegistry = []platformDefinition{
 			capability(EventSubagentStop, "SubagentStop", SupportNative, FailureAllow, FailureAllow, 5, "claude-subagent-stop"),
 			capability(EventPreCompaction, "PreCompact", SupportNative, FailureAllow, FailureAllow, 5, "claude-pre-compaction"),
 			claudePostCompactionCapability(),
+			capability(EventConfigChange, "ConfigChange", SupportNative, FailureBlock, FailureBlock, 10, "claude-config-change"),
 		}},
 		generator: generatorClaudeCode,
 	},
 	{
-		Platform: Platform{Kind: KindCodex, DisplayName: "Codex", TargetPath: CodexHooksPath, ScaffoldPath: CodexHooksPath, InstallMode: InstallNestedJSON, Activation: ActivationProbe{Mode: ActivationFlag, ConfigDirs: []string{".codex"}, EnablePath: ".codex/config.toml", EnableSection: "features", EnableKey: "hooks", EnabledByDefault: true, RequiresWrapper: true}, Capabilities: []Capability{
+		Platform: Platform{Kind: KindCodex, DisplayName: "Codex", TargetPath: CodexHooksPath, ScaffoldPath: CodexHooksPath, InstallMode: InstallNestedJSON, Activation: ActivationProbe{Mode: ActivationFlag, ConfigDirs: []string{".codex"}, EnablePath: ".codex/config.toml", EnableSection: "features", EnableKey: "hooks", LegacyEnableKey: "codex_hooks", EnabledByDefault: true, RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "codex-session-start"),
 			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "codex-user-prompt-submit"),
 			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureBlock, 10, "codex-pre-tool-use"),
@@ -573,8 +578,11 @@ func piPreToolCapability() Capability {
 	}
 }
 
+// Pi 1.x runs the stop gate at the awaited agent_before_settle boundary and
+// continues natively; older hosts only emit agent_settled.
 func piStopCapability() Capability {
 	capability := capability(EventStop, "agent_settled", SupportInferred, FailureAllow, FailureAllow, 30, "pi-stop")
+	capability.Bindings = append(capability.Bindings, NativeBinding{NativeEvent: "agent_before_settle", RuntimeEvent: "pi-before-settle"})
 	capability.MaxContinuations = 10
 	return capability
 }

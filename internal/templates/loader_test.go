@@ -237,8 +237,8 @@ func TestListReturnsAllBuiltins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(list) < 12 {
-		t.Errorf("expected at least 12 builtin templates, got %d: %v", len(list), list)
+	if len(list) < 13 {
+		t.Errorf("expected at least 13 builtin templates, got %d: %v", len(list), list)
 	}
 	names := map[string]bool{}
 	for _, t := range list {
@@ -249,6 +249,7 @@ func TestListReturnsAllBuiltins(t *testing.T) {
 		"ci-green-before-merge",
 		"custom-gate-on-change",
 		"docs-follow-code",
+		"host-hook-config-read-only",
 		"local-secret-state-read-only",
 		"no-generated-writes",
 		"tests-follow-source",

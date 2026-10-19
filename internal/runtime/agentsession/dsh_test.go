@@ -95,6 +95,13 @@ func TestNormalizeDSHWorkingDirectoriesAndOpaqueTools(t *testing.T) {
 		{"nested Bash", nested, "bash", `{"command":"pwd"}`, "", "dsh:bash", ""},
 		{"Bash nested workdir", repo, "bash", `{"command":"pwd","workdir":"nested"}`, "", "dsh:bash", ""},
 		{"Bash external workdir", repo, "bash", fmt.Sprintf(`{"command":"pwd","workdir":%q}`, filepath.Dir(repo)), "", "dsh:bash", ""},
+		// The working_directory tool moves relative operations away from the
+		// project directory recorded in the session header.
+		{"session directory write", repo, "write", `{"file_path":"spec.md"}`, fmt.Sprintf(`,"working_directory":%q`, nested), "Write", "nested/spec.md"},
+		{"session directory Bash", repo, "bash", `{"command":"pwd"}`, fmt.Sprintf(`,"working_directory":%q`, nested), "dsh:bash", ""},
+		{"session directory relative workdir", repo, "bash", `{"command":"pwd","workdir":"."}`, fmt.Sprintf(`,"working_directory":%q`, nested), "dsh:bash", ""},
+		{"session directory outside the repository", repo, "write", `{"file_path":"x.md"}`, fmt.Sprintf(`,"working_directory":%q`, filepath.Dir(repo)), "Write", filepath.ToSlash(filepath.Join(filepath.Dir(repo), "x.md"))},
+		{"session directory at the root", nested, "write", `{"file_path":"x.md"}`, fmt.Sprintf(`,"working_directory":%q`, repo), "Write", "x.md"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			payload := fmt.Sprintf(`{"hook_event_name":"tools/pre-execute","session_id":"s","cwd":%q,"tool_name":%q,"tool_input":%s,"tool_call_id":"c","root_call_id":"r"%s}`, test.cwd, test.tool, test.input, test.extra)

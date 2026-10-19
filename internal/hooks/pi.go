@@ -53,7 +53,24 @@ interface CombinedOutput {
   invalidUTF8: boolean
 }
 
+// Pi 1.x settles through agent_before_settle, whose result can append
+// entries and continue the run natively; older hosts only emit agent_settled.
+interface BeforeSettleEvent {
+  entries?: unknown[]
+  outcome?: "completed" | "aborted" | "error"
+}
+
+interface BeforeSettleResult {
+  entries: unknown[]
+  continue: boolean
+}
+
+interface SettledEvent {
+  aborted?: boolean
+}
+
 interface ContinuationState {
+  nativeSettle: boolean
   inFlight: boolean
   activityGeneration: number
   handledGeneration: number
@@ -341,6 +358,7 @@ const continuationState = (sessionID: string): ContinuationState | undefined => 
   }
   capacityDiagnosticActive = false
   const state: ContinuationState = {
+    nativeSettle: false,
     inFlight: false,
     activityGeneration: 0,
     handledGeneration: -1,
@@ -393,39 +411,54 @@ export default function ReconcPiExtension(pi: ExtensionAPI): void {
     }
   }
 
-  const handleStop = async (ctx: ExtensionContext): Promise<void> => {
-    const state = continuationState(ctx.sessionManager.getSessionId())
-    if (!state || state.inFlight) return
+  // stopContinuation runs the stop gate once per activity generation and
+  // returns the instruction to deliver, or undefined when this settle needs
+  // none; suppressed and failed deliveries are reported here.
+  const stopContinuation = async (
+    ctx: ExtensionContext,
+    state: ContinuationState,
+    route: string,
+    hookEventName: string,
+  ): Promise<string | undefined> => {
     if (state.handledGeneration === state.activityGeneration) {
       if (state.lastDelivery !== "suppressed") await reportContinuation(ctx, state, "suppressed")
-      return
+      return undefined
     }
     state.handledGeneration = state.activityGeneration
+    const result = await run(route, sessionPayload(ctx, hookEventName, {
+      stop_hook_active: false,
+    }), ctx.cwd)
+    const budget = routeBudgets[route] ?? defaultBudget
+    const continuation = continuationFrom(result, budget.maxOutputBytes)
+    if (!continuation.valid) {
+      await reportContinuation(ctx, state, "failed")
+      return undefined
+    }
+    if (!continuation.reason) {
+      state.lastDelivery = "none"
+      return undefined
+    }
+    if (!Number.isSafeInteger(budget.maxContinuations) || (budget.maxContinuations ?? 0) <= 0 ||
+        state.continuationCount >= (budget.maxContinuations ?? 0)) {
+      await reportContinuation(ctx, state, "suppressed")
+      return undefined
+    }
+    return continuation.reason
+  }
+
+  // handleStop delivers a continuation on hosts without agent_before_settle by
+  // injecting the instruction as the next user message.
+  const handleStop = async (ctx: ExtensionContext): Promise<void> => {
+    const state = continuationState(ctx.sessionManager.getSessionId())
+    if (!state || state.inFlight || state.nativeSettle) return
     state.inFlight = true
     state.lastTouched = ++continuationTouch
     try {
-      const route = "pi-stop"
-      const result = await run(route, sessionPayload(ctx, "agent_settled", {
-        stop_hook_active: false,
-      }), ctx.cwd)
-      const budget = routeBudgets[route] ?? defaultBudget
-      const continuation = continuationFrom(result, budget.maxOutputBytes)
-      if (!continuation.valid) {
-        await reportContinuation(ctx, state, "failed")
-        return
-      }
-      if (!continuation.reason) {
-        state.lastDelivery = "none"
-        return
-      }
-      if (!Number.isSafeInteger(budget.maxContinuations) || (budget.maxContinuations ?? 0) <= 0 ||
-          state.continuationCount >= (budget.maxContinuations ?? 0)) {
-        await reportContinuation(ctx, state, "suppressed")
-        return
-      }
+      const reason = await stopContinuation(ctx, state, "pi-stop", "agent_settled")
+      if (!reason) return
       state.pendingInjectedInputs += 1
       try {
-        pi.sendUserMessage(continuation.reason)
+        pi.sendUserMessage(reason)
       } catch {
         state.pendingInjectedInputs -= 1
         await reportContinuation(ctx, state, "failed")
@@ -433,6 +466,38 @@ export default function ReconcPiExtension(pi: ExtensionAPI): void {
       }
       state.continuationCount += 1
       await reportContinuation(ctx, state, "requested")
+    } finally {
+      state.inFlight = false
+      state.lastTouched = ++continuationTouch
+    }
+  }
+
+  // handleBeforeSettle continues the run natively: the host appends the
+  // instruction before settling and starts the next provider request, so the
+  // later agent_settled event needs no injected input.
+  const handleBeforeSettle = async (event: BeforeSettleEvent, ctx: ExtensionContext): Promise<BeforeSettleResult | undefined> => {
+    const state = continuationState(ctx.sessionManager.getSessionId())
+    if (!state) return undefined
+    state.nativeSettle = true
+    // An aborted run (Esc) settles without a continuation, like agent_settled.
+    if (event.outcome === "aborted") {
+      state.handledGeneration = state.activityGeneration
+      return undefined
+    }
+    if (state.inFlight) return undefined
+    state.inFlight = true
+    state.lastTouched = ++continuationTouch
+    try {
+      const reason = await stopContinuation(ctx, state, "pi-before-settle", "agent_before_settle")
+      if (!reason) return undefined
+      state.continuationCount += 1
+      await reportContinuation(ctx, state, "requested")
+      return {
+        entries: [...(event.entries ?? []), {
+          type: "custom_message", customType: "reconc-stop", content: reason, display: false,
+        }],
+        continue: true,
+      }
     } finally {
       state.inFlight = false
       state.lastTouched = ++continuationTouch
@@ -525,7 +590,17 @@ export default function ReconcPiExtension(pi: ExtensionAPI): void {
     }), ctx)
   })
 
-  pi.on("agent_settled", async (_event, ctx) => {
+  pi.on("agent_before_settle", async (event: BeforeSettleEvent, ctx: ExtensionContext) =>
+    await handleBeforeSettle(event, ctx))
+
+  pi.on("agent_settled", async (event: SettledEvent, ctx: ExtensionContext) => {
+    // Esc ends the run; continuing would restart the agent against the
+    // user's abort, so the settle only records that it was handled.
+    if (event.aborted === true) {
+      const state = continuationState(ctx.sessionManager.getSessionId())
+      if (state) state.handledGeneration = state.activityGeneration
+      return
+    }
     await handleStop(ctx)
   })
 

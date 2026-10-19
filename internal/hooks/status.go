@@ -379,6 +379,21 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 			report.remediation = manualRemediation("Repair the host activation file manually; hook installation cannot safely rewrite invalid activation syntax.")
 			return report
 		}
+		if !present && platform.Activation.LegacyEnableKey != "" {
+			// Codex applies feature keys in sorted order, so the canonical key
+			// overrides its deprecated alias; the alias decides only alone.
+			enabled, present, probeErr = tomlSectionBoolean(
+				filepath.Join(root, filepath.FromSlash(platform.Activation.EnablePath)),
+				platform.Activation.EnableSection,
+				platform.Activation.LegacyEnableKey,
+			)
+			if probeErr != nil {
+				report.State = StateDegraded
+				report.Detail = platform.Activation.EnablePath + " is invalid: " + probeErr.Error()
+				report.remediation = manualRemediation("Repair the host activation file manually; hook installation cannot safely rewrite invalid activation syntax.")
+				return report
+			}
+		}
 		if !present {
 			enabled = platform.Activation.EnabledByDefault
 		}
@@ -405,10 +420,27 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		}
 	}
 
+	disabled, probeErr := inspectHostDisableSwitch(root, platform.Kind)
+	if probeErr != nil {
+		report.State = StateDegraded
+		report.Detail = "host settings that can disable the artifact cannot be inspected: " + probeErr.Error()
+		report.remediation = manualRemediation("Restore read access to the host settings file, then rerun hook status.")
+		return report
+	}
+	if disabled != nil {
+		report.State = StateInstalled
+		report.Detail = "artifact is installed but the host will not run it: " + disabled.detail
+		report.remediation = manualRemediation("Remove that setting from " + disabled.path + ", then rerun hook status.")
+		return report
+	}
+
 	report.State = StateConfigured
 	switch {
 	case report.TargetPath == platform.TargetPath:
 		report.Detail = "configuration is complete and host-discoverable; live execution is reported separately"
+		if platform.Kind == KindClaudeCode {
+			report.Detail = "configuration is complete and host-discoverable; managed policy from MDM, server-managed settings, and --settings is not inspected; live execution is reported separately"
+		}
 		if platform.Kind == KindCodex {
 			report.Detail = "repository configuration is complete; Codex project trust, exact hook-definition trust, and managed-only restrictions are unverified; inspect /hooks before claiming hooks are loaded"
 		}

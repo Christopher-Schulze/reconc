@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"reconc.dev/reconc/internal/runtime/agentsession"
@@ -28,9 +29,14 @@ func TestCodexShellCompletionRequiresAuthoritativeOutcome(t *testing.T) {
 			body := fmt.Sprintf(`{"session_id":"outcome","tool_name":"Bash","tool_use_id":"original-command","tool_input":{"command":"go test ./..."},"tool_response":%s%s}`, test.response, test.extra)
 			// A repeated terminal observation must not invent another execution.
 			for range 2 {
-				_, stderr, code := runWithStdin(t, body, "hook", "runtime", "codex-post-tool-use", repo)
+				stdout, stderr, code := runWithStdin(t, body, "hook", "runtime", "codex-post-tool-use", repo)
 				if code != 0 || test.outcome == "" && stderr == "" {
 					t.Fatalf("post outcome: code=%d stderr=%s", code, stderr)
+				}
+				// Codex has no PostToolUseFailure event; any other name makes
+				// it reject the output and drop the failure context.
+				if strings.Contains(stdout, "PostToolUseFailure") || test.outcome == "failure" && stdout != "" && !strings.Contains(stdout, `"hookEventName":"PostToolUse"`) {
+					t.Fatalf("Codex PostToolUse output must name PostToolUse: %s", stdout)
 				}
 			}
 			state, err := agentsession.LoadSessionState(repo, "outcome")

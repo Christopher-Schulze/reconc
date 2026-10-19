@@ -110,6 +110,31 @@ func NormalizeGitHubCopilotPayload(event string, payloadBytes []byte, repoRoot s
 	return body, nil
 }
 
+// PayloadLooksLikeGitHubCopilot identifies a GitHub Copilot hook input. Copilot
+// also runs the repository's .claude/settings.json and settings.local.json
+// hooks; every Copilot input, camelCase or VS Code compatible, carries a
+// top-level timestamp that Claude Code inputs never do, so the CLI can leave
+// those duplicates to the first-class Copilot hook when it is installed.
+func PayloadLooksLikeGitHubCopilot(payloadBytes []byte) bool {
+	if len(bytes.TrimSpace(payloadBytes)) == 0 || !bytes.Contains(payloadBytes, []byte(`"timestamp"`)) {
+		return false
+	}
+	var raw map[string]interface{}
+	if json.Unmarshal(payloadBytes, &raw) != nil {
+		return false
+	}
+	switch stamp := raw["timestamp"].(type) {
+	case string:
+		if stamp == "" {
+			return false
+		}
+	case float64:
+	default:
+		return false
+	}
+	return cursorFirstString(raw, "session_id", "sessionId") != ""
+}
+
 // AdaptGitHubCopilotResult translates Reconc's neutral control responses into
 // the exact GitHub Copilot command-hook output contracts. Empty success output
 // deliberately leaves Copilot's normal permission flow intact.

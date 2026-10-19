@@ -446,9 +446,13 @@ export function apply(ctx) {
     }
   }
 
+  // required keeps the policy notice when optional runtime context is off;
+  // hosts that predate the field ignore it.
   const context = ctx.systemPrompt.context({
     name: 'reconc-policy',
     order: 125,
+    required: true,
+    interpolate: false,
     text: 'This repository uses Reconc policy. Run `reconc agent-intro` for its compact command guide before making changes. Resolve policy findings and run the required Reconc CLI and repository checks before declaring completion.',
   })
 
@@ -460,6 +464,18 @@ export function apply(ctx) {
     }
     return next()
   })
+
+  // Relative file operations and new processes run in the session's current
+  // directory, which the working_directory tool can move away from the
+  // project directory recorded in the session header.
+  const workingDirectory = (agent, fallback) => {
+    try {
+      const directory = ctx.get('workingDirectory')?.get(agent.session)
+      return typeof directory === 'string' && isAbsolute(directory) ? directory : fallback
+    } catch {
+      return fallback
+    }
+  }
 
   const pre = ctx.on('tools/pre-execute', async (exec, next) => {
     // ToolRuntime also serves host callers outside an agent session.
@@ -473,6 +489,7 @@ export function apply(ctx) {
           await waitForSession(identity, signal)
           return transport.run('dsh-pre-tool-use', {
             hook_event_name: 'tools/pre-execute', session_id: identity.session, cwd: identity.cwd,
+            working_directory: workingDirectory(identity.agent, identity.cwd),
             tool_name: identity.name, tool_input: identity.arguments, tool_call_id: identity.call,
             root_call_id: identity.rootCall, agent_id: identity.agentId,
             bash_stateful: identity.name === 'bash' && statefulBash(),
@@ -485,7 +502,12 @@ export function apply(ctx) {
           }
           return { kind: 'deny', reason: decision.reason.trim() }
         }
-      } catch (error) { return { kind: 'deny', reason: text(error?.message, 'Reconc policy evaluation failed') } }
+      } catch (error) {
+        // A user cancellation is not a policy denial; hosts that predate the
+        // cancel decision abort the call themselves once the signal fired.
+        if (exec.signal?.aborted) return { kind: 'cancel' }
+        return { kind: 'deny', reason: text(error?.message, 'Reconc policy evaluation failed') }
+      }
     } else return { kind: 'deny', reason: 'Invalid Reconc tool execution identity' }
     return next()
   })
@@ -540,7 +562,9 @@ export function apply(ctx) {
       if (active) return
       agent.steer({
         id: randomUUID(), role: 'user', content: [{ type: 'text', text: reason.trim() }],
-        source: { kind: 'plugin', plugin: 'reconc', form: 'notice', summary: 'Reconc requires another check' },
+        // Session format v4 rejects the retired shared `plugin` kind on reopen;
+        // a producer-owned kind is valid on every supported host.
+        source: { kind: 'reconc', form: 'notice', summary: 'Reconc requires another check' },
       })
       continued.set(agent, turn)
     } catch (error) {

@@ -44,6 +44,9 @@ type sourceProbe struct {
 	Normalization   string   `json:"normalization"`
 	SHA256          string   `json:"sha256"`
 	RequiredMarkers []string `json:"required_markers"`
+	// TrackedRef names the release branch an open-source probe follows when
+	// the shipped contract does not live on the default branch.
+	TrackedRef string `json:"tracked_ref,omitempty"`
 }
 
 var digestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -177,12 +180,21 @@ func validateSourceProvenance(source sourceProbe) error {
 	if current.Host == "raw.githubusercontent.com" {
 		currentParts := strings.Split(strings.TrimPrefix(current.Path, "/"), "/")
 		baselineParts := strings.Split(strings.TrimPrefix(baseline.Path, "/"), "/")
+		ref := "HEAD"
+		if source.TrackedRef != "" {
+			if !trackedRefPattern.MatchString(source.TrackedRef) || source.TrackedRef == "HEAD" {
+				return errors.New("tracked_ref must name a release branch")
+			}
+			ref = source.TrackedRef
+		}
 		if len(currentParts) < 4 || len(baselineParts) != len(currentParts) || baseline.Host != current.Host ||
-			currentParts[2] != "HEAD" || !revisionPattern.MatchString(baselineParts[2]) ||
+			currentParts[2] != ref || !revisionPattern.MatchString(baselineParts[2]) ||
 			currentParts[0] != baselineParts[0] || currentParts[1] != baselineParts[1] ||
 			!slices.Equal(currentParts[3:], baselineParts[3:]) {
-			return errors.New("GitHub source requires matching HEAD and immutable commit paths")
+			return errors.New("GitHub source requires matching tracked-ref and immutable commit paths")
 		}
+	} else if source.TrackedRef != "" {
+		return errors.New("tracked_ref applies only to GitHub sources")
 	} else if source.URL != source.BaselineURL {
 		return errors.New("documentation baseline must identify the reviewed source URL")
 	}
@@ -190,3 +202,4 @@ func validateSourceProvenance(source sourceProbe) error {
 }
 
 var revisionPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
+var trackedRefPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)

@@ -195,6 +195,25 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	}
 	repo = root.Path()
 	timing.mark("root_resolve")
+	if route.PlatformKind == hooks.KindClaudeCode {
+		// ${CLAUDE_PROJECT_DIR} stays on the main checkout after Claude enters
+		// a worktree; cwd follows the session, so its linked worktree is the
+		// checkout the policy must describe.
+		var location struct {
+			Cwd string `json:"cwd"`
+		}
+		if json.Unmarshal(payload, &location) == nil {
+			worktree, worktreeErr := agentsession.LinkedWorktreeRoot(repo, location.Cwd)
+			if worktreeErr == nil && worktree != "" {
+				root, worktreeErr = resolveRoot(worktree)
+			}
+			if worktreeErr != nil {
+				exitCode, err = emitHookRuntimeFailure(adaptHookRuntimeFailure(route, hookRuntimeFailureRootResolve, worktreeErr), stdout, stderr)
+				return err
+			}
+			repo = root.Path()
+		}
+	}
 	readiness := newFirstClassRouteReadiness()
 	if route.PlatformKind != hooks.KindCursor && agentsession.PayloadLooksLikeCursor(payload) {
 		if dedupToFirstClassRoute(readiness, root, route.PlatformKind, hooks.KindCursor, event, stderr) {
@@ -208,6 +227,11 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	}
 	if route.PlatformKind != hooks.KindGrok && agentsession.PayloadLooksLikeGrok(payload) {
 		if dedupToFirstClassRoute(readiness, root, route.PlatformKind, hooks.KindGrok, event, stderr) {
+			return nil
+		}
+	}
+	if route.PlatformKind != hooks.KindGitHubCopilot && agentsession.PayloadLooksLikeGitHubCopilot(payload) {
+		if dedupToFirstClassRoute(readiness, root, route.PlatformKind, hooks.KindGitHubCopilot, event, stderr) {
 			return nil
 		}
 	}
@@ -275,6 +299,9 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook runtime: event %q is not executable", event)}
 	}
 	result := agentsession.RunHookRequestWithEvaluatorAndStopCache(root, handler, event, payload, evaluator, stopCache)
+	if route.Event == hooks.EventConfigChange && result.ExitCode == 0 && result.Err == nil {
+		result = decideConfigChange(repo, payload, result)
+	}
 	timing.recordPolicyDecision(result)
 	timing.mark("handler")
 	if result.Err != nil {
@@ -305,6 +332,9 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	}
 	switch route.PlatformKind {
 	case hooks.KindClaudeCode:
+		if route.Event == hooks.EventStop {
+			result = agentsession.AdaptClaudeStopResult(result)
+		}
 		if route.Event == hooks.EventPostCompaction {
 			hookEventName := "PostCompact"
 			if event == "claude-compaction-recovery" {
@@ -368,6 +398,26 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	return nil
 }
 
+// decideConfigChange blocks a Claude Code settings change that would stop
+// Reconc's hooks; exit 2 keeps the running session on its current settings.
+// A change Reconc cannot evaluate is blocked as well (fail closed).
+func decideConfigChange(repo string, payload []byte, observed agentsession.Result) agentsession.Result {
+	var change struct {
+		Source string `json:"source"`
+	}
+	if err := json.Unmarshal(payload, &change); err != nil {
+		return agentsession.Result{ExitCode: 2, Stderr: "reconc hook: ConfigChange payload is not a JSON object: " + err.Error()}
+	}
+	reason, err := hooks.ClaudeConfigChangeBlockReason(repo, change.Source)
+	if err != nil {
+		return agentsession.Result{ExitCode: 2, Stderr: "reconc hook: evaluate ConfigChange: " + err.Error()}
+	}
+	if reason != "" {
+		return agentsession.Result{ExitCode: 2, Stderr: reason}
+	}
+	return observed
+}
+
 // emitHookRuntimeDecision writes the result and returns the exit code to
 // report. Several hosts read a deny from stdout with exit 0, so a blocking
 // route whose stdout never reached the host must not exit 0, which those hosts
@@ -426,6 +476,30 @@ func adaptHookRuntimeFailure(route hooks.RuntimeRoute, stage hookRuntimeFailureS
 		return hookRuntimeFailureAdaptation{
 			stdout:            string(body),
 			stdoutWriteAction: "write GitHub Copilot block response",
+		}
+	}
+	if route.PlatformKind == hooks.KindCursor && stopEvent {
+		// Cursor's stop output knows only followup_message; anything else
+		// ends the loop, so a failure keeps the agent working instead.
+		body, encodeErr := json.Marshal(map[string]string{"followup_message": strings.TrimSpace(diagnostic)})
+		if encodeErr != nil {
+			return hookRuntimeFailureAdaptation{exitCode: 2, cliError: "reconc hook runtime: encode Cursor stop response: " + encodeErr.Error()}
+		}
+		return hookRuntimeFailureAdaptation{
+			stdout:            string(body),
+			stdoutWriteAction: "write Cursor stop response",
+		}
+	}
+	if route.PlatformKind == hooks.KindClaudeCode && route.Event == hooks.EventStop {
+		// A JSON decision keeps the block even when the diagnostic names a
+		// missing file, which Claude otherwise treats as non-blocking.
+		body, encodeErr := json.Marshal(agentsession.ClaudeStopBlock(diagnostic))
+		if encodeErr != nil {
+			return hookRuntimeFailureAdaptation{exitCode: 2, cliError: "reconc hook runtime: encode Claude Code block response: " + encodeErr.Error()}
+		}
+		return hookRuntimeFailureAdaptation{
+			exitCode: 2, stdout: string(body), cliError: "reconc hook runtime: " + diagnostic,
+			stdoutWriteAction: "write Claude Code block response",
 		}
 	}
 	if route.PlatformKind == hooks.KindGrok && route.Event == hooks.EventPreToolUse {
@@ -524,7 +598,8 @@ func hookHandlerForRoute(event string, route hooks.RuntimeRoute) (agentsession.H
 		return agentsession.HookHandlerSessionStart, true
 	case hooks.EventUserPromptSubmit, hooks.EventPermissionDenied, hooks.EventPermissionResult,
 		hooks.EventStopFailure, hooks.EventInterrupt, hooks.EventToolObservation,
-		hooks.EventNotification, hooks.EventContinuation, hooks.EventSubagentStart:
+		hooks.EventNotification, hooks.EventContinuation, hooks.EventSubagentStart,
+		hooks.EventConfigChange:
 		if route.PlatformKind == hooks.KindCursor && route.Event == hooks.EventSubagentStart {
 			return agentsession.HookHandlerSessionStart, true
 		}

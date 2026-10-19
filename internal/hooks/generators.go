@@ -67,24 +67,40 @@ func generateClaudeCode() (*Artifact, error) {
 		EventPostToolUse, EventPostToolUseFailure, EventSubagentStart,
 		EventSubagentStop, EventPreCompaction, EventStop, EventStopFailure,
 		EventSessionEnd, EventNotification, EventMCPBefore, EventMCPAfter,
+		EventConfigChange,
 	)
 	if err != nil {
 		return nil, err
 	}
-	// Route Claude Code events to reconc-specific runtime sub-actions.
+	blocksOnFailure, err := failClosedEvents(KindClaudeCode)
+	if err != nil {
+		return nil, err
+	}
+	// Route Claude Code events to reconc-specific runtime sub-actions. Exec
+	// form needs a real executable on Windows, so `sh` runs the wrapper
+	// script on every platform at the same process cost as a shebang exec.
+	// Claude honors onFailure only from v2.1.295 and ignores it on Stop-like
+	// events; on the gating routes a hook that cannot run blocks the action.
 	command := func(event string, lifecycle Event) map[string]interface{} {
-		return map[string]interface{}{
+		entry := map[string]interface{}{
 			"type":    "command",
-			"command": "${CLAUDE_PROJECT_DIR}/tools/reconc/bin/hook",
+			"command": "sh",
 			"args": []interface{}{
+				"${CLAUDE_PROJECT_DIR}/tools/reconc/bin/hook",
 				event,
 				"${CLAUDE_PROJECT_DIR}",
 			},
 			"timeout": timeouts[lifecycle],
 		}
+		if blocksOnFailure[lifecycle] && lifecycle != EventStop {
+			entry["onFailure"] = "block"
+		}
+		return entry
 	}
-	const guardedTools = "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
-	const evidenceTools = "Read|Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
+	// PowerShell is Claude Code's shell tool on Windows without Git Bash and
+	// an opt-in elsewhere; it executes commands exactly like Bash.
+	const guardedTools = "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash|PowerShell"
+	const evidenceTools = "Read|Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash|PowerShell"
 	// Claude names every MCP call `mcp__<server>__<tool>`. The namespace needs
 	// its own matcher group: a matcher built only from exact-match characters is
 	// compared literally, so the regular expression cannot join the exact tool
@@ -94,7 +110,7 @@ func generateClaudeCode() (*Artifact, error) {
 		"hooks": map[string]interface{}{
 			"SessionStart": []interface{}{
 				map[string]interface{}{
-					"matcher": "startup|resume|clear",
+					"matcher": "startup|resume|clear|fork",
 					"hooks": []interface{}{
 						command("claude-session-start", EventSessionStart),
 					},
@@ -187,6 +203,17 @@ func generateClaudeCode() (*Artifact, error) {
 					},
 				},
 			},
+			// Settings files are hot-reloaded; the gate keeps a change that
+			// disables Reconc's hooks out of the running session. Managed
+			// policy cannot be blocked and skills cannot disable hooks.
+			"ConfigChange": []interface{}{
+				map[string]interface{}{
+					"matcher": "user_settings|project_settings|local_settings",
+					"hooks": []interface{}{
+						command("claude-config-change", EventConfigChange),
+					},
+				},
+			},
 		},
 	}
 	return jsonHookArtifact(&Artifact{
@@ -227,7 +254,7 @@ func generateCodex() (*Artifact, error) {
 		"hooks": map[string]interface{}{
 			"SessionStart": []interface{}{
 				map[string]interface{}{
-					"matcher": "startup|resume|clear",
+					"matcher": "startup|resume|clear|fork",
 					"hooks": []interface{}{
 						command("codex-session-start", EventSessionStart, "reconc: initializing policy session"),
 					},
@@ -376,6 +403,7 @@ func generateAntigravity() (*Artifact, error) {
 		"replace_file_content",
 		"multi_replace_file_content",
 		"run_command",
+		"manage_task",
 	}, "|")
 	postToolMatcher := strings.Join([]string{
 		"view_file",

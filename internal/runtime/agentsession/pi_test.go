@@ -39,7 +39,7 @@ func TestNormalizePiPayloadCoversEveryNativeRoute(t *testing.T) {
 				addPiToolPayload(payload, true)
 				payload["is_error"] = true
 				payload["tool_response"] = map[string]interface{}{"success": false, "error": "failed"}
-			case "pi-stop":
+			case "pi-stop", "pi-before-settle":
 				payload["stop_hook_active"] = false
 			case "pi-continuation-requested", "pi-continuation-failed", "pi-continuation-suppressed":
 				payload["continuation_delivery"] = strings.TrimPrefix(route, "pi-continuation-")
@@ -64,7 +64,7 @@ func TestNormalizePiPayloadCoversEveryNativeRoute(t *testing.T) {
 			if parsed.SessionID != "pi-s1" || parsed.Raw["reconc_runtime"] != "pi" || parsed.Raw["pi_event"] != route {
 				t.Fatalf("normalized Pi identity = %#v", parsed.Raw)
 			}
-			if route == "pi-stop" && (parsed.StrictContinuation || parsed.StopHookActive) {
+			if (route == "pi-stop" || route == "pi-before-settle") && (parsed.StrictContinuation || parsed.StopHookActive) {
 				t.Fatalf("Pi settled Stop must remain asynchronous: %#v", parsed.Raw)
 			}
 		})
@@ -117,6 +117,8 @@ func TestNormalizePiPayloadRejectsUnsafeShapes(t *testing.T) {
 		{name: "user bash cwd escape", route: "pi-user-bash", body: fmt.Sprintf(`{"hook_event_name":"user_bash","session_id":"s1","cwd":%q,"tool_name":"bash","tool_input":{"command":"true"},"user_bash_cwd":%q,"exclude_from_context":false}`, repo, outside), want: "outside repository root"},
 		{name: "result mismatch", route: "pi-post-tool-use", body: fmt.Sprintf(`{"hook_event_name":"tool_result","session_id":"s1","cwd":%q,"tool_name":"bash","tool_call_id":"c","tool_input":{},"tool_response":{},"is_error":true}`, repo), want: "does not match route"},
 		{name: "stop active", route: "pi-stop", body: fmt.Sprintf(`{"hook_event_name":"agent_settled","session_id":"s1","cwd":%q,"stop_hook_active":true}`, repo), want: "stop_hook_active=false"},
+		{name: "native settle active", route: "pi-before-settle", body: fmt.Sprintf(`{"hook_event_name":"agent_before_settle","session_id":"s1","cwd":%q,"stop_hook_active":true}`, repo), want: "agent_before_settle payload must declare stop_hook_active=false"},
+		{name: "native settle mismatch", route: "pi-before-settle", body: fmt.Sprintf(`{"hook_event_name":"agent_settled","session_id":"s1","cwd":%q,"stop_hook_active":false}`, repo), want: "does not match route"},
 		{name: "delivery mismatch", route: "pi-continuation-requested", body: fmt.Sprintf(`{"hook_event_name":"agent_settled","session_id":"s1","cwd":%q,"continuation_delivery":"failed"}`, repo), want: "does not match route"},
 		{name: "bad start reason", route: "pi-session-start", body: fmt.Sprintf(`{"hook_event_name":"session_start","session_id":"s1","cwd":%q,"reason":"other"}`, repo), want: "invalid Pi session_start reason"},
 		{name: "trailing value", route: "pi-stop", body: fmt.Sprintf(`{"hook_event_name":"agent_settled","session_id":"s1","cwd":%q,"stop_hook_active":false} {}`, repo), want: "multiple JSON values"},

@@ -557,19 +557,24 @@ const toolDecision = (event: string, result: RunResult): ToolCallEventResult | u
   return { block: true, reason: "Reconc returned an invalid OMP pre-tool response" }
 }
 
+// OMP caps only the native continue form at its continuation limit; a
+// Claude-style decision:"block" continues without bound. Every Reconc Stop
+// continuation therefore uses the native form so the host cap applies.
+const continueSession = (context: string): SessionStopEventResult => ({ continue: true, additionalContext: context })
+
 const stopDecision = (event: string, result: RunResult): SessionStopEventResult | undefined => {
   if (result.aborted) return undefined
   const failure = failureReason(event, result)
-  if (failure) return { decision: "block", reason: failure }
+  if (failure) return continueSession(failure)
   if (!result.stdout) return undefined
   const body = parseObject(result.stdout)
   if (body?.decision === "block" && typeof body.reason === "string" && body.reason.trim() !== "") {
-    return { decision: "block", reason: body.reason.trim() }
+    return continueSession(body.reason.trim())
   }
   if (body?.continue === true && typeof body.additionalContext === "string" && body.additionalContext.trim() !== "") {
-    return { continue: true, additionalContext: body.additionalContext.trim() }
+    return continueSession(body.additionalContext.trim())
   }
-  return { decision: "block", reason: "Reconc returned an invalid OMP Stop response" }
+  return continueSession("Reconc returned an invalid OMP Stop response")
 }
 
 const sessionPayload = (ctx: ExtensionContext, hookEventName: string, extra: JsonObject = {}): JsonObject => ({

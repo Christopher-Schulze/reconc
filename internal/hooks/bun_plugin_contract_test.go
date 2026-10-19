@@ -73,11 +73,16 @@ esac
 			driver := `const pluginPath = Bun.argv[2]
 const kind = Bun.argv[3]
 const pluginModule = await import("file://" + pluginPath + "?contract=" + Date.now())
-if (kind === "opencode" && "default" in pluginModule) throw new Error("OpenCode plugin must not export a default descriptor")
+// One default descriptor serves both OpenCode lines: 1.x calls server(),
+// 2.x calls setup(); a second export would load the plugin twice on 1.x.
+if (kind === "opencode" && (pluginModule.default?.id !== "reconc" || typeof pluginModule.default?.server !== "function" ||
+    typeof pluginModule.default?.setup !== "function" || Object.keys(pluginModule).join(",") !== "default")) {
+  throw new Error("OpenCode plugin descriptor is invalid")
+}
 if (kind === "kilo" && (pluginModule.default?.id !== "reconc" || typeof pluginModule.default?.server !== "function")) {
   throw new Error("Kilo plugin descriptor is invalid")
 }
-const factory = kind === "opencode" ? pluginModule.ReconcOpenCodePlugin : pluginModule.default.server
+const factory = pluginModule.default.server
 if (typeof factory !== "function") throw new Error("plugin factory missing")
 const hooks = await factory({
   directory: Bun.argv[4],
@@ -301,7 +306,7 @@ const kind = Bun.argv[3]
 const mode = Bun.argv[4]
 if (mode === "spawn-failure") process.env.PATH = ""
 const pluginModule = await import("file://" + pluginPath + "?transport=" + Date.now())
-const factory = kind === "opencode" ? pluginModule.ReconcOpenCodePlugin : pluginModule.default.server
+const factory = pluginModule.default.server
 let continuationCalls = 0
 const client = { session: { promptAsync: async () => {
   continuationCalls += 1
@@ -433,7 +438,7 @@ let syncCalls = 0
 const accepted = () => ({ response: { ok: true, status: 204 } })
 const load = async (session, promptAsync, includeSync = true) => {
   const module = await import("file://" + pluginPath + "?idle=" + (++nonce))
-  const factory = kind === "opencode" ? module.ReconcOpenCodePlugin : module.default.server
+  const factory = module.default.server
   const client = { session: {} }
   if (promptAsync) client.session.promptAsync = promptAsync
   if (includeSync) client.session.prompt = async () => { syncCalls += 1 }

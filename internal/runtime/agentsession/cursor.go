@@ -31,8 +31,16 @@ func NormalizeCursorPayload(event string, payloadBytes []byte) ([]byte, error) {
 	out := cloneObject(raw)
 	delete(out, "reconc_mcp")
 	sessionID := cursorSessionID(raw)
-	if event == "cursor-subagent-start" || event == "cursor-subagent-stop" {
+	switch event {
+	case "cursor-subagent-start":
 		sessionID = cursorFirstString(raw, "subagent_id", "subagentId", "agent_id", "agentId")
+	case "cursor-subagent-stop":
+		// subagentStop documents no subagent_id; a subagent's own tool events
+		// carry its own conversation_id, so the common session identity is the
+		// fallback that keeps the gate on that evidence.
+		if subagent := cursorFirstString(raw, "subagent_id", "subagentId", "agent_id", "agentId"); subagent != "" {
+			sessionID = subagent
+		}
 	}
 	if sessionID == "" {
 		return nil, fmt.Errorf("cursor payload has no session identity")
@@ -47,6 +55,11 @@ func NormalizeCursorPayload(event string, payloadBytes []byte) ([]byte, error) {
 	}
 	if v, ok := cursorFirstBool(raw, "is_interrupt", "isInterrupt", "interrupted", "aborted"); ok {
 		out["is_interrupt"] = v
+	} else if event == "cursor-stop" || event == "cursor-subagent-stop" {
+		// Stop reports a user abort as status "aborted", never as a boolean.
+		if status, _ := raw["status"].(string); status == "aborted" {
+			out["is_interrupt"] = true
+		}
 	}
 
 	switch event {
@@ -182,11 +195,12 @@ func AdaptCursorResult(event string, result Result) Result {
 	}
 	if event == "cursor-stop" || event == "cursor-subagent-stop" {
 		if result.ExitCode != 0 || result.Err != nil {
-			reason := resultReason(result, "reconc denied this Cursor action.")
+			// Cursor's stop output knows only followup_message; anything else
+			// ends the loop, so a failing gate keeps the agent working instead
+			// (bounded by the host loop_limit).
+			reason := resultReason(result, "reconc could not certify this Cursor stop.")
 			return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr, Err: result.Err}, map[string]interface{}{
-				"continue":      false,
-				"user_message":  reason,
-				"agent_message": reason,
+				"followup_message": reason,
 			})
 		}
 		if strings.TrimSpace(result.Stdout) == "" {

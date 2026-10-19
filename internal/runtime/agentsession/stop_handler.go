@@ -108,6 +108,7 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 	taskState := repositoryRunTaskState{RunState: taskSnapshot.State}
 	checkpointDue := false
 	runApplies := repositoryRunEnabled(runState)
+	backgroundWork := pendingBackgroundWork(payload)
 
 	// Repository mode is explicitly autonomous. An executable TASK continues
 	// before the terminal Stop policy and never shells out to Git. Task mutation,
@@ -127,7 +128,7 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): load evidence chain: %s", loadErr)}
 		}
 		checkpointDue = repoRunPolicyCheckpointDue(runState, state, time.Now())
-		if !checkpointDue {
+		if !checkpointDue && backgroundWork == 0 {
 			if contResult, contHandled, err := runRepositoryContinuation(root, runFile, payload, runtimeName, taskState.RunState); err != nil {
 				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: %s", err)}
 			} else if contHandled {
@@ -238,6 +239,9 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 		}
 	}
 
+	if backgroundWork > 0 {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (stop): %d background task(s) or wakeup(s) still pending; the session is paused, so repository run waits for the Stop after that work settles", backgroundWork)}
+	}
 	if repositoryRunEnabled(runState) {
 		if contResult, contHandled, err := runRepositoryContinuation(root, runFile, payload, runtimeName, taskState.RunState); err != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: %s", err)}
@@ -247,6 +251,28 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 	}
 
 	return Result{ExitCode: 0}
+}
+
+// pendingBackgroundWork counts Claude Code's in-flight background tasks and
+// one-shot wakeups. Such a Stop pauses the session rather than ending it; the
+// host fires another Stop once that work wakes the session and settles.
+// Recurring crons re-prompt a finished session and do not hold it open.
+func pendingBackgroundWork(payload *HookPayload) int {
+	if payload == nil {
+		return 0
+	}
+	pending := 0
+	if tasks, ok := payload.Raw["background_tasks"].([]interface{}); ok {
+		pending += len(tasks)
+	}
+	if crons, ok := payload.Raw["session_crons"].([]interface{}); ok {
+		for _, cron := range crons {
+			if entry, ok := cron.(map[string]interface{}); ok && entry["recurring"] == false {
+				pending++
+			}
+		}
+	}
+	return pending
 }
 
 func applyStopRunStateClose(result Result, terminalDecision stopTerminalDecision, closeErr error) Result {

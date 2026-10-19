@@ -219,6 +219,12 @@ func hookRuntimeFailureGolden(route hooks.RuntimeRoute, stage hookRuntimeFailure
 	if route.PlatformKind == hooks.KindGrok && route.Event == hooks.EventPreToolUse {
 		return 0, fmt.Sprintf("{\"decision\":\"deny\",\"reason\":%q}\n", diagnostic), "", "<nil>"
 	}
+	if route.PlatformKind == hooks.KindCursor && stopEvent {
+		return 0, fmt.Sprintf("{\"followup_message\":%q}\n", diagnostic), "", "<nil>"
+	}
+	if route.PlatformKind == hooks.KindClaudeCode && route.Event == hooks.EventStop {
+		return 2, fmt.Sprintf("{\"decision\":\"block\",\"reason\":%q}\n", diagnostic), "", "reconc hook runtime: " + diagnostic
+	}
 	if route.ErrorPolicy == hooks.FailureBlock {
 		return 2, "", "", "reconc hook runtime: " + diagnostic
 	}

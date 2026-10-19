@@ -1603,8 +1603,9 @@ Pi, ZCode, Grok Build,
 and Kimi Code CLI, plus git pre-commit as the repository backstop. Host capabilities
 differ: some expose synchronous Stop, GitHub Copilot and Kimi Code retain
 documented host-fail-open timeout behavior, OpenCode and Kilo expose inferred
-`session.idle`, OMP exposes awaited main-session `session_stop`, Pi exposes
-inferred asynchronous `agent_settled` continuation, and Grok has a
+`session.idle`, OMP exposes awaited main-session `session_stop`, Pi 1.x exposes
+the awaited `agent_before_settle` boundary (older Pi only inferred asynchronous
+`agent_settled` continuation), and Grok has a
 strict ACP driver for continuation. Run
 `reconc hook status . --json` before claiming that a particular installation
 is live.
@@ -2376,8 +2377,12 @@ successful idempotent no-op and reports `recovered: false`.
 The source repository monitors the official contracts behind all 15 registered
 hosts, including `git-pre-commit`. The catalog at
 `scripts/audits/host-contracts/sources.json` binds 21 saved event/adapter fixtures
-and 21 official documentation or API sources. Open-source probes record an
-immutable reviewed commit URL and compare the same path at upstream `HEAD`.
+and 31 official documentation or API sources. Open-source probes record an
+immutable reviewed commit URL and compare the same path at upstream `HEAD`, or
+at the release branch named by `tracked_ref` when the shipped contract lives
+off the default branch: the OpenCode 1.x plugin types follow `v1`, while the
+OpenCode 2.x plugin, permission, session, tool, and session-event sources
+follow `HEAD`.
 Documentation probes record the reviewed URL, date, normalized content digest,
 and required contract markers. This source-review baseline is separate from
 the host-version qualification recorded in adapter fixtures.
@@ -2762,7 +2767,14 @@ blocks `.env`, other `.env.*` names, key and certificate files, and root or
 nested `.db`, `.sqlite`, and `.sqlite3` files plus each `-wal` and `-shm`
 sidecar. A project with a different approved template name must add that exact
 root and nested pattern to its own `deny_write.exclude_paths`; broad `.env.*`
-exceptions would also permit unapproved secret names.
+exceptions would also permit unapproved secret names. The built-in
+`host-hook-config-read-only` template blocks agent writes to every
+repository-local hook artifact the registry installs, the wrapper, and the host
+settings that can switch an installed hook off: `.claude/settings.local.json`,
+`.codex/config.toml`, `.github/copilot/settings.json` and
+`settings.local.json`, and OMP's `.omp/config.yml` and `.omp/settings.json`.
+Hooks then change only through `reconc hook install` or outside the agent
+session.
 
 Template-bearing paths use the grammar owned by `internal/templates`: a token
 is exactly `{name}` with ASCII identifier characters, while balanced glob
@@ -4614,8 +4626,8 @@ contains no second matrix.
 | Cursor inline Tab | `afterTabFileEdit` only; read-prevention and Agent lifecycle are intentionally absent | Successful Tab-write evidence only after that exact route is observed |
 | Cursor CLI interactive | `.cursor/hooks.json` under verified `cursor-agent`; session, prompt, generic tool, specialized shell/file, failure, Stop, and workspace routes | CLI `2026.09.10-fd3934a` observed prompt, Stop, shell failure, file edit, read, and lifecycle routes in a disposable repository; MCP, subagent, and compaction remain unproven |
 | Cursor CLI print mode | The same project file under verified `cursor-agent --print`; session, generic tool, specialized shell/file/MCP, failure, and workspace routes | CLI `2026.09.10-fd3934a` observed these routes with `--force` for writes and a local approved MCP server; prompt and Stop are registry-eligible but not observed in the captured print runs; subagent and compaction remain unproven |
-| Cursor cloud agents | Repository hooks after a writable environment exists; session start/end, dedicated MCP, and Tab routes are unavailable | Only documented eligible routes; no live claim without approved cloud execution |
-| OpenCode CLI | `.opencode/plugins/reconc.js`; prompt, permission, tool, session, compaction, terminal failure, and inferred idle continuation | Static plugin contract plus per-route liveness; continuation remains inferred |
+| Cursor cloud agents | Repository hooks after a writable environment exists; session start/end, dedicated MCP, and Tab routes are unavailable; MCP calls reach only `preToolUse` as `MCP:<tool>` without a server identity, which Reconc's `preToolUse` matcher does not select, so MCP calls in cloud agents are not gated | Only documented eligible routes; no live claim without approved cloud execution |
+| OpenCode CLI (1.x and 2.x) | `.opencode/plugins/reconc.js`; prompt, permission, tool, session, compaction, terminal failure, and inferred idle continuation (2.x: end of an agent execution) | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code CLI | `.kilo/plugin/reconc.js` with `KILO_PURE` unset; same lifecycle classes as OpenCode | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code VS Code host | The same canonical project plugin when that host loads external project plugins | CLI observations are never reused as VS Code proof |
 | Oh My Pi CLI | `.omp/extensions/reconc.ts`; native session, input, tool, user-shell, user-Python observation, approval, compaction, shutdown, and awaited main-session Stop routes | OMP 18.1.18 emitted Reconc session, pre-tool, final post-tool, Stop, and shutdown routes in a disposable repository; `tool_call` and `user_bash` have blocking contracts, but native policy denial was not exercised; `user_python` is observed and never decided |
@@ -4638,8 +4650,8 @@ print-mode denial used an isolated custom hook to test the host response.
 | `preToolUse` | observed | observed; host deny control | installed |
 | `postToolUse` | observed | observed | installed |
 | `postToolUseFailure` | observed | observed | installed |
-| `subagentStart` | configured, unproven | configured, unproven | installed |
-| `subagentStop` | configured, unproven | configured, unproven | installed |
+| `subagentStart` | configured, unproven | not fired for a Task subagent (2026.09.18) | installed |
+| `subagentStop` | configured, unproven | not fired for a Task subagent (2026.09.18) | installed |
 | `beforeShellExecution` | observed | observed | installed |
 | `afterShellExecution` | observed | observed | installed, passive |
 | `beforeMCPExecution` | configured, unproven | observed; host deny control | installed |
@@ -4654,6 +4666,13 @@ print-mode denial used an isolated custom hook to test the host response.
 | `beforeTabFileRead` | not applicable | not applicable | excluded; Tab-only read hook |
 | `afterTabFileEdit` | not applicable | not applicable | installed for Tab only |
 | `workspaceOpen` | observed | observed | installed, sessionless |
+
+In print mode, CLI `2026.09.18-9a7762b` ran a Task-tool subagent without
+firing `subagentStart` or `subagentStop`; the subagent's own `preToolUse` and
+`postToolUse` events carried a separate `conversation_id` and `session_id`.
+Each of its tool calls passes the pre-tool gate, but its evidence forms its own
+session that no subagent Stop gate certifies in that mode; an installed git
+pre-commit hook remains the backstop for its writes.
 
 The CLI MCP pre-event includes the stdio command locator, tool name, server
 name, and JSON-stringified input. Its post-event includes the same server/tool
@@ -4696,9 +4715,19 @@ set before advancing write evidence. Repeated writes to the same path can
 advance separately, while repeated delivery of one event does not. Tool and
 subagent decisions return `permission`; prompt submission returns `continue`;
 observation and workspace routes return `{}`.
-Stop and subagent Stop use Cursor's bounded `followup_message` response. A
-malformed or outcome-unknown post event cannot satisfy command freshness,
-completion, or proof.
+Stop and subagent Stop use Cursor's bounded `followup_message` response, the
+only field Cursor's stop output accepts: a failing gate or an unreadable
+payload also continues through `followup_message` (bounded by Cursor's
+`loop_limit`) instead of ending the loop, and a stop whose `status` is
+`aborted` is a user interrupt. Cursor merges the responses of hooks from every
+source: any `deny` wins over `ask` and `ask` over `allow`, but for other fields
+such as `followup_message` the last response wins, so a `stop` hook in a
+lower-priority source (enterprise, team, project, then user) replaces Reconc's
+project continuation. Reconc's denials always hold; a user-level Stop hook can
+end a continuation Reconc requested. The documented `subagentStop` input has no
+`subagent_id`, so that route uses `subagent_id` when present and otherwise the
+common `conversation_id`. A malformed or outcome-unknown post event cannot
+satisfy command freshness, completion, or proof.
 
 The CLI probe prefers `cursor-agent` and accepts `agent` only when its reported
 version and help identify Cursor; this machine's `agent` is Grok. It verifies
@@ -4758,11 +4787,28 @@ and session shutdown. The generic pair covers manual, automatic, and
 extension-supplied successful compaction without also registering the
 auto-compaction attempt events. OMP task
 sessions do not emit `session_stop`, so continuation is deliberately scoped to
-the main session and capped at eight accepted continuations per session.
+the main session. Every Reconc Stop continuation, including a failing gate,
+uses OMP's native `{continue, additionalContext}` form: OMP caps that form at
+eight continuations per session, while a Claude-style `decision: "block"`
+would continue without bound.
 
 Ambient discovery is host-controlled. `omp --no-extensions` suppresses the
 project extension, while an explicit `-e .omp/extensions/reconc.ts` can still
-load it; installation does not override either choice. Every `ExtensionAPI`
+load it; installation does not override either choice. A
+`disabledExtensions` entry `extension-module:reconc` suspends the loaded
+extension's handlers in the running main session without a restart. Settings
+layers replace arrays, so a list in `.omp/config.yml` or `.omp/settings.json`
+decides over the user `config.yml` (or `config.yaml`) in the active agent
+directory; `reconc hook status` reports the artifact as installed but not
+running when the deciding list names the extension. Protect those files with a
+`deny_write` rule such as the built-in `host-hook-config-read-only` template.
+An advisor's tool calls reach the advising session's `tool_call` and
+`tool_result` handlers, are gated per call, and count toward that session;
+`ctx.agent` identifies the advisor, but Reconc does not split its evidence. A
+tool approved for the session, or through a remembered folder or target grant
+(including one kept across sessions), skips later `tool_approval_requested` and
+`tool_approval_resolved` events, which Reconc only observes; the `tool_call`
+gate still runs for every call. Every `ExtensionAPI`
 binding owns its own worker transports, including parent and child bindings
 created from the same cached module factory, and shutdown closes only that
 binding's workers.
@@ -4807,14 +4853,21 @@ patch and retrying. Repository sync and uninstall also refuse a drifted patch.
 The overlay's `reconcGuard` service signals extension readiness; it installs no
 tool guard. Native `tools/pre-execute` returns `{kind: 'deny', reason}` for
 policy blocks, invalid decisions, worker errors, timeouts, and exhausted
-transport capacity. Allowed calls delegate to the next handler exactly once;
+transport capacity, and `{kind: 'cancel'}` when the call's own signal was
+aborted, so a user cancellation is never reported as a policy denial. Allowed calls delegate to the next handler exactly once;
 warnings retain their successful decision. DSH retains its own cancellation,
 permission, and plugin behavior. Reconc does not lock host-owned execution
 properties; later plugins can change input after its pre-tool evaluation.
 ToolRuntime calls without an agent are outside agent-session policy and continue
 without creating session evidence, as do calls owned by another repository.
-The built-in read/write/edit tools retain typed input. Relative native file
-paths in repository subdirectories are rebased to the policy root. Both native
+The built-in read/write/edit tools retain typed input. Each call carries the
+session's current directory from DSH's `workingDirectory` service, because the
+`working_directory` tool moves relative file operations and new processes away
+from the project directory in the session header; the header directory stays
+the project and session identity. Relative native file paths are resolved
+against that current directory: inside the repository they become
+policy-root-relative, outside it they stay absolute. Bash running outside the
+repository root is never treated as stateless root Bash. Both native
 and PTC modes remain available. `run_code`, PowerShell, persistent Bash, all
 terminal operations, renamed delegation tools, workflow, Ralph, external DSH
 SDK/Codex/Claude/ACP providers, and compatibility bridges have no execution-mode
@@ -4834,8 +4887,11 @@ which is useful for observation but cannot prove the original shell exit or
 file effect. Reconc therefore records DSH post routes passively and requires
 trusted `reconc exec` or CI evidence for such claims. The extension awaits
 session setup before each agent step and supplies compact guidance in prompt
-assembly after compaction. Awaited `agent/turn-stopping` evaluates Stop and
-uses the documented `agent.steer` inbox API for one remediation per agent/turn.
+assembly after compaction. The policy notice is a `required` prompt context, so
+presets that disable optional runtime context keep it. Awaited
+`agent/turn-stopping` evaluates Stop and uses the documented `agent.steer`
+inbox API for one remediation per agent/turn; the steered message uses the
+producer-owned source kind `reconc`, which session format v4 accepts on reopen.
 Reentry carries `stop_hook_active=true`; cancellation suppresses steering.
 The host rereads steering before committing the turn boundary. Lifecycle
 errors and timeouts produce bounded diagnostics. The same explicit Reconc CLI
@@ -4898,16 +4954,23 @@ exit code zero. Failed output never becomes an inferred exit status.
 
 Pi's only veto of that shape is `project_trust`, which decides whether the
 project is trusted at all rather than whether one tool call is permitted;
-Reconc reads that saved decision instead of casting a vote in it. Pi therefore
-exposes no per-call permission event, MCP discriminator, synchronous Stop event,
-or continuation delivery acknowledgement. Reconc therefore maps permission
-and MCP policy only through the generic pre-tool identity, and maps
-`agent_settled` to a fail-open bounded continuation request. State is capped at
-1,024 sessions and ten requested continuations per session; duplicate settled
-events and injected Reconc input are suppressed by generation and in-flight
-state. `sendUserMessage` returning only `void` means the adapter reports
-requested, failed-before-call, or suppressed delivery without claiming host
-acceptance. Host cancellation releases immediately. Every registered runtime additionally carries a host event record: the event
+Reconc reads that saved decision instead of casting a vote in it. Pi exposes no
+per-call permission event or MCP discriminator, so Reconc maps permission and
+MCP policy only through the generic pre-tool identity. A nested call made
+through `ctx.executeTool()` passes the same `tool_call` gate; it carries
+`parentToolCallId`, and its own id (`<parent>/<n>`) keeps it distinct, so
+Reconc keys every nested call by that id. Pi 1.x settles through
+the awaited `agent_before_settle` boundary: Reconc runs the Stop gate there on
+its own `pi-before-settle` route and continues natively by appending a hidden
+`custom_message` entry with `continue: true`, so no input is injected; a
+boundary whose `outcome` is `aborted` neither asks the gate nor continues. Older hosts emit only
+`agent_settled`, where the adapter falls back to a fail-open bounded
+`sendUserMessage` request; `sendUserMessage` returning only `void` means that
+path reports requested, failed-before-call, or suppressed delivery without
+claiming host acceptance. A settle whose `aborted` flag is set (Esc) never
+continues. State is capped at 1,024 sessions and ten requested continuations
+per session; duplicate settled events and injected Reconc input are suppressed
+by generation and in-flight state. Host cancellation releases immediately. Every registered runtime additionally carries a host event record: the event
 vocabulary that host accepts, transcribed from its own published reference or
 source, with the location, the revision where one exists, and the date it was
 taken. A test compares each record against the registry in both directions, so
@@ -5182,8 +5245,18 @@ documented non-hostile same-user model, not a security boundary against a
 process that can replace repository files. Use a sandbox and protected remote
 CI outside that write authority when hostile same-user replacement is in scope.
 Claude Code uses its exec-form
-`command`+`args` shape so it does not spawn a hook shell or run a hook-launcher
-Git lookup. Codex uses the host shell command string without a nested launcher;
+`command`+`args` shape with `sh` as the executable and the wrapper path as its
+first argument, so it does not spawn a hook shell or run a hook-launcher Git
+lookup: Windows exec form needs a real executable (Git for Windows supplies
+`sh`), and on POSIX `sh` runs the wrapper at the same process cost as a
+shebang exec. The gating routes (`PreToolUse`, the MCP `PreToolUse` group and
+`PermissionRequest`) set `onFailure: "block"`, so a hook that cannot start,
+crashes or times out blocks the action or denies the permission instead of
+letting it through; that requires Claude Code v2.1.295, and Claude ignores the
+field on `Stop`. Claude's `PowerShell` tool is gated and recorded exactly like
+`Bash`, `SessionStart` also binds forked sessions (`fork`), and a blocking Stop
+carries a `{"decision":"block"}` JSON body so a diagnostic that names a missing
+file is never read as a non-blocking error. Codex uses the host shell command string without a nested launcher;
 Cursor and Antigravity use portable non-login `sh -c` launchers with a direct
 wrapper fast path before their Git fallback.
 Codex bootstrap and direct hook installation manage `hooks = true` under the
@@ -5193,15 +5266,23 @@ decoder for multiline basic and literal strings, comments, quoted and dotted
 keys, explicit and implicit tables, inline tables, and duplicate-key rules.
 Only the semantic boolean path controls activation; section-like or marker-like
 text inside strings is inert. Root-level or non-boolean lookalikes fail closed.
-Direct installation rejects an explicit user-owned
+Status also honors Codex's deprecated `codex_hooks` alias: Codex applies
+feature keys in sorted order, so `hooks` overrides it, and the alias decides
+only when `hooks` is absent. Direct installation rejects an explicit user-owned
 `hooks = false` before any artifact write unless `--force` is supplied.
 Transactional bootstrap reports the change as managed drift and requires the
 explicit marker-only acceptance path. Forced or accepted activation records
 the exact original expression inside the managed block; hook uninstall and
 bootstrap removal restore that expression byte-for-byte without reformatting
-unrelated TOML. A root-level `hooks=true` lookalike is invalid. The verified
-Codex CLI 0.154.0 contract includes twelve native event groups, including
-root-only `SessionEnd` cleanup and advisory `Interrupt`. Interruption never approves
+unrelated TOML. A root-level `hooks=true` lookalike is invalid. The Codex CLI
+contract (verified on 0.154.0, source re-reviewed for 0.163.0) includes twelve
+native event groups, including root-only `SessionEnd` cleanup and advisory
+`Interrupt`. Codex `main` adds the observation-only `PreModelRequest` and
+`PostModelRequest` groups; Codex logs their output and never treats it as
+control flow, so Reconc leaves them unbound. Codex marks new or changed hook
+definitions for review and skips them until the user trusts them in `/hooks`;
+whenever `reconc hook install codex` changes `.codex/hooks.json`, its next
+action says so. Interruption never approves
 completion or disables durable run mode. Reconc generates supported routes
 with bounded 3, 5, 10, or 30 second timeouts. `SessionStart` with `source=compact`
 restores model-visible context while retaining session evidence; `PostCompact`
@@ -5249,11 +5330,35 @@ Copilot's exact schemas. `PermissionRequest` and `Notification` are CLI-only; cl
 enforcement therefore uses `PreToolUse`. The published hooks reference names
 fourteen events. Reconc binds the twelve it can decide or attribute and leaves
 `errorOccurred` and `userPromptTransformed` unbound; `PostCompact` does not
-exist on this host and is reported as unsupported rather than generated. Copilot reads deny and block as exit
-code 0 plus JSON, so a missing or failed wrapper on `PreToolUse`,
-`PermissionRequest`, `Stop`, and `SubagentStop` emits that platform's explicit
-deny or block envelope from the generated bash and PowerShell commands instead
-of a bare non-zero exit; Copilot's own timeout behavior remains fail-open. The
+exist on this host and is reported as unsupported rather than generated. Copilot logs most hook failures and
+continues: a non-zero exit other than 2 is fail-open for `PermissionRequest`,
+`Stop`, and `SubagentStop`, and only `PreToolUse` denies on a crash. A missing
+or failed wrapper on those four routes therefore emits the platform's explicit
+deny or block envelope with exit 0 from the generated bash and PowerShell
+commands; Copilot's timeout behavior remains fail-open on every event. PascalCase
+`PreToolUse` and `PermissionRequest` match Claude tool names, while
+`PostToolUse` anchors its matcher against runtime tool names, so the evidence
+matcher names both (`view|bash|powershell|create|edit|str_replace_editor|apply_patch`
+plus `Read|Bash|Edit|Write`). Copilot CLI also runs the repository's
+`.claude/settings.json` and `settings.local.json` hooks; every Copilot input
+carries a top-level `timestamp` that Claude Code inputs never do, so a Claude
+route defers such an invocation to the first-class Copilot hook when it is
+installed and configured, and gates it itself otherwise. Whether Copilot runs
+Claude's exec-form `command` and `args` entries as written is live-unverified.
+Tool events from a subagent carry `agent_id`, `agent_type`, and
+`parent_agent_id`; Reconc attributes them to the root `session_id`, as it does
+for Claude Code subagents, so the parent's Stop gate covers the subagent's
+work. `reconc hook status` reports the artifact as installed but not running
+when the first of `.github/copilot/settings.local.json`,
+`.github/copilot/settings.json`, and the user `settings.json` (under
+`COPILOT_HOME`, default `~/.copilot`) that sets `disableAllHooks` sets it to
+`true`; the cloud agent loads none of those files. In a Copilot CLI session with
+the session sandbox enabled, repository hooks run inside the sandbox with the
+agent's shell access. Reconc's session state lives under `RECONC_HOME` (default
+`~/.reconc`) or `RECONC_CLAUDE_STATE_DIR`, outside the workspace, so grant that
+path through
+`sandbox.userPolicy` or every `PreToolUse` fails closed and `Stop` blocks until
+Copilot's runaway guard ends the turn. The
 managed filename is never overwritten when it contains foreign content, even
 with `--force`. Static configuration and contract tests are not live proof;
 only per-route liveness in `reconc hook status . --json` can establish that a
@@ -5264,9 +5369,39 @@ executes compatible `.claude/settings.json` hooks, Reconc detects Cursor-native
 payload markers and no-ops those non-native Claude hook invocations before they
 can duplicate Cursor session evidence. Claude routes its native prompt,
 permission-denied, failed-tool, Stop-failure, notification, subagent,
-pre/post-compaction, and session events. Claude Code accepts 31 hook events.
-Reconc installs the 15 that carry a policy decision or authoritative session
-evidence, plus the `SessionStart` `compact` recovery matcher. The remaining
+pre/post-compaction, and session events. Claude Code accepts 33 hook events.
+Reconc installs the 16 that carry a policy decision or authoritative session
+evidence, plus the `SessionStart` `compact` recovery matcher. Claude Code
+hot-reloads settings files, so `ConfigChange` gates `user_settings`,
+`project_settings`, and `local_settings`: a change that sets an effective
+`disableAllHooks: true` or leaves `.claude/settings.json` without Reconc's
+generator-exact entries exits 2, and the running session keeps its current
+settings. A change Reconc cannot evaluate is blocked too. Managed-policy changes
+cannot be blocked by any hook, and skill changes cannot disable hooks.
+`reconc hook status` reports the artifact as installed but not running when the
+file-based managed policy (`managed-settings.json`, then `managed-settings.d/`)
+sets `disableAllHooks` or `allowManagedHooksOnly`, or when the first of
+`.claude/settings.local.json`, `.claude/settings.json`, and the user
+`settings.json` that sets `disableAllHooks` sets it to `true`; MDM,
+server-managed, and `--settings` policy stay uninspected. A Claude Stop whose
+`background_tasks` lists in-flight work, or whose `session_crons` holds a
+one-shot wakeup, pauses the session instead of ending it: the policy gate still
+runs and blocks on violations, but repository run sends no continuation until
+the Stop after that work settles. Claude Code ends a turn after eight
+consecutive Stop continuations (`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` raises the
+cap) and resets the count whenever Claude calls a tool. Plugin MCP tools are
+named `mcp__plugin_<plugin>_<server>__<tool>`; the `mcp__.*` matcher covers
+them, and policy selectors match that full name. Reconc does not read the
+payload's `mcp_server.source`, so a selector written for a bare server name does
+not cover the plugin-scoped tool. After `EnterWorktree`, and for subagents that
+run in their own worktree, Claude Code keeps `${CLAUDE_PROJECT_DIR}` on the main
+checkout while `cwd` follows the session into `.claude/worktrees/<name>`. When
+`cwd` lies in a linked worktree of the same repository (its gitdir's
+`commondir` names this repository's common directory), Reconc evaluates the
+hook against that checkout: its policy, lockfile, session state, and Git
+snapshot. A write tool aimed at another linked worktree of the repository is
+denied, because root-relative policy paths cannot describe that checkout.
+Submodules and other repositories are never treated as linked worktrees. The remaining
 events stay unbound on purpose: they carry no decision Reconc can make and no
 evidence it can attribute. `FileChanged` is the closest miss, because it
 reports mutations from any source, including the user's own editor, so it
@@ -5307,9 +5442,21 @@ hook is therefore an advisory pre-execution control under host timeout or
 later input rewrites; retain the git-derived checkpoint and pre-commit gate.
 Unexercised tool names remain unproven live.
 Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
-`PostToolUse`, `PostInvocation`, and `Stop`; Reconc stores Antigravity PreTool
+`PostToolUse`, `PostInvocation`, and `Stop`. The Antigravity App, CLI, and IDE
+all load that file; Reconc's adapter is qualified against the CLI, and App and
+IDE use is unverified. The App and IDE can switch a
+hook off under Settings > Customizations > Hooks, a setting Reconc cannot read,
+so `reconc hook status` cannot report it. `SessionStart` stays unbound because
+`PreInvocation` already starts the Reconc session before every model call.
+`manage_task` with `send_input` types into a running `run_command` process
+outside the reviewed command line, so Reconc denies it, as it denies Devin's
+`write_to_process`; `list`, `status`, and `kill` pass. Reconc stores Antigravity PreTool
 metadata as pending evidence so PostToolUse can record exact evidence when the
-post payload only carries a step index/result. The host's `conversationId` is
+post payload only carries a step index/result. When the post payload names the
+executed call and it differs from the call PreToolUse allowed (another hook's
+`overwrite` merged new arguments before execution), the evidence records the
+executed call, the post route warns, and the Stop gate evaluates the real
+write; Reconc cannot undo that host mutation. The host's `conversationId` is
 the session identity and its documented 0-based `stepIdx` is a monotonic
 trajectory sequence, so consumed step calls use a persisted high-water mark
 instead of one tombstone per call. The mark survives PostInvocation rollover,
@@ -5342,7 +5489,25 @@ translate host events only; policy, session state, compaction context, and
 continuation decisions stay in the Go runtime. Exact shell outcomes,
 subprocess bounds, and idle-continuation behavior are defined in
 [Host Integration Truth](#host-integration-truth). On Windows, the adapters
-invoke the extensionless POSIX wrapper through `sh`.
+invoke the extensionless POSIX wrapper through `sh`. The patch tool's
+`patchText` reaches the same add/update/delete path parser as `apply_patch`,
+concurrent hooks and lifecycle events share one in-flight session start, and
+a `dispose` hook closes the adapter's worker.
+The OpenCode file is one default export `{id: "reconc", server, setup}` that
+loads on both OpenCode lines: 1.x (1.18.4 and newer) calls `server()` and
+ignores `setup`; 2.x calls `setup()` and ignores `server`. `setup()` maps the
+2.x domain hooks onto the same adapter: `tool` `execute.before`/`execute.after`
+(a rejection fails the call; an `error` status is the terminal failure),
+`permission` `evaluate` (a denial sets `effect: "deny"`), `session` `prompt`
+and `compaction` (recovery context joins the compaction request's system
+parts), and the server event stream, where `session.execution.succeeded` or
+`failed` runs the stop gate and `session.execution.interrupted` never does.
+The 2.x stream carries every session the server runs, so lifecycle events
+reach the adapter only for sessions its location-bound hooks have seen.
+Continuation uses `session.prompt` with queue delivery and a metadata marker
+that identifies the injected prompt. A one-shot `opencode run --standalone`
+stops its private server when the run ends, so a continuation requested at
+that point is reported as failed; the TUI and the background service run it.
 Cursor, GitHub Copilot, Devin, Grok, and Antigravity remove every incoming
 top-level `reconc_mcp` member before ordinary event reconstruction; only a
 dedicated Reconc MCP normalizer or an identity-bound custom runtime can create

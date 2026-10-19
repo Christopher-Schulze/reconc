@@ -10,11 +10,14 @@ const mode = Bun.argv[4]
 const listeners = new Map()
 const runtimes = []
 let guard, cleanup
+const contexts = []
+let sessionDirectory
 const ctx = {
   registry: { values: () => runtimes.values() },
   on(name, listener) { listeners.set(name, listener); return () => listeners.delete(name) },
   tools: { guard(listener) { guard = listener; return () => { guard = undefined } } },
-  systemPrompt: { context() { return () => {} } },
+  systemPrompt: { context(entry) { contexts.push(entry); return () => {} } },
+  get(name) { return name === 'workingDirectory' && sessionDirectory ? { get: () => sessionDirectory } : undefined },
   provide() { return () => {} },
   effect(factory) { cleanup = factory() },
 }
@@ -124,7 +127,20 @@ if (mode === 'diagnostics-timer') {
       await allowed(call('read'))
       const canceled = call('read')
       canceled.signal = AbortSignal.abort(new Error('host canceled'))
-      assert.equal((await pre(canceled)).kind, 'deny')
+      assert.equal((await pre(canceled)).kind, 'cancel', 'a user cancellation is not a policy denial')
+      assert.equal(contexts[0].required, true, 'the policy notice must survive disabled optional context')
+      sessionDirectory = repo + '/docs'
+      await allowed(call('read', { path: 'spec.md' }))
+      sessionDirectory = undefined
+      const forwarded = records().filter(row => row.event === 'dsh-pre-tool-use').map(row => row.workingDirectory)
+      assert.equal(forwarded.at(-1), repo + '/docs', 'the session working directory must reach the policy')
+      assert.equal(forwarded[0], repo, 'without the service the project directory is the working directory')
+      const steered = []
+      agent.steer = message => steered.push(message)
+      await listeners.get('agent/turn-stopping')({ agent, turn: 1 })
+      delete agent.steer
+      assert.equal(steered.length, 1, 'a blocking stop must steer once')
+      assert.equal(steered[0].source.kind, 'reconc', 'session format v4 rejects the retired plugin source kind')
       const result = await listeners.get('tools/pre-execute')(call('read'), () => ({ kind: 'deny', reason: 'another plugin' }))
       assert.deepEqual(result, { kind: 'deny', reason: 'another plugin' })
     } else if (mode.startsWith('route-')) {

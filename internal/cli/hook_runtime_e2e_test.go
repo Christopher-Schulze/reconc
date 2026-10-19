@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -1012,5 +1013,116 @@ func TestHookRuntimeClaudeAndCodexNamespacedMCPRoutes(t *testing.T) {
 		"hook", "runtime", "codex-mcp-before", repo)
 	if code != 2 {
 		t.Fatalf("protected Codex MCP write must fail closed, got exit %d stderr=%q", code, stderr)
+	}
+}
+
+// --- Scenario: an internal Stop failure stays a JSON block ----------
+
+func TestHookRuntimeClaudeWorktreeWritesUseTheWorktreeCheckout(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	initGitRepo(t, repo)
+	for _, args := range [][]string{
+		{"add", "-A", "-f", "."},
+		{"commit", "-q", "-m", "base"},
+		{"worktree", "add", "-q", ".claude/worktrees/w1", "-b", "worktree-w1"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	worktree := filepath.Join(repo, ".claude", "worktrees", "w1")
+	write := func(cwd, target string) (string, int) {
+		payload := fmt.Sprintf(`{"session_id":"worktree","transcript_path":"/tmp/t.jsonl","cwd":%q,"hook_event_name":"PreToolUse","tool_name":"Write","tool_use_id":"u1","tool_input":{"file_path":%q,"content":"x"}}`, cwd, target)
+		_, stderr, code := runWithStdin(t, payload, "hook", "runtime", "claude-pre-tool-use", repo)
+		return stderr, code
+	}
+	// Inside the worktree, root-anchored rules apply to its own checkout.
+	if stderr, code := write(worktree, filepath.Join(worktree, "generated", "blocked.go")); code != 2 || !strings.Contains(stderr, "deny-gen") {
+		t.Fatalf("worktree write to generated/ was not denied by its policy: code=%d stderr=%q", code, stderr)
+	}
+	if stderr, code := write(filepath.Join(worktree, "src"), filepath.Join(worktree, "src", "ok.go")); code != 0 {
+		t.Fatalf("an allowed worktree write was denied: code=%d stderr=%q", code, stderr)
+	}
+	// From the main checkout, a write into the worktree cannot be described by
+	// root-relative policy paths and is refused.
+	if stderr, code := write(repo, filepath.Join(worktree, "src", "ok.go")); code != 2 || !strings.Contains(stderr, "linked worktree") {
+		t.Fatalf("a cross-checkout write was not refused: code=%d stderr=%q", code, stderr)
+	}
+	if stderr, code := write(repo, filepath.Join(repo, "src", "ok.go")); code != 0 {
+		t.Fatalf("a main-checkout write was denied: code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestHookRuntimeClaudeConfigChangeKeepsHooksEnabled(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	if _, err := hooks.Install(hooks.KindClaudeCode, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(repo, ".claude", "settings.local.json")
+	payload := fmt.Sprintf(`{"session_id":"config-change","transcript_path":"/tmp/t.jsonl","cwd":%q,"hook_event_name":"ConfigChange","source":"local_settings","file_path":%q}`, repo, local)
+	if err := os.WriteFile(local, []byte(`{"permissions":{"allow":[]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := runWithStdin(t, payload, "hook", "runtime", "claude-config-change", repo)
+	if code != 0 || stdout != "" {
+		t.Fatalf("an unrelated settings change was blocked: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if err := os.WriteFile(local, []byte(`{"disableAllHooks":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, code = runWithStdin(t, payload, "hook", "runtime", "claude-config-change", repo)
+	if code != 2 || !strings.Contains(stderr, "disableAllHooks=true") {
+		t.Fatalf("disabling Reconc's hooks was not blocked: code=%d stderr=%q", code, stderr)
+	}
+	if err := os.WriteFile(local, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projectPayload := strings.Replace(payload, `"source":"local_settings"`, `"source":"project_settings"`, 1)
+	if err := os.WriteFile(filepath.Join(repo, ".claude", "settings.json"), []byte(`{"hooks":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, code = runWithStdin(t, projectPayload, "hook", "runtime", "claude-config-change", repo)
+	if code != 2 || !strings.Contains(stderr, "managed Claude Code hooks") {
+		t.Fatalf("dropping Reconc's project hooks was not blocked: code=%d stderr=%q", code, stderr)
+	}
+	_, _, code = runWithStdin(t, `[]`, "hook", "runtime", "claude-config-change", repo)
+	if code != 2 {
+		t.Fatalf("an unreadable ConfigChange must fail closed: code=%d", code)
+	}
+}
+
+func TestHookRuntimeClaudeStopFailureCarriesJSONBlock(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	_, _, _ = runWithStdin(t, `{"session_id":"s-fail"}`,
+		"hook", "runtime", "claude-session-start", repo)
+	if err := os.WriteFile(filepath.Join(repo, ".reconc", "policy.lock.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _, code := runWithStdin(t, `{"session_id":"s-fail"}`,
+		"hook", "runtime", "claude-stop", repo)
+	if code != 2 || !strings.Contains(stdout, `"decision":"block"`) {
+		t.Fatalf("a failing Claude Stop must exit 2 with a JSON block, got code %d stdout %q", code, stdout)
+	}
+}
+
+// --- Scenario: Claude Code's PowerShell tool is a shell command -----
+
+func TestHookRuntimeClaudePowerShellCommandsAreGated(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	_, _, _ = runWithStdin(t, `{"session_id":"s-pwsh"}`,
+		"hook", "runtime", "claude-session-start", repo)
+	_, stderr, code := runWithStdin(t,
+		`{"session_id":"s-pwsh","tool_name":"PowerShell","tool_input":{"command":"git clean -fdx"}}`,
+		"hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 2 || !strings.Contains(stderr, "git clean") {
+		t.Fatalf("a destructive PowerShell command must be blocked like Bash, got code %d stderr %q", code, stderr)
+	}
+	_, _, code = runWithStdin(t,
+		`{"session_id":"s-pwsh","tool_name":"PowerShell","tool_input":{"command":"Get-ChildItem"}}`,
+		"hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 0 {
+		t.Fatalf("a harmless PowerShell command must pass, got code %d", code)
 	}
 }

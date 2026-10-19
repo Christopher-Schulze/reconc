@@ -3,6 +3,7 @@
 
 const fallbackSessionID = globalThis.crypto?.randomUUID?.() ?? "opencode-" + Date.now()
 const startedSessions = new Set()
+const startingSessions = new Map()
 const terminalToolFailures = new Set()
 const maxRememberedToolFailures = 1024
 const routeBudgets = {"opencode-continuation-accepted":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow","maxContinuations":10},"opencode-continuation-failed":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow","maxContinuations":10},"opencode-continuation-suppressed":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow","maxContinuations":10},"opencode-continuation-unavailable":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow","maxContinuations":10},"opencode-permission-request":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"opencode-post-compaction":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-post-tool-use":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-post-tool-use-failure":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-pre-compaction":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-pre-tool-use":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"opencode-session-end":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-session-start":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-stop":{"timeoutMilliseconds":30000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"allow","maxContinuations":10},"opencode-user-prompt-submit":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"}}
@@ -41,13 +42,15 @@ const normalizeTool = (tool) => {
     case "write": return "Write"
     case "edit": return "Edit"
     case "multiedit": return "MultiEdit"
+    case "patch":
+    case "apply_patch": return "apply_patch"
     case "bash":
     case "shell": return "Bash"
     default: return tool || ""
   }
 }
 
-export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
+const ReconcOpenCodeServer = async ({ directory, worktree, client }) => {
   const repo = worktree || directory || process.cwd()
   const wrapper = repo + "/tools/reconc/bin/hook"
   const binaries = [repo + "/.build/bin/reconc", repo + "/reconc"]
@@ -497,20 +500,35 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
     return result.code !== 0 && budget.errorPolicy === "block"
   }
 
+  // Concurrent hooks and lifecycle events for one session share a single
+  // in-flight start instead of each starting the session.
   const ensureSession = async (sessionID) => {
     const id = sessionID || fallbackSessionID
     if (startedSessions.has(id)) return id
-    const event = "opencode-session-start"
-    const result = await run(event, { session_id: id, reconc_runtime: "opencode" })
-    if (shouldBlockFailure(event, result)) throw new Error(result.stderr || result.stdout || "reconc session start failed")
-    if (result.code === 0) startedSessions.add(id)
+    let start = startingSessions.get(id)
+    if (!start) {
+      start = (async () => {
+        const event = "opencode-session-start"
+        const result = await run(event, { session_id: id, reconc_runtime: "opencode" })
+        if (shouldBlockFailure(event, result)) throw new Error(result.stderr || result.stdout || "reconc session start failed")
+        if (result.code === 0) startedSessions.add(id)
+      })()
+      startingSessions.set(id, start)
+      start.then(() => startingSessions.delete(id), () => startingSessions.delete(id))
+    }
+    await start
     return id
   }
 
   const toolPayload = (input, output, phase) => {
     const toolName = normalizeTool(input?.tool || output?.tool)
     const hostTool = typeof input?.tool === "string" ? input.tool : typeof output?.tool === "string" ? output.tool : ""
-    const toolInput = output?.args || input?.args || {}
+    let toolInput = output?.args || input?.args || {}
+    // The patch tool carries every add/update/delete path inside patchText;
+    // the runtime reads apply_patch paths from the command field.
+    if (toolName === "apply_patch" && typeof toolInput?.patchText === "string" && toolInput.command === undefined) {
+      toolInput = { ...toolInput, command: toolInput.patchText }
+    }
     const metadata = output?.metadata && typeof output.metadata === "object" && !Array.isArray(output.metadata) ? output.metadata : {}
     const response = {
       title: output?.title || "",
@@ -766,6 +784,9 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
   }
 
   return {
+    dispose: async () => {
+      await workerTransport.close()
+    },
     "chat.message": async (input, output) => {
       const sessionID = await ensureSession(input?.sessionID)
       const state = continuationState(sessionID)
@@ -829,3 +850,142 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
     },
   }
 }
+
+const textOf = (content) => {
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return ""
+  return content.map((part) => (typeof part?.text === "string" ? part.text : "")).filter(Boolean).join("\n")
+}
+
+// 2.x ends an agent run with a durable execution event; a run that ended
+// because the user interrupted it never reaches the stop gate, so it cannot
+// be continued against the user's choice.
+const openCodeV1EventType = (event) => {
+  switch (event?.type) {
+    case "session.created":
+    case "session.deleted":
+      return event.type
+    case "session.compaction.ended":
+      return "session.compacted"
+    case "session.execution.succeeded":
+    case "session.execution.failed":
+      return "session.idle"
+    default:
+      return ""
+  }
+}
+
+// The 2.x event stream carries every session the server runs, including
+// other projects'; lifecycle events reach the adapter only for sessions this
+// plugin instance has seen through its own location-bound hooks.
+const maxTrackedSessions = 4096
+
+const ReconcOpenCodeSetup = async (ctx) => {
+  const location = ctx?.location || {}
+  const sessions = new Set()
+  const track = (sessionID) => {
+    if (typeof sessionID !== "string" || !sessionID || sessions.has(sessionID)) return
+    if (sessions.size >= maxTrackedSessions) sessions.delete(sessions.values().next().value)
+    sessions.add(sessionID)
+  }
+  const ownsEvent = (event) => {
+    if (!sessions.has(event?.data?.sessionID)) return false
+    const directory = event?.location?.directory
+    return !directory || !location.directory || directory === location.directory
+  }
+  const hooks = await ReconcOpenCodeServer({
+    directory: location.directory,
+    worktree: location.worktree,
+    client: {
+      session: {
+        // 2.x admits a queued prompt durably and returns its record; the
+        // shared adapter expects 1.x promptAsync acceptance.
+        promptAsync: async ({ sessionID, messageID, parts }) => {
+          await ctx.session.prompt({
+            sessionID,
+            text: textOf(parts),
+            delivery: "queue",
+            metadata: { reconc_message_id: messageID },
+          })
+          return { response: { ok: true, status: 204 } }
+        },
+      },
+    },
+  })
+  await ctx.session.hook("prompt", async (event) => {
+    track(event?.sessionID)
+    const injected = event?.metadata?.reconc_message_id
+    await hooks["chat.message"](
+      { sessionID: event?.sessionID, messageID: typeof injected === "string" ? injected : event?.messageID },
+      { parts: [{ type: "text", text: event?.prompt?.text || "" }] },
+    )
+  })
+  await ctx.tool.hook("execute.before", async (event) => {
+    track(event?.sessionID)
+    await hooks["tool.execute.before"](
+      { tool: event?.tool, sessionID: event?.sessionID, callID: event?.id },
+      { args: event?.input },
+    )
+  })
+  await ctx.tool.hook("execute.after", async (event) => {
+    track(event?.sessionID)
+    if (event?.status === "error") {
+      await hooks.event({ event: { type: "message.part.updated", properties: { part: {
+        type: "tool", tool: event.tool, sessionID: event.sessionID, messageID: event.messageID, callID: event.id,
+        state: { status: "error", input: event.input, error: String(event.error?.message || event.error || "tool execution failed"), metadata: {} },
+      } } } })
+      return
+    }
+    const result = event?.result || {}
+    await hooks["tool.execute.after"](
+      { tool: event?.tool, sessionID: event?.sessionID, callID: event?.id },
+      {
+        args: event?.input,
+        output: textOf(result.content),
+        metadata: result.metadata && typeof result.metadata === "object" && !Array.isArray(result.metadata) ? result.metadata : {},
+      },
+    )
+  })
+  await ctx.permission.hook("evaluate", async (event) => {
+    track(event?.sessionID)
+    const resources = Array.isArray(event?.resources) ? event.resources : []
+    const output = { status: "ask" }
+    await hooks["permission.ask"](
+      { sessionID: event?.sessionID, type: event?.action, pattern: resources, title: resources[0] || "", metadata: event?.metadata || {} },
+      output,
+    )
+    if (output.status === "deny") {
+      event.effect = "deny"
+      event.message = "Reconc denied this permission request."
+    }
+  })
+  await ctx.session.hook("compaction", async (event) => {
+    track(event?.sessionID)
+    const output = { context: [] }
+    await hooks["experimental.session.compacting"]({ sessionID: event?.sessionID }, output)
+    if (!Array.isArray(event?.system)) return
+    for (const text of output.context) {
+      if (typeof text === "string" && text) event.system.push({ type: "text", text })
+    }
+  })
+  const controller = new AbortController()
+  const events = (async () => {
+    try {
+      for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+        const type = openCodeV1EventType(event)
+        if (!type || !ownsEvent(event)) continue
+        await hooks.event({ event: { type, properties: event?.data || {} } })
+        if (type === "session.deleted") sessions.delete(event.data.sessionID)
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) console.error("reconc OpenCode event stream ended: " + String(error))
+    }
+  })()
+  return async () => {
+    controller.abort()
+    await events
+    await hooks.dispose()
+  }
+}
+
+export default { id: "reconc", server: ReconcOpenCodeServer, setup: ReconcOpenCodeSetup }

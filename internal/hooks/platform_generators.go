@@ -62,9 +62,11 @@ func generateGitHubCopilot() (*Artifact, error) {
 	command := func(event string, lifecycle Event, matcher string) map[string]interface{} {
 		bashCommand := fmt.Sprintf("tools/reconc/bin/hook %s .", event)
 		powershellCommand := fmt.Sprintf(`& sh "tools/reconc/bin/hook" "%s" "."; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`, event)
-		// Copilot honors deny/block only via exit 0 + JSON. Missing binary,
-		// crash, or non-zero exit without a decision body is host fail-open,
-		// so PreToolUse / PermissionRequest / Stop emit the exact deny envelope.
+		// Copilot logs most hook failures and continues: a non-zero exit other
+		// than 2 is fail-open for PermissionRequest, Stop, and SubagentStop.
+		// PreToolUse denies on crashes and non-zero exits, and every event is
+		// fail-open on timeout. Each decision route therefore turns a failure
+		// into its exact deny or block envelope with exit 0.
 		switch lifecycle {
 		case EventStop, EventSubagentStop:
 			reason := "Reconc could not evaluate this GitHub Copilot stop. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook."
@@ -94,7 +96,10 @@ func generateGitHubCopilot() (*Artifact, error) {
 		}
 		return entry
 	}
-	const evidenceTools = "Read|Bash|Edit|Write"
+	// PascalCase PreToolUse and PermissionRequest match Claude tool names, but
+	// PostToolUse anchors the regex against runtime tool names, so the evidence
+	// matcher names both to fire under either semantics.
+	const evidenceTools = "view|bash|powershell|create|edit|str_replace_editor|apply_patch|Read|Bash|Edit|Write"
 	const guardedTools = "Bash|Edit|Write"
 	template := map[string]interface{}{
 		"version": 1,
@@ -209,8 +214,8 @@ func generateBunAgentPlugin(kind, targetPath, prefix string, descriptorExport bo
 	if err != nil {
 		return nil, err
 	}
-	exportHead := "export const ReconcOpenCodePlugin ="
-	exportTail := ""
+	exportHead := "const ReconcOpenCodeServer ="
+	exportTail := openCodeV2Entry
 	if descriptorExport {
 		exportHead = "const ReconcKiloServer ="
 		exportTail = `
@@ -282,6 +287,22 @@ func requiredTimeouts(kind string, events ...Event) (map[Event]int, error) {
 	return timeouts, nil
 }
 
+// failClosedEvents reports the platform events whose declared error policy
+// blocks the action when the hook cannot produce a verdict.
+func failClosedEvents(kind string) (map[Event]bool, error) {
+	platform, ok := PlatformForKind(kind)
+	if !ok {
+		return nil, hookGeneratorError("missing hook platform: %s", kind)
+	}
+	blocking := make(map[Event]bool, len(platform.Capabilities))
+	for _, capability := range platform.Capabilities {
+		if capability.ErrorPolicy == FailureBlock {
+			blocking[capability.Event] = true
+		}
+	}
+	return blocking, nil
+}
+
 func hookGeneratorError(format string, args ...interface{}) error {
 	return &rerrors.PolicySourceError{Message: fmt.Sprintf(format, args...)}
 }
@@ -291,6 +312,7 @@ const bunAgentPluginTemplate = `// Managed by reconc. Project-local __PREFIX__ p
 
 const fallbackSessionID = globalThis.crypto?.randomUUID?.() ?? "__PREFIX__-" + Date.now()
 const startedSessions = new Set()
+const startingSessions = new Map()
 const terminalToolFailures = new Set()
 const maxRememberedToolFailures = 1024
 const routeBudgets = __ROUTE_BUDGETS__
@@ -329,6 +351,8 @@ const normalizeTool = (tool) => {
     case "write": return "Write"
     case "edit": return "Edit"
     case "multiedit": return "MultiEdit"
+    case "patch":
+    case "apply_patch": return "apply_patch"
     case "bash":
     case "shell": return "Bash"
     default: return tool || ""
@@ -480,20 +504,35 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
     return result.code !== 0 && budget.errorPolicy === "block"
   }
 
+  // Concurrent hooks and lifecycle events for one session share a single
+  // in-flight start instead of each starting the session.
   const ensureSession = async (sessionID) => {
     const id = sessionID || fallbackSessionID
     if (startedSessions.has(id)) return id
-    const event = "__PREFIX__-session-start"
-    const result = await run(event, { session_id: id, reconc_runtime: "__PREFIX__" })
-    if (shouldBlockFailure(event, result)) throw new Error(result.stderr || result.stdout || "reconc session start failed")
-    if (result.code === 0) startedSessions.add(id)
+    let start = startingSessions.get(id)
+    if (!start) {
+      start = (async () => {
+        const event = "__PREFIX__-session-start"
+        const result = await run(event, { session_id: id, reconc_runtime: "__PREFIX__" })
+        if (shouldBlockFailure(event, result)) throw new Error(result.stderr || result.stdout || "reconc session start failed")
+        if (result.code === 0) startedSessions.add(id)
+      })()
+      startingSessions.set(id, start)
+      start.then(() => startingSessions.delete(id), () => startingSessions.delete(id))
+    }
+    await start
     return id
   }
 
   const toolPayload = (input, output, phase) => {
     const toolName = normalizeTool(input?.tool || output?.tool)
     const hostTool = typeof input?.tool === "string" ? input.tool : typeof output?.tool === "string" ? output.tool : ""
-    const toolInput = output?.args || input?.args || {}
+    let toolInput = output?.args || input?.args || {}
+    // The patch tool carries every add/update/delete path inside patchText;
+    // the runtime reads apply_patch paths from the command field.
+    if (toolName === "apply_patch" && typeof toolInput?.patchText === "string" && toolInput.command === undefined) {
+      toolInput = { ...toolInput, command: toolInput.patchText }
+    }
     const metadata = output?.metadata && typeof output.metadata === "object" && !Array.isArray(output.metadata) ? output.metadata : {}
     const response = {
       title: output?.title || "",
@@ -749,6 +788,9 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
   }
 
   return {
+    dispose: async () => {
+      await workerTransport.close()
+    },
     "chat.message": async (input, output) => {
       const sessionID = await ensureSession(input?.sessionID)
       const state = continuationState(sessionID)
@@ -813,3 +855,147 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
   }
 }__EXPORT_TAIL__
 `
+
+// openCodeV2Entry adapts OpenCode 2.x domain hooks to the 1.x hook object, so
+// both versions share one policy adapter and one worker. OpenCode 2.x loads
+// setup() from the default export and ignores server(); 1.x does the reverse.
+const openCodeV2Entry = `
+
+const textOf = (content) => {
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return ""
+  return content.map((part) => (typeof part?.text === "string" ? part.text : "")).filter(Boolean).join("\n")
+}
+
+// 2.x ends an agent run with a durable execution event; a run that ended
+// because the user interrupted it never reaches the stop gate, so it cannot
+// be continued against the user's choice.
+const openCodeV1EventType = (event) => {
+  switch (event?.type) {
+    case "session.created":
+    case "session.deleted":
+      return event.type
+    case "session.compaction.ended":
+      return "session.compacted"
+    case "session.execution.succeeded":
+    case "session.execution.failed":
+      return "session.idle"
+    default:
+      return ""
+  }
+}
+
+// The 2.x event stream carries every session the server runs, including
+// other projects'; lifecycle events reach the adapter only for sessions this
+// plugin instance has seen through its own location-bound hooks.
+const maxTrackedSessions = 4096
+
+const ReconcOpenCodeSetup = async (ctx) => {
+  const location = ctx?.location || {}
+  const sessions = new Set()
+  const track = (sessionID) => {
+    if (typeof sessionID !== "string" || !sessionID || sessions.has(sessionID)) return
+    if (sessions.size >= maxTrackedSessions) sessions.delete(sessions.values().next().value)
+    sessions.add(sessionID)
+  }
+  const ownsEvent = (event) => {
+    if (!sessions.has(event?.data?.sessionID)) return false
+    const directory = event?.location?.directory
+    return !directory || !location.directory || directory === location.directory
+  }
+  const hooks = await ReconcOpenCodeServer({
+    directory: location.directory,
+    worktree: location.worktree,
+    client: {
+      session: {
+        // 2.x admits a queued prompt durably and returns its record; the
+        // shared adapter expects 1.x promptAsync acceptance.
+        promptAsync: async ({ sessionID, messageID, parts }) => {
+          await ctx.session.prompt({
+            sessionID,
+            text: textOf(parts),
+            delivery: "queue",
+            metadata: { reconc_message_id: messageID },
+          })
+          return { response: { ok: true, status: 204 } }
+        },
+      },
+    },
+  })
+  await ctx.session.hook("prompt", async (event) => {
+    track(event?.sessionID)
+    const injected = event?.metadata?.reconc_message_id
+    await hooks["chat.message"](
+      { sessionID: event?.sessionID, messageID: typeof injected === "string" ? injected : event?.messageID },
+      { parts: [{ type: "text", text: event?.prompt?.text || "" }] },
+    )
+  })
+  await ctx.tool.hook("execute.before", async (event) => {
+    track(event?.sessionID)
+    await hooks["tool.execute.before"](
+      { tool: event?.tool, sessionID: event?.sessionID, callID: event?.id },
+      { args: event?.input },
+    )
+  })
+  await ctx.tool.hook("execute.after", async (event) => {
+    track(event?.sessionID)
+    if (event?.status === "error") {
+      await hooks.event({ event: { type: "message.part.updated", properties: { part: {
+        type: "tool", tool: event.tool, sessionID: event.sessionID, messageID: event.messageID, callID: event.id,
+        state: { status: "error", input: event.input, error: String(event.error?.message || event.error || "tool execution failed"), metadata: {} },
+      } } } })
+      return
+    }
+    const result = event?.result || {}
+    await hooks["tool.execute.after"](
+      { tool: event?.tool, sessionID: event?.sessionID, callID: event?.id },
+      {
+        args: event?.input,
+        output: textOf(result.content),
+        metadata: result.metadata && typeof result.metadata === "object" && !Array.isArray(result.metadata) ? result.metadata : {},
+      },
+    )
+  })
+  await ctx.permission.hook("evaluate", async (event) => {
+    track(event?.sessionID)
+    const resources = Array.isArray(event?.resources) ? event.resources : []
+    const output = { status: "ask" }
+    await hooks["permission.ask"](
+      { sessionID: event?.sessionID, type: event?.action, pattern: resources, title: resources[0] || "", metadata: event?.metadata || {} },
+      output,
+    )
+    if (output.status === "deny") {
+      event.effect = "deny"
+      event.message = "Reconc denied this permission request."
+    }
+  })
+  await ctx.session.hook("compaction", async (event) => {
+    track(event?.sessionID)
+    const output = { context: [] }
+    await hooks["experimental.session.compacting"]({ sessionID: event?.sessionID }, output)
+    if (!Array.isArray(event?.system)) return
+    for (const text of output.context) {
+      if (typeof text === "string" && text) event.system.push({ type: "text", text })
+    }
+  })
+  const controller = new AbortController()
+  const events = (async () => {
+    try {
+      for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+        const type = openCodeV1EventType(event)
+        if (!type || !ownsEvent(event)) continue
+        await hooks.event({ event: { type, properties: event?.data || {} } })
+        if (type === "session.deleted") sessions.delete(event.data.sessionID)
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) console.error("reconc OpenCode event stream ended: " + String(error))
+    }
+  })()
+  return async () => {
+    controller.abort()
+    await events
+    await hooks.dispose()
+  }
+}
+
+export default { id: "reconc", server: ReconcOpenCodeServer, setup: ReconcOpenCodeSetup }`

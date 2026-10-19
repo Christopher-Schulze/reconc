@@ -51,6 +51,19 @@ func TestMain(testingMain *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	// Hook status reads host settings that can disable an installed artifact;
+	// the developer's own Claude, Copilot, and OMP settings must not leak in.
+	for name, value := range map[string]string{
+		"CLAUDE_CONFIG_DIR": filepath.Join(directory, "claude"),
+		"COPILOT_HOME":      filepath.Join(directory, "copilot"),
+		"PI_CONFIG_DIR":     filepath.Base(directory) + "-omp",
+		"OMP_PROFILE":       "",
+	} {
+		if err := os.Setenv(name, value); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
 	newHookVerificationChildCommand = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
 		childArgs := append([]string{"-test.run=^TestHookVerificationIsolatedChild$", "--"}, args...)
 		return exec.CommandContext(ctx, source, childArgs...)

@@ -1,10 +1,10 @@
 {
   "host": "pi",
   "display_name": "Pi Coding Agent",
-  "host_version": "0.84.1",
-  "source_url": "https://github.com/earendil-works/pi/tree/ac4ac9eaf69f2b01ca3af984a5c48f3b99b84278/packages/coding-agent/src/core/extensions",
-  "source_revision": "ac4ac9eaf69f2b01ca3af984a5c48f3b99b84278",
-  "capture_date": "2026-08-07",
+  "host_version": "1.3.0",
+  "source_url": "https://github.com/earendil-works/pi/tree/d2e7d8b7c1d31d3661f769d5caef7ba8d50c3e03/packages/coding-agent/src/core/extensions",
+  "source_revision": "d2e7d8b7c1d31d3661f769d5caef7ba8d50c3e03",
+  "capture_date": "2026-10-19",
   "scope": "Extension events Reconc's capability vocabulary can express. Turn, message, and provider events are outside it.",
   "events": [
     {
@@ -67,6 +67,15 @@
       "name": "agent_end",
       "bound": false,
       "reason": "reports that a turn ended without waiting for a decision; completion is gated through the settled continuation instead"
+    },
+    {
+      "name": "agent_before_settle",
+      "bound": true
+    },
+    {
+      "name": "mcp_servers_change",
+      "bound": false,
+      "reason": "MCP server lifecycle has no repository effect; MCP calls reach Reconc through tool_call"
     }
   ]
 }

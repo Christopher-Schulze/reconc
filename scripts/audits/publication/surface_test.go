@@ -202,11 +202,15 @@ func TestCommandReferenceCoversPublicHostEnvironment(t *testing.T) {
 	for _, variable := range []string{
 		"CLAUDE_CONFIG_DIR",
 		"COLUMNS",
+		"COPILOT_HOME",
 		"GITHUB_ACTIONS",
 		"GROK_HOME",
 		"GROK_LEADER_SOCKET",
 		"KIMI_CODE_HOME",
+		"OMP_PROFILE",
 		"PI_CODING_AGENT_DIR",
+		"PI_CONFIG_DIR",
+		"PI_PROFILE",
 		"SOURCE_DATE_EPOCH",
 		"XAI_API_KEY",
 	} {

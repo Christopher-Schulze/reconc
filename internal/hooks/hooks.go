@@ -668,8 +668,13 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 	}
 
 	nextAction := "Restart your agent session so it picks up the new hooks."
-	if kind == KindZCode {
+	switch {
+	case kind == KindZCode:
 		nextAction = "Restart ZCode in this repository so it snapshots .zcode/config.json."
+	case kind == KindCodex && action != "unchanged":
+		// Codex marks new or changed hook definitions for review and skips
+		// them until the user trusts them.
+		nextAction = "Restart Codex in this repository, open /hooks, and trust the new or changed Reconc hooks; Codex skips them until they are trusted."
 	}
 	return &InstallReport{
 		Kind:             kind,

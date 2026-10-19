@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -57,9 +58,24 @@ func TestGenerateGitHubCopilotMatchesOfficialRepositoryHookShape(t *testing.T) {
 			t.Fatalf("unsupported event %s was generated", unsupported)
 		}
 	}
-	if document.Hooks["PreToolUse"][0]["matcher"] != "Bash|Edit|Write" ||
-		document.Hooks["PostToolUse"][0]["matcher"] != "Read|Bash|Edit|Write" {
-		t.Fatalf("Claude-compatible matchers drifted: %#v", document.Hooks)
+	if document.Hooks["PreToolUse"][0]["matcher"] != "Bash|Edit|Write" {
+		t.Fatalf("Claude-compatible PreToolUse matcher drifted: %#v", document.Hooks)
+	}
+	// Copilot compiles the PostToolUse matcher as ^(?:PATTERN)$ against the
+	// runtime tool name; PascalCase entries may also see Claude names.
+	for _, event := range []string{"PostToolUse", "PostToolUseFailure"} {
+		matcher, _ := document.Hooks[event][0]["matcher"].(string)
+		anchored := regexp.MustCompile("^(?:" + matcher + ")$")
+		for _, tool := range []string{"view", "bash", "powershell", "create", "edit", "str_replace_editor", "apply_patch", "Read", "Bash", "Edit", "Write"} {
+			if !anchored.MatchString(tool) {
+				t.Fatalf("%s matcher %q misses evidence tool %q", event, matcher, tool)
+			}
+		}
+		for _, tool := range []string{"grep", "glob", "web_fetch", "task", "bashful"} {
+			if anchored.MatchString(tool) {
+				t.Fatalf("%s matcher %q collects non-evidence tool %q", event, matcher, tool)
+			}
+		}
 	}
 	for _, event := range []string{"Stop", "SubagentStop"} {
 		entry := document.Hooks[event][0]

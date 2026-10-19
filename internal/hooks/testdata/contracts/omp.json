@@ -1,9 +1,9 @@
 {
   "host": "omp",
-  "host_version": "18.1.18",
-  "source_url": "https://github.com/can1357/oh-my-pi/tree/00085d4e7dfdcfbf302c122fa2682b410a0f43d1/packages/coding-agent/src/extensibility",
-  "source_revision": "00085d4e7dfdcfbf302c122fa2682b410a0f43d1",
-  "capture_date": "2026-09-13",
+  "host_version": "18.12.2",
+  "source_url": "https://github.com/can1357/oh-my-pi/tree/5d72f5d3f49a802e51d04c810002eb1830440172/packages/coding-agent/src/extensibility",
+  "source_revision": "5d72f5d3f49a802e51d04c810002eb1830440172",
+  "capture_date": "2026-10-19",
   "events": {
     "session_start": {"payload": {"type": "session_start"}, "result": null},
     "input": {"payload": {"type": "input", "text": "synthetic prompt", "source": "interactive"}, "result": null},

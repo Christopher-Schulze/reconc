@@ -66,6 +66,15 @@ func runPreDecisionResolvedWithEvaluatorAndStopCache(
 	if decision, paused := pausedPreToolDecision(root, payload); paused {
 		return adaptPreDecision(decision, permission)
 	}
+	if payload.IsWriteTool() {
+		reason, err := linkedWorktreeWriteBlock(root, payload.FilePaths())
+		if err != nil {
+			return adaptPreDecision(Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): classify write target: %s", err)}, permission)
+		}
+		if reason != "" {
+			return adaptPreDecision(Result{ExitCode: 2, Stderr: reason}, permission)
+		}
+	}
 	inputs, cacheable := preDecisionInputsForPayloadWithEvaluatorAndStopCache(root, payload, evaluator, stopCache)
 	// Approval-gated writes must reach the live pre-write path on every call.
 	// Reusing a claim-only decision here could skip receipt verification, and a

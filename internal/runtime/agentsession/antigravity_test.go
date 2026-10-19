@@ -388,3 +388,75 @@ func TestAntigravityInvocationLifecycleIsFailOpenAndBounded(t *testing.T) {
 		t.Fatalf("post without pending call = %+v", got)
 	}
 }
+
+func TestAntigravityOverwrittenArgumentsRecordTheExecutedCall(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	pre := RunAntigravityPreToolUse(repo, []byte(`{
+		"conversationId":"ag-overwrite",
+		"stepIdx":4,
+		"toolCall":{"name":"replace_file_content","args":{"TargetFile":"src/app.go"}}
+	}`))
+	if pre.ExitCode != 0 || !strings.Contains(pre.Stdout, `"decision":"allow"`) {
+		t.Fatalf("pre should allow, exit=%d stdout=%s stderr=%s", pre.ExitCode, pre.Stdout, pre.Stderr)
+	}
+	post := RunAntigravityPostToolUse(repo, []byte(`{
+		"conversationId":"ag-overwrite",
+		"stepIdx":4,
+		"toolCall":{"name":"replace_file_content","args":{"TargetFile":"generated/out.txt"}},
+		"error":""
+	}`))
+	if post.ExitCode != 0 || !strings.Contains(post.Stderr, "differ from the arguments Reconc checked") {
+		t.Fatalf("overwritten call must be reported, exit=%d stderr=%s", post.ExitCode, post.Stderr)
+	}
+	state, err := LoadSessionState(repo, "ag-overwrite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.WritePaths) != 1 || state.WritePaths[0] != "generated/out.txt" {
+		t.Fatalf("evidence must record the executed write, got %+v", state.WritePaths)
+	}
+
+	pre = RunAntigravityPreToolUse(repo, []byte(`{"conversationId":"ag-same","stepIdx":5,"toolCall":{"name":"replace_file_content","args":{"TargetFile":"src/app.go"}}}`))
+	if pre.ExitCode != 0 {
+		t.Fatalf("pre should allow: %+v", pre)
+	}
+	post = RunAntigravityPostToolUse(repo, []byte(`{"conversationId":"ag-same","stepIdx":5,"toolCall":{"name":"replace_file_content","args":{"TargetFile":"src/app.go"}},"error":""}`))
+	if strings.Contains(post.Stderr, "differ") {
+		t.Fatalf("an unchanged call must not warn: %s", post.Stderr)
+	}
+	same, err := LoadSessionState(repo, "ag-same")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(same.WritePaths) != 1 || same.WritePaths[0] != "src/app.go" {
+		t.Fatalf("unchanged call evidence = %+v", same.WritePaths)
+	}
+}
+
+func TestAntigravityManageTaskSendInputIsDenied(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	for _, test := range []struct {
+		action string
+		allow  bool
+	}{
+		{action: "send_input"},
+		{action: "list", allow: true},
+		{action: "status", allow: true},
+		{action: "kill", allow: true},
+	} {
+		t.Run(test.action, func(t *testing.T) {
+			pre := RunAntigravityPreToolUse(repo, []byte(`{
+				"conversationId":"ag-task",
+				"stepIdx":4,
+				"toolCall":{"name":"manage_task","args":{"Action":"`+test.action+`","TaskId":"t1","Input":"rm -rf generated\n"}}
+			}`))
+			allowed := pre.ExitCode == 0 && strings.Contains(pre.Stdout, `"decision":"allow"`)
+			if allowed != test.allow {
+				t.Fatalf("manage_task %s allowed=%v, want %v: exit=%d stdout=%s stderr=%s", test.action, allowed, test.allow, pre.ExitCode, pre.Stdout, pre.Stderr)
+			}
+			if !test.allow && !strings.Contains(pre.Stdout+pre.Stderr, "send_input") {
+				t.Fatalf("denial does not name send_input: stdout=%s stderr=%s", pre.Stdout, pre.Stderr)
+			}
+		})
+	}
+}

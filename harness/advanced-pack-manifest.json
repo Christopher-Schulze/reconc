@@ -375,8 +375,8 @@
     {
       "path": "tools/reconc/harness/template/audits/workflow-audit.go",
       "mode": 420,
-      "size": 84943,
-      "sha256": "8dfccdeba2876dc55cf066a88d3c442d2228071a1769acc9818ec0c067e1cf83",
+      "size": 85167,
+      "sha256": "adedcf21f42bbdf2be668374de06f49dd6125595366e940bceed6583ad826ace",
       "ownership": "pack-file"
     },
     {
@@ -473,15 +473,15 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.agents/hooks.json",
       "mode": 420,
-      "size": 2622,
-      "sha256": "dbc848d629514279efbf3ee52174928644a5ee82aaa0eb8aebe6fb94de7b5af4",
+      "size": 2634,
+      "sha256": "ca282f5d979e0d6c7837fd8c915b5803a08a27f7d57330a5fcce1c6e84d732aa",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.claude/settings.json",
       "mode": 420,
-      "size": 6938,
-      "sha256": "d0d04058b7a0b451a9913a3c9d406dc47c1cb6aaba2852628507d27c83411cac",
+      "size": 7940,
+      "sha256": "274cd8f5ba0573e75028539e100b751b4366116d16954b270dbc68903f20a770",
       "ownership": "pack-file"
     },
     {
@@ -501,8 +501,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.codex/hooks.json",
       "mode": 420,
-      "size": 7761,
-      "sha256": "7e4b04548772bb3a6e2dba4a3800a5e363fb8b6541477b5776fd9e5604d8cd8e",
+      "size": 7766,
+      "sha256": "1024bf9d5e8fae13ac49b063dcb836607a93cf876143aa660b8e849e496f77b8",
       "ownership": "pack-file"
     },
     {
@@ -536,8 +536,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.dsh/reconc.mjs",
       "mode": 420,
-      "size": 24346,
-      "sha256": "38c3ec277d220b79ada0bb22343ea61aa8b25552fbe7a4ed07e69b04153a3f81",
+      "size": 25422,
+      "sha256": "7580ce0da5ea8fa97ad272ea8f0146d94ffd0ece176b865a861c64de08ddb1eb",
       "ownership": "pack-file"
     },
     {
@@ -557,8 +557,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.github/hooks/reconc.json",
       "mode": 420,
-      "size": 6447,
-      "sha256": "b29f0bc233d0d0a4a2722788f062a346df780bbb1b5af5251445bfad6f3912a2",
+      "size": 6575,
+      "sha256": "170b376e0a57a5409ebc7bb51e77a73b584844a0c0cc064b92102ea2f20485a3",
       "ownership": "pack-file"
     },
     {
@@ -585,29 +585,29 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.kilo/plugin/reconc.js",
       "mode": 420,
-      "size": 34678,
-      "sha256": "4c89ca7233759bbce8d3b241d44d73243e69dc28ef169a99b05705bd157db343",
+      "size": 35571,
+      "sha256": "95ac8047eb52e9664aa2f4b41a56d345e4ae99a2a31ddda284d4da7466978726",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.omp/extensions/reconc.ts",
       "mode": 420,
-      "size": 30799,
-      "sha256": "94c899dae4167492dcff01c2e50e409f593bed6767881a759b4cd0be470e6fba",
+      "size": 31073,
+      "sha256": "8931c7d90ff1beffe9fda5f19b86ec2733482d05e95e57ddcbfd53d8c952f3da",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.opencode/plugins/reconc.js",
       "mode": 420,
-      "size": 34794,
-      "sha256": "f3bad000e1aad398973ce35c4e8bb73a105d03670e663769012c28dafeedd712",
+      "size": 41117,
+      "sha256": "af61d653b8aadf0380fd5ff7d65831c816a046736f89068e5e0ee5f82e8f0e22",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.pi/extensions/reconc.ts",
       "mode": 420,
-      "size": 32021,
-      "sha256": "055eac17de1c18d892ba2c3ffd477bc18d2d402cfc80bb9daddb897d94e9307e",
+      "size": 35061,
+      "sha256": "9dcf8e3a7e8354925d4835cb38c70d7a4dd31d130a9bc95fe99aceedf38df6a0",
       "ownership": "pack-file"
     },
     {
@@ -863,6 +863,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 897775,
-  "digest": "d7f905cc2fd5649c7c2950bad87ec2ae3b22697bc2ee06eef01d9aa4c6696285"
+  "total_bytes": 910752,
+  "digest": "a02c485b7474b3fc4629e35ec1739830ba2099425b75b869ee464ae08f3a48cf"
 }

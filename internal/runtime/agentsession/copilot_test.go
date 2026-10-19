@@ -198,3 +198,28 @@ func TestNormalizeRuntimeNameRecognizesGitHubCopilot(t *testing.T) {
 		}
 	}
 }
+
+func TestPayloadLooksLikeGitHubCopilot(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		want    bool
+	}{
+		{name: "VS Code compatible input", payload: `{"hook_event_name":"PreToolUse","session_id":"s","timestamp":"2026-10-19T12:00:00.000Z","cwd":"/repo","tool_name":"Bash","tool_input":{}}`, want: true},
+		{name: "camelCase input", payload: `{"sessionId":"s","timestamp":1760875200000,"cwd":"/repo","toolName":"bash","toolArgs":{}}`, want: true},
+		{name: "Claude Code input", payload: `{"hook_event_name":"PreToolUse","session_id":"s","transcript_path":"/t.jsonl","cwd":"/repo","tool_name":"Bash","tool_input":{}}`, want: false},
+		{name: "timestamp only inside tool input", payload: `{"hook_event_name":"PreToolUse","session_id":"s","cwd":"/repo","tool_name":"Write","tool_input":{"timestamp":"2026-10-19"}}`, want: false},
+		{name: "empty timestamp", payload: `{"session_id":"s","timestamp":""}`, want: false},
+		{name: "non-scalar timestamp", payload: `{"session_id":"s","timestamp":{}}`, want: false},
+		{name: "missing session", payload: `{"timestamp":"2026-10-19T12:00:00.000Z"}`, want: false},
+		{name: "invalid JSON", payload: `{"timestamp":`, want: false},
+		{name: "empty", payload: ``, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := PayloadLooksLikeGitHubCopilot([]byte(test.payload)); got != test.want {
+				t.Fatalf("PayloadLooksLikeGitHubCopilot = %v, want %v", got, test.want)
+			}
+		})
+	}
+}

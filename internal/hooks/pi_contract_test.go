@@ -47,7 +47,7 @@ case "$event" in
       *'"command":"rm generated.txt"'*) printf '%s\n' 'policy denied shell' >&2; exit 2 ;;
     esac
     ;;
-  pi-stop) printf '%s\n' '{"decision":"block","reason":"finish the Reconc run"}' ;;
+  pi-stop|pi-before-settle) printf '%s\n' '{"decision":"block","reason":"finish the Reconc run"}' ;;
   pi-post-compaction) printf '%s\n' 'observation unavailable' >&2; exit 2 ;;
 esac
 `
@@ -75,7 +75,7 @@ const pi = {
 module.default(pi)
 const expected = [
   "session_start", "input", "tool_call", "tool_result", "user_bash",
-  "session_before_compact", "session_compact", "agent_settled", "session_shutdown",
+  "session_before_compact", "session_compact", "agent_before_settle", "agent_settled", "session_shutdown",
 ]
 if (JSON.stringify([...handlers.keys()]) !== JSON.stringify(expected)) {
   throw new Error("Pi handler set drift: " + JSON.stringify([...handlers.keys()]))
@@ -130,6 +130,26 @@ if (sent.length !== 1 || sent[0] !== "finish the Reconc run") {
 }
 await handlers.get("agent_settled")({ type: "agent_settled" }, ctx)
 if (sent.length !== 1) throw new Error("repeated Pi settled event duplicated continuation")
+// A user abort (Esc) must not restart the agent.
+await handlers.get("input")({ type: "input", text: "more work", source: "interactive" }, ctx)
+await handlers.get("agent_settled")({ type: "agent_settled", aborted: true }, ctx)
+if (sent.length !== 1) throw new Error("aborted Pi settle requested a continuation: " + JSON.stringify(sent))
+// Hosts with agent_before_settle continue natively and never inject input.
+const nativeCtx = { ...ctx, sessionManager: { getSessionId: () => "pi-native", getSessionFile: () => repo + "/native.jsonl" } }
+await handlers.get("input")({ type: "input", text: "ship it natively", source: "interactive" }, nativeCtx)
+const settle = await handlers.get("agent_before_settle")({ type: "agent_before_settle", outcome: "completed", entries: [{ type: "custom", customType: "other" }], continue: false }, nativeCtx)
+if (settle?.continue !== true || settle.entries.length !== 2 || settle.entries[0].customType !== "other" ||
+    settle.entries[1].type !== "custom_message" || settle.entries[1].content !== "finish the Reconc run") {
+  throw new Error("Pi native settle continuation drift: " + JSON.stringify(settle))
+}
+await handlers.get("agent_settled")({ type: "agent_settled", aborted: false }, nativeCtx)
+if (sent.length !== 1) throw new Error("native Pi settle also injected input: " + JSON.stringify(sent))
+// An aborted native settle must neither continue nor ask the policy.
+await handlers.get("input")({ type: "input", text: "abort natively", source: "interactive" }, nativeCtx)
+const abortedSettle = await handlers.get("agent_before_settle")({ type: "agent_before_settle", outcome: "aborted", entries: [], continue: false }, nativeCtx)
+if (abortedSettle !== undefined) throw new Error("aborted Pi native settle continued: " + JSON.stringify(abortedSettle))
+await handlers.get("agent_settled")({ type: "agent_settled", aborted: true }, nativeCtx)
+if (sent.length !== 1) throw new Error("aborted Pi native settle injected input: " + JSON.stringify(sent))
 const aborted = new AbortController()
 aborted.abort()
 ctx.signal = aborted.signal
@@ -152,7 +172,7 @@ if (diagnostics.length !== 1 || !diagnostics[0].includes("pi-post-compaction")) 
 	records := readBunHookRecords(t, logPath)
 	for event, want := range map[string]int{
 		"pi-session-start":           1,
-		"pi-user-prompt-submit":      1,
+		"pi-user-prompt-submit":      4,
 		"pi-pre-tool-use":            2,
 		"pi-user-bash":               2,
 		"pi-post-tool-use":           1,
@@ -160,11 +180,15 @@ if (diagnostics.length !== 1 || !diagnostics[0].includes("pi-post-compaction")) 
 		"pi-pre-compaction":          1,
 		"pi-post-compaction":         1,
 		"pi-stop":                    1,
-		"pi-continuation-requested":  1,
+		"pi-before-settle":           1,
+		"pi-continuation-requested":  2,
 		"pi-continuation-suppressed": 1,
 		"pi-session-end":             1,
 	} {
 		assertBunHookCount(t, records, event, want)
+	}
+	if settle := bunHookPayload(t, records, "pi-before-settle"); settle["hook_event_name"] != "agent_before_settle" || settle["stop_hook_active"] != false {
+		t.Fatalf("Pi native settle payload = %#v", settle)
 	}
 	input := bunHookPayload(t, records, "pi-user-prompt-submit")
 	if input["prompt"] != "ship it" || input["input_source"] != "interactive" {

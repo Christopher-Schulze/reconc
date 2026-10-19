@@ -1,10 +1,10 @@
 {
   "host": "dsh",
   "display_name": "DeepSeek Harness",
-  "host_version": "0.1.5-rc.2",
-  "source_url": "https://github.com/deepseek-ai/deepseek-harness/blob/fb2c4b9e698e30edb738bca4cf0618587db7d203/packages/core/tools/src/index.ts",
-  "source_revision": "fb2c4b9e698e30edb738bca4cf0618587db7d203",
-  "capture_date": "2026-09-13",
+  "host_version": "0.2.1-rc.2",
+  "source_url": "https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/src/index.ts",
+  "source_revision": "687f282e8625c6b8d11ff58211a90524be2e4317",
+  "capture_date": "2026-10-19",
   "scope": "Native ToolRuntime pre-tool decisions and final result observations; agent/pre-step and awaited agent/turn-stopping steering are published at the same revision in packages/core/agent/src/runtime-types.ts.",
   "events": [
     {

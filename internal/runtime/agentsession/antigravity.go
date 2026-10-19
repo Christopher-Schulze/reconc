@@ -72,6 +72,9 @@ func runAntigravityPreToolUseResolvedWithEvaluatorAndStopCache(
 	if err != nil {
 		return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: err.Error()})
 	}
+	if parsed, parseErr := ParsePayload(payload); parseErr == nil && antigravitySendsProcessInput(parsed) {
+		return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: "reconc blocked manage_task send_input: input written into a running process cannot be bound to a command Reconc reviewed; run the command through run_command instead."})
+	}
 	result := runPreToolUseResolvedWithEvaluatorAndStopCache(root, payload, evaluator, stopCache)
 	if result.ExitCode != 0 || result.Err != nil {
 		return AdaptAntigravityResult("antigravity-pre-tool-use", result)
@@ -157,9 +160,19 @@ func runAntigravityPostToolUseResolved(root string, payloadBytes []byte) Result 
 		return AdaptAntigravityResult("antigravity-post-tool-use", Result{ExitCode: 0})
 	}
 
+	// A later hook's `overwrite` can change the arguments after Reconc checked
+	// them, so the executed call reported by PostToolUse is the evidence.
+	toolName, toolInput := pending.ToolName, pending.ToolInput
+	overwritten, err := antigravityCallOverwritten(pending, parsed)
+	if err != nil {
+		return AdaptAntigravityResult("antigravity-post-tool-use", resultWithEncodingError(Result{ExitCode: 2}, err))
+	}
+	if overwritten {
+		toolName, toolInput = parsed.ToolName, parsed.ToolInput
+	}
 	out := parsed.Raw
-	out["tool_name"] = pending.ToolName
-	out["tool_input"] = pending.ToolInput
+	out["tool_name"] = toolName
+	out["tool_input"] = toolInput
 	out["tool_use_id"] = pending.ToolUseID
 	if parsed.Error != "" {
 		out["error"] = parsed.Error
@@ -168,13 +181,45 @@ func runAntigravityPostToolUseResolved(root string, payloadBytes []byte) Result 
 	if err != nil {
 		return AdaptAntigravityResult("antigravity-post-tool-use", resultWithEncodingError(Result{ExitCode: 2}, fmt.Errorf("marshal Antigravity post-tool payload: %w", err)))
 	}
-	if parsed.Error != "" && pending.ToolName == "Bash" {
-		return AdaptAntigravityResult("antigravity-post-tool-use", runPostToolUseFailureResolved(root, body))
+	var result Result
+	switch {
+	case parsed.Error != "" && toolName == "Bash":
+		result = runPostToolUseFailureResolved(root, body)
+	case parsed.Error != "":
+		result = Result{ExitCode: 0}
+	default:
+		result = runPostToolUseResolved(root, body)
 	}
-	if parsed.Error != "" {
-		return AdaptAntigravityResult("antigravity-post-tool-use", Result{ExitCode: 0})
+	if overwritten {
+		warning := "reconc hook (Antigravity post, warn): the executed tool arguments differ from the arguments Reconc checked (another hook's overwrite); evidence records the executed call and the stop gate re-evaluates it"
+		if result.Stderr != "" {
+			warning += "; " + result.Stderr
+		}
+		result.Stderr = warning
 	}
-	return AdaptAntigravityResult("antigravity-post-tool-use", runPostToolUseResolved(root, body))
+	return AdaptAntigravityResult("antigravity-post-tool-use", result)
+}
+
+// antigravityCallOverwritten reports whether PostToolUse names a tool call
+// other than the one PreToolUse allowed. Hosts that omit the executed call
+// keep the checked call as the evidence.
+func antigravityCallOverwritten(pending PendingToolCall, executed *HookPayload) (bool, error) {
+	if executed.ToolName == "" && len(executed.ToolInput) == 0 {
+		return false, nil
+	}
+	type call struct {
+		Name  string                 `json:"name"`
+		Input map[string]interface{} `json:"input"`
+	}
+	checked, err := json.Marshal(call{Name: pending.ToolName, Input: pending.ToolInput})
+	if err != nil {
+		return false, fmt.Errorf("marshal checked Antigravity tool call: %w", err)
+	}
+	ran, err := json.Marshal(call{Name: executed.ToolName, Input: executed.ToolInput})
+	if err != nil {
+		return false, fmt.Errorf("marshal executed Antigravity tool call: %w", err)
+	}
+	return string(checked) != string(ran), nil
 }
 
 func RunAntigravityPostInvocation(repoRoot string, payloadBytes []byte) Result {
@@ -343,6 +388,17 @@ func normalizeAntigravityTool(name string, args map[string]interface{}) (string,
 	default:
 		return strings.TrimSpace(name), input
 	}
+}
+
+// antigravitySendsProcessInput reports manage_task send_input, which types
+// into a running run_command process outside the reviewed command line, like
+// Devin's write_to_process. list, status, and kill pass.
+func antigravitySendsProcessInput(payload *HookPayload) bool {
+	if payload == nil || payload.ToolName != "manage_task" {
+		return false
+	}
+	action, _ := payload.ToolInput["Action"].(string)
+	return strings.TrimSpace(action) == "send_input"
 }
 
 func copyAntigravityPath(input, args map[string]interface{}, key string) {

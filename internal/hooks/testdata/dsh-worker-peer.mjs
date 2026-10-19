@@ -8,6 +8,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     event: request.event, id: request.id, pid: process.pid, bytes: Buffer.byteLength(line),
     inputBytes: Buffer.byteLength(JSON.stringify(request.payload?.tool_input || {})),
     errorBytes: Buffer.byteLength(request.payload?.error || ''),
+    workingDirectory: request.payload?.working_directory,
   }) + '\n')
   if (request.payload?.hang) continue
   const mode = process.env.RECONC_DSH_TEST_MODE
@@ -29,6 +30,9 @@ for await (const line of createInterface({ input: process.stdin })) {
     if (result === 'block-json') response.stdout = JSON.stringify({ decision: 'block', reason: 'native block' })
     if (result === 'malformed') response.stdout = '{'
     if (result === 'unknown') response.stdout = JSON.stringify({ advisory: true, reason: 'obsolete decision' })
+  }
+  if (mode === 'decisions' && request.event === 'dsh-stop') {
+    response.stdout = JSON.stringify({ decision: 'block', reason: 'finish the Reconc run' })
   }
   process.stdout.write(JSON.stringify(response) + '\n')
   if (request.type === 'shutdown') process.exit(0)
