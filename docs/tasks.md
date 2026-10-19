@@ -7,6 +7,7 @@
 ## Blocked
 
 ## Done
+- [x] 578 Prepare the authorized Reconc 0.10.3 release -> tasks/done/578-prepare-authorized-reconc-0-10-3-release.md
 - [x] 577 Remove self-lockouts and add operator administration -> tasks/done/577-remove-self-lockouts-and-add-operator-administration.md
 - [x] 576 Prepare the authorized Reconc 0.10.2 release -> tasks/done/576-prepare-authorized-reconc-0-10-2-release.md
 - [x] 575 Recognize Darwin kernel exit transitions in group cleanup -> tasks/done/575-recognize-darwin-kernel-exit-transitions-in-group-cleanup.md

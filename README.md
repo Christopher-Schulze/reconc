@@ -275,7 +275,7 @@ state exactly what remains outside the boundary.
 
 ## Install and Bootstrap
 
-The following immutable installation example selects the published v0.9.8
+The following immutable installation example selects the published v0.10.2
 release. Later changes on `main` remain unreleased; use the source-build path
 below when those development changes are required.
 
@@ -284,8 +284,8 @@ below when those development changes are required.
 macOS or Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.8/install.sh \
-  | sh -s -- --version 0.9.8
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.10.2/install.sh \
+  | sh -s -- --version 0.10.2
 export PATH="$HOME/.local/bin:$PATH"
 reconc --version
 ```
@@ -294,14 +294,14 @@ Windows x64:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.8/install.ps1 -OutFile $installer
-& $installer -Version 0.9.8
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.10.2/install.ps1 -OutFile $installer
+& $installer -Version 0.10.2
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
 reconc --version
 ```
 
-The protected `reconc-v0.9.8` tag contains both installer scripts, so these
+The protected `reconc-v0.10.2` tag contains both installer scripts, so these
 commands do not fetch executable installation logic from mutable `main`. The
 installers:
 
@@ -343,9 +343,8 @@ reconc --version
 portable skill. The skill defaults to `~/.agents/skills/reconc`; pass
 `--no-skill` to install only the CLI, `--skill-dir PATH` for a different skill
 destination, or `--skill-only` when the current binary is already receipt-owned.
-The installer scripts in the current development source install the skill by
-default; they accept `--no-skill` and `-NoSkill`, respectively. The published
-v0.9.8 installers shown above predate this behavior. A downloaded ZIP or raw
+The installer scripts install the skill by default; they accept `--no-skill`
+and `-NoSkill`, respectively. A downloaded ZIP or raw
 binary is passive until an explicit installer or `install-cli` command runs.
 The transaction preserves foreign or modified skill files and reports a
 conflict instead of replacing them. It also rejects a
@@ -1266,7 +1265,7 @@ through the private route in
 ## Status
 
 Development source has no assigned product release version.
-The latest published release is `reconc-v0.9.8`.
+The latest published release is `reconc-v0.10.2`.
 Only Christopher's explicit instruction assigns a release tag to a chosen
 commit. Development builds report `dev` with available VCS metadata; managed
 builds include the commit and dirty state. Changed schemas use content-addressed
