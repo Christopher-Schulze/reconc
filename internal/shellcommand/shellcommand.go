@@ -59,6 +59,9 @@ type Invocation struct {
 type CompiledExpectation struct {
 	invocations []Invocation
 	complete    bool
+	// gitSubcommand marks a `git <subcommand> ...` target, whose Git global
+	// options the deny direction skips; it is decided once at compile time.
+	gitSubcommand bool
 }
 
 // parserState owns one non-concurrent mvdan parser for one bounded analysis.
@@ -84,7 +87,12 @@ func (state *parserState) parse(command, name string) (*syntax.File, error) {
 // fail-closed result without reparsing it.
 func CompileExpectation(command string, maxDepth int) CompiledExpectation {
 	invocations, reason := InvocationsWithReason(command, maxDepth)
-	return CompiledExpectation{invocations: invocations, complete: reason == IncompleteNone}
+	compiled := CompiledExpectation{invocations: invocations, complete: reason == IncompleteNone}
+	if len(invocations) == 1 {
+		words := invocations[0].Words
+		compiled.gitSubcommand = len(words) > 1 && !strings.HasPrefix(words[1], "-") && baseName(words[0]) == "git"
+	}
+	return compiled
 }
 
 // Match compares one observed invocation against this precompiled expected
@@ -94,7 +102,7 @@ func (e CompiledExpectation) Match(invocation Invocation, prefix, foldExecutable
 	if !e.complete || len(e.invocations) != 1 {
 		return false, true
 	}
-	return matchInvocation(invocation, e.invocations[0], prefix, foldExecutable)
+	return matchInvocation(invocation, e.invocations[0], prefix, foldExecutable, e.gitSubcommand)
 }
 
 // Match reports whether invocation is the static command expected by a policy.
@@ -121,32 +129,35 @@ func MatchFoldingExecutable(invocation Invocation, expected string, prefix bool)
 	return CompileExpectation(expected, 8).Match(invocation, prefix, true)
 }
 
-func matchInvocation(invocation, target Invocation, prefix bool, foldExecutable bool) (matched, uncertain bool) {
+func matchInvocation(invocation, target Invocation, prefix, foldExecutable, gitSubcommand bool) (matched, uncertain bool) {
 	if anyDynamic(target.DynamicWords) || len(target.Words) == 0 || len(invocation.Words) == 0 {
 		return false, true
+	}
+	if len(invocation.DynamicWords) > 0 && invocation.DynamicWords[0] {
+		return false, true
+	}
+	// The executable is compared once; every later word is literal.
+	if !executableWordMatches(invocation.Words[0], target.Words[0], foldExecutable) && invocation.Words[0] != target.Words[0] {
+		return false, false
 	}
 	// Deny direction only: Git's global options precede the subcommand, so a
 	// rule forbidding "git clean" must also see "git -C dir clean". Evidence
 	// matching stays literal and never credits a command run elsewhere.
-	if foldExecutable && baseName(target.Words[0]) == "git" && len(target.Words) > 1 &&
-		!strings.HasPrefix(target.Words[1], "-") && executableWordMatches(invocation.Words[0], target.Words[0], true) {
+	if foldExecutable && gitSubcommand {
 		var resolved bool
 		invocation, resolved = gitSubcommandInvocation(invocation)
 		if !resolved {
 			return false, true
 		}
 	}
-	for index, word := range target.Words {
+	for index := 1; index < len(target.Words); index++ {
 		if index >= len(invocation.Words) {
 			return false, false
 		}
 		if index < len(invocation.DynamicWords) && invocation.DynamicWords[index] {
 			return false, true
 		}
-		if index == 0 && executableWordMatches(invocation.Words[index], word, foldExecutable) {
-			continue
-		}
-		if invocation.Words[index] != word {
+		if invocation.Words[index] != target.Words[index] {
 			return false, false
 		}
 	}
@@ -171,6 +182,10 @@ func gitSubcommandInvocation(invocation Invocation) (Invocation, bool) {
 		}
 		word := invocation.Words[index]
 		if !strings.HasPrefix(word, "-") {
+			if index == 1 {
+				// No global options: the subcommand already sits in place.
+				return invocation, true
+			}
 			words := append([]string{invocation.Words[0]}, invocation.Words[index:]...)
 			dynamic := make([]bool, len(words))
 			if len(invocation.DynamicWords) > 0 {

@@ -70,3 +70,23 @@ func TestHasFileWriteRedirectSeparatesWritesFromDescriptorDuplication(t *testing
 		t.Error("unparsable redirect was reported complete")
 	}
 }
+
+func TestDenyMatchWithoutGitGlobalOptionsDoesNotAllocate(t *testing.T) {
+	expectation := CompileExpectation("git clean -fd", 8)
+	invocations, complete := Invocations("git clean -fd build", 8)
+	if !complete || len(invocations) != 1 {
+		t.Fatalf("invocations=%+v complete=%v", invocations, complete)
+	}
+	other, _ := Invocations("git status", 8)
+	allocations := testing.AllocsPerRun(100, func() {
+		if matched, _ := expectation.Match(invocations[0], true, true); !matched {
+			t.Fatal("git clean -fd build must match the forbidden prefix")
+		}
+		if matched, _ := expectation.Match(other[0], true, true); matched {
+			t.Fatal("git status must not match git clean")
+		}
+	})
+	if allocations != 0 {
+		t.Fatalf("deny match allocated %.0f times without global options, want 0", allocations)
+	}
+}

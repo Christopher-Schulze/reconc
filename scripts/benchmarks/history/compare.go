@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -101,7 +102,7 @@ func compareResults(baseline BenchmarkBaseline, current BenchmarkResult) (Benchm
 				AbsoluteNSPerOp:          compareMetric(baselineTarget.Benchmark.Median.NSPerOp, adjustedCurrentNS, baseline.Tolerances.AbsoluteNSPerOp),
 				AbsoluteBytesPerOp:       compareMetric(baselineTarget.Benchmark.Median.BytesPerOp, currentTarget.Benchmark.Median.BytesPerOp, baseline.Tolerances.AbsoluteBytesPerOp),
 				AbsoluteAllocsPerOp:      compareMetric(baselineTarget.Benchmark.Median.AllocsPerOp, currentTarget.Benchmark.Median.AllocsPerOp, baseline.Tolerances.AbsoluteAllocsPerOp),
-				AbsolutePeakRSSBytes:     compareMetric(float64(baselineTarget.Benchmark.PeakRSSBytes), float64(currentTarget.Benchmark.PeakRSSBytes), baseline.Tolerances.AbsolutePeakRSSBytes),
+				AbsolutePeakRSSBytes:     compareMetric(float64(medianPeakRSSBytes(baselineTarget.Benchmark)), float64(medianPeakRSSBytes(currentTarget.Benchmark)), baseline.Tolerances.AbsolutePeakRSSBytes),
 			}
 			report.Groups = append(report.Groups, comparison)
 			appendRegressions(&report, comparison)
@@ -168,6 +169,22 @@ func compareMetric(baseline, current, tolerance float64) MetricComparison {
 	comparison.ChangeFraction = &change
 	comparison.Regression = change > tolerance && !nearlyEqual(change, tolerance)
 	return comparison
+}
+
+// medianPeakRSSBytes is the median of the per-sample process peaks. A single
+// sample's garbage-collection timing on a shared runner can triple its peak,
+// so the memory gate compares the typical peak; PeakRSSBytes keeps the
+// maximum for the report.
+func medianPeakRSSBytes(stats BenchmarkStats) uint64 {
+	if len(stats.Samples) == 0 {
+		return stats.PeakRSSBytes
+	}
+	peaks := make([]uint64, len(stats.Samples))
+	for index, sample := range stats.Samples {
+		peaks[index] = sample.PeakRSSBytes
+	}
+	sort.Slice(peaks, func(left, right int) bool { return peaks[left] < peaks[right] })
+	return peaks[len(peaks)/2]
 }
 
 func appendRegressions(report *BenchmarkComparison, group GroupComparison) {

@@ -339,8 +339,10 @@ metrics remain from the timed pass. Every workload sample records
 runner also performs its standard warmup. RSS describes the full process lifetime, including setup
 and platform-accounted child usage, rather than the outer Go driver. It is
 shared by benchmarks executed in the same process, not a per-operation or
-retained-cache measurement. The maximum across all samples remains the gated
-value with the same tolerance. Unsupported platform RSS remains zero.
+retained-cache measurement. The gate compares the median of the per-sample
+peaks with the same tolerance, so one sample's garbage-collection timing on a
+shared runner cannot fail it; the maximum across all samples stays in the
+report. Unsupported platform RSS remains zero.
 Compilation and sampling share bounded package deadlines; output is limited
 to 16 MiB per stream, binary size is limited to 512 MiB for streamed hashing,
 and private build directories are removed after recording. Binary identity never bypasses a
