@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"reconc.dev/reconc/internal/runtime"
 )
@@ -19,6 +20,9 @@ func runCodexSubagentStopResolved(root string, body []byte, evaluator *runtime.E
 	}
 	if isUserStopInterrupt(payload) {
 		return finishCodexSubagentTurn(root, payload.SessionID, true, "Subagent turn interrupted; completion remains uncertified.")
+	}
+	if pause, paused := activeHookPause(root, time.Now()); paused {
+		return finishCodexSubagentTurn(root, payload.SessionID, true, pause.notice()+" Subagent turn released as uncertified.")
 	}
 	state, err := ensureSessionStateResolved(root, payload.SessionID)
 	if err != nil {

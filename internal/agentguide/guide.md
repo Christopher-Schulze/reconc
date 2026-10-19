@@ -277,18 +277,23 @@ reconc check . --write <path> --claim ci-green --json
 ```
 
 Claims can also be supplied via an events file, stdin JSON, or by a registered hook integration.
+Claims named `operator:*` are operator-only: never try to record one; ask the
+operator.
 
 If bounded session evidence becomes persistently tainted, inspect it without
-mutation:
+mutation (read-only diagnostics keep working while tainted):
 ```bash
 reconc hook evidence-status . --json
 ```
-Do not claim completion or discard the marker. After an operator reviews the
-abandoned evidence epoch and no session is active, resolve only the exact
-reported token with a bounded reason:
+Do not claim completion or discard the marker. Report the token to the
+operator; the operator resolves it from a terminal, also while this session
+stays active:
 ```bash
 reconc hook evidence-resolve . --token <sha256> --reason "<reviewed reason>"
 ```
+`hook evidence-resolve`, `hook pause`, and `hook resume` are operator-only;
+the gate refuses them from agent tool calls. During an operator pause
+(`reconc hook pause-status .`), gates pass with a notice; it is not evidence.
 
 ## Integration Surfaces
 

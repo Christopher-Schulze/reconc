@@ -1313,7 +1313,17 @@ blocked, otherwise the stale lockfile would seal the session. The exemption
 requires a Reconc binary the environment vouches for: inside the repository
 only the bootstrap-managed `tools/reconc/` tree qualifies, so an executable an
 agent writes into the repository under the product name does not inherit it,
-while an installed CLI outside the repository still does.
+while an installed CLI outside the repository still does. A repair carrying a
+file-writing redirection is not admitted, because the redirect is a write the
+stale gate cannot evaluate; descriptor duplication such as `2>&1` and output to
+`/dev/null` remain admitted. While the lockfile is stale or the evidence is tainted, the
+gate also admits read-only diagnostics from a vouched binary, so a blocked
+session can always explain itself: `status`, `next`, `why`, `explain`,
+`doctor`, `sources`, `session-briefing`, `agent-intro`, `help`, `version`,
+`hook status`, `hook evidence-status`, `hook pause-status`, `run status`,
+`run log`, and `task status`. Every executable position must qualify; a
+file-writing redirection, `--output`, `--follow`, `--report-file`, or any other
+unlisted flag removes the admission.
 When `RECONC_AUDIT=1`, enforcement commands may still append decision records;
 that opt-in audit write is independent of policy refresh. Explicit `check`,
 `ci`, and `done` decisions may also write or clear one
@@ -2876,7 +2886,11 @@ empty segment state drops that session's prefix and returns to the normal
 fail-closed load path. The cache is memory-only, bounded to 64 entries and
 16 MiB of retained evidence, and one-shot handlers pass no cache.
 
-An event that cannot fit an empty segment, a 64-segment exhaustion, or a
+A command longer than 32 KiB is ordinary agent work, not an overflow: the
+command and command-result evidence store a UTF-8-safe prefix followed by
+` ...[truncated sha256=<hex> bytes=<n>]`, which binds the record to the exact
+full text, keeps equal long commands deduplicated, and never taints the
+session. An event that cannot fit an empty segment, a 64-segment exhaustion, or a
 missing/corrupt segment creates a project-scoped evidence taint. The taint
 records the exact field and limit cause (`item_bytes`, `item_count`,
 `byte_budget`, `serialization`, `segment_count`, `segment_storage`, or
@@ -2887,14 +2901,40 @@ available. With repository run enabled, Stop remains blocked. With repository
 run disabled, Stop records `uncertified_termination` and releases the host
 without representing the session as certified. An explicit user interrupt
 continues to release the host invocation, while the durable taint remains.
-Recovery is explicit: end the active session, inspect
-`reconc hook evidence-status .`, then pass its exact token and an operator
-reason to `reconc hook evidence-resolve . --token TOKEN --reason TEXT`. Reconc
-writes an immutable resolution receipt before removing the live taint; the next
-session starts a new evidence window and must reproduce every required proof.
-Read-only evidence-status inspection can expose an overflow directly from the
-active state before that durable taint exists; JSON marks this observation with
-`persisted=false` and does not create repair state.
+Recovery is explicit and never requires discarding the session: the operator
+inspects `reconc hook evidence-status .` from a terminal, then passes its exact
+token and a reason to `reconc hook evidence-resolve . --token TOKEN --reason TEXT`.
+Reconc writes an immutable resolution receipt before removing the live taint.
+With an active session, the resolution runs under that session's lock and also
+clears the session's overflow when it is the overflow the token names; a
+different, newer overflow stays and is reported under a new token. Work that
+depended on the dropped evidence must be reproduced. Read-only evidence-status
+inspection can expose an overflow directly from the active state before that
+durable taint exists; JSON marks this observation with `persisted=false`, and
+the same token resolves it.
+
+Operator administration. Agent tool calls can never issue the commands that
+lift their own restraint: `reconc hook pause`, `reconc hook resume`,
+`reconc hook evidence-resolve`, or `reconc hook claim` for a claim named
+`operator:*`. The pre-tool and MCP command gates refuse such an invocation in
+every executable position (including nested `sh -c` bodies and a dynamic claim
+name) before execution; the operator runs them from a terminal. A
+`require_claim` rule that lists an `operator:` claim is therefore satisfiable
+only by the operator, while ordinary claims stay agent-recordable. Recording a
+claim only persists it; the gates that consult claims evaluate the current set
+themselves, so no policy script runs on the claim path. The sanctioned valve
+for an incident is `reconc hook pause . --for DURATION --reason TEXT` (one
+minute to 24 hours) instead of removing or stubbing hooks: while the pause is
+active, pre-tool, permission, MCP, Stop, subagent-Stop, and `reconc ci` gates
+pass with a notice, before any cached decision is consulted; evidence keeps
+being recorded, and the built-in destructive Git guard and the operator-only
+guard keep holding. The pause ends at its expiry or with `reconc hook resume .`.
+`reconc hook pause-status .` and `reconc hook status .` report it. The private
+per-repository record keeps the 32 most recent pauses with reason, start,
+expiry, and resume time; an unreadable or foreign record means no pause, so a
+damaged valve leaves enforcement on. This guard follows the documented
+same-user model: it stops an agent from administering itself through its tool
+calls, not a process that can rewrite the user's private state directly.
 The latest unresolved policy block is retained without an age limit and also
 protects its project-state root from global cleanup. A validated non-blocking
 decision removes that receipt durably; retention never converts block to pass.
@@ -2909,7 +2949,12 @@ not-yet-existing leaf. Relative and resolved non-memory candidates return
 before Git common-directory discovery; one event loads the exact project-key
 matcher at most once, after its first filesystem-confirmed memory candidate.
 A memory-looking path that resolves elsewhere stays gated; accepted memory
-writes are never recorded as repository write evidence.
+writes are never recorded as repository write evidence. The Claude Code
+per-session scratchpad, `<temp>/claude-<uid>/<project-key>/<session>/scratchpad/**`,
+is excluded the same way when its project key names the current repository:
+the check runs on the symlink-resolved target, so a link inside the scratchpad
+that points into the repository, a scratchpad of another project, or any other
+path outside the repository stays gated.
 Host session IDs are validated exactly and mapped to collision-resistant file
 keys. State, reports, active pointers, and locks use bounded reads, private
 permissions, atomic publication, and cross-process locking; legacy sanitized
@@ -5119,7 +5164,9 @@ uncertified. A later child turn checks policy again. Child turn stops preserve
 evidence because Codex does not send children a terminal `SessionEnd` event.
 Internal and synthetic subagents expose no user lifecycle hooks.
 User prompts, pre/post compaction, subagent start/stop, permission, tool, and
-Stop lifecycles are routed. `apply_patch` is routed through Reconc by
+Stop lifecycles are routed. Codex shell calls reported as `exec_command`
+(or `functions.exec_command`) are command tools whose `tool_input.cmd` passes
+the same shell guard and command policy as `Bash`. `apply_patch` is routed through Reconc by
 parsing patch headers from `tool_input.command`; a non-empty patch with zero
 parseable file operations fails closed instead of silently bypassing the write
 gate. The same rule covers every registered write tool: a payload that names a
@@ -5718,7 +5765,7 @@ CI checks:
 - root-module and `harness/template` race tests on Ubuntu 24.04 and normal tests
   on macOS 15; whole-module root/template coverage measurement, publication
   audit, formatting, tidy, vet, pinned Govulncheck v1.7.0, and pinned
-  Staticcheck v0.8.1 run once on Linux
+  Staticcheck v0.8.2 run once on Linux
 - Windows 2025 checks run only with an explicit manual `windows_smoke: true`
   input; the complete optional job has a hard two-minute limit and runs focused
   filesystem checks plus native binary version/help smoke. Windows code, test
@@ -5972,7 +6019,11 @@ Security posture:
   compares the literal words a shell would execute, so quote removal and
   backslash escapes cannot hide a forbidden program, and an undecodable
   construct fails closed instead of comparing unresolved text. Deny matching
-  folds the program name's case; evidence matching does not.
+  folds the program name's case and skips Git global options before a Git
+  subcommand, so a rule forbidding `git clean` also matches
+  `git -C dir clean -n` or `git -c key=value clean`; a dynamic or unknown
+  global option is uncertain and fails closed. Evidence matching does neither,
+  so a command run in another directory never earns credit.
 - Literal `eval` arguments are joined with one space after the outer quote-
   removal pass and parsed again, matching POSIX shell behavior. Quotes are
   never invented to preserve an outer argument boundary. Dynamic eval input,

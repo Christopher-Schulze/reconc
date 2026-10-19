@@ -63,6 +63,9 @@ func runPreDecisionResolvedWithEvaluatorAndStopCache(
 	if !preDecisionRequiresPolicy(payload) {
 		return adaptPreDecision(Result{}, permission)
 	}
+	if decision, paused := pausedPreToolDecision(root, payload); paused {
+		return adaptPreDecision(decision, permission)
+	}
 	inputs, cacheable := preDecisionInputsForPayloadWithEvaluatorAndStopCache(root, payload, evaluator, stopCache)
 	// Approval-gated writes must reach the live pre-write path on every call.
 	// Reusing a claim-only decision here could skip receipt verification, and a

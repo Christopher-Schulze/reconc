@@ -51,18 +51,11 @@ func TestEvaluateRefusesPersistedEvidenceTaint(t *testing.T) {
 	if result := agentsession.RunSessionStart(repo, []byte(`{"session_id":"tainted"}`)); result.ExitCode != 0 {
 		t.Fatalf("session start: %+v", result)
 	}
-	command := strings.Repeat("x", 33*1024)
-	payload, err := json.Marshal(map[string]interface{}{
-		"session_id": "tainted",
-		"tool_name":  "Bash",
-		"tool_input": map[string]interface{}{"command": command},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result := agentsession.RunPostToolUse(repo, payload); result.ExitCode != 0 ||
-		!strings.Contains(result.Stderr, "item_bytes") {
-		t.Fatalf("overflow fixture was not tainted: %+v", result)
+	// An oversized claim cannot be retained and taints the evidence; long
+	// commands are bounded instead and never taint.
+	if _, err := agentsession.RecordClaim(repo, strings.Repeat("x", 8*1024), "tainted"); err == nil ||
+		!strings.Contains(err.Error(), "item_bytes") {
+		t.Fatalf("overflow fixture was not tainted: %v", err)
 	}
 	report := evaluateCompletion(t, repo, completiongate.Options{})
 	assertFailedCheck(t, report, "session/evidence-complete")

@@ -193,10 +193,10 @@ func TestCodexSubagentStopOverflowIsUncertifiedAndRetainsEvidence(t *testing.T) 
 		t.Fatalf("child setup: code=%d stderr=%s", code, stderr)
 	}
 	state, err := agentsession.MutateSessionState(repo, "child", func(current agentsession.SessionState) agentsession.SessionState {
-		return agentsession.AppendCommand(current, strings.Repeat("x", agentsession.MaxSessionStateBytes+1))
+		return agentsession.AppendClaim(current, strings.Repeat("x", 8*1024))
 	})
-	if err != nil || !state.EvidenceOverflow || state.EvidenceOverflowReason != "commands" || state.EvidenceOverflowLimit != "item_bytes" {
-		t.Fatalf("real command overflow was not recorded: state=%+v error=%v", state, err)
+	if err != nil || !state.EvidenceOverflow || state.EvidenceOverflowReason != "claims" || state.EvidenceOverflowLimit != "item_bytes" {
+		t.Fatalf("real claim overflow was not recorded: state=%+v error=%v", state, err)
 	}
 	// Overflow rotates prior evidence into an immutable segment. The package
 	// regression loads and verifies that chain; this CLI control preserves its head.

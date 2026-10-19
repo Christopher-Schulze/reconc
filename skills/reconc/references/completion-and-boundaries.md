@@ -28,6 +28,12 @@ When `reconc` blocks:
 4. Re-run `reconc check . ...`.
 5. Finish with `reconc done .`.
 
+When evidence is tainted, read-only diagnostics such as
+`reconc hook evidence-status . --json` still run; report the token and let the
+operator resolve it. `hook evidence-resolve`, `hook pause`, `hook resume`, and
+claims named `operator:*` are operator-only and are refused from agent tool
+calls. A gate that passes during an operator pause is not evidence.
+
 When `reconc` warns:
 
 - report the warning if it matters for the user-visible outcome

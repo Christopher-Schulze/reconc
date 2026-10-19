@@ -852,6 +852,11 @@ func ReadEvidenceTaintStatus(repoRoot string) (EvidenceTaintStatus, error) {
 	}, nil
 }
 
+// ResolveEvidenceTaint records the operator's reviewed acceptance of an
+// evidence gap and lifts the taint. It works with or without an active
+// session: a sealed session is recovered in place, so the operator never has
+// to discard the agent's context. The exact current token is required, and an
+// active session is cleared only for the overflow the token describes.
 func ResolveEvidenceTaint(repoRoot, expectedToken, reason string) (EvidenceTaintStatus, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
@@ -869,15 +874,45 @@ func ResolveEvidenceTaint(repoRoot, expectedToken, reason string) (EvidenceTaint
 	if err != nil {
 		return EvidenceTaintStatus{}, err
 	}
-	if active != "" {
-		return EvidenceTaintStatus{}, fmt.Errorf("active session %q must end before evidence taint can be resolved", active)
+	if active == "" {
+		return resolveEvidenceTaintLocked(root, "", expectedToken, reason)
+	}
+	var status EvidenceTaintStatus
+	err = withSessionLock(root, active, func() error {
+		var resolveErr error
+		status, resolveErr = resolveEvidenceTaintLocked(root, active, expectedToken, reason)
+		return resolveErr
+	})
+	return status, err
+}
+
+func resolveEvidenceTaintLocked(root, activeID, expectedToken, reason string) (EvidenceTaintStatus, error) {
+	var activeState SessionState
+	if activeID != "" {
+		state, err := readSessionStateResolved(root, activeID)
+		if err != nil {
+			return EvidenceTaintStatus{}, err
+		}
+		activeState = state
 	}
 	taint, err := loadEvidenceTaint(root)
 	if err != nil {
 		return EvidenceTaintStatus{}, err
 	}
+	persisted := taint != nil
+	if taint == nil && activeID != "" && activeState.EvidenceOverflow {
+		taint = &evidenceTaint{
+			FormatVersion: evidenceTaintFormatVersion,
+			RepoRoot:      root,
+			SessionID:     activeID,
+			Field:         activeState.EvidenceOverflowReason,
+			Limit:         activeState.EvidenceOverflowLimit,
+			SegmentCount:  activeState.EvidenceSegmentCount,
+			SegmentDigest: activeState.EvidenceSegmentDigest,
+		}
+	}
 	if taint == nil {
-		return EvidenceTaintStatus{}, errors.New("no persisted evidence taint exists")
+		return EvidenceTaintStatus{}, errors.New("no evidence taint exists")
 	}
 	token, err := evidenceTaintToken(*taint)
 	if err != nil {
@@ -904,11 +939,23 @@ func ResolveEvidenceTaint(repoRoot, expectedToken, reason string) (EvidenceTaint
 	if _, err := atomicfile.WritePrivateIfChanged(path, body, 0o600); err != nil {
 		return EvidenceTaintStatus{}, fmt.Errorf("write evidence taint resolution: %w", err)
 	}
-	if err := os.Remove(evidenceTaintPath(root)); err != nil {
-		return EvidenceTaintStatus{}, fmt.Errorf("remove resolved evidence taint: %w", err)
+	if activeID != "" && activeState.EvidenceOverflow &&
+		strings.TrimSpace(activeState.EvidenceOverflowReason) == taint.Field &&
+		strings.TrimSpace(activeState.EvidenceOverflowLimit) == taint.Limit {
+		activeState.EvidenceOverflow = false
+		activeState.EvidenceOverflowReason = ""
+		activeState.EvidenceOverflowLimit = ""
+		if err := saveSessionStateLocked(activeState); err != nil {
+			return EvidenceTaintStatus{}, fmt.Errorf("clear resolved evidence taint from active session: %w", err)
+		}
+	}
+	if persisted {
+		if err := os.Remove(evidenceTaintPath(root)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return EvidenceTaintStatus{}, fmt.Errorf("remove resolved evidence taint: %w", err)
+		}
 	}
 	return EvidenceTaintStatus{
-		Present: true, Persisted: true, Token: token, SessionID: taint.SessionID,
+		Present: true, Persisted: persisted, Token: token, SessionID: taint.SessionID,
 		Field: taint.Field, Limit: taint.Limit,
 		SegmentCount: taint.SegmentCount, SegmentDigest: taint.SegmentDigest,
 	}, nil

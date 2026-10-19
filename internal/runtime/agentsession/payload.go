@@ -46,8 +46,9 @@ var WriteToolNames = map[string]struct{}{
 // ReadToolNames are tools that represent a file read.
 var ReadToolNames = map[string]struct{}{"Read": {}, "read": {}, "TabRead": {}, "tabread": {}}
 
-// CommandToolNames are tools that execute a shell command.
-var CommandToolNames = map[string]struct{}{"Bash": {}, "bash": {}}
+// CommandToolNames are tools that execute a shell command. Codex reports its
+// unified shell tool as exec_command (functions.exec_command when namespaced).
+var CommandToolNames = map[string]struct{}{"Bash": {}, "bash": {}, "exec_command": {}, "functions.exec_command": {}}
 
 // ErrPayloadTooLarge is returned when stdin produces more than
 // MaxPayloadBytes. Callers treat this as fail-closed for PreToolUse /

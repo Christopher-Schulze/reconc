@@ -14,7 +14,7 @@ func TestCodexSubagentOverflowRetainsVerifiedEvidenceChain(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, err := MutateSessionState(repo, "child", func(state SessionState) SessionState {
-		return AppendCommand(state, strings.Repeat("x", maxCommandBytes+1))
+		return AppendClaim(state, strings.Repeat("x", maxClaimBytes+1))
 	})
 	if err != nil || !before.EvidenceOverflow || before.EvidenceSegmentCount != 1 {
 		t.Fatalf("real overflow did not rotate retained evidence: %+v error=%v", before, err)

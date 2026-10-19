@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"reconc.dev/reconc/internal/ingest"
 )
 
 // ClaimReport is the outcome of appending one claim to the active
@@ -71,20 +69,10 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load complete evidence after recording claim: %w", err)
 	}
-	// Re-run the check so the saved report reflects the new claim set when the
-	// target is policy-enabled. Bare repositories can still store claims for a
-	// policy that will be bootstrapped later. The mutation is idempotent, so
-	// reporting a real refresh failure is safe for callers to retry.
-	discovery, err := ingest.DiscoverPolicyRepo(root)
-	if err != nil {
-		return nil, fmt.Errorf("discover policy after recording claim: %w", err)
-	}
-	if discovery.Discovered {
-		if _, err := runCheckAndSave(root, sessionID, updated.ReadPaths,
-			updated.WritePaths, updated.WriteEpochs, updated.Commands, updated.CommandResults, updated.Claims); err != nil {
-			return nil, fmt.Errorf("refresh report after recording claim: %w", err)
-		}
-	}
+	// Recording a claim only persists it. Every gate that consults claims
+	// (PreToolUse, Stop, completion, CI) evaluates the current claim set
+	// itself, so re-running the full policy here would only repeat that work
+	// and execute every applicable script on the claim path.
 
 	return &ClaimReport{
 		RepoRoot:   root,

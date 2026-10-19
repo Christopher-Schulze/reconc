@@ -47,6 +47,11 @@ func isLockfileError(err error) bool {
 // complete: a command whose executables cannot all be identified never
 // qualifies.
 func isLockfileRepairCommand(repoRoot, command string) bool {
+	// A file-writing redirection is a write the stale gate cannot evaluate;
+	// the repair never needs one. Descriptor duplication stays admitted.
+	if writes, complete := shellcommand.HasFileWriteRedirect(command); writes || !complete {
+		return false
+	}
 	invocations, incomplete := shellcommand.InvocationsWithReason(command, maxShellGuardDepth)
 	if incomplete != shellcommand.IncompleteNone || len(invocations) == 0 {
 		return false

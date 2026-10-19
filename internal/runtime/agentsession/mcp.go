@@ -77,6 +77,9 @@ func runMCPBeforeResolvedWithEvaluatorAndStopCache(
 		}
 		return runPreDecisionResolvedWithEvaluatorAndStopCache(root, payloadBytes, false, evaluator, stopCache)
 	}
+	if decision, paused := pausedPreToolDecision(root, payload); paused {
+		return decision
+	}
 	contract, err := evaluator.LoadMCPPolicy(root)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
@@ -389,6 +392,9 @@ func runMCPCommandPreResolvedWithStopCache(
 	stopCache *StopDecisionCache,
 ) Result {
 	if reason := forbiddenShellCommandReasonInRepo(root, command); reason != "" {
+		return Result{ExitCode: 2, Stderr: reason}
+	}
+	if reason := operatorOnlyCommandReason(command); reason != "" {
 		return Result{ExitCode: 2, Stderr: reason}
 	}
 	state, err := ensureSessionStateResolved(root, payload.SessionID)

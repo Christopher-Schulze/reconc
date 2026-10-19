@@ -117,8 +117,8 @@ jobs:
       - name: Staticcheck
         if: runner.os == 'Linux'
         run: |
-          go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
-          (cd harness/template && go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...)
+          go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+          (cd harness/template && go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...)
 
       - name: Race tests
         if: runner.os == 'Linux'

@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/policy"
@@ -16,7 +17,7 @@ import (
 
 func runHook(args []string, version string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | uninstall | status | verify | bridge | conform | sync-scaffold | claim | evidence-status | evidence-resolve)"}
+		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | uninstall | status | verify | bridge | conform | sync-scaffold | claim | evidence-status | evidence-resolve | pause | resume | pause-status)"}
 	}
 	switch args[0] {
 	case "-h", "--help":
@@ -32,6 +33,9 @@ func runHook(args []string, version string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stdout, "       reconc hook claim    <repo> <claim-name> [--session ID] [--json] [--output PATH]")
 		fmt.Fprintln(stdout, "       reconc hook evidence-status [repo] [--json]")
 		fmt.Fprintln(stdout, "       reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]")
+		fmt.Fprintln(stdout, "       reconc hook pause [repo] --for DURATION --reason TEXT [--json]")
+		fmt.Fprintln(stdout, "       reconc hook resume [repo] [--json]")
+		fmt.Fprintln(stdout, "       reconc hook pause-status [repo] [--json]")
 		fmt.Fprintln(stdout, "")
 		fmt.Fprintf(stdout, "Kinds: %s (all installable)\n", strings.Join(hooks.SupportedKinds(), ", "))
 		fmt.Fprintln(stdout, "Kimi Code hooks are user-global; install or uninstall kimi-code without a repo argument.")
@@ -74,8 +78,14 @@ func runHook(args []string, version string, stdout, stderr io.Writer) error {
 		return runHookEvidenceStatus(args[1:], stdout)
 	case "evidence-resolve":
 		return runHookEvidenceResolve(args[1:], stdout)
+	case "pause":
+		return runHookPause(args[1:], stdout)
+	case "resume":
+		return runHookResume(args[1:], stdout)
+	case "pause-status":
+		return runHookPauseStatus(args[1:], stdout)
 	}
-	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | uninstall | status | verify | bridge | conform | sync-scaffold | claim | evidence-status | evidence-resolve)", args[0])}
+	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | uninstall | status | verify | bridge | conform | sync-scaffold | claim | evidence-status | evidence-resolve | pause | resume | pause-status)", args[0])}
 }
 
 func runHookEvidenceStatus(args []string, stdout io.Writer) error {
@@ -247,6 +257,11 @@ func runHookStatus(args []string, stdout io.Writer) error {
 		return nil
 	}
 	style := newTextStyler(stdout)
+	if pause, pauseErr := agentsession.ReadHookPauseStatus(repo, time.Now()); pauseErr != nil {
+		fmt.Fprintf(stdout, "hook pause: unreadable (%s); enforcement stays on\n", pauseErr)
+	} else if pause.Active {
+		fmt.Fprintln(stdout, hookPauseLine(pause))
+	}
 	for _, report := range reports {
 		live := "never seen"
 		if report.LastSeen != "" {

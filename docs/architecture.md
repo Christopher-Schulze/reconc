@@ -995,19 +995,29 @@ the complete sealed and live chain. A triggering event is retried only after
 the previous live epoch is durably sealed. Segment-chain
 tampering, an oversized individual item, storage failure, or exhaustion of the
 64-segment session budget creates a project-scoped taint that survives session
-cleanup and is inherited on the next SessionStart.
+cleanup and is inherited on the next SessionStart. Command text is the
+exception to the item rule: a command above 32 KiB is stored as a UTF-8-safe
+prefix bound to the SHA-256 and byte length of the full text, so long heredocs
+never taint.
 
 Taint is a third terminal state, not a policy pass. PreToolUse blocks every
-repository write and command while preserving read-only diagnosis; claims, CI,
-saved policy passes, and completion remain unavailable. Repository run enabled
-keeps Stop blocked. Repository run disabled records an uncertified termination
-and releases Stop without clearing taint. Explicit user interrupt remains the
-host escape and also does not clear taint.
-Resolution requires no active session, the exact SHA-256 token of the current
-taint, and a bounded operator reason. The resolver writes a durable receipt
-containing the abandoned taint before removing the live marker. A successor
-session therefore starts a new evidence window without converting the abandoned
-epoch into certified evidence.
+repository write and command except the allowlisted read-only Reconc
+diagnostics; claims, CI, saved policy passes, and completion remain
+unavailable. Repository run enabled keeps Stop blocked. Repository run disabled
+records an uncertified termination and releases Stop without clearing taint.
+Explicit user interrupt remains the host escape and also does not clear taint.
+Resolution requires the exact SHA-256 token of the current taint and a bounded
+operator reason, with or without an active session. The resolver writes a
+durable receipt containing the abandoned taint before removing the live marker
+and, under the active session's lock, clears that session's matching overflow.
+The resolver is operator-only: the pre-tool gate refuses it from agent tool
+calls, together with `hook pause`, `hook resume`, and `operator:*` claims.
+
+An operator pause is the bounded incident valve (one minute to 24 hours).
+Pre-tool, permission, MCP, Stop, subagent-Stop, and CI gates pass with a notice
+before the decision cache is consulted, evidence recording continues, and the
+destructive Git guard and the operator-only guard stay active. A missing,
+damaged, foreign, expired, or resumed pause record means enforcement is on.
 
 ### Fail-closed vs fail-open
 

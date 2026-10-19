@@ -1153,9 +1153,10 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-// AppendCommand adds one command string.
+// AppendCommand adds one command string. Text beyond the per-command limit is
+// stored as a digest-bound prefix (boundCommandText), never as a taint.
 func AppendCommand(state SessionState, cmd string) SessionState {
-	appendBoundedString(&state, &state.Commands, cmd, maxCommandEvidenceItems, maxCommandEvidenceBytes, maxCommandBytes, "commands")
+	appendBoundedString(&state, &state.Commands, boundCommandText(strings.TrimSpace(cmd)), maxCommandEvidenceItems, maxCommandEvidenceBytes, maxCommandBytes, "commands")
 	return state
 }
 

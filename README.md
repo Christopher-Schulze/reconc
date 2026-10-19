@@ -1162,11 +1162,21 @@ roadmap.
 ### What happens when evidence is incomplete or corrupted?
 
 Reconc fails closed. Recoverable capacity pressure seals evidence into linked
-segments. Missing or corrupt segments, an event too large for an empty segment,
-or exhausted segment capacity creates durable evidence taint. Read-only
-diagnosis remains available, but certified claims and completion remain blocked
-until the active session ends and an operator explicitly resolves the taint
-with the token printed by `reconc hook evidence-status .`.
+segments, and a command longer than 32 KiB is stored as a digest-bound prefix
+instead of tainting the session. Missing or corrupt segments, an event too
+large for an empty segment, or exhausted segment capacity creates durable
+evidence taint. Read-only Reconc diagnostics keep running, but certified claims
+and completion remain blocked until the operator resolves the taint from a
+terminal with the token printed by `reconc hook evidence-status .`; this works
+while the agent session stays active, so no context is lost.
+
+### How do I get out of a blocked session without removing hooks?
+
+Run `reconc hook pause . --for 30m --reason "<why>"` from your own terminal.
+Blocking gates pass with a notice until the pause expires or
+`reconc hook resume .` ends it; evidence is still recorded, and destructive
+Git commands stay refused. Agents cannot pause, resume, resolve taint, or
+record `operator:*` claims through their tool calls.
 
 ### How do I upgrade, troubleshoot, or remove it?
 

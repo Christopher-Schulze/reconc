@@ -31,6 +31,10 @@ func runCI(args []string, reconcVersion string, stdout, stderr io.Writer) (resul
 	if err != nil || help {
 		return err
 	}
+	if pause, pauseErr := agentsession.ReadHookPauseStatus(options.repo, time.Now()); pauseErr == nil && pause.Active {
+		fmt.Fprintf(stderr, "reconc ci: skipped; %s\n", hookPauseLine(pause))
+		return nil
+	}
 	format, err := resolvePolicyReportFormat(options.format, options.jsonOutput, false, false)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc ci: " + err.Error()}

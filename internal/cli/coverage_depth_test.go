@@ -67,7 +67,7 @@ func TestHookEvidenceResolveCLIRejectsIncompleteAndUnresolvableRequests(t *testi
 		{name: "unknown flag", args: []string{repo, "--unknown"}, wantError: `unknown flag "--unknown"`},
 		{name: "extra repo", args: []string{repo, repo, "--token", "token", "--reason", "reviewed"}, wantError: "accepts exactly one repo path"},
 		{name: "missing required fields", args: []string{repo}, wantError: "usage:"},
-		{name: "no persisted taint", args: []string{repo, "--token", "token", "--reason", "reviewed", "--json"}, wantError: "no persisted evidence taint exists"},
+		{name: "no taint", args: []string{repo, "--token", "token", "--reason", "reviewed", "--json"}, wantError: "no evidence taint exists"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -102,7 +102,7 @@ func TestRunHookRoutesEvidenceCommands(t *testing.T) {
 
 	stdout.Reset()
 	err := runHook([]string{"evidence-resolve", repo, "--token", "token", "--reason", "reviewed"}, "test", &stdout, &stderr)
-	if err == nil || !strings.Contains(err.Error(), "no persisted evidence taint exists") {
+	if err == nil || !strings.Contains(err.Error(), "no evidence taint exists") {
 		t.Fatalf("evidence-resolve error = %v", err)
 	}
 }

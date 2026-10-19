@@ -5,6 +5,7 @@
 package shellcommand
 
 import (
+	"strconv"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -102,7 +103,8 @@ func Match(invocation Invocation, expected string, prefix bool) (matched, uncert
 }
 
 // MatchFoldingExecutable is Match with a case-insensitive comparison of the
-// program name only. Arguments stay case-sensitive.
+// program name only, and with Git global options skipped before a Git
+// subcommand. Arguments stay case-sensitive.
 //
 // It exists for the deny direction. On the case-insensitive filesystems this
 // product supports, `RM` and `rm` name the same program, so a matcher that
@@ -118,6 +120,17 @@ func MatchFoldingExecutable(invocation Invocation, expected string, prefix bool)
 func matchInvocation(invocation, target Invocation, prefix bool, foldExecutable bool) (matched, uncertain bool) {
 	if anyDynamic(target.DynamicWords) || len(target.Words) == 0 || len(invocation.Words) == 0 {
 		return false, true
+	}
+	// Deny direction only: Git's global options precede the subcommand, so a
+	// rule forbidding "git clean" must also see "git -C dir clean". Evidence
+	// matching stays literal and never credits a command run elsewhere.
+	if foldExecutable && baseName(target.Words[0]) == "git" && len(target.Words) > 1 &&
+		!strings.HasPrefix(target.Words[1], "-") && executableWordMatches(invocation.Words[0], target.Words[0], true) {
+		var resolved bool
+		invocation, resolved = gitSubcommandInvocation(invocation)
+		if !resolved {
+			return false, true
+		}
 	}
 	for index, word := range target.Words {
 		if index >= len(invocation.Words) {
@@ -140,6 +153,61 @@ func matchInvocation(invocation, target Invocation, prefix bool, foldExecutable 
 		return false, true
 	}
 	return false, false
+}
+
+// gitSubcommandInvocation drops Git's global options and their values so the
+// subcommand occupies the position a policy names. It reports false when a
+// global option or its value is dynamic or malformed, which callers treat as
+// uncertain and therefore fail closed in the deny direction.
+func gitSubcommandInvocation(invocation Invocation) (Invocation, bool) {
+	index := 1
+	for index < len(invocation.Words) {
+		if index < len(invocation.DynamicWords) && invocation.DynamicWords[index] {
+			return invocation, false
+		}
+		word := invocation.Words[index]
+		if !strings.HasPrefix(word, "-") {
+			words := append([]string{invocation.Words[0]}, invocation.Words[index:]...)
+			dynamic := make([]bool, len(words))
+			if len(invocation.DynamicWords) > 0 {
+				dynamic[0] = invocation.DynamicWords[0]
+			}
+			if index < len(invocation.DynamicWords) {
+				copy(dynamic[1:], invocation.DynamicWords[index:])
+			}
+			invocation.Words, invocation.DynamicWords = words, dynamic
+			return invocation, true
+		}
+		option, _, joined := strings.Cut(word, "=")
+		switch option {
+		case "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env":
+			if !joined {
+				index++
+				if index >= len(invocation.Words) || index < len(invocation.DynamicWords) && invocation.DynamicWords[index] {
+					return invocation, false
+				}
+			}
+		case "-p", "--paginate", "-P", "--no-pager", "--no-replace-objects", "--bare", "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs", "--no-optional-locks", "--no-lazy-fetch", "--no-advice":
+			if joined {
+				return invocation, false
+			}
+		case "--exec-path":
+			if !joined {
+				invocation.Words, invocation.DynamicWords = invocation.Words[:1], invocation.DynamicWords[:min(1, len(invocation.DynamicWords))]
+				return invocation, true
+			}
+		case "-v", "--version", "-h", "--help", "--html-path", "--man-path", "--info-path":
+			invocation.Words, invocation.DynamicWords = invocation.Words[:1], invocation.DynamicWords[:min(1, len(invocation.DynamicWords))]
+			return invocation, true
+		default:
+			// Joined short forms such as -Cdir or -ckey=value carry their value.
+			if !strings.HasPrefix(word, "-C") && !strings.HasPrefix(word, "-c") {
+				return invocation, false
+			}
+		}
+		index++
+	}
+	return invocation, true
 }
 
 func executableWordMatches(actual, expected string, fold bool) bool {
@@ -275,6 +343,53 @@ func HasRedirect(command string) (hasRedirect, complete bool) {
 		return true
 	})
 	return hasRedirect, true
+}
+
+// HasFileWriteRedirect reports whether a bounded Bash command contains a
+// redirection that can write a file. File-descriptor duplication (`2>&1`,
+// `>&2`, `>&-`), input redirection, here-documents, and output to /dev/null
+// write nothing; every other output redirection does, and so does a
+// duplication or target word that is not a literal. Complete is false when the
+// command cannot be parsed.
+func HasFileWriteRedirect(command string) (writes, complete bool) {
+	command = strings.TrimSpace(command)
+	if command == "" || len(command) > maxCommandBytes {
+		return false, false
+	}
+	state := newParserState()
+	file, err := state.parse(command, "redirect-write")
+	if err != nil {
+		return false, false
+	}
+	syntax.Walk(file, func(node syntax.Node) bool {
+		if redirect, ok := node.(*syntax.Redirect); ok && redirectWritesFile(redirect) {
+			writes = true
+		}
+		return true
+	})
+	return writes, true
+}
+
+func redirectWritesFile(redirect *syntax.Redirect) bool {
+	switch redirect.Op {
+	case syntax.RdrIn, syntax.Hdoc, syntax.DashHdoc, syntax.WordHdoc, syntax.DplIn:
+		return false
+	}
+	target, static := "", false
+	if redirect.Word != nil {
+		target, static = staticWordParts(redirect.Word.Parts)
+	}
+	if !static {
+		return true
+	}
+	if redirect.Op == syntax.DplOut {
+		if target == "-" {
+			return false
+		}
+		_, err := strconv.Atoi(target)
+		return err != nil
+	}
+	return target != "/dev/null"
 }
 
 func invocationsAt(state *parserState, command string, maxDepth, depth int) ([]Invocation, IncompleteReason) {

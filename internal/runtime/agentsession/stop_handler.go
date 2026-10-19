@@ -72,6 +72,9 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
 	}
+	if pause, paused := activeHookPause(root, time.Now()); paused {
+		return Result{ExitCode: 0, Stderr: pause.notice()}
+	}
 	if runtimeName == "" {
 		runtimeName = runtimeFromPayload(payload)
 	}

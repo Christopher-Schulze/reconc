@@ -142,7 +142,39 @@ func TestActiveEvidenceRejectsCorruptActiveState(t *testing.T) {
 	}
 }
 
-func TestRecordClaimSurfacesReportRefreshFailure(t *testing.T) {
+func TestRecordClaimPersistsWithoutEvaluatingPolicy(t *testing.T) {
+	counterPath := filepath.Join(t.TempDir(), "counter")
+	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
+	if _, err := InitializeSessionState(repo, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MutateSessionState(repo, "session-1", func(state SessionState) SessionState {
+		return AppendWritePath(state, "src/a.go")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RecordClaim(repo, "ci-green", "session-1"); err != nil {
+		t.Fatalf("record claim: %v", err)
+	}
+	if runs := readCounter(t, counterPath); runs != 0 {
+		t.Fatalf("recording a claim executed the policy script %d time(s)", runs)
+	}
+	state, err := LoadSessionState(repo, "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Claims) != 1 || state.Claims[0] != "ci-green" {
+		t.Fatalf("claim was not persisted: %+v", state.Claims)
+	}
+	if result := RunStop(repo, []byte(`{"session_id":"session-1"}`)); result.ExitCode != 0 {
+		t.Fatalf("stop: %+v", result)
+	}
+	if runs := readCounter(t, counterPath); runs == 0 {
+		t.Fatal("control failed: the gate evaluating the same evidence did not run the script")
+	}
+}
+
+func TestRecordClaimSucceedsWhilePolicySourceIsMalformed(t *testing.T) {
 	t.Setenv(StateRootEnv, filepath.Join(t.TempDir(), "state"))
 	repo := t.TempDir()
 	if _, err := InitializeSessionState(repo, "session-1"); err != nil {
@@ -151,14 +183,14 @@ func TestRecordClaimSurfacesReportRefreshFailure(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte("rules: [\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RecordClaim(repo, "ci-green", "session-1"); err == nil || !strings.Contains(err.Error(), "refresh report") {
-		t.Fatalf("expected report-refresh error, got %v", err)
+	if _, err := RecordClaim(repo, "ci-green", "session-1"); err != nil {
+		t.Fatalf("claim depended on policy evaluation: %v", err)
 	}
 	state, err := LoadSessionState(repo, "session-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(state.Claims) != 1 || state.Claims[0] != "ci-green" {
-		t.Fatalf("idempotent claim mutation was not preserved: %+v", state.Claims)
+		t.Fatalf("claim was not persisted: %+v", state.Claims)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -186,16 +187,67 @@ func claudeProjectKey(repoRoot string) string {
 	return key.String()
 }
 
-// withoutAgentMemoryPaths returns paths minus every agent-memory target.
+// withoutAgentMemoryPaths returns paths minus every agent-memory target and
+// every write into the Claude Code session scratchpad of this project. Both are
+// host-owned agent runtime state outside the repository, not repository writes.
 func withoutAgentMemoryPaths(repoRoot string, paths []string) []string {
+	if strings.TrimSpace(repoRoot) == "" {
+		return append([]string(nil), paths...)
+	}
+	var matcher claudeProjectKeyMatcher
+	loaded := false
+	projectKeys := func() claudeProjectKeyMatcher {
+		if !loaded {
+			matcher = expectedClaudeProjectKeys(repoRoot)
+			loaded = true
+		}
+		return matcher
+	}
+	paths = filterClaudeScratchpadPaths(repoRoot, paths, projectKeys)
 	configRoot, configOK := claudeConfigRoot()
-	if !configOK || strings.TrimSpace(repoRoot) == "" {
+	if !configOK {
 		return append([]string(nil), paths...)
 	}
 	projectsRoot := filepath.Join(configRoot, "projects")
-	return filterAgentMemoryPaths(projectsRoot, paths, func() claudeProjectKeyMatcher {
-		return expectedClaudeProjectKeys(repoRoot)
-	})
+	return filterAgentMemoryPaths(projectsRoot, paths, projectKeys)
+}
+
+// filterClaudeScratchpadPaths drops writes into
+// <temp>/claude-<uid>/<project-key>/<session>/scratchpad/... when the project
+// key names this repository. The check runs on the symlink-resolved target, so
+// a link inside the scratchpad cannot carry a repository write past the policy.
+func filterClaudeScratchpadPaths(repoRoot string, paths []string, projectKeys func() claudeProjectKeyMatcher) []string {
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if projectKey, ok := claudeScratchpadProjectKey(repoRoot, path); ok && projectKeys().allows(projectKey) {
+			continue
+		}
+		out = append(out, path)
+	}
+	return out
+}
+
+func claudeScratchpadProjectKey(repoRoot, raw string) (string, bool) {
+	if raw == "" || !filepath.IsAbs(raw) || os.Getuid() < 0 {
+		return "", false
+	}
+	resolved, err := pathidentity.ResolveProspective(filepath.Clean(raw))
+	if err != nil {
+		return "", false
+	}
+	if root, rootErr := pathidentity.ResolveExisting(repoRoot); rootErr != nil {
+		return "", false
+	} else if rel, relErr := filepath.Rel(root, resolved); relErr == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	owner := "claude-" + strconv.Itoa(os.Getuid())
+	parts := strings.Split(filepath.ToSlash(resolved), "/")
+	for index := 0; index+4 < len(parts); index++ {
+		if parts[index] == owner && parts[index+1] != "" && parts[index+2] != "" && parts[index+3] == "scratchpad" {
+			return parts[index+1], true
+		}
+	}
+	return "", false
 }
 
 func filterAgentMemoryPaths(projectsRoot string, paths []string, loadProjectKeys func() claudeProjectKeyMatcher) []string {

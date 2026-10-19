@@ -74,7 +74,10 @@ Generated from `internal/commandmeta`; run `make reference-docs` after changing 
 | `reconc hook sync-scaffold` | `reconc hook sync-scaffold <repo-root-scaffold> [--json]` | synchronize generated scaffold hook artifacts | text, json |
 | `reconc hook claim` | `reconc hook claim <repo> <claim-name> [--session ID] [--json] [--output PATH]` | record one explicit session claim | text, json, file |
 | `reconc hook evidence-status` | `reconc hook evidence-status [repo] [--json]` | inspect effective evidence taint without mutation | text, json |
-| `reconc hook evidence-resolve` | `reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]` | resolve reviewed persistent evidence taint explicitly | text, json |
+| `reconc hook evidence-resolve` | `reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]` | resolve reviewed evidence taint explicitly, also during an active session (operator only) | text, json |
+| `reconc hook pause` | `reconc hook pause [repo] --for DURATION --reason TEXT [--json]` | let blocking hook events pass for a bounded time (operator only, max 24h) | text, json |
+| `reconc hook resume` | `reconc hook resume [repo] [--json]` | end the active operator hook pause (operator only) | text, json |
+| `reconc hook pause-status` | `reconc hook pause-status [repo] [--json]` | inspect the newest operator hook pause without mutation | text, json |
 | `reconc agent-intro` | `reconc agent-intro [--section NAME \| --list-sections] [--json]` | print the compact guide or one lazy reference section | text, json |
 | `reconc audit` | `reconc audit <tail\|stats\|export\|verify>` | inspect, export, or cryptographically verify decision evidence | text, json, jsonl |
 | `reconc audit tail` | `reconc audit tail [repo] [filters]` | tail filtered audit decisions | text, json |
@@ -1513,8 +1516,12 @@ scaffold updates.
 
 ### `reconc hook claim <repo> <claim-name> [--session ID] [--json] [--output PATH]`
 Assert a workflow claim (e.g. `ci-green`). Written to the session
-state consulted by later hook-runtime checks and `ci` calls. `--session`
+state consulted by later hook-runtime checks and `ci` calls; recording only
+persists the claim and runs no policy evaluation or script. `--session`
 selects an exact existing session instead of resolving the active pointer.
+Claims named `operator:*` are operator-only: an agent tool call that tries to
+record one is refused before execution, so the operator records it from a
+terminal.
 Session FixPlan `assert_claim` actions emit this command; standalone evaluation
 keeps `reconc check --claim <name>` for one-shot evidence.
 
@@ -1523,14 +1530,33 @@ Read-only inspection of project evidence taint. Reports the exact overflow or
 chain-integrity cause, affected limit, active-session state, and operator
 resolution token without clearing or certifying the abandoned evidence window.
 When an active state reports overflow before enforcement has persisted its
-taint, JSON sets `persisted` to `false`; that observation is not resolvable
-until the mutating enforcement path has recorded the durable taint.
+taint, JSON sets `persisted` to `false`; the same token resolves it. This
+command stays available while the session is tainted.
 
 ### `reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]`
 Explicitly abandon one reviewed tainted evidence window. The command requires
-no active session, an exact current token, and a bounded operator reason. It
-writes an immutable resolution receipt before clearing the live taint; a later
-session must reproduce every required proof.
+an exact current token and a bounded operator reason, and works with or without
+an active session. It writes an immutable resolution receipt before clearing
+the live taint; with an active session it also clears that session's matching
+overflow under the session lock, so recovery never discards the agent's
+context. Work that depended on the dropped evidence must be reproduced. The
+command is operator-only: agent tool calls that issue it are refused.
+
+### `reconc hook pause [repo] --for DURATION --reason TEXT [--json]`
+Operator-only incident valve that replaces removing or stubbing hooks. For the
+given Go duration (`1m` to `24h`), blocking pre-tool, permission, MCP, Stop,
+subagent-Stop, and `reconc ci` gates pass with a notice, before any cached
+decision is consulted. Evidence keeps being recorded, and the built-in
+destructive Git guard and the operator-only command guard keep holding. A new
+pause supersedes the active one. The record keeps the 32 most recent pauses.
+
+### `reconc hook resume [repo] [--json]`
+Operator-only. Ends the active pause before its expiry; fails when no pause is
+active.
+
+### `reconc hook pause-status [repo] [--json]`
+Read-only. Reports the newest pause as active, expired, resumed, or none.
+Available while a session is tainted.
 
 ---
 

@@ -703,14 +703,14 @@ func TestTrueOverflowPersistsAcrossReloadAndSuccessorSession(t *testing.T) {
 	if _, err := InitializeSessionState(repo, "origin"); err != nil {
 		t.Fatal(err)
 	}
-	oversized := strings.Repeat("x", maxCommandBytes+1)
+	oversized := strings.Repeat("x", maxClaimBytes+1)
 	state, err := MutateSessionState(repo, "origin", func(state SessionState) SessionState {
-		return AppendCommand(state, oversized)
+		return AppendClaim(state, oversized)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !state.EvidenceOverflow || state.EvidenceOverflowReason != "commands" || state.EvidenceOverflowLimit != "item_bytes" {
+	if !state.EvidenceOverflow || state.EvidenceOverflowReason != "claims" || state.EvidenceOverflowLimit != "item_bytes" {
 		t.Fatalf("overflow cause was not exact: %+v", state)
 	}
 	reloaded, err := LoadSessionState(repo, "origin")
@@ -727,7 +727,7 @@ func TestTrueOverflowPersistsAcrossReloadAndSuccessorSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !successor.EvidenceOverflow || successor.EvidenceOverflowReason != "commands" ||
+	if !successor.EvidenceOverflow || successor.EvidenceOverflowReason != "claims" ||
 		successor.EvidenceOverflowLimit != "item_bytes" {
 		t.Fatalf("successor did not inherit taint: %+v", successor)
 	}
@@ -769,7 +769,7 @@ func TestTrueOverflowBlocksMaterialToolsButAllowsReads(t *testing.T) {
 	}
 }
 
-func TestEvidenceTaintResolutionRequiresEndedSessionAndExactToken(t *testing.T) {
+func TestEvidenceTaintResolutionAfterSessionEndRequiresExactToken(t *testing.T) {
 	_, repo := withStateRoot(t)
 	if _, err := InitializeSessionState(repo, "resolve-origin"); err != nil {
 		t.Fatal(err)
@@ -783,10 +783,6 @@ func TestEvidenceTaintResolutionRequiresEndedSessionAndExactToken(t *testing.T) 
 	status, err := ReadEvidenceTaintStatus(repo)
 	if err != nil || !status.Present || status.Token == "" {
 		t.Fatalf("taint status: %+v err=%v", status, err)
-	}
-	if _, err := ResolveEvidenceTaint(repo, status.Token, "recover"); err == nil ||
-		!strings.Contains(err.Error(), "must end") {
-		t.Fatalf("active session resolution was accepted: %v", err)
 	}
 	if result := RunSessionEnd(repo, []byte(`{"session_id":"resolve-origin"}`)); result.ExitCode != 0 {
 		t.Fatalf("session end: %+v", result)

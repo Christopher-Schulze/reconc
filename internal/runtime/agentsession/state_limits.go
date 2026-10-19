@@ -1,12 +1,15 @@
 package agentsession
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/retention"
 )
@@ -55,7 +58,7 @@ func normalizeSessionState(state SessionState) SessionState {
 	reads := sortedUniqueExact(state.ReadPaths)
 	writes := sortedUniqueExact(state.WritePaths)
 	writeEpochs := state.WriteEpochs
-	commands := sortedUnique(state.Commands)
+	commands := sortedUnique(boundCommandTexts(state.Commands))
 	claims := sortedUnique(state.Claims)
 	results := append([]CommandResult(nil), state.CommandResults...)
 	pending := state.PendingToolCalls
@@ -111,6 +114,36 @@ func normalizeSessionState(state SessionState) SessionState {
 		}
 	}
 	return state
+}
+
+// commandTruncationMarker binds a stored command prefix to its full text.
+const commandTruncationMarker = " ...[truncated sha256="
+
+// boundCommandText keeps an oversized command as evidence instead of tainting
+// the session. A long command such as a heredoc script is ordinary agent work,
+// not an attack on the evidence budget, so the stored value is a UTF-8-safe
+// prefix followed by the SHA-256 and byte length of the complete text. Equal
+// commands still deduplicate, prefix policy matching keeps the leading words,
+// and a verifier can bind the record to the exact command.
+func boundCommandText(command string) string {
+	if len(command) <= maxCommandBytes {
+		return command
+	}
+	digest := sha256.Sum256([]byte(command))
+	suffix := commandTruncationMarker + hex.EncodeToString(digest[:]) + " bytes=" + strconv.Itoa(len(command)) + "]"
+	keep := maxCommandBytes - len(suffix)
+	for keep > 0 && !utf8.RuneStart(command[keep]) {
+		keep--
+	}
+	return command[:keep] + suffix
+}
+
+func boundCommandTexts(commands []string) []string {
+	bounded := make([]string, len(commands))
+	for index, command := range commands {
+		bounded[index] = boundCommandText(strings.TrimSpace(command))
+	}
+	return bounded
 }
 
 // sessionStateIsNormalized verifies the in-memory admission contract used by
@@ -349,10 +382,7 @@ func appendBoundedCommandResultPrepared(state *SessionState, result CommandResul
 	if result.Command == "" {
 		return
 	}
-	if len(result.Command) > maxCommandBytes {
-		markEvidenceOverflowWithLimit(state, "command_results", "item_bytes")
-		return
-	}
+	result.Command = boundCommandText(result.Command)
 	result.Error = truncateBytes(result.Error, maxResultErrorBytes)
 	result.ToolUseID = truncateBytes(result.ToolUseID, maxToolUseIDBytes)
 	key := commandResultIdentity(result)

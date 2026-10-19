@@ -286,6 +286,9 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(
 	if payload == nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (pre): parsed payload is unavailable"}
 	}
+	if decision, paused := pausedPreToolDecision(root, payload); paused {
+		return decision
+	}
 	if payload.IsCommandTool() {
 		var policyReports []*runtime.CheckReport
 		if strings.TrimSpace(payload.Command()) == "" {
@@ -294,11 +297,18 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(
 		if reason := forbiddenShellCommandReasonInRepoWithAliasSnapshot(root, payload.Command(), aliasSnapshot); reason != "" {
 			return Result{ExitCode: 2, Stderr: reason, decisionClass: preDecisionResultBlock}
 		}
+		if reason := operatorOnlyCommandReason(payload.Command()); reason != "" {
+			return Result{ExitCode: 2, Stderr: reason, decisionClass: preDecisionResultBlock}
+		}
 		state, err := ensureSessionStateResolved(root, payload.SessionID)
 		if err != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
 		}
 		if state.EvidenceOverflow {
+			// A tainted session must still be able to diagnose itself.
+			if isSelfAdministrationCommand(root, payload.Command()) {
+				return Result{ExitCode: 0}
+			}
 			return Result{ExitCode: 2, Stderr: evidenceOverflowMessage(state)}
 		}
 		state, err = loadCompleteSessionEvidenceWithCache(root, state, stopCache)
@@ -325,7 +335,7 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(
 				// A stale lockfile blocks every gated command, including the
 				// refresh that repairs it. Admitting the repair is what keeps
 				// this fail-closed instead of sealed shut.
-				if isLockfileRepairCommand(root, payload.Command()) {
+				if isLockfileRepairCommand(root, payload.Command()) || isSelfAdministrationCommand(root, payload.Command()) {
 					return Result{ExitCode: 0}
 				}
 				return Result{ExitCode: 2, Stderr: lockfileBlockMessage("pre", err)}
@@ -913,20 +923,9 @@ func commandResultFromPayload(state SessionState, payload *HookPayload, outcome 
 	}
 }
 
-// runCheckAndSave runs the evaluator and also writes the resulting
-// CheckReport to the session's reports/ file so later inspection
+// runCheckAndSaveWithEvaluator runs the evaluator and also writes the
+// resulting CheckReport to the session's reports/ file so later inspection
 // (`reconc why`, `reconc fix`, agent tooling) finds the latest view.
-func runCheckAndSave(
-	repoRoot, sessionID string,
-	readPaths, writePaths []string,
-	writeEpochs map[string]uint64,
-	commands []string,
-	cmdResults []CommandResult,
-	claims []string,
-) (*runtime.CheckReport, error) {
-	return runCheckAndSaveWithEvaluator(runtime.NewEvaluator(), repoRoot, sessionID, readPaths, writePaths, writeEpochs, commands, cmdResults, claims)
-}
-
 func runCheckAndSaveWithEvaluator(
 	evaluator *runtime.Evaluator,
 	repoRoot, sessionID string,
@@ -1033,7 +1032,7 @@ func evidenceOverflowMessage(state SessionState) string {
 	if limit == "" {
 		limit = "unknown_limit"
 	}
-	return fmt.Sprintf("reconc evidence is uncertified because %s exceeded %s. Material tools, claims, policy passes, and completion remain blocked across sessions; explicit user interrupt can still terminate the host session.", field, limit)
+	return fmt.Sprintf("reconc evidence is uncertified because %s exceeded %s. Material tools, claims, policy passes, and completion stay blocked across sessions until the operator resolves the taint; read-only Reconc diagnostics still run. Operator recovery without ending this session, from a terminal: `reconc hook evidence-status .` then `reconc hook evidence-resolve . --token TOKEN --reason TEXT`.", field, limit)
 }
 
 // writeLatestReport persists the CheckReport JSON to the session's
