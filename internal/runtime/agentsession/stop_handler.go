@@ -268,7 +268,10 @@ func finalizeCleanStop(root, sessionID string, evaluated stopPolicyCheckResult) 
 	if err != nil {
 		return Result{}, false, fmt.Errorf("recapture TASK snapshot: %w", err)
 	}
-	currentCacheGit := stopPolicyGitSnapshotFor(root)
+	currentCacheGit := evaluated.GitSnapshot
+	if !evaluated.GitSnapshotCurrent {
+		currentCacheGit = stopPolicyGitSnapshotFor(root)
+	}
 	if !reflect.DeepEqual(evaluated.TaskSnapshot, currentTask) || evaluated.GitSnapshot != currentCacheGit {
 		return Result{}, false, fmt.Errorf("terminal repository state changed during Stop evaluation")
 	}
@@ -278,8 +281,19 @@ func finalizeCleanStop(root, sessionID string, evaluated stopPolicyCheckResult) 
 	}); err != nil {
 		return Result{}, false, fmt.Errorf("clear repeated-block state: %w", err)
 	}
+	if !taskCompletionCommitGateApplies(currentTask) {
+		return Result{}, false, nil
+	}
 	terminalGit := completionPolicyGitSnapshotFor(root)
 	return taskCompletionCommitGate(currentTask, terminalGit)
+}
+
+// taskCompletionCommitGateApplies reports whether the committed-completion
+// gate inspects Git at all, so the complete untracked scan runs only for a
+// terminal TASK board under require_committed.
+func taskCompletionCommitGateApplies(taskSnapshot stopTaskSnapshot) bool {
+	cfg := taskSnapshot.Config
+	return cfg.Enabled && cfg.Completion.RequireCommitted && taskSnapshot.State.Disposition == tasklifecycle.RunComplete
 }
 
 func repoRunPolicyCheckpointDue(run repositoryRunState, state SessionState, now time.Time) bool {
@@ -317,14 +331,10 @@ func markRepoPolicyCheckpoint(root string, runFile *os.File, payload *HookPayloa
 }
 
 func taskCompletionCommitGate(taskSnapshot stopTaskSnapshot, snapshot stopPolicyGitSnapshot) (Result, bool, error) {
+	if !taskCompletionCommitGateApplies(taskSnapshot) {
+		return Result{}, false, nil
+	}
 	cfg := taskSnapshot.Config
-	if !cfg.Enabled || !cfg.Completion.RequireCommitted {
-		return Result{}, false, nil
-	}
-	state := taskSnapshot.State
-	if state.Disposition != tasklifecycle.RunComplete {
-		return Result{}, false, nil
-	}
 	if !snapshot.StatusOK {
 		return repositoryRunBlockResult("reconc blocked terminal TASK completion because Git status could not be verified. Restore Git status visibility or interrupt explicitly."), true, nil
 	}

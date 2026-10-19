@@ -204,6 +204,9 @@ func TestInspectGitHookShadowedByCoreHooksPath(t *testing.T) {
 	if status.State != StateConfigured || status.TargetPath != ".githooks/pre-commit" {
 		t.Fatalf("active managed hook = %+v, want configured .githooks/pre-commit", status)
 	}
+	if !strings.Contains(status.Detail, "active Git hooks path .githooks/pre-commit") || status.Remediation != "" {
+		t.Fatalf("configured hooksPath hook kept the not-installed detail or an install remediation: %+v", status)
+	}
 }
 
 func TestInspectGitHookRequiresExecutableArtifact(t *testing.T) {

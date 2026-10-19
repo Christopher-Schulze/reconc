@@ -397,11 +397,18 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 	}
 
 	report.State = StateConfigured
-	if report.TargetPath == platform.TargetPath {
+	switch {
+	case report.TargetPath == platform.TargetPath:
 		report.Detail = "configuration is complete and host-discoverable; live execution is reported separately"
 		if platform.Kind == KindCodex {
 			report.Detail = "repository configuration is complete; Codex project trust, exact hook-definition trust, and managed-only restrictions are unverified; inspect /hooks before claiming hooks are loaded"
 		}
+		report.remediation = noRemediation()
+	case platform.Activation.Mode == ActivationGitPath:
+		// core.hooksPath selected another directory and the managed hook is
+		// installed there, so the default-path "not installed" placeholder and
+		// its install remediation no longer describe the artifact.
+		report.Detail = "configuration is complete at the active Git hooks path " + report.TargetPath + "; live execution is reported separately"
 		report.remediation = noRemediation()
 	}
 	return report

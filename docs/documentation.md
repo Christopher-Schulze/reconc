@@ -4410,7 +4410,9 @@ Agent-host or model-backed runs are optional diagnostics outside that acceptance
 Absent native observations never become `observed` or `enforced` claims.
 
 `hook status` preserves the public activation enum `absent`, `installed`,
-`configured`, `degraded`, `shadowed`, and `unsupported`. Its
+`configured`, `degraded`, `shadowed`, and `unsupported`. A Git pre-commit hook
+installed at the directory selected by `core.hooksPath` reports `configured`
+with that active path and no install remediation. Its
 `surface_events`, `expected_events`, `live_events`, `unseen_events`,
 `last_seen`, and `last_event` fields keep documented surface eligibility,
 complete artifact coverage, and live truth separate. Its `observations` map
@@ -5626,7 +5628,13 @@ path; the default `normal` mode still binds all nested content below each
 directory sentinel, while `no` excludes untracked paths from cache identity
 only. Terminal TASK completion uses a separate fresh
 `--untracked-files=all` snapshot, so cache tuning cannot hide untracked TASK
-control files from `require_committed`. Matching `require_script` rules
+control files from `require_committed`; that complete scan runs only when the
+committed-completion gate applies (enabled lifecycle, `require_committed`, and
+a completed run state). One Stop attempt observes Git status before policy
+evaluation and once more after any evaluation it executed. Observations with
+only reads between them share one scan: the report-reuse paths and the clean
+Stop finalization reuse the latest observation instead of rescanning, while an
+evaluation that ran scripts is always followed by a fresh observation. Matching `require_script` rules
 that call the same `run-workflow-audit` runner are batched through
 `--batch-json` in one process and then split back into per-rule pass/block
 reports, so subprocess startup drops without weakening rule attribution. All

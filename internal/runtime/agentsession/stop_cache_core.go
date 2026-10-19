@@ -94,10 +94,15 @@ type stopPolicyGitSnapshot struct {
 }
 
 type stopPolicyCheckResult struct {
-	Report        *runtime.CheckReport
-	GitSnapshot   stopPolicyGitSnapshot
-	TaskSnapshot  stopTaskSnapshot
-	GenerationHit bool
+	Report       *runtime.CheckReport
+	GitSnapshot  stopPolicyGitSnapshot
+	TaskSnapshot stopTaskSnapshot
+	// GitSnapshotCurrent records that GitSnapshot was observed after the last
+	// repository work this attempt executed, so callers reuse it instead of
+	// scanning the worktree again. Two observations with only reads between
+	// them carry the same information as one.
+	GitSnapshotCurrent bool
+	GenerationHit      bool
 }
 
 // CompletionStateSnapshot is the read-only repository/session identity shared
@@ -243,7 +248,8 @@ func runStopPolicyCheckLockedAttempt(
 		if captureErr != nil {
 			return stopPolicyCheckResult{}, fmt.Errorf("recapture TASK snapshot for generation cache: %w", captureErr)
 		}
-		currentGit := stopPolicyGitSnapshotFor(repoRoot)
+		// Only reads ran since gitSnapshot was observed.
+		currentGit := gitSnapshot
 		currentSnapshot := captureStopPolicyBoundarySnapshot(
 			stopCaptureBeforeCachePublication, repoRoot, current, "", currentTask, currentGit, scanCache,
 		)
@@ -255,7 +261,7 @@ func runStopPolicyCheckLockedAttempt(
 		if stopPolicyCacheBindingMatches(current, state) && generationOK && entryOK &&
 			entry.generation == currentGeneration.Fingerprint {
 			return stopPolicyCheckResult{
-				Report: report, GitSnapshot: currentGit, TaskSnapshot: currentTask, GenerationHit: true,
+				Report: report, GitSnapshot: currentGit, TaskSnapshot: currentTask, GitSnapshotCurrent: true, GenerationHit: true,
 			}, nil
 		}
 		cache.invalidate(repoRoot, state.SessionID)
@@ -283,7 +289,8 @@ func runStopPolicyCheckLockedAttempt(
 			if captureErr != nil {
 				return stopPolicyCheckResult{}, fmt.Errorf("recapture TASK snapshot for cached Stop: %w", captureErr)
 			}
-			currentGit := stopPolicyGitSnapshotFor(repoRoot)
+			// Only reads ran since gitSnapshot was observed.
+			currentGit := gitSnapshot
 			currentSnapshot := captureStopPolicyBoundarySnapshot(
 				stopCaptureBeforeCachePublication, repoRoot, current, "", currentTask, currentGit, scanCache,
 			)
@@ -301,7 +308,7 @@ func runStopPolicyCheckLockedAttempt(
 				if err := storeStopGenerationIfWorthwhileWithScan(cache, repoRoot, current, currentInput, scanCache); err != nil {
 					return stopPolicyCheckResult{}, fmt.Errorf("store Stop generation: %w", err)
 				}
-				return stopPolicyCheckResult{Report: report, GitSnapshot: currentGit, TaskSnapshot: currentTask}, nil
+				return stopPolicyCheckResult{Report: report, GitSnapshot: currentGit, TaskSnapshot: currentTask, GitSnapshotCurrent: true}, nil
 			}
 			cache.invalidate(repoRoot, state.SessionID)
 			state = current
@@ -421,7 +428,9 @@ func runStopPolicyCheckLockedAttempt(
 	} else {
 		cache.invalidate(repoRoot, state.SessionID)
 	}
-	return stopPolicyCheckResult{Report: report, GitSnapshot: gitSnapshot, TaskSnapshot: taskSnapshot}, nil
+	// A stable post-evaluation observation equals gitSnapshot and follows the
+	// evaluation's repository work; otherwise the caller must observe again.
+	return stopPolicyCheckResult{Report: report, GitSnapshot: gitSnapshot, TaskSnapshot: taskSnapshot, GitSnapshotCurrent: cacheInputsStable}, nil
 }
 
 func loadCurrentStopPolicyState(repoRoot, sessionID string) (SessionState, error) {
@@ -675,7 +684,8 @@ func cachedCleanStopPolicyResultForEvidenceAndSnapshot(
 	if err != nil {
 		return stopPolicyCheckResult{}, false
 	}
-	currentGit := stopPolicyGitSnapshotFor(repoRoot)
+	// Only reads ran since gitSnapshot was observed.
+	currentGit := gitSnapshot
 	currentInput := stopPolicyFingerprintInputForSnapshotWithScan(
 		repoRoot, current, currentGit, currentTask, stopGenerationCapture{}, scanCache,
 	)
@@ -684,7 +694,7 @@ func cachedCleanStopPolicyResultForEvidenceAndSnapshot(
 		stopPolicyReportExpired(current.StopPolicyExpiresAt) || !scanCache.stable(repoRoot, current.WritePaths) {
 		return stopPolicyCheckResult{}, false
 	}
-	return stopPolicyCheckResult{Report: report, GitSnapshot: currentGit, TaskSnapshot: currentTask}, true
+	return stopPolicyCheckResult{Report: report, GitSnapshot: currentGit, TaskSnapshot: currentTask, GitSnapshotCurrent: true}, true
 }
 
 func cachedCleanStopPolicyReportForEvidenceWithCache(
@@ -710,14 +720,15 @@ func cachedCleanStopPolicyReportForEvidenceWithCache(
 		if ok && len(blockingViolations(report)) == 0 {
 			current, loadErr := loadCurrentStopPolicyState(root, state.SessionID)
 			currentTask, taskErr := captureStopTaskSnapshot(root)
-			currentGit := stopPolicyGitSnapshotFor(root)
+			// Only reads ran since gitSnapshot was observed.
+			currentGit := gitSnapshot
 			currentGeneration, generationOK := captureStopRepositoryGenerationWithScan(
 				root, currentGit, currentTask, current.WritePaths, scanCache,
 			)
 			if loadErr == nil && taskErr == nil && generationOK &&
 				stopPolicyCacheBindingMatches(current, state) &&
 				currentGeneration.Fingerprint == entry.generation {
-				return stopPolicyCheckResult{Report: report, GitSnapshot: currentGit, TaskSnapshot: currentTask, GenerationHit: true}, true
+				return stopPolicyCheckResult{Report: report, GitSnapshot: currentGit, TaskSnapshot: currentTask, GitSnapshotCurrent: true, GenerationHit: true}, true
 			}
 			cache.invalidate(root, state.SessionID)
 		}

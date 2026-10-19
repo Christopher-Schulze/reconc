@@ -43,7 +43,7 @@ func codexSubagentPolicyDecision(root string, payload *HookPayload, state Sessio
 	violations := blockingViolations(checked.Report)
 	if len(violations) == 0 {
 		currentTask, err := captureStopTaskSnapshot(root)
-		if err != nil || !reflect.DeepEqual(checked.TaskSnapshot, currentTask) || checked.GitSnapshot != stopPolicyGitSnapshotFor(root) {
+		if err != nil || !reflect.DeepEqual(checked.TaskSnapshot, currentTask) || (!checked.GitSnapshotCurrent && checked.GitSnapshot != stopPolicyGitSnapshotFor(root)) {
 			return Result{ExitCode: 2, Stderr: "reconc subagent stop: repository state changed or could not be verified after policy evaluation"}
 		}
 		return finishCodexSubagentTurn(root, state.SessionID, false, "")
