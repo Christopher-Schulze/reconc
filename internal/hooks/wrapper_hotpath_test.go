@@ -109,6 +109,39 @@ func TestHookWrapperTamperedTargetFallsBackToPlatformResolver(t *testing.T) {
 	}
 }
 
+// A pin for another platform, as a checkout shared with a container receives,
+// is ignored: executing it would end the hook with exit 126, which hosts that
+// block only on exit 2 treat as allow.
+func TestHookWrapperIgnoresADirectTargetForAnotherPlatform(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX wrapper execution is covered on POSIX hosts")
+	}
+	repo, wrapper, marker := setupDirectTargetWrapper(t)
+	foreignOS := "linux"
+	if runtime.GOOS == "linux" {
+		foreignOS = "darwin"
+	}
+	foreign, err := GenerateWrapperTarget(foreignOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wrapperTargetBinaryPath(repo, foreign), []byte("#!/bin/sh\nprintf 'foreign|%s\\n' \"$*\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, filepath.FromSlash(WrapperTargetPath)), []byte(foreign.Content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("sh", wrapper, "codex-stop", repo)
+	command.Env = append(os.Environ(), "PATH="+fakeUnamePath(t, marker), "UNAME_MARKER="+marker)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("wrapper: %v: %s", err, output)
+	}
+	if !strings.Contains(string(output), "direct|hook runtime codex-stop") {
+		t.Fatalf("the wrapper executed another platform's pin: %s", output)
+	}
+}
+
 func TestHookWrapperInvalidDirectTargetFallsBackToPlatformResolver(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX wrapper execution is covered on POSIX hosts")

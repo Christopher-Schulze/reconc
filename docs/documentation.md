@@ -3013,13 +3013,15 @@ inspection can expose an overflow directly from the active state before that
 durable taint exists; JSON marks this observation with `persisted=false`, and
 the same token resolves it.
 
-Operator administration uses local confirmation for commands that lift
-restraint: `reconc hook pause`, `reconc hook resume`,
-`reconc hook evidence-resolve`, or `reconc hook claim` for a claim named
+Operator administration covers `reconc hook pause`, `reconc hook resume`,
+`reconc hook evidence-resolve`, and `reconc hook claim` for a claim named
 `operator:*`. The pre-tool and MCP command gates refuse such an invocation in
 every executable position (including nested `sh -c` bodies and a dynamic claim
-name) before execution. The CLI also requires terminal input and an exact
-six-digit confirmation code, refusing non-terminal input and mismatched codes.
+name) before execution. For the commands that lift restraint (pause,
+evidence-resolve, and `operator:` claims) the CLI also requires terminal input
+and an exact six-digit confirmation code, refusing non-terminal input and
+mismatched codes. `reconc hook resume` only restores enforcement and needs no
+confirmation, so a script or a host's user shell escape can end a pause.
 These checks prevent accidental administration through recognized tool calls;
 they do not authenticate a human. A same-user process can automate a PTY,
 invoke unrecognized code, or modify private local state. `operator:` claims
@@ -4819,9 +4821,10 @@ advance separately, while repeated delivery of one event does not. Tool and
 subagent decisions return `permission`; prompt submission returns `continue`;
 observation and workspace routes return `{}`.
 Stop and subagent Stop use Cursor's bounded `followup_message` response, the
-only field Cursor's stop output accepts: a failing gate or an unreadable
-payload also continues through `followup_message` (bounded by Cursor's
-`loop_limit`) instead of ending the loop, and a stop whose `status` is
+only field Cursor's stop output accepts: a failing gate, an unreadable
+payload, or output over the byte budget also continues through
+`followup_message` (bounded by Cursor's `loop_limit`) instead of ending the
+loop, and a stop whose `status` is
 `aborted` is a user interrupt. Cursor merges the responses of hooks from every
 source: any `deny` wins over `ask` and `ask` over `allow`, but for other fields
 such as `followup_message` the last response wins, so a `stop` hook in a
@@ -5326,15 +5329,25 @@ root `reconc` before invoking any platform probe. A repository installation
 that owns both the wrapper and an exact current-host stable binary also owns
 `tools/reconc/bin/hook-target`, except in a checkout that also holds another
 platform's stable binary (for example a host plus a container bind mount):
-there no pin is published and a managed one is withdrawn, because the pin
-would point the other platform at a binary it cannot execute. `hook status`
-reports `degraded` when the managed wrapper differs from the current
-generator. The wrapper reads that one-line receipt with a
-shell builtin, accepts only the five supported stable repository paths, and
-executes the regular, non-symlink, executable target without running `uname`,
-scanning a directory, expanding a version glob, or searching `PATH`. A missing,
-invalid, symlinked, or non-executable direct target enters the portable recovery
-resolver. That resolver probes the host, prefers the stable platform name in
+there no pin is published (by hook installation and by bootstrap) and a
+managed one is withdrawn, because the pin would point the other platform at a
+binary it cannot execute. `hook status` reports `degraded` when the managed
+wrapper differs from the current generator, and when the wrapper resolves no
+runnable binary or one whose build provenance names another platform; the
+single-platform readiness probe on the hook path checks resolution only, and a
+binary without provenance (a build without release flags) still counts as
+runnable. The wrapper reads that one-line receipt with a shell builtin, accepts
+only the five supported stable repository paths, and executes the target only
+when it names the running host's binary. The host is identified without a
+subprocess: `OS=Windows_NT` for Windows, `/proc/self` for Linux,
+`/System/Library/CoreServices` for macOS, and the architecture from the
+shell's `HOSTTYPE` (set by bash, which is `/bin/sh` on macOS) or
+`/proc/sys/kernel/arch`. A pin for another platform, as a checkout shared with
+a container may carry, or an unidentified host skips the pin. The accepted
+target must be a regular, non-symlink executable and runs without `uname`,
+a directory scan, version-glob expansion, or a `PATH` search. A missing,
+invalid, foreign, symlinked, or non-executable direct target enters the
+portable recovery resolver. That resolver probes the host, prefers the stable platform name in
 `tools/reconc/dist` and root `dist`, and accepts exactly one compatible
 versioned artifact as a migration fallback. Multiple compatible versions fail
 closed before PATH fallback. Transactional bootstrap, repository sync,

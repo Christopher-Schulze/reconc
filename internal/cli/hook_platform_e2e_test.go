@@ -623,8 +623,9 @@ func TestBoundHookResultPreservesFailClosedControlEnvelope(t *testing.T) {
 		wantKeys map[string]interface{}
 	}{
 		{
+			// Only followup_message keeps a Cursor Stop working under the gate.
 			name: "cursor stop", kind: hooks.KindCursor, event: hooks.EventStop,
-			wantKeys: map[string]interface{}{"continue": false},
+			wantKeys: map[string]interface{}{"followup_message": "reconc hook output budget exceeded"},
 		},
 		{
 			name: "cursor pre tool use", kind: hooks.KindCursor, event: hooks.EventPreToolUse,

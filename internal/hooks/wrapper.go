@@ -128,6 +128,33 @@ if [ -f "$target_receipt" ] && [ ! -L "$target_receipt" ]; then
   fi
 fi
 if [ -n "$reconc_target" ]; then
+  # A checkout shared with another platform may carry its pin. Identify the
+  # host without a subprocess; an unknown host skips the pin for the resolver.
+  reconc_host_os=""
+  if [ "${OS:-}" = "Windows_NT" ]; then
+    reconc_host_os="windows"
+  elif [ -d /proc/self ]; then
+    reconc_host_os="linux"
+  elif [ -d /System/Library/CoreServices ]; then
+    reconc_host_os="darwin"
+  fi
+  reconc_host_machine="${HOSTTYPE:-}"
+  if [ -z "$reconc_host_machine" ] && [ -r /proc/sys/kernel/arch ]; then
+    IFS= read -r reconc_host_machine < /proc/sys/kernel/arch || reconc_host_machine=""
+  fi
+  case "$reconc_host_os/$reconc_host_machine" in
+    darwin/arm64|darwin/aarch64) reconc_host_target="tools/reconc/dist/reconc-darwin-arm64" ;;
+    darwin/x86_64|darwin/amd64) reconc_host_target="tools/reconc/dist/reconc-darwin-amd64" ;;
+    linux/arm64|linux/aarch64) reconc_host_target="tools/reconc/dist/reconc-linux-arm64" ;;
+    linux/x86_64|linux/amd64) reconc_host_target="tools/reconc/dist/reconc-linux-amd64" ;;
+    windows/x86_64|windows/amd64) reconc_host_target="tools/reconc/dist/reconc-windows-amd64.exe" ;;
+    *) reconc_host_target="" ;;
+  esac
+  if [ "$reconc_target" != "$reconc_host_target" ]; then
+    reconc_target=""
+  fi
+fi
+if [ -n "$reconc_target" ]; then
   direct_reconc="$repo/$reconc_target"
   if reconc_candidate_trusted "$direct_reconc"; then
     run_reconc_hook "$direct_reconc"

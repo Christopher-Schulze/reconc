@@ -81,7 +81,7 @@ func runHook(args []string, version string, stdout, stderr io.Writer) error {
 	case "pause":
 		return runHookPause(args[1:], stdout, stderr)
 	case "resume":
-		return runHookResume(args[1:], stdout, stderr)
+		return runHookResume(args[1:], stdout)
 	case "pause-status":
 		return runHookPauseStatus(args[1:], stdout)
 	}

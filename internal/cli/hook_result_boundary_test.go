@@ -110,8 +110,10 @@ func TestHookOutputBoundaryCountsUTF8AndExistingNewlineBytes(t *testing.T) {
 func stdoutDecisionRouteFixtures() []stdoutDecisionRouteFixture {
 	return []stdoutDecisionRouteFixture{
 		{name: "cursor pre-tool", route: hooks.RuntimeRoute{PlatformKind: hooks.KindCursor, Event: hooks.EventPreToolUse, ErrorPolicy: hooks.FailureBlock}, wantKey: "permission", wantJSON: `"deny"`},
-		{name: "cursor stop", route: hooks.RuntimeRoute{PlatformKind: hooks.KindCursor, Event: hooks.EventStop, ErrorPolicy: hooks.FailureBlock}, wantKey: "continue", wantJSON: "false"},
-		{name: "cursor subagent stop", route: hooks.RuntimeRoute{PlatformKind: hooks.KindCursor, Event: hooks.EventSubagentStop, ErrorPolicy: hooks.FailureBlock}, wantKey: "continue", wantJSON: "false"},
+		// Cursor's Stop output knows only followup_message; any other body ends
+		// the loop, so an oversized Stop must keep the agent working.
+		{name: "cursor stop", route: hooks.RuntimeRoute{PlatformKind: hooks.KindCursor, Event: hooks.EventStop, ErrorPolicy: hooks.FailureBlock}, wantKey: "followup_message", wantJSON: `"reconc hook output budget exceeded"`},
+		{name: "cursor subagent stop", route: hooks.RuntimeRoute{PlatformKind: hooks.KindCursor, Event: hooks.EventSubagentStop, ErrorPolicy: hooks.FailureBlock}, wantKey: "followup_message", wantJSON: `"reconc hook output budget exceeded"`},
 		{name: "copilot pre-tool", route: hooks.RuntimeRoute{PlatformKind: hooks.KindGitHubCopilot, Event: hooks.EventPreToolUse, ErrorPolicy: hooks.FailureBlock}, wantKey: "permissionDecision", wantJSON: `"deny"`},
 		{name: "copilot permission", route: hooks.RuntimeRoute{PlatformKind: hooks.KindGitHubCopilot, Event: hooks.EventPermissionRequest, ErrorPolicy: hooks.FailureBlock}, wantKey: "behavior", wantJSON: `"deny"`},
 		{name: "copilot stop", route: hooks.RuntimeRoute{PlatformKind: hooks.KindGitHubCopilot, Event: hooks.EventStop, ErrorPolicy: hooks.FailureBlock}, wantKey: "decision", wantJSON: `"block"`},

@@ -20,10 +20,30 @@ type WrapperBinaryStatus struct {
 	Version      string `json:"version,omitempty"`
 	SourceDigest string `json:"source_digest,omitempty"`
 	Error        string `json:"error,omitempty"`
+	// unrunnable marks a wrapper that resolves no binary or one built for
+	// another platform; unreadable provenance alone leaves a binary runnable,
+	// because builds without release flags carry none.
+	unrunnable bool
 }
 
-// Full status scans the selected binary once. The single-platform readiness
-// probe keeps its existing metadata-only cost on the hook execution path.
+// inspectStatusWrapperResolution resolves the wrapper's binary without
+// reading it. The single-platform readiness probe runs on the hook execution
+// path, so it reports an unresolvable binary but leaves the binary's target
+// platform to full status.
+func inspectStatusWrapperResolution(root string) statusWrapperInspection {
+	inspection := inspectStatusWrapper(root)
+	if inspection.current && inspection.executable {
+		path, source, err := resolveWrapperBinary(root)
+		binary := WrapperBinaryStatus{Path: path, Source: source}
+		if err != nil {
+			binary.Error, binary.unrunnable = err.Error(), true
+		}
+		inspection.binary = &binary
+	}
+	return inspection
+}
+
+// Full status scans the selected binary once.
 func inspectStatusWrapperWithBinary(root string) statusWrapperInspection {
 	inspection := inspectStatusWrapper(root)
 	if inspection.current && inspection.executable {
@@ -37,7 +57,7 @@ func inspectWrapperBinary(root string) WrapperBinaryStatus {
 	path, source, err := resolveWrapperBinary(root)
 	status := WrapperBinaryStatus{Path: path, Source: source}
 	if err != nil {
-		status.Error = err.Error()
+		status.Error, status.unrunnable = err.Error(), true
 		return status
 	}
 	provenance, err := buildprovenance.InspectBinary(path)
@@ -48,6 +68,7 @@ func inspectWrapperBinary(root string) WrapperBinaryStatus {
 	status.Version, status.SourceDigest = provenance.Version, provenance.SourceDigest
 	if provenance.GOOS != runtime.GOOS || provenance.GOARCH != runtime.GOARCH {
 		status.Error = "selected binary targets " + provenance.GOOS + "/" + provenance.GOARCH + "; current host is " + runtime.GOOS + "/" + runtime.GOARCH
+		status.unrunnable = true
 	}
 	return status
 }
@@ -59,11 +80,14 @@ func resolveWrapperBinary(root string) (string, string, error) {
 			return path, "development", nil
 		}
 	}
-	if snapshot, err := readManagedArtifactSnapshot(filepath.Join(root, filepath.FromSlash(WrapperTargetPath))); err == nil &&
-		snapshot.exists && validWrapperTargetContent(snapshot.body) {
-		path := filepath.Join(root, filepath.FromSlash(strings.TrimSuffix(string(snapshot.body), "\n")))
-		if wrapperCandidateTrusted(path) {
-			return path, "direct-target", nil
+	// Like the wrapper, honor only a pin that names this host's binary.
+	if host, err := GenerateWrapperTarget(runtime.GOOS, runtime.GOARCH); err == nil {
+		if snapshot, err := readManagedArtifactSnapshot(filepath.Join(root, filepath.FromSlash(WrapperTargetPath))); err == nil &&
+			snapshot.exists && string(snapshot.body) == host.Content {
+			path := filepath.Join(root, filepath.FromSlash(strings.TrimSuffix(string(snapshot.body), "\n")))
+			if wrapperCandidateTrusted(path) {
+				return path, "direct-target", nil
+			}
 		}
 	}
 	for _, relative := range []string{"tools/reconc/dist", "dist"} {

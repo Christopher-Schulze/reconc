@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -27,6 +28,26 @@ func TestMain(testingMain *testing.M) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	}
+	// Status treats a wrapper that resolves no runnable binary as degraded, so
+	// installed fixtures see one executable reconc on PATH, as an installed CLI
+	// provides; tests of an unresolvable wrapper replace PATH.
+	binDirectory := filepath.Join(directory, "bin")
+	name := "reconc"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	if err := os.MkdirAll(binDirectory, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(filepath.Join(binDirectory, name), []byte("#!/bin/sh\nexit 2\n"), 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("PATH", binDirectory+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 	exitCode := testingMain.Run()
 	if err := os.RemoveAll(directory); err != nil {

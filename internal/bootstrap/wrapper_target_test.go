@@ -102,3 +102,40 @@ func TestCrossPlatformBinaryDoesNotPublishHostDirectTarget(t *testing.T) {
 		}
 	}
 }
+
+// A checkout that also holds another platform's stable binary (a host plus a
+// container bind mount) gets no pin: it would point that platform at a binary
+// it cannot execute.
+func TestBootstrapPublishesNoDirectHookTargetInASharedCheckout(t *testing.T) {
+	bootstrapTestHome(t)
+	repo := t.TempDir()
+	foreignOS := "linux"
+	if runtime.GOOS == "linux" {
+		foreignOS = "darwin"
+	}
+	foreign := filepath.Join(repo, "tools", "reconc", "dist", "reconc-"+foreignOS+"-arm64")
+	if err := os.MkdirAll(filepath.Dir(foreign), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(foreign, []byte("foreign-binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(t.TempDir(), "reconc-release")
+	if err := os.WriteFile(source, []byte("binary-content"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	selection, err := BinarySelectionFor(source, "", runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildPlan(Request{RepoRoot: repo, Profile: ProfileGoverned, Binary: selection}, "test-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report, err := Apply(plan, "test-version"); err != nil || report.Status != ApplyComplete {
+		t.Fatalf("apply: report=%+v err=%v", report, err)
+	}
+	if _, err := os.Lstat(filepath.Join(repo, filepath.FromSlash(hooks.WrapperTargetPath))); !os.IsNotExist(err) {
+		t.Fatalf("a shared checkout received a direct hook target: %v", err)
+	}
+}

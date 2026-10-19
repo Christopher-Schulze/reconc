@@ -96,7 +96,9 @@ func failClosedOversizeEnvelope(route hooks.RuntimeRoute) string {
 	switch route.PlatformKind {
 	case hooks.KindCursor:
 		if stopEvent {
-			body = map[string]interface{}{"continue": false, "user_message": reason, "agent_message": reason}
+			// Cursor's Stop output knows only followup_message; any other body
+			// ends the loop, so the session keeps working under the gate.
+			body = map[string]interface{}{"followup_message": reason}
 			break
 		}
 		body = map[string]interface{}{"permission": "deny", "user_message": reason, "agent_message": reason}

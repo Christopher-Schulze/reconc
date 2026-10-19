@@ -37,12 +37,12 @@ func runHookPause(args []string, stdout, stderr io.Writer) error {
 	return writeHookPauseStatus(stdout, status, jsonOut)
 }
 
-func runHookResume(args []string, stdout, stderr io.Writer) error {
+// runHookResume ends an active pause. It only restores enforcement, so unlike
+// pause it needs no operator confirmation; agent tool calls still cannot reach
+// it through the operator-only command guard.
+func runHookResume(args []string, stdout io.Writer) error {
 	repo, jsonOut, values, err := parseHookAdminArgs("resume", "Usage: reconc hook resume [repo] [--json]", args, stdout)
 	if err != nil || values == nil {
-		return err
-	}
-	if err := confirmOperatorPresence("reconc hook resume", stderr); err != nil {
 		return err
 	}
 	status, err := agentsession.ResumeHooks(repo, time.Now())

@@ -21,7 +21,6 @@ func TestOperatorAdministrationRequiresAnInteractiveTerminal(t *testing.T) {
 	repo := t.TempDir()
 	for _, args := range [][]string{
 		{"hook", "pause", repo, "--for", "30m", "--reason", "agent attempt"},
-		{"hook", "resume", repo},
 		{"hook", "evidence-resolve", repo, "--token", "token", "--reason", "agent attempt"},
 		{"hook", "claim", repo, "operator:agents-md-edit-authorized"},
 	} {
@@ -38,6 +37,17 @@ func TestOperatorAdministrationRequiresAnInteractiveTerminal(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"hook", "claim", repo, "ci-green"}, "test", &stdout, &stderr); err != nil && strings.Contains(err.Error(), "interactive terminal") {
 		t.Fatalf("an ordinary claim demanded operator confirmation: %v", err)
+	}
+	// Resuming only restores enforcement, so it needs no confirmation.
+	if _, err := agentsession.PauseHooks(repo, 30*time.Minute, "maintenance", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := Run([]string{"hook", "resume", repo}, "test", &stdout, &stderr); err != nil {
+		t.Fatalf("hook resume demanded operator confirmation: %v", err)
+	}
+	if status, err := agentsession.ReadHookPauseStatus(repo, time.Now()); err != nil || status.Active {
+		t.Fatalf("hook resume left the pause active: %+v %v", status, err)
 	}
 }
 

@@ -95,6 +95,13 @@ func ensureWrapperTargetWithOperations(root string, force bool, operations wrapp
 	return operations.writeArtifact(target, artifact.Content, false, snapshot)
 }
 
+// OtherPlatformBinaryPresent reports whether the checkout at root holds a
+// stable repository binary for a platform other than the running one, where a
+// direct hook target must not be published.
+func OtherPlatformBinaryPresent(root string) bool {
+	return otherPlatformBinaryPresent(root, os.Lstat)
+}
+
 // otherPlatformBinaryPresent reports a stable repository binary for a platform
 // other than the running one.
 func otherPlatformBinaryPresent(root string, lstat func(string) (os.FileInfo, error)) bool {

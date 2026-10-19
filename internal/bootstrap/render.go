@@ -101,7 +101,7 @@ func buildDesiredArtifacts(root string, selection Selection, productVersion stri
 			component: "binary", path: filepath.ToSlash(filepath.Join("tools", "reconc", "dist", name)),
 			mode: 0o755, sourcePath: selection.Binary.SourcePath,
 		})
-		if ownsWrapper && selection.Binary.OS == runtime.GOOS && selection.Binary.Arch == runtime.GOARCH {
+		if ownsWrapper && selection.Binary.OS == runtime.GOOS && selection.Binary.Arch == runtime.GOARCH && !hooks.OtherPlatformBinaryPresent(root) {
 			target, err := hooks.GenerateWrapperTarget(selection.Binary.OS, selection.Binary.Arch)
 			if err != nil {
 				return nil, err

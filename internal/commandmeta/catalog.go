@@ -186,7 +186,7 @@ var commandCatalog = []Command{
 		sub("evidence-status", "reconc hook evidence-status [repo] [--json]", "inspect effective evidence taint without mutation", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("evidence-resolve", "reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]", "resolve reviewed evidence taint explicitly, also during an active session (operator only)", flags(f("--token", "TOKEN"), f("--reason", "TEXT"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("pause", "reconc hook pause [repo] --for DURATION --reason TEXT [--json]", "let blocking hook events pass for a bounded time (operator only, max 24h)", flags(f("--for", "DURATION"), f("--reason", "TEXT"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
-		sub("resume", "reconc hook resume [repo] [--json]", "end the active operator hook pause (operator only)", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
+		sub("resume", "reconc hook resume [repo] [--json]", "end the active operator hook pause (no confirmation; refused to agent tool calls)", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("pause-status", "reconc hook pause-status [repo] [--json]", "inspect the newest operator hook pause without mutation", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON, OutputFile)),
 

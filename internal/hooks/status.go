@@ -134,7 +134,7 @@ func InspectPlatform(repoRoot, kind string) (PlatformStatus, error) {
 	if platform.Kind == KindDSH {
 		inspectDSHPatch(root, &report)
 	}
-	finalizePlatformStatus(root, platform, inspectStatusWrapper(root), &report)
+	finalizePlatformStatus(root, platform, inspectStatusWrapperResolution(root), &report)
 	return report, nil
 }
 
@@ -174,6 +174,16 @@ func finalizePlatformStatus(root string, platform Platform, wrapper statusWrappe
 		report.State = StateDegraded
 		report.Detail = "configuration is complete but tools/reconc/bin/hook differs from the current generator; reinstall the hook"
 		report.remediation = hookInstallRemediation(platform.Kind, root, true)
+	}
+	if platform.Activation.RequiresWrapper && report.State == StateConfigured && wrapper.binary != nil && wrapper.binary.unrunnable {
+		// Every hook would exit 2 at the wrapper while the artifact looks
+		// healthy.
+		report.State = StateDegraded
+		report.Detail = "configuration is complete but tools/reconc/bin/hook resolves no runnable Reconc binary: " + wrapper.binary.Error
+		report.remediation = hostRemediation(
+			"Install the current host's Reconc binary into this repository, or put the reconc CLI on PATH:",
+			remediationCommand{Program: "reconc", Args: []string{"bootstrap", "apply", root, "--profile", "existing", "--install-binary"}},
+		)
 	}
 	report.Configured = report.State == StateConfigured
 	if report.Configured && report.TargetPath == platform.TargetPath && report.remediation.Disposition == remediationInstall {

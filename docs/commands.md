@@ -76,7 +76,7 @@ Generated from `internal/commandmeta`; run `make reference-docs` after changing 
 | `reconc hook evidence-status` | `reconc hook evidence-status [repo] [--json]` | inspect effective evidence taint without mutation | text, json |
 | `reconc hook evidence-resolve` | `reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]` | resolve reviewed evidence taint explicitly, also during an active session (operator only) | text, json |
 | `reconc hook pause` | `reconc hook pause [repo] --for DURATION --reason TEXT [--json]` | let blocking hook events pass for a bounded time (operator only, max 24h) | text, json |
-| `reconc hook resume` | `reconc hook resume [repo] [--json]` | end the active operator hook pause (operator only) | text, json |
+| `reconc hook resume` | `reconc hook resume [repo] [--json]` | end the active operator hook pause (no confirmation; refused to agent tool calls) | text, json |
 | `reconc hook pause-status` | `reconc hook pause-status [repo] [--json]` | inspect the newest operator hook pause without mutation | text, json |
 | `reconc agent-intro` | `reconc agent-intro [--section NAME \| --list-sections] [--json]` | print the compact guide or one lazy reference section | text, json |
 | `reconc audit` | `reconc audit <tail\|stats\|export\|verify>` | inspect, export, or cryptographically verify decision evidence | text, json, jsonl |
@@ -1286,11 +1286,13 @@ Every wrapper-dependent platform installs or verifies the exact executable
 repo-local wrapper in the same operation. If the exact stable current-host
 binary exists, installation also publishes the validated one-line
 `tools/reconc/bin/hook-target` receipt. The wrapper executes that target on its
-normal path without platform discovery, directory scans, version-glob
-expansion, or `PATH` search. Missing, invalid, symlinked, and non-executable
+normal path, after a subprocess-free check that it names the running host's
+binary, without `uname`, directory scans, version-glob expansion, or `PATH`
+search. Missing, invalid, foreign-platform, symlinked, and non-executable
 targets enter the existing unambiguous recovery resolver. Transactional
 bootstrap and repository sync own the receipt together with the wrapper and
-binary; cross-platform plans omit it. Codex installation also manages its
+binary; cross-platform plans and checkouts that hold another platform's stable
+binary omit it. Codex installation also manages its
 `[features].hooks` activation: an explicit user-owned `false` requires
 `--force`, and forced activation records the exact original line so uninstall
 can restore it. Partial wrapper/target/activation outcomes are reported
@@ -1591,8 +1593,9 @@ destructive Git guard and the operator-only command guard keep holding. A new
 pause supersedes the active one. The record keeps the 32 most recent pauses.
 
 ### `reconc hook resume [repo] [--json]`
-Operator-only. Ends the active pause before its expiry; fails when no pause is
-active.
+Ends the active pause before its expiry; fails when no pause is active. It only
+restores enforcement, so it needs no interactive confirmation; the operator-only
+command guard still refuses it inside agent tool calls.
 
 ### `reconc hook pause-status [repo] [--json]`
 Read-only. Reports the newest pause as active, expired, resumed, or none.
