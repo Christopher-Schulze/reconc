@@ -194,16 +194,18 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 		return err
 	}
 	repo = root.Path()
+	project := root
 	timing.mark("root_resolve")
 	if route.PlatformKind == hooks.KindClaudeCode {
 		// ${CLAUDE_PROJECT_DIR} stays on the main checkout after Claude enters
 		// a worktree; cwd follows the session, so its linked worktree is the
-		// checkout the policy must describe.
+		// checkout the policy must describe, provided that worktree's policy
+		// keeps every project rule.
 		var location struct {
 			Cwd string `json:"cwd"`
 		}
 		if json.Unmarshal(payload, &location) == nil {
-			worktree, worktreeErr := agentsession.LinkedWorktreeRoot(repo, location.Cwd)
+			worktree, worktreeErr := agentsession.ClaudeWorktreeRoot(repo, location.Cwd)
 			if worktreeErr == nil && worktree != "" {
 				root, worktreeErr = resolveRoot(worktree)
 			}
@@ -299,6 +301,9 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook runtime: event %q is not executable", event)}
 	}
 	result := agentsession.RunHookRequestWithEvaluatorAndStopCache(root, handler, event, payload, evaluator, stopCache)
+	if route.PlatformKind == hooks.KindClaudeCode && route.Event == hooks.EventStop {
+		result = coverClaudeSessionCheckouts(project, root, handler, event, payload, resolveRoot, evaluator, stopCache, result)
+	}
 	if route.Event == hooks.EventConfigChange && result.ExitCode == 0 && result.Err == nil {
 		result = decideConfigChange(repo, payload, result)
 	}
@@ -396,6 +401,54 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 		return &CLIError{ExitCode: result.ExitCode, Message: ""}
 	}
 	return nil
+}
+
+// coverClaudeSessionCheckouts extends a passing Claude Code Stop to every
+// other checkout of the project in which the session recorded evidence, so a
+// `cd` between the project and its linked worktrees never drops a Stop gate.
+// The first checkout that does not pass decides the Stop.
+func coverClaudeSessionCheckouts(
+	project, evaluated agentsession.ResolvedRepoRoot,
+	handler agentsession.HookHandler,
+	event string,
+	payload []byte,
+	resolveRoot func(string) (agentsession.ResolvedRepoRoot, error),
+	evaluator *runtime.Evaluator,
+	stopCache *agentsession.StopDecisionCache,
+	result agentsession.Result,
+) agentsession.Result {
+	if result.ExitCode != 0 || result.Stdout != "" || result.Err != nil {
+		return result
+	}
+	checkouts, err := agentsession.OtherSessionCheckouts(project.Path(), evaluated.Path(), payload)
+	if err != nil {
+		return agentsession.Result{ExitCode: 2, Stderr: "reconc hook (stop): find the checkouts this session changed: " + err.Error()}
+	}
+	for _, checkout := range checkouts {
+		if checkout.PolicyGap != "" {
+			return agentsession.Result{ExitCode: 2, Stderr: fmt.Sprintf(
+				"reconc hook (stop): this session changed the linked worktree %s, whose policy no longer keeps every rule of the project policy: %s. Bring the project policy into that worktree (merge it there or run `reconc refresh .` inside it) so its Stop gates can be evaluated.",
+				checkout.Root, checkout.PolicyGap)}
+		}
+		root, err := resolveRoot(checkout.Root)
+		if err != nil {
+			return agentsession.Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): resolve the checkout %s this session changed: %s", checkout.Root, err)}
+		}
+		other := agentsession.RunHookRequestWithEvaluatorAndStopCache(root, handler, event, payload, evaluator, stopCache)
+		if other.ExitCode != 0 || other.Stdout != "" || other.Err != nil {
+			if other.Stdout == "" && other.Stderr != "" {
+				other.Stderr = fmt.Sprintf("checkout %s: %s", checkout.Root, other.Stderr)
+			}
+			return other
+		}
+		if other.Stderr != "" {
+			if result.Stderr != "" {
+				result.Stderr += "; "
+			}
+			result.Stderr += other.Stderr
+		}
+	}
+	return result
 }
 
 // decideConfigChange blocks a Claude Code settings change that would stop

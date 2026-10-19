@@ -4,6 +4,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -74,5 +76,59 @@ func TestLinkedWorktreeRootMatchesOnlyThisRepositoryWorktrees(t *testing.T) {
 	}
 	if reason, err := linkedWorktreeWriteBlock(repo, []string{filepath.Join(repo, "b.go"), filepath.Join(foreign, "c.go")}); err != nil || reason != "" {
 		t.Fatalf("main-checkout writes were blocked: %q, %v", reason, err)
+	}
+}
+
+func TestLinkedWorktreeCheckoutsListsExistingRegistrations(t *testing.T) {
+	repo := t.TempDir()
+	gitInitHelper(t, repo)
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	nested := filepath.Join(repo, ".claude", "worktrees", "nested")
+	outside := filepath.Join(t.TempDir(), "outside")
+	removed := filepath.Join(t.TempDir(), "removed")
+	git("worktree", "add", "-q", nested, "-b", "nested")
+	git("worktree", "add", "-q", outside, "-b", "outside")
+	git("worktree", "add", "-q", removed, "-b", "removed")
+	if err := os.RemoveAll(removed); err != nil {
+		t.Fatal(err)
+	}
+	// Git writes a relative gitdir under worktree.useRelativePaths.
+	registry := filepath.Join(repo, ".git", "worktrees", "outside", "gitdir")
+	relative, err := filepath.Rel(filepath.Dir(registry), filepath.Join(outside, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(registry, []byte(relative+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	canonicalRepo, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := linkedWorktreeCheckouts(canonicalRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{}
+	for _, worktree := range []string{nested, outside} {
+		canonical, err := ResolveRepoRoot(worktree)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, canonical)
+	}
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("linked worktrees = %v, want %v", got, want)
+	}
+	// Seen from a linked worktree, the registry still lists every worktree.
+	fromNested, err := linkedWorktreeCheckouts(want[0])
+	if err != nil || len(fromNested) != 1 || fromNested[0] == want[0] {
+		t.Fatalf("linked worktrees seen from %s = %v, %v", want[0], fromNested, err)
 	}
 }

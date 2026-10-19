@@ -143,9 +143,13 @@ func linkedWorktreeWriteBlock(root string, targets []string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if worktree != "" {
-			return fmt.Sprintf("reconc blocked this file modification before execution.\n- %s belongs to the linked worktree %s; enter that worktree so Reconc evaluates the write against its own checkout.", target, worktree), nil
+		if worktree == "" {
+			continue
 		}
+		if gap := worktreePolicyGap(root, worktree); gap != "" {
+			return fmt.Sprintf("reconc blocked this file modification before execution.\n- %s belongs to the linked worktree %s, whose policy does not keep every rule enforced in %s: %s.\n- Reconc evaluates a linked worktree under its own policy only while that policy keeps all of those rules; bring that policy into the worktree (merge it there or run `reconc refresh .` inside it), then continue there.", target, worktree, root, gap), nil
+		}
+		return fmt.Sprintf("reconc blocked this file modification before execution.\n- %s belongs to the linked worktree %s; enter that worktree so Reconc evaluates the write against its own checkout.", target, worktree), nil
 	}
 	return "", nil
 }

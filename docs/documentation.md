@@ -5469,9 +5469,24 @@ run in their own worktree, Claude Code keeps `${CLAUDE_PROJECT_DIR}` on the main
 checkout while `cwd` follows the session into `.claude/worktrees/<name>`. When
 `cwd` lies in a linked worktree of the same repository (its gitdir's
 `commondir` names this repository's common directory), Reconc evaluates the
-hook against that checkout: its policy, lockfile, session state, and Git
-snapshot. A write tool aimed at another linked worktree of the repository is
-denied, because root-relative policy paths cannot describe that checkout.
+hook against that checkout (its policy, lockfile, session state, and Git
+snapshot) only while the worktree's policy keeps every rule of the project
+policy. That means the worktree is its own policy root and its compiled lockfile
+either matches the project lockfile byte for byte or, compared rule by rule,
+keeps every project rule unchanged and every other enforced lockfile field
+identical. Added rules are allowed. Otherwise, for example when the worktree has
+no policy, has no compiled lockfile, or drops or changes a project rule, the
+hook stays under the project policy: commands are evaluated there, and writes
+into the worktree are denied with the rules that differ. `cwd` follows every
+`cd`, so it never selects a weaker policy. A write tool aimed at another linked
+worktree of the repository is denied, because root-relative policy paths cannot
+describe that checkout. Each checkout keeps its own session state, so a Claude
+Stop that passes in the checkout `cwd` selects also evaluates every other
+checkout of the project (the project root and each registered linked worktree)
+in which the session recorded a write, a command, a command result, or sealed
+evidence. The first checkout that does not pass decides the Stop. A changed
+worktree whose policy no longer keeps every project rule holds the Stop until
+the project policy is brought into it.
 Submodules and other repositories are never treated as linked worktrees. The remaining
 events stay unbound on purpose: they carry no decision Reconc can make and no
 evidence it can attribute. `FileChanged` is the closest miss, because it
