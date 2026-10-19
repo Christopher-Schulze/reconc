@@ -3412,6 +3412,38 @@ security-sensitive and covered by reference, matching, runtime-boundary, and
 fuzz tests. Reconc never executes a shell during this analysis. Dynamic eval
 arguments stay unresolved and make prevention fail closed.
 
+PowerShell commands are analyzed with PowerShell rules. A command from Claude
+Code's `PowerShell` tool, from Copilot's `powershell` tool, or from a Copilot
+`Bash` call where Copilot's shell is PowerShell (Windows, where Copilot's
+PascalCase payloads name that tool `Bash`) is translated into the Bash form the
+analyzer enumerates, and that form is what policy checks, recorded commands,
+and command results see. Every command position keeps its static words; the
+executable is matched case-insensitively in the deny direction like any other,
+with `\` read as `/` and the implicit `.exe`, `.cmd`, `.bat`, `.com`, or
+`.ps1` suffix removed, so `npm.cmd test` satisfies a rule requiring `npm test`
+and `& 'C:\Program Files\nodejs\npm.cmd' publish` matches `npm publish`.
+`Start-Process` (`saps`, `start`) resolves to the program it launches from
+`-FilePath` and `-ArgumentList` (aliases and unambiguous prefixes included).
+Script blocks, `(...)`, `$(...)`, `@(...)`, hashtables, conditions, loop and
+function bodies, and the right side of an assignment are analyzed in place,
+so `Get-ChildItem | ForEach-Object { npm publish }` matches. Variables,
+expandable strings, splatting, and stop-parsing (`--%`) make their words
+dynamic. The executed command is unknown, and analysis reports
+`dynamic_command`, for `Invoke-Expression` (`iex`), `Invoke-Command` (`icm`),
+`Invoke-Item`, alias definitions, `Invoke-WmiMethod`, `Invoke-CimMethod`,
+scheduled-task and remote-session cmdlets, a call operator (`&` or `.`) on a
+computed target, any method invocation (`$x.Invoke()`,
+`[Diagnostics.Process]::Start(...)`, COM objects), `Start-Process` with a
+computed file or an unknown parameter, and PowerShell input that does not
+parse. Cmdlet names are not mapped to POSIX programs: `Remove-Item` does not
+match a rule about `rm`, while the `rm` alias does. Bash reaches the same
+analysis through its hosts: `pwsh` and `powershell` with `-Command` (or a
+positional command) analyze the literal text as PowerShell, `-EncodedCommand`,
+`-Command -`, a dynamic command, or an unknown parameter is `dynamic_command`,
+and `-File` is the invocation itself. `cmd /c` and `cmd /k` analyze plain
+words; any `&`, `|`, `<`, `>`, `^`, `%`, quote, or parenthesis in the text is
+`dynamic_command`.
+
 Each bounded shell analysis owns one non-concurrent `mvdan` parser and reuses it
 across nested command parsing and redirect validation. The parser is discarded
 when that analysis returns, so its AST and input buffers do not outlive the
@@ -5324,8 +5356,9 @@ shebang exec. The gating routes (`PreToolUse`, the MCP `PreToolUse` group and
 `PermissionRequest`) set `onFailure: "block"`, so a hook that cannot start,
 crashes or times out blocks the action or denies the permission instead of
 letting it through; that requires Claude Code v2.1.295, and Claude ignores the
-field on `Stop`. Claude's `PowerShell` tool is gated and recorded exactly like
-`Bash`, `SessionStart` also binds forked sessions (`fork`), and a blocking Stop
+field on `Stop`. Claude's `PowerShell` tool is gated and recorded like `Bash`,
+with its commands analyzed as PowerShell (see the shell analysis rules above),
+`SessionStart` also binds forked sessions (`fork`), and a blocking Stop
 carries a `{"decision":"block"}` JSON body so a diagnostic that names a missing
 file is never read as a non-blocking error. Codex uses the host shell command string without a nested launcher;
 Cursor and Antigravity use portable non-login `sh -c` launchers with a direct

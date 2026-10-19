@@ -656,6 +656,10 @@ func nestedCommandString(words []commandWord) (string, bool) {
 		return shellCommandArgument(words[1:])
 	case baseName(words[0].value) == "eval":
 		return evalCommandArgument(words[1:])
+	case isPowerShellHost(words[0].value):
+		return powerShellHostArgument(words[1:])
+	case isCmdHost(words[0].value):
+		return cmdCommandArgument(words[1:])
 	default:
 		return "", true
 	}

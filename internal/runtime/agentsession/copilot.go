@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	goruntime "runtime"
 	"strings"
 )
 
@@ -123,16 +124,35 @@ func PayloadLooksLikeGitHubCopilot(payloadBytes []byte) bool {
 	if json.Unmarshal(payloadBytes, &raw) != nil {
 		return false
 	}
+	return copilotShapedObject(raw)
+}
+
+func copilotShapedObject(raw map[string]interface{}) bool {
 	switch stamp := raw["timestamp"].(type) {
 	case string:
 		if stamp == "" {
 			return false
 		}
-	case float64:
+	case float64, json.Number:
 	default:
 		return false
 	}
 	return cursorFirstString(raw, "session_id", "sessionId") != ""
+}
+
+// copilotShellRunsPowerShell is true where GitHub Copilot's shell tool is
+// `powershell`. Its Claude-compatible PascalCase payloads report that tool
+// with the Claude name `Bash`, so the dialect follows the platform.
+var copilotShellRunsPowerShell = goruntime.GOOS == "windows"
+
+// copilotShellToolName names the dialect of a Copilot shell call: the runtime
+// name `powershell`, or the Claude name `Bash` where Copilot's shell is
+// PowerShell, is a PowerShell command.
+func copilotShellToolName(toolName string, raw map[string]interface{}) string {
+	if toolName == "Bash" && copilotShellRunsPowerShell && copilotShapedObject(raw) {
+		return "PowerShell"
+	}
+	return toolName
 }
 
 // AdaptGitHubCopilotResult translates Reconc's neutral control responses into
@@ -185,8 +205,10 @@ func validateGitHubCopilotWorkspace(raw map[string]interface{}, repoRoot string)
 func normalizeGitHubCopilotToolName(name string) string {
 	trimmed := strings.TrimSpace(name)
 	switch strings.ToLower(trimmed) {
-	case "bash", "powershell":
+	case "bash":
 		return "Bash"
+	case "powershell":
+		return "PowerShell"
 	case "view":
 		return "Read"
 	case "create":

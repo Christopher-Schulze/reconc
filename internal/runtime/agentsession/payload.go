@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/shellcommand"
 )
 
 // Hard limits per the threat model in docs/architecture.md.
@@ -191,13 +192,18 @@ func (p *HookPayload) FilePaths() []string {
 }
 
 // Command returns the first known shell command field of tool_input,
-// trimmed, or "" if absent.
+// trimmed, or "" if absent. A PowerShell tool's command is returned in the
+// Bash form that enumerates its invocations, so every policy check, recorded
+// command, and command result analyzes the same normalized text.
 func (p *HookPayload) Command() string {
 	if p == nil || p.ToolInput == nil {
 		return ""
 	}
 	for _, key := range []string{"command", "cmd", "script"} {
 		if v, _ := p.ToolInput[key].(string); strings.TrimSpace(v) != "" {
+			if strings.EqualFold(p.ToolName, "PowerShell") {
+				return shellcommand.PowerShellAnalysisCommand(strings.TrimSpace(v))
+			}
 			return strings.TrimSpace(v)
 		}
 	}
@@ -322,7 +328,7 @@ func payloadFromMap(raw map[string]interface{}) (*HookPayload, error) {
 	}
 
 	toolName, _ := raw["tool_name"].(string)
-	toolName = strings.TrimSpace(toolName)
+	toolName = copilotShellToolName(strings.TrimSpace(toolName), raw)
 
 	prompt, _ := raw["prompt"].(string)
 	prompt = strings.TrimSpace(prompt)
