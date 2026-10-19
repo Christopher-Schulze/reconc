@@ -1,6 +1,8 @@
 package agentsession
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -17,12 +19,46 @@ type abandonedEvidenceArtifact struct {
 	info, parentInfo os.FileInfo
 }
 
-func resetResolvedEvidenceWindow(root, sessionID string) error {
+// readRecoverableSessionState reads a session state during an
+// operator-confirmed evidence recovery. A state file that exists but cannot
+// be decoded as this session's state is set aside under the held session
+// lease, and recovery continues from an empty window.
+func readRecoverableSessionState(root, sessionID string, setAside *[]string) (SessionState, error) {
+	state, err := readSessionStateResolved(root, sessionID)
+	var unusable *unusableSessionStateError
+	if !errors.As(err, &unusable) {
+		return state, err
+	}
+	body, readErr := boundedio.ReadRegularFile(unusable.path, maxLegacySessionStateBytes)
+	if readErr != nil {
+		return SessionState{}, errors.Join(err, readErr)
+	}
+	sum := sha256.Sum256(body)
+	target := unusable.path + ".unusable-" + hex.EncodeToString(sum[:])[:16]
+	if renameErr := os.Rename(unusable.path, target); renameErr != nil {
+		return SessionState{}, errors.Join(err, fmt.Errorf("set aside unusable session state: %w", renameErr))
+	}
+	if syncErr := syncParentDirectory(target); syncErr != nil {
+		return SessionState{}, fmt.Errorf("persist set-aside session state: %w", syncErr)
+	}
+	*setAside = append(*setAside, target)
+	return emptyState(root, sessionID), nil
+}
+
+func syncParentDirectory(path string) error {
+	parent, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	return errors.Join(atomicfile.SyncDirectory(parent), parent.Close())
+}
+
+func resetResolvedEvidenceWindow(root, sessionID string, setAside *[]string) error {
 	artifacts, err := abandonedEvidenceArtifacts(root, sessionID)
 	if err != nil {
 		return err
 	}
-	state, err := readSessionStateResolved(root, sessionID)
+	state, err := readRecoverableSessionState(root, sessionID, setAside)
 	if err != nil {
 		return err
 	}

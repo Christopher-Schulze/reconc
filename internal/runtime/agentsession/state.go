@@ -395,8 +395,23 @@ func readSessionStateResolved(root, sessionID string) (SessionState, error) {
 		}
 		return SessionState{}, fmt.Errorf("read session state %s: %w", path, err)
 	}
-	return decodeSessionState(data, path, root, sessionID, loadedLegacyPath)
+	state, err := decodeSessionState(data, path, root, sessionID, loadedLegacyPath)
+	if err != nil {
+		return SessionState{}, &unusableSessionStateError{path: path, err: err}
+	}
+	return state, nil
 }
+
+// unusableSessionStateError marks a state file that exists but cannot be
+// decoded as the requested session's state for this repository.
+type unusableSessionStateError struct {
+	path string
+	err  error
+}
+
+func (failure *unusableSessionStateError) Error() string { return failure.err.Error() }
+
+func (failure *unusableSessionStateError) Unwrap() error { return failure.err }
 
 func decodeSessionState(data []byte, path, root, sessionID string, loadedLegacyPath bool) (SessionState, error) {
 	var state SessionState

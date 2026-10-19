@@ -184,6 +184,9 @@ func runHookEvidenceResolve(args []string, stdout, stderr io.Writer) error {
 		return encoder.Encode(status)
 	}
 	fmt.Fprintf(stdout, "resolved evidence taint %s (%s/%s); reproduce required evidence before certification\n", status.Token, status.Field, status.Limit)
+	for _, path := range status.SetAsideStates {
+		fmt.Fprintf(stdout, "set aside unusable session state %s; that session continues from an empty evidence window\n", path)
+	}
 	return nil
 }
 

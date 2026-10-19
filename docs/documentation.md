@@ -2988,7 +2988,11 @@ older review. A broken command-object/segment chain or exhausted aggregate or
 segment budget resets the origin's complete evidence window, including reads,
 writes, command outcomes and claims, while retaining its host session ID and
 runtime. Only recognized owned command objects and segment files are reclaimed;
-unknown or replaced paths remain. The clean window is published before cleanup,
+unknown or replaced paths remain. An origin or active state file that exists but
+cannot be decoded as that session's state is set aside as
+`<state>.unusable-<digest>` under the held lease and reported (JSON
+`set_aside_states`); that session continues from an empty window instead of
+blocking recovery. The clean window is published before cleanup,
 and the durable taint stays until cleanup succeeds. A failed or interrupted
 attempt can retry the same token without replacing its first review reason.
 Ordinary field-overflow recovery retains healthy evidence and clears matching
@@ -3058,8 +3062,7 @@ repository-wide active-session pointer serializes reads, writes, and cleanup on
 its own lock, acquired only after any session lock, so native Windows sharing
 rules cannot turn concurrent hooks into lost evidence or failed publication.
 
-Default persistent budgets are 32 session files, including full-command objects,
-/ 8 MiB / 14 days, 32 reports
+Default persistent budgets are 32 session files / 8 MiB / 14 days, 32 reports
 / 8 MiB / 14 days, 128 locks / 1 MiB / 24 hours, 64 staged command proofs /
 256 KiB / 24 hours, 32 pre-decision caches / 512 KiB / 14 days, 32 evidence
 taint-resolution receipts / 512 KiB / 14 days, 32 rotated-evidence session
@@ -3067,8 +3070,13 @@ directories / 64 MiB / 14 days, 16 MiB total external state, and 32 MiB / 14
 days for generated audit binaries. Rotated evidence is inspected as a complete
 contiguous chain and removed only as one session directory under its session
 lock; active sessions and the session named by unresolved taint are protected.
-Their full-command objects are also protected under class and total pressure;
-removal of an inactive object's bytes requires its session lease.
+Full-command objects and rotated-evidence directories belong to the session
+state file that references them. While that state file exists they stay
+outside the session, rotated-evidence, and total budgets, which their
+per-session ceilings already bound, so a concurrent session never loses
+referenced evidence. They are removed only together with their state file, in
+the same pass and under its session lease. Unreferenced objects and
+directories remain subject to the class and total budgets.
 Malformed, oversized, irregular, or concurrently leased chains are reported
 and preserved. The active session's
 pre-decision cache is protected. All taint-resolution receipts are protected

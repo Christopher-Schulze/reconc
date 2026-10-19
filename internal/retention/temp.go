@@ -31,6 +31,13 @@ func enforceStateTotal(
 		evidenceProtected[activeID] = true
 	}
 	protectedSessions := protectedSessionNames(evidenceProtected)
+	// Full-command text objects and evidence chains referenced by a surviving
+	// state file are bounded per session and stay outside the state total;
+	// they are removed only together with the state file that owns them.
+	owners, ownersKnown := sessionStateOwners(project, report)
+	ownership := sessionOwnership{owners: owners, known: ownersKnown}
+	dependents := map[string][]candidate{}
+	stateIDs := map[string]string{}
 	for _, dir := range []string{"sessions", "reports", "locks", "command-proofs", "policy-decisions", "pre-decisions", "evidence-taint-resolutions"} {
 		path := filepath.Join(project, dir)
 		entries, err := boundedio.ReadDirNoSymlink(path, maxRetentionDirectoryEntries)
@@ -66,6 +73,13 @@ func enforceStateTotal(
 			}
 			if dir == "sessions" {
 				protectCommandText(&item, project, evidenceProtected, taintProtection.evidenceAll)
+				if id, ok := commandTextSessionID(entry.Name()); ok && ownership.owns(id) {
+					dependents[id] = append(dependents[id], item)
+					continue
+				}
+				if id, ok := sessionStateID(entry.Name()); ok {
+					stateIDs[item.path] = id
+				}
 			}
 			var inspect stateArtifactInspector
 			switch dir {
@@ -93,6 +107,10 @@ func enforceStateTotal(
 		return class
 	}
 	for _, item := range evidenceCandidates {
+		if ownership.owns(item.name) {
+			dependents[item.name] = append(dependents[item.name], item)
+			continue
+		}
 		item.name = "evidence/" + item.name
 		candidates = append(candidates, item)
 		class.BytesBefore += item.size
@@ -108,6 +126,7 @@ func enforceStateTotal(
 		}
 		return candidates[i].mtime.Before(candidates[j].mtime)
 	})
+	removedOwners := []string{}
 	for _, item := range candidates {
 		if class.BytesAfter <= options.Policy.StateTotalBytes {
 			break
@@ -119,6 +138,19 @@ func enforceStateTotal(
 		class.BytesFreed += item.size
 		class.FilesDeleted++
 		class.FilesKept--
+		if id, ok := stateIDs[item.path]; ok && ownersKnown {
+			removedOwners = append(removedOwners, id)
+		}
+	}
+	for _, id := range removedOwners {
+		for _, item := range dependents[id] {
+			if !removeCandidate(item, options.DryRun, report) {
+				continue
+			}
+			class.BytesBefore += item.size
+			class.BytesFreed += item.size
+			class.FilesDeleted++
+		}
 	}
 	return class
 }

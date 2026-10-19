@@ -1570,7 +1570,10 @@ an exact current token and a bounded operator reason, and works with or without
 an active session. It writes an immutable resolution receipt before clearing
 the live taint. Broken chains and exhausted command-object/segment windows reset
 the origin's reads, writes, command outcomes and claims, reclaim recognized
-owned evidence files, and keep the host session ID and context. Unknown segment
+owned evidence files, and keep the host session ID and context. An unusable
+origin or active state file is set aside as `<state>.unusable-<digest>` and
+reported instead of blocking recovery; that session continues from an empty
+evidence window. Unknown segment
 entries or changed selected artifacts remain and keep recovery blocked; other
 files in the shared session directory remain outside cleanup. Origin/active session leases
 and the project taint lock serialize recovery; partial cleanup retains the taint

@@ -29,6 +29,7 @@ type candidate struct {
 	probeLock        bool
 	probeProjectRoot bool
 	leasePath        string
+	owner            string
 	jsonlArchive     int
 	info             os.FileInfo
 	validate         candidateValidator
@@ -214,8 +215,10 @@ func runLockedContext(ctx context.Context, options Options, forceOwnedTemp bool)
 	if active != "" {
 		evidenceProtected[activeID] = true
 	}
+	sessionsClass, removedSessionOwners := pruneClassRemovingOwners("sessions", sessions, stateOptions.Policy.Sessions, options.Now, options.DryRun, protectedSessionNames(evidenceProtected), nil, nil, &report)
+	segmentOwners, segmentOwnersKnown := sessionStateOwners(project, &report)
 	report.Classes = append(report.Classes,
-		pruneClass("sessions", sessions, stateOptions.Policy.Sessions, options.Now, options.DryRun, protectedSessionNames(evidenceProtected), nil, &report),
+		sessionsClass,
 		pruneClass("reports", reports, stateOptions.Policy.Reports, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
 		pruneClass("locks", locks, stateOptions.Policy.Locks, options.Now, options.DryRun, map[string]bool{
 			EvidenceTaintLockName:          true,
@@ -226,7 +229,7 @@ func runLockedContext(ctx context.Context, options Options, forceOwnedTemp bool)
 		pruneClass("policy-decisions", policyDecisions, stateOptions.Policy.PolicyDecisions, options.Now, options.DryRun, map[string]bool{"latest.json": true}, nil, &report),
 		pruneClassInspected("pre-decisions", preDecisions, stateOptions.Policy.PreDecisions, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, inspectPreDecisionArtifact, &report),
 		pruneClassInspected("evidence-taint-resolutions", taintResolutions, stateOptions.Policy.TaintResolutions, options.Now, options.DryRun, taintProtection.names, nil, inspectTaintResolutionArtifact(options.RepoRoot), &report),
-		pruneEvidenceSegmentDirectories(evidenceSegments, stateOptions.Policy.EvidenceSegments, options.Now, options.DryRun, evidenceProtected, taintProtection.evidenceAll, &report),
+		pruneEvidenceSegmentDirectories(evidenceSegments, stateOptions.Policy.EvidenceSegments, options.Now, options.DryRun, evidenceProtected, taintProtection.evidenceAll, sessionOwnership{owners: segmentOwners, known: segmentOwnersKnown, removed: removedSessionOwners}, &report),
 	)
 	projectedStateBefore, projectedStateAfter := classTotals(report.Classes, "sessions", "reports", "locks", "command-proofs", "policy-decisions", "pre-decisions", "evidence-taint-resolutions", "evidence-segments")
 	stateTotal := enforceStateTotal(stateOptions, project, activeID, active != "", taintProtection, &report)
@@ -605,14 +608,37 @@ func pruneClassInspected(
 	inspect stateArtifactInspector,
 	report *Report,
 ) ClassReport {
+	class, _ := pruneClassRemovingOwners(name, dir, policy, now, dryRun, activeNames, include, inspect, report)
+	return class
+}
+
+// pruneClassRemovingOwners prunes one class. For the sessions class it keeps
+// every full-command text object whose state file exists out of the budget,
+// removes those objects only together with their state file, and returns the
+// session ids whose state file this pass removed.
+func pruneClassRemovingOwners(
+	name, dir string,
+	policy ClassPolicy,
+	now time.Time,
+	dryRun bool,
+	activeNames map[string]bool,
+	include func(os.DirEntry) bool,
+	inspect stateArtifactInspector,
+	report *Report,
+) (ClassReport, map[string]bool) {
 	class := ClassReport{Name: name}
+	removedOwners := map[string]bool{}
 	entries, err := boundedio.ReadDirNoSymlink(dir, maxRetentionDirectoryEntries)
 	if errors.Is(err, os.ErrNotExist) {
-		return class
+		return class, removedOwners
 	}
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("read %s: %v", dir, err))
-		return class
+		return class, removedOwners
+	}
+	var owners map[string]bool
+	if name == "sessions" {
+		owners = sessionStateOwnersFromEntries(entries)
 	}
 	candidates := make([]candidate, 0, len(entries))
 	for _, entry := range entries {
@@ -622,7 +648,7 @@ func pruneClassInspected(
 		info, err := entry.Info()
 		if err != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("stat %s entry %s: %v", name, filepath.Join(dir, entry.Name()), err))
-			return class
+			return class, removedOwners
 		}
 		if !info.Mode().IsRegular() {
 			if inspect != nil {
@@ -637,6 +663,9 @@ func pruneClassInspected(
 		if name == "sessions" {
 			if id, ok := commandTextSessionID(entry.Name()); ok {
 				protectCommandText(&item, filepath.Dir(dir), map[string]bool{id: activeNames[id+".json"]}, false)
+				if owners[id] {
+					item.owner = id
+				}
 			}
 		}
 		if inspect != nil {
@@ -658,13 +687,24 @@ func pruneClassInspected(
 	})
 	keptBytes := int64(0)
 	keptFiles := 0
+	dependents := map[string][]candidate{}
 	for _, item := range candidates {
+		if item.owner != "" {
+			// Bounded by the per-session ceiling and removed with its owner.
+			dependents[item.owner] = append(dependents[item.owner], item)
+			class.FilesKept++
+			class.BytesAfter += item.size
+			continue
+		}
 		expired := policy.MaxAge > 0 && now.Sub(item.mtime) > policy.MaxAge
 		exceeds := policy.MaxFiles >= 0 && keptFiles >= policy.MaxFiles || policy.MaxBytes >= 0 && keptBytes+item.size > policy.MaxBytes
 		if !item.active && (expired || exceeds) {
 			if removeCandidate(item, dryRun, report) {
 				class.FilesDeleted++
 				class.BytesFreed += item.size
+				if id, ok := sessionStateID(item.name); ok && owners != nil {
+					removedOwners[id] = true
+				}
 				continue
 			}
 		}
@@ -673,7 +713,17 @@ func pruneClassInspected(
 		keptFiles++
 		keptBytes += item.size
 	}
-	return class
+	for id := range removedOwners {
+		for _, item := range dependents[id] {
+			if removeCandidate(item, dryRun, report) {
+				class.FilesKept--
+				class.BytesAfter -= item.size
+				class.FilesDeleted++
+				class.BytesFreed += item.size
+			}
+		}
+	}
+	return class, removedOwners
 }
 
 func removeCandidate(item candidate, dryRun bool, report *Report) bool {

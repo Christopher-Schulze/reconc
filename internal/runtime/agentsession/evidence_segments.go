@@ -184,6 +184,9 @@ type EvidenceTaintStatus struct {
 	Limit         string `json:"limit,omitempty"`
 	SegmentCount  uint64 `json:"segment_count,omitempty"`
 	SegmentDigest string `json:"segment_digest,omitempty"`
+	// SetAsideStates lists unusable session state files that an evidence
+	// recovery moved aside before continuing from an empty window.
+	SetAsideStates []string `json:"set_aside_states,omitempty"`
 }
 
 type evidenceTaintResolution struct {
@@ -933,8 +936,9 @@ func ResolveEvidenceTaint(repoRoot, expectedToken, reason string) (EvidenceTaint
 
 func resolveEvidenceTaintLocked(root, activeID, expectedToken, reason string) (EvidenceTaintStatus, error) {
 	var activeState SessionState
+	var setAside []string
 	if activeID != "" {
-		state, err := readSessionStateResolved(root, activeID)
+		state, err := readRecoverableSessionState(root, activeID, &setAside)
 		if err != nil {
 			return EvidenceTaintStatus{}, err
 		}
@@ -991,17 +995,17 @@ func resolveEvidenceTaintLocked(root, activeID, expectedToken, reason string) (E
 		return EvidenceTaintStatus{}, fmt.Errorf("write evidence taint resolution: %w", err)
 	}
 	if evidenceWindowNeedsReset(*taint) {
-		if err := resetResolvedEvidenceWindow(root, taint.SessionID); err != nil {
+		if err := resetResolvedEvidenceWindow(root, taint.SessionID, &setAside); err != nil {
 			return EvidenceTaintStatus{}, err
 		}
 		if activeID == taint.SessionID {
-			activeState, err = readSessionStateResolved(root, activeID)
+			activeState, err = readRecoverableSessionState(root, activeID, &setAside)
 			if err != nil {
 				return EvidenceTaintStatus{}, err
 			}
 		}
 	} else if taint.SessionID != activeID {
-		if err := clearResolvedOriginOverflow(root, *taint); err != nil {
+		if err := clearResolvedOriginOverflow(root, *taint, &setAside); err != nil {
 			return EvidenceTaintStatus{}, err
 		}
 	}
@@ -1025,6 +1029,7 @@ func resolveEvidenceTaintLocked(root, activeID, expectedToken, reason string) (E
 		Present: true, Persisted: persisted, Token: token, SessionID: taint.SessionID,
 		Field: taint.Field, Limit: taint.Limit,
 		SegmentCount: taint.SegmentCount, SegmentDigest: taint.SegmentDigest,
+		SetAsideStates: setAside,
 	}, nil
 }
 

@@ -182,8 +182,8 @@ func evidenceTaintWasResolved(state SessionState) (bool, error) {
 	return resolution.Taint.Field == state.EvidenceOverflowReason && resolution.Taint.Limit == state.EvidenceOverflowLimit, nil
 }
 
-func clearResolvedOriginOverflow(root string, taint evidenceTaint) error {
-	state, err := readSessionStateResolved(root, taint.SessionID)
+func clearResolvedOriginOverflow(root string, taint evidenceTaint, setAside *[]string) error {
+	state, err := readRecoverableSessionState(root, taint.SessionID, setAside)
 	if err != nil {
 		return err
 	}

@@ -18,6 +18,18 @@ const (
 	maxEvidenceChainBytes         = maxEvidenceSegmentsPerSession * maxEvidenceSegmentBytes
 )
 
+// sessionOwnership describes which evidence directories a surviving session
+// state still references and which state files this pass removed.
+type sessionOwnership struct {
+	owners  map[string]bool
+	known   bool
+	removed map[string]bool
+}
+
+func (ownership sessionOwnership) owns(id string) bool {
+	return !ownership.known || ownership.owners[id]
+}
+
 func pruneEvidenceSegmentDirectories(
 	dir string,
 	policy ClassPolicy,
@@ -25,6 +37,7 @@ func pruneEvidenceSegmentDirectories(
 	dryRun bool,
 	protected map[string]bool,
 	protectAll bool,
+	ownership sessionOwnership,
 	report *Report,
 ) ClassReport {
 	class := ClassReport{Name: "evidence-segments"}
@@ -44,6 +57,24 @@ func pruneEvidenceSegmentDirectories(
 	keptDirectories := 0
 	keptBytes := int64(0)
 	for _, item := range candidates {
+		if ownership.removed[item.name] && !item.active {
+			// Its state file was removed in this pass; the chain goes with it.
+			if removeCandidate(item, dryRun, report) {
+				class.FilesDeleted++
+				class.BytesFreed += item.size
+				continue
+			}
+			class.FilesKept++
+			class.BytesAfter += item.size
+			continue
+		}
+		if ownership.owns(item.name) {
+			// Referenced by a surviving state file: bounded per session and
+			// removed only together with that state.
+			class.FilesKept++
+			class.BytesAfter += item.size
+			continue
+		}
 		expired := policy.MaxAge > 0 && now.Sub(item.mtime) > policy.MaxAge
 		exceeds := policy.MaxFiles >= 0 && keptDirectories >= policy.MaxFiles ||
 			policy.MaxBytes >= 0 && keptBytes+item.size > policy.MaxBytes
