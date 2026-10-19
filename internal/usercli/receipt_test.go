@@ -389,3 +389,49 @@ func runtimeGOOS() string {
 func runtimeGOARCH() string {
 	return runtime.GOARCH
 }
+
+func TestInstallKeepsOwnedBinaryAndReceiptWhenPATHShadowsTheTarget(t *testing.T) {
+	installDirectory := t.TempDir()
+	shadowDirectory := t.TempDir()
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv("RECONC_INSTALL_DIR", installDirectory)
+	t.Setenv("PATH", installDirectory)
+	first, err := InstallCurrentWithReceipt("", InstallOptions{Version: "test"})
+	if err != nil || !first.Status.Ready || first.Receipt == nil {
+		t.Fatalf("owned install = %+v, %v", first, err)
+	}
+	_, receiptPath, err := LoadReceipt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptBefore, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := first.Status.TargetPath
+	// An older owned binary: the running executable differs from the target.
+	stale := []byte("#!/bin/sh\necho older reconc\n")
+	if err := os.WriteFile(target, stale, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shadowDirectory, executableName()), []byte("#!/bin/sh\necho shadow\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shadowDirectory+string(os.PathListSeparator)+installDirectory)
+
+	if _, err := InstallCurrentWithReceipt("", InstallOptions{Version: "test"}); err == nil || !strings.Contains(err.Error(), "refusing to replace the receipt-owned binary") {
+		t.Fatalf("shadowed reinstall error = %v", err)
+	}
+	if body, err := os.ReadFile(target); err != nil || string(body) != string(stale) {
+		t.Fatalf("shadowed reinstall replaced the owned binary: %q, %v", body, err)
+	}
+	if body, err := os.ReadFile(receiptPath); err != nil || string(body) != string(receiptBefore) {
+		t.Fatalf("shadowed reinstall changed the receipt: %v", err)
+	}
+
+	t.Setenv("PATH", installDirectory)
+	repaired, err := InstallCurrentWithReceipt("", InstallOptions{Version: "test"})
+	if err != nil || !repaired.Changed || repaired.Receipt == nil || repaired.Receipt.ArtifactSHA256 != repaired.Status.ExpectedSHA256 {
+		t.Fatalf("reinstall after the PATH fix = %+v, %v", repaired, err)
+	}
+}

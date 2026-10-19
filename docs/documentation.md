@@ -619,7 +619,9 @@ same locked transaction installs the embedded five-file portable skill in
 `~/.agents/skills/reconc` by default and writes a private, checksum-bound ownership receipt at
 `$RECONC_HOME/install/receipt.json`. An off-PATH invocation can publish the
 verified binary, but exits non-zero with exact PATH remediation and does not
-claim ownership. Failures before candidate execution leave the previous valid
+claim ownership. A binary that a receipt already owns is not replaced from such
+an invocation: the install stops before publishing, so the binary and receipt
+stay consistent until PATH resolves the target. Failures before candidate execution leave the previous valid
 binary and receipt untouched. Every non-zero `install-cli` result fails the
 outer installer too; the error distinguishes a retained or restored target from
 matching candidate bytes already published as an exact recoverable partial

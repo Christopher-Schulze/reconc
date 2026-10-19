@@ -25,10 +25,17 @@ func prepareCIEvaluation(repo string, staged bool, base, head string, inputs run
 	if !discovery.Discovered {
 		return result, 1, fmt.Errorf("no policy markers found")
 	}
-	if err := addStagedProofs(discovery.RepoRoot, staged, &result.inputs); err != nil {
-		return result, 1, err
-	}
+	// Staged proofs live in Reconc state, the candidate in Git and session
+	// state; load both at once and merge the proofs in their usual order.
+	var proofs runtime.ExecutionInputs
+	proofsLoaded := make(chan error, 1)
+	go func() { proofsLoaded <- addStagedProofs(discovery.RepoRoot, staged, &proofs) }()
 	result.candidate, err = agentsession.CaptureCompletionState(discovery.RepoRoot)
+	if proofErr := <-proofsLoaded; proofErr != nil {
+		return result, 1, proofErr
+	}
+	result.inputs.Commands = append(result.inputs.Commands, proofs.Commands...)
+	result.inputs.CommandResults = append(result.inputs.CommandResults, proofs.CommandResults...)
 	if err != nil {
 		return result, 1, fmt.Errorf("capture candidate: %w", err)
 	}

@@ -490,7 +490,10 @@ install or the directory is not visible to the current shell. Once PATH
 identity passes, it atomically publishes
 `$RECONC_HOME/install/receipt.json` under the same cross-process lock. Direct
 installers record verified release ownership; an explicit source build records
-source ownership. No receipt is published for an off-PATH binary.
+source ownership. No receipt is published for an off-PATH binary, and a
+receipt-owned binary is never replaced while bare `reconc` resolves elsewhere:
+that reinstall exits non-zero with the PATH remediation and leaves the binary
+and its receipt unchanged, so the receipt never describes bytes that are gone.
 
 ### `reconc update [--channel stable|preview | --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]`
 Runs the complete ownership-aware update transaction under the global

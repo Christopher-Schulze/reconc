@@ -253,6 +253,14 @@ func installCurrent(installDir string, options InstallOptions, publishReceipt bo
 		if loadErr != nil && !errors.Is(loadErr, os.ErrNotExist) && options.SkillMode != SkillSkip && options.SkillMode != "" {
 			return fmt.Errorf("inspect existing skill ownership: %w", loadErr)
 		}
+		if publishReceipt && changed && previous != nil && samePath(previous.BinaryPath, status.TargetPath) &&
+			(!status.PathVisible || !samePath(status.ResolvedPath, status.TargetPath)) {
+			// The receipt is published only for a PATH-callable binary, so
+			// replacing the owned bytes now would leave that receipt describing
+			// bytes that no longer exist.
+			return fmt.Errorf("refusing to replace the receipt-owned binary %s because bare `reconc` does not resolve to it; the binary and its receipt are unchanged. %s",
+				status.TargetPath, pathPrecedenceRemediation(status))
+		}
 		if options.SkillMode == SkillOnly && (changed || !status.Ready || previous == nil ||
 			!samePath(previous.BinaryPath, status.TargetPath) || previous.ArtifactSHA256 != status.ExpectedSHA256) {
 			return errors.New("skill-only installation requires the running binary to match a ready owned installation")
@@ -479,6 +487,16 @@ func nextAction(status *Status, directory string) string {
 		return "Move " + quote(directory) + " before " + quote(filepath.Dir(status.ResolvedPath)) + " on PATH, then open a new terminal."
 	}
 	return "User CLI is current and directly callable as `reconc`."
+}
+
+// pathPrecedenceRemediation names the PATH change that makes bare `reconc`
+// resolve to the install target.
+func pathPrecedenceRemediation(status *Status) string {
+	directory := filepath.Dir(status.TargetPath)
+	if !status.PathVisible {
+		return pathRemediation(directory)
+	}
+	return "Move " + quote(directory) + " before " + quote(filepath.Dir(status.ResolvedPath)) + " on PATH, then open a new terminal."
 }
 
 func defaultInstallDirectory() string {
