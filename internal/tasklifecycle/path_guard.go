@@ -21,14 +21,18 @@ type taskPathIdentity struct {
 	info os.FileInfo
 }
 
+// lstatTaskPathComponent is the guard's only filesystem probe; tests count it.
+var lstatTaskPathComponent = os.Lstat
+
 func newTaskPathGuard(root string, capacity int) *taskPathGuard {
 	return &taskPathGuard{root: root, seen: make(map[string]taskPathIdentity, capacity)}
 }
 
+// reject validates the components of one path and records their identities.
+// It does not re-check every earlier path: callers revalidate once before a
+// read result is accepted, which keeps a board read linear instead of
+// quadratic while every lasting change is still detected.
 func (guard *taskPathGuard) reject(abs string) error {
-	if err := guard.revalidate(); err != nil {
-		return err
-	}
 	rel, err := filepath.Rel(guard.root, abs)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("path escapes the repository")
@@ -40,7 +44,12 @@ func (guard *taskPathGuard) reject(abs string) error {
 			continue
 		}
 		current = filepath.Join(current, component)
-		info, statErr := os.Lstat(current)
+		if previous, ok := guard.seen[current]; ok && index < len(components)-1 && previous.info.IsDir() {
+			// An intermediate directory already observed in this read keeps
+			// its recorded identity until the final revalidation.
+			continue
+		}
+		info, statErr := lstatTaskPathComponent(current)
 		if errors.Is(statErr, os.ErrNotExist) {
 			return nil
 		}
@@ -68,7 +77,7 @@ func (guard *taskPathGuard) reject(abs string) error {
 
 func (guard *taskPathGuard) revalidate() error {
 	for path, expected := range guard.seen {
-		info, err := os.Lstat(path)
+		info, err := lstatTaskPathComponent(path)
 		if err != nil {
 			return fmt.Errorf("TASK path component changed: %s: %w", path, err)
 		}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -98,7 +99,7 @@ func ensureCurrentUserCLI(command string, version string) error {
 	if err != nil {
 		return userCLICommandError(command, "diagnose user CLI: "+err.Error())
 	}
-	if diagnostic.Status == usercli.DiagnosticHealthy {
+	if diagnostic.Status == usercli.DiagnosticHealthy || callableReceiptOwnedCLI(diagnostic) {
 		return nil
 	}
 	report, err := usercli.InstallCurrentWithReceipt("", usercli.InstallOptions{Version: version, SkillMode: usercli.SkillSkip})
@@ -109,6 +110,21 @@ func ensureCurrentUserCLI(command string, version string) error {
 		return nil
 	}
 	return userCLICommandError(command, "the running Reconc build was installed but is not directly callable from PATH; "+report.Status.NextAction)
+}
+
+// callableReceiptOwnedCLI reports an intact receipt-owned global CLI that PATH
+// resolves and that is merely a different build than the running one. Init and
+// bootstrap need a callable CLI, not this build, so they must not silently
+// replace (or downgrade) it and rewrite its receipt; `reconc update` and
+// `reconc install-cli` remain the explicit ways to change it.
+func callableReceiptOwnedCLI(diagnostic *usercli.GlobalDiagnostic) bool {
+	if diagnostic == nil || diagnostic.Status != usercli.DiagnosticStale || !diagnostic.ReceiptValid || !diagnostic.ChecksumIdentity {
+		return false
+	}
+	if diagnostic.BinaryPath == nil || diagnostic.ResolvedPath == nil {
+		return false
+	}
+	return filepath.Clean(*diagnostic.BinaryPath) == filepath.Clean(*diagnostic.ResolvedPath)
 }
 
 func userCLICommandError(command, message string) error {

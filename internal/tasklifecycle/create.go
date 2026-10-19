@@ -13,7 +13,11 @@ import (
 )
 
 const maxTaskTitleRunes = 200
-const maxTaskDirectoryEntries = 4096
+
+// maxTaskDirectoryEntries bounds the ID scan of the detail and done
+// directories. The archive only grows, so the bound sits far above any real
+// TASK history instead of turning a long-lived board read-only.
+const maxTaskDirectoryEntries = 1 << 18
 
 // Create adds one queued TASK row and one grammar-correct detail file through
 // the same recoverable transaction used by every other lifecycle mutation.
@@ -280,7 +284,7 @@ func insertQueuedTaskRow(board *Board, row string) ([]byte, error) {
 		copy(lines[insertAt+2:], lines[insertAt+1:])
 		lines[insertAt+1] = ""
 	}
-	return []byte(strings.Join(lines, "\n")), nil
+	return joinControlLines(lines, board.overviewEOL), nil
 }
 
 func renderQueuedTaskDetail(board *Board, id, name, title string) []byte {

@@ -19,7 +19,16 @@ func resolveExistingOS(path string) (resolved string, err error) {
 	if err != nil {
 		return "", err
 	}
-	file, err := os.Open(evaluated)
+	// Opening a FIFO, socket or device for its descriptor path can block or
+	// have side effects; only directories and regular files are opened.
+	info, err := os.Stat(evaluated)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() && !info.Mode().IsRegular() {
+		return filepath.Clean(evaluated), nil
+	}
+	file, err := os.OpenFile(evaluated, os.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return "", err
 	}

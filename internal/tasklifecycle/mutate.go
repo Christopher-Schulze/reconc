@@ -3,14 +3,27 @@ package tasklifecycle
 import (
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 )
 
 const maxBlockerBytes = 500
 
-var stateFieldRE = regexp.MustCompile(`^State:\s*(Active|Queued|Blocked|Paused|Done)\s*$`)
+// isDetailHeading matches an H2 heading the way the parser does (trimmed), so
+// every board the parser accepts can also be mutated.
+func isDetailHeading(line, name string) bool {
+	return strings.HasPrefix(line, "## ") && strings.TrimSpace(strings.TrimPrefix(line, "## ")) == name
+}
+
+// detailField reports the parser's field name for a Status line; the parser
+// accepts an optional "- " bullet and any State capitalization.
+func detailField(line string) (string, bool) {
+	match := bulletFieldRE.FindStringSubmatch(strings.TrimSpace(line))
+	if match == nil {
+		return "", false
+	}
+	return strings.TrimSpace(match[1]), true
+}
 
 // MutationResult is stable JSON for every state-changing command.
 type MutationResult struct {
@@ -363,10 +376,17 @@ type overviewStateChange struct {
 
 func setOverviewStates(board *Board, changes []overviewStateChange, active *Task) ([]byte, error) {
 	lines := append([]string{}, board.overviewLines...)
+	var body []byte
+	var err error
 	if board.Profile == ProfileSections {
-		return setSectionedOverview(lines, changes, board.Config.DoneVisible)
+		body, err = setSectionedOverview(lines, changes, board.Config.DoneVisible)
+	} else {
+		body, err = setLogbookOverview(lines, changes, active)
 	}
-	return setLogbookOverview(lines, changes, active)
+	if err != nil {
+		return nil, err
+	}
+	return withControlLineEnding(body, board.overviewEOL), nil
 }
 
 func setSectionedOverview(lines []string, changes []overviewStateChange, doneVisible int) ([]byte, error) {
@@ -498,7 +518,7 @@ func trimDoneRows(lines []string, limit int) []string {
 	insideDone := false
 	for _, line := range lines {
 		if strings.HasPrefix(line, "## ") {
-			insideDone = line == "## Done"
+			insideDone = isDetailHeading(line, "Done")
 		}
 		if insideDone {
 			match := sectionsRowRE.FindStringSubmatch(line)
@@ -553,13 +573,13 @@ func overload(task *Task, body []byte) map[*Task][]byte {
 }
 
 func activateDetail(profile Profile, body []byte) ([]byte, error) {
-	lines := strings.Split(string(body), "\n")
+	lines, ending := splitControlLines(body)
 	hasActive := false
 	firstOpen := -1
 	insideSubTasks := false
 	for index, line := range lines {
 		if strings.HasPrefix(line, "## ") {
-			insideSubTasks = line == "## Sub-Tasks"
+			insideSubTasks = isDetailHeading(line, "Sub-Tasks")
 			continue
 		}
 		if !insideSubTasks {
@@ -582,7 +602,7 @@ func activateDetail(profile Profile, body []byte) ([]byte, error) {
 		}
 		lines[firstOpen] = strings.Replace(lines[firstOpen], "- [ ]", "- [~]", 1)
 	}
-	updated := []byte(strings.Join(lines, "\n"))
+	updated := joinControlLines(lines, ending)
 	return setDetailState(profile, updated, StateActive, "")
 }
 
@@ -590,14 +610,18 @@ func setDetailState(profile Profile, body []byte, state State, blocker string) (
 	if profile == ProfileSections {
 		return setBlockerSection(body, blocker), nil
 	}
-	lines := strings.Split(string(body), "\n")
+	lines, ending := splitControlLines(body)
 	stateIndex, blockerIndex, statusEnd := logbookStatusIndexes(lines)
 	if stateIndex < 0 {
 		return nil, fmt.Errorf("logbook TASK detail has no State field under ## Status")
 	}
-	lines[stateIndex] = "State: " + logbookState(state)
+	prefix := ""
+	if strings.HasPrefix(strings.TrimSpace(lines[stateIndex]), "- ") {
+		prefix = "- "
+	}
+	lines[stateIndex] = prefix + "State: " + logbookState(state)
 	lines = updateLogbookBlocker(lines, blocker, blockerIndex, statusEnd)
-	return []byte(strings.Join(lines, "\n")), nil
+	return joinControlLines(lines, ending), nil
 }
 
 func logbookStatusIndexes(lines []string) (int, int, int) {
@@ -611,17 +635,16 @@ func logbookStatusIndexes(lines []string) (int, int, int) {
 				statusEnd = index
 				break
 			}
-			insideStatus = line == "## Status"
+			insideStatus = isDetailHeading(line, "Status")
 			continue
 		}
 		if !insideStatus {
 			continue
 		}
-		trimmed := strings.TrimSpace(line)
-		if stateFieldRE.MatchString(trimmed) {
+		switch field, ok := detailField(line); {
+		case ok && field == "State":
 			stateIndex = index
-		}
-		if strings.HasPrefix(trimmed, "Blocker:") {
+		case ok && field == "Blocker":
 			blockerIndex = index
 		}
 	}
@@ -649,10 +672,10 @@ func updateLogbookBlocker(lines []string, blocker string, blockerIndex, statusEn
 }
 
 func setBlockerSection(body []byte, blocker string) []byte {
-	lines := strings.Split(string(body), "\n")
+	lines, ending := splitControlLines(body)
 	start, end := -1, -1
 	for index, line := range lines {
-		if line == "## Blocker" {
+		if isDetailHeading(line, "Blocker") {
 			start = index
 			continue
 		}
@@ -668,11 +691,11 @@ func setBlockerSection(body []byte, blocker string) []byte {
 		lines = append(lines[:start], lines[end:]...)
 	}
 	if blocker == "" {
-		return []byte(strings.Join(lines, "\n"))
+		return joinControlLines(lines, ending)
 	}
 	insert := len(lines)
 	for index, line := range lines {
-		if line == "## Notes" {
+		if isDetailHeading(line, "Notes") {
 			insert = index
 			break
 		}
@@ -682,7 +705,7 @@ func setBlockerSection(body []byte, blocker string) []byte {
 	result = append(result, lines[:insert]...)
 	result = append(result, block...)
 	result = append(result, lines[insert:]...)
-	return []byte(strings.Join(result, "\n"))
+	return joinControlLines(result, ending)
 }
 
 func selectNext(board *Board, requested string, allowBlocked bool) (*Task, error) {

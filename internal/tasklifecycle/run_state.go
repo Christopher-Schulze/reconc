@@ -49,8 +49,15 @@ func InspectRunState(repoRoot string) (RunState, error) {
 // InspectRunStateResolved reads the compact run snapshot from an already
 // canonical repository root.
 func InspectRunStateResolved(root string) (RunState, error) {
-	if state, ok, err := inspectActiveSectionsRunState(root); ok || err != nil {
-		return state, err
+	for attempt := 1; ; attempt++ {
+		state, ok, err := inspectActiveSectionsRunState(root)
+		if attempt < maxConcurrentReadAttempts && onlyConcurrentReadMutation(err) {
+			continue
+		}
+		if ok || err != nil {
+			return state, err
+		}
+		break
 	}
 	board, err := inspectResolved(root)
 	if err != nil {
@@ -192,6 +199,12 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 			return RunState{}, false, nil
 		}
 	}
+	for _, task := range snapshot.Done {
+		// The full parser reports a missing archived detail; defer to it.
+		if !runSectionsArchiveExists(root, cfg, task) {
+			return RunState{}, false, nil
+		}
+	}
 	if err := pathGuard.revalidate(); err != nil {
 		return RunState{}, true, fmt.Errorf("TASK paths changed before final read: %w", err)
 	}
@@ -226,6 +239,7 @@ type runSectionsSnapshot struct {
 	Active    Task
 	Queue     []Task
 	Blocked   []Task
+	Done      []Task
 	OpenTasks int
 }
 
@@ -235,6 +249,7 @@ func scanActiveSectionsRows(body []byte, cfg Config) (runSectionsSnapshot, bool)
 	identities := make([]runRowIdentity, 0, 16)
 	snapshot := runSectionsSnapshot{}
 	doneTasks := 0
+	var previousDoneID []byte
 	for len(body) > 0 {
 		line := body
 		if newline := bytes.IndexByte(body, '\n'); newline >= 0 {
@@ -242,6 +257,7 @@ func scanActiveSectionsRows(body []byte, cfg Config) (runSectionsSnapshot, bool)
 		} else {
 			body = nil
 		}
+		line = bytes.TrimSuffix(line, []byte("\r"))
 		switch {
 		case bytes.Equal(line, []byte("## Active")):
 			if sectionSeen[runSectionActive] {
@@ -300,7 +316,14 @@ func scanActiveSectionsRows(body []byte, cfg Config) (runSectionsSnapshot, bool)
 		}
 		identities = append(identities, runRowIdentity{id: row.id, path: row.path})
 		if section == runSectionDone {
+			// The full parser rejects Done rows that are not newest-first; the
+			// fast path defers to it instead of disagreeing.
+			if previousDoneID != nil && bytes.Compare(row.id, previousDoneID) >= 0 {
+				return runSectionsSnapshot{}, false
+			}
+			previousDoneID = row.id
 			doneTasks++
+			snapshot.Done = append(snapshot.Done, Task{ID: string(row.id), Path: filepath.ToSlash(string(row.path))})
 			continue
 		}
 		snapshot.OpenTasks++
@@ -359,11 +382,23 @@ func parseRunSectionsRow(row []byte) (parsedRunRow, bool) {
 	}
 	separator += 4
 	title := bytes.TrimSpace(row[4:separator])
-	target := bytes.TrimSpace(row[separator+4:])
-	if len(title) == 0 || !bytes.HasSuffix(target, []byte(".md")) {
+	target := row[separator+4:]
+	// The full parser anchors the target exactly; surrounding whitespace must
+	// send the row there instead of being trimmed into agreement.
+	if len(title) == 0 || len(target) == 0 || !bytes.Equal(target, bytes.TrimSpace(target)) || !bytes.HasSuffix(target, []byte(".md")) {
 		return parsedRunRow{}, false
 	}
 	return parsedRunRow{id: row[:3], title: title, path: target}, true
+}
+
+func runSectionsArchiveExists(root string, cfg Config, task Task) bool {
+	target := filepath.Clean(filepath.FromSlash(task.Path))
+	if filepath.IsAbs(target) {
+		return false
+	}
+	abs := filepath.Join(root, filepath.Dir(filepath.FromSlash(cfg.OverviewPath)), target)
+	info, err := os.Lstat(abs)
+	return err == nil && info.Mode().IsRegular()
 }
 
 func inspectRunSectionsDetail(root string, cfg Config, task Task, pathGuard *runPathGuard, snapshots *[]taskFileSnapshot) (string, int, bool, error) {
@@ -404,6 +439,7 @@ func inspectRunSectionsDetail(root string, cfg Config, task Task, pathGuard *run
 		} else {
 			body = nil
 		}
+		line = bytes.TrimSuffix(line, []byte("\r"))
 		if bytes.HasPrefix(line, []byte("## ")) {
 			heading := bytes.TrimSpace(line[3:])
 			if len(heading) == 0 || containsByteSlice(headings, heading) {

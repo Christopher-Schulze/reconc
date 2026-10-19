@@ -588,7 +588,12 @@ it before checksums and provenance are accepted.
 Stable|Preview | -Version VERSION] [-AllowDowngrade] [-NoSkill]` supports Windows x64.
 Omitting a selector resolves the latest stable GitHub release; an exact version
 uses only its immutable tag. Preview selection never accepts a draft or stable
-release. Exact downgrades fail unless the caller explicitly opts in. A custom
+release. Exact downgrades fail unless the caller explicitly opts in, and
+`reconc update` refuses a downgrade below reconc-v0.10.0, the first release
+that reads the format 2 installation receipt the update leaves behind.
+`reconc init` and `bootstrap apply` keep an intact receipt-owned CLI that PATH
+resolves even when it is a different build than the running one; they install
+the running build only when no callable owned CLI exists. A custom
 release base requires an exact version and cannot be mixed with channel
 discovery. POSIX defaults to `~/.local/bin`; Windows defaults to the
 user-writable `%LOCALAPPDATA%\Programs\Reconc\bin`. Both report the exact PATH
@@ -2241,7 +2246,19 @@ run-state reader and complete inspector bind the overview, every detail they
 read, every component identity, and the absent transaction journal to one
 before/after snapshot. Changed bytes, disappearance, inode replacement, a new
 symlink, or an appearing transaction fails with
-`task/read/concurrent-mutation`.
+`task/read/concurrent-mutation`; a read that failed only that way is retried
+up to three times, so a concurrent editor or agent write does not block a
+Stop. The guard records each component once and revalidates all of them at
+the end of the read, which keeps a board read linear in its TASK count. CRLF
+boards and details parse exactly like LF ones, and mutations keep the file's
+own line ending. The fast run-state reader defers to the full parser whenever
+they could disagree: a row target with surrounding whitespace, Done rows that
+are not newest-first, or a missing archived detail. Mutators recognize the
+same Status fields (an optional `- ` bullet, any State capitalization) and
+trimmed headings that the parser accepts. TASK ID scans read up to 262,144
+detail or archive entries, and the mutation journal holds up to eight
+maximum-size control-file images, so long-lived boards keep their create and
+promote commands.
 The fast sectioned-overview scan records non-wrapping heading presence and
 falls back on the second required heading, so duplicate sections cannot wrap
 into an accepted count even at the 4 MiB overview limit; the complete parser
@@ -4250,8 +4267,8 @@ summarizes the core runtime responsibilities:
 - `internal/atomicfile`: identity-bound atomic write-on-change publication with Unix parent fsync and rooted Windows write-through replacement
 - `internal/filelock`: Unix/Windows cross-process file locking with bounded context acquisition and Unix interrupted-syscall retry
 - `internal/grokacp`: strict Grok ACP client plus Unix-socket and Windows named-pipe leader steering/probing
-- `internal/jsonl`: bounded, locked JSONL append and archive rings
-- `internal/pathidentity`: Unix symlink and Windows reparse-point/8.3 filesystem identity
+- `internal/jsonl`: bounded, locked JSONL append and archive rings; a failed or short append is cut back to the file's prior size under the held lock, so no torn record joins the next one
+- `internal/pathidentity`: Unix symlink and Windows reparse-point/8.3 filesystem identity; on macOS only directories and regular files are opened for their descriptor path, so a FIFO or device never blocks resolution
 - `internal/commandproof`: commit-candidate-bound staged command-success receipts
 - `internal/cievidence`: offline authenticated CI snapshots bound to independently required checks and an exact Git candidate
 - `internal/completiongate`: final policy, candidate, command-proof, and TASK completion contract
@@ -4331,7 +4348,8 @@ failure behavior, timeout budgets, output budgets, installation strategy, and
 activation probes. A route whose failure behavior is blocking exits 2 when its
 stdout decision cannot be written, because hosts that read a deny as exit 0
 plus JSON would otherwise see an allow. `reconc hook status
-[repo] [--json]` validates every registered artifact and reports `absent`,
+[repo] [--json]` validates every registered artifact (a host config holding
+only `null` installs like an empty one) and reports `absent`,
 `installed`, `configured`, `degraded`, `shadowed`, or `unsupported`.
 `configured` means the static configuration is complete and host-discoverable;
 it is not proof that a host process executed it. JSON `surface_events` reports
@@ -5133,7 +5151,12 @@ installation verifies its receipt-owned path and checksum identity.
 For development and self-hosting, the wrapper checks `.build/bin/reconc` and
 root `reconc` before invoking any platform probe. A repository installation
 that owns both the wrapper and an exact current-host stable binary also owns
-`tools/reconc/bin/hook-target`. The wrapper reads that one-line receipt with a
+`tools/reconc/bin/hook-target`, except in a checkout that also holds another
+platform's stable binary (for example a host plus a container bind mount):
+there no pin is published and a managed one is withdrawn, because the pin
+would point the other platform at a binary it cannot execute. `hook status`
+reports `degraded` when the managed wrapper differs from the current
+generator. The wrapper reads that one-line receipt with a
 shell builtin, accepts only the five supported stable repository paths, and
 executes the regular, non-symlink, executable target without running `uname`,
 scanning a directory, expanding a version glob, or searching `PATH`. A missing,

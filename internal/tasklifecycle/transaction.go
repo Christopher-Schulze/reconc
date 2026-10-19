@@ -23,11 +23,14 @@ import (
 )
 
 const (
-	transactionRel                 = ".reconc/task-transaction.json"
-	taskLockRel                    = ".reconc/locks/task-lifecycle.lock"
-	transactionVersion             = 2
-	legacyTransactionVersion       = 1
-	maxTransactionBytes            = 4 << 20
+	transactionRel           = ".reconc/task-transaction.json"
+	taskLockRel              = ".reconc/locks/task-lifecycle.lock"
+	transactionVersion       = 2
+	legacyTransactionVersion = 1
+	// The journal keeps base64 before-images of every touched control file,
+	// each up to maxTaskControlBytes; eight full images cover the overview and
+	// the details any one mutation touches.
+	maxTransactionBytes            = 8 * maxTaskControlBytes
 	maxTransactionDirectoryEntries = 1024
 	transactionPhasePrepared       = "prepared"
 	transactionPhaseCommitted      = "committed"

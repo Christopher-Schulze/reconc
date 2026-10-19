@@ -108,7 +108,7 @@ func InspectPlatforms(repoRoot string) ([]PlatformStatus, error) {
 		if platform.Kind == KindDSH {
 			inspectDSHPatch(root, &report)
 		}
-		finalizePlatformStatus(platform, wrapper, &report)
+		finalizePlatformStatus(root, platform, wrapper, &report)
 		reports = append(reports, report)
 	}
 	return reports, nil
@@ -133,13 +133,16 @@ func InspectPlatform(repoRoot, kind string) (PlatformStatus, error) {
 	if platform.Kind == KindDSH {
 		inspectDSHPatch(root, &report)
 	}
-	finalizePlatformStatus(platform, inspectStatusWrapper(root), &report)
+	finalizePlatformStatus(root, platform, inspectStatusWrapper(root), &report)
 	return report, nil
 }
 
 type statusWrapperInspection struct {
 	executable bool
 	safe       bool
+	// current reports byte identity with the generator; an outdated managed
+	// wrapper may miss resolution or fail-closed behavior of this release.
+	current bool
 }
 
 func inspectStatusWrapper(root string) statusWrapperInspection {
@@ -148,20 +151,26 @@ func inspectStatusWrapper(root string) statusWrapperInspection {
 		return statusWrapperInspection{}
 	}
 	if !snapshot.exists {
-		return statusWrapperInspection{safe: true}
+		return statusWrapperInspection{safe: true, current: true}
 	}
 	return statusWrapperInspection{
 		executable: execfile.ModeIsExecutable(snapshot.info.Mode()),
 		safe:       wrapperManagedArtifact(snapshot.body),
+		current:    string(snapshot.body) == GenerateWrapper().Content,
 	}
 }
 
-func finalizePlatformStatus(platform Platform, wrapper statusWrapperInspection, report *PlatformStatus) {
+func finalizePlatformStatus(root string, platform Platform, wrapper statusWrapperInspection, report *PlatformStatus) {
 	wrapperExecutable := true
 	if platform.Activation.RequiresWrapper {
 		wrapperExecutable = wrapper.executable
 	}
 	report.Executable = report.Installed && report.targetExecutable && wrapperExecutable
+	if platform.Activation.RequiresWrapper && report.State == StateConfigured && wrapper.safe && !wrapper.current {
+		report.State = StateDegraded
+		report.Detail = "configuration is complete but tools/reconc/bin/hook differs from the current generator; reinstall the hook"
+		report.remediation = hookInstallRemediation(platform.Kind, root, true)
+	}
 	report.Configured = report.State == StateConfigured
 	if report.Configured && report.TargetPath == platform.TargetPath && report.remediation.Disposition == remediationInstall {
 		report.remediation = noRemediation()

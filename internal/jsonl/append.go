@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 )
 
@@ -404,6 +405,7 @@ func appendRecordWithLayout(path string, record []byte, layout Layout, maximum i
 
 type appendOpenHooks struct {
 	afterInspect func(missing bool) error
+	write        func(io.Writer, []byte) error
 }
 
 func appendRecordWithLayoutHooks(path string, record []byte, layout Layout, maximum int64, hooks appendOpenHooks) (resultErr error) {
@@ -455,8 +457,22 @@ func appendRecordWithLayoutHooks(path string, record []byte, layout Layout, maxi
 	if err := parent.validateLockLease(); err != nil {
 		return errors.Join(err, file.Close())
 	}
-	writeErr := writeFull(file, record)
+	write := writeFull
+	if hooks.write != nil {
+		write = hooks.write
+	}
+	writeErr := write(file, record)
 	syncErr := file.Sync()
+	if writeErr != nil || syncErr != nil {
+		// A short or failed write would glue the next record onto a torn
+		// fragment that readers then reject. The append lock is still held,
+		// so the file is cut back to its size before this record.
+		if truncateErr := file.Truncate(opened.Size()); truncateErr != nil {
+			writeErr = errors.Join(writeErr, fmt.Errorf("roll back torn JSONL append: %w", truncateErr))
+		} else {
+			syncErr = errors.Join(syncErr, file.Sync())
+		}
+	}
 	closeErr := file.Close()
 	var parentSyncErr error
 	if created {

@@ -36,9 +36,41 @@ func Inspect(repoRoot string) (*Board, error) {
 	return inspectResolved(root)
 }
 
+// maxConcurrentReadAttempts bounds re-reads after a TASK file changed during
+// a read: an agent or editor writing docs/tasks/ concurrently is normal and
+// must not turn a Stop into a hard block.
+const maxConcurrentReadAttempts = 3
+
 // inspectResolved reads TASK state from a canonical repository root. Runtime
 // hotpaths use it after resolving the root once at their process boundary.
 func inspectResolved(root string) (*Board, error) {
+	var board *Board
+	var err error
+	for attempt := 0; attempt < maxConcurrentReadAttempts; attempt++ {
+		board, err = inspectResolvedOnce(root)
+		if !onlyConcurrentReadMutation(err) {
+			return board, err
+		}
+	}
+	return board, err
+}
+
+// onlyConcurrentReadMutation reports a read that failed solely because TASK
+// files changed while it ran, which a fresh read resolves.
+func onlyConcurrentReadMutation(err error) bool {
+	var validation *ValidationError
+	if !errors.As(err, &validation) || len(validation.Issues) == 0 {
+		return false
+	}
+	for _, item := range validation.Issues {
+		if item.ID != "task/read/concurrent-mutation" {
+			return false
+		}
+	}
+	return true
+}
+
+func inspectResolvedOnce(root string) (*Board, error) {
 	cfg, err := LoadConfig(root)
 	if err != nil {
 		return nil, err
@@ -121,7 +153,7 @@ func captureTaskFileSnapshot(path string, content bool) (taskFileSnapshot, error
 }
 
 func parseOverviewSnapshot(root string, cfg Config, overview taskFileSnapshot, pathGuard *taskPathGuard) (*Board, error) {
-	profile, err := detectProfile(cfg.Profile, string(overview.body))
+	profile, err := detectProfile(cfg.Profile, normalizeControlText(string(overview.body)))
 	if err != nil {
 		return nil, err
 	}
@@ -129,9 +161,10 @@ func parseOverviewSnapshot(root string, cfg Config, overview taskFileSnapshot, p
 	if err != nil {
 		return nil, fmt.Errorf("resolve done_dir relative to overview: %w", err)
 	}
+	overviewLines, overviewEOL := splitControlLines(overview.body)
 	board := &Board{
 		RepoRoot: root, Config: cfg, Profile: profile,
-		overviewBytes: overview.body, overviewLines: strings.Split(string(overview.body), "\n"),
+		overviewBytes: overview.body, overviewLines: overviewLines, overviewEOL: overviewEOL,
 		sectionLines: map[State]int{}, tasksByID: map[string]*Task{},
 		tasksByName: map[string]*Task{}, tasksByPath: map[string]*Task{}, doneIDs: map[string]bool{},
 		doneTargetDir: filepath.ToSlash(doneTargetDir),
@@ -157,7 +190,12 @@ func parseOverviewSnapshot(root string, cfg Config, overview taskFileSnapshot, p
 	return board, nil
 }
 
+// concurrentReadProbe runs before the final consistency check; tests use it
+// to change TASK files inside the read window.
+var concurrentReadProbe = func() {}
+
 func concurrentReadIssues(root string, cfg Config, snapshots []taskFileSnapshot, pathGuard *taskPathGuard) []Issue {
+	concurrentReadProbe()
 	if err := pathGuard.revalidate(); err != nil {
 		return concurrentMutationIssue(cfg)
 	}
@@ -483,7 +521,7 @@ func (board *Board) loadAndValidateDetails(snapshots *[]taskFileSnapshot, pathGu
 }
 
 func (board *Board) parseDetail(task *Task) []Issue {
-	content := string(task.rawDetail)
+	content := normalizeControlText(string(task.rawDetail))
 	lines := strings.Split(content, "\n")
 	expectedH1 := "# TASK " + task.ID + ": " + task.Title
 	if board.Profile == ProfileLogbook {
@@ -776,7 +814,7 @@ func parseArchivedLogbookRow(line string) (string, string, string, error) {
 }
 
 func firstMatchingLine(content, prefix string) string {
-	for _, line := range strings.Split(content, "\n") {
+	for _, line := range strings.Split(normalizeControlText(content), "\n") {
 		if strings.HasPrefix(line, prefix) {
 			return line
 		}

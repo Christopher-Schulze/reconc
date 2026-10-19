@@ -611,7 +611,7 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 
 	var merged map[string]interface{}
 	backupPath := ""
-	if len(existing) == 0 || strings.TrimSpace(string(existing)) == "{}" {
+	if emptyJSONConfig(existing) {
 		merged = reconcPart
 	} else {
 		if err := json.Unmarshal(existing, &merged); err != nil {
@@ -802,7 +802,7 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 	merged := map[string]interface{}{}
 	var mergeDiff MergeDiff
 	backupPath := ""
-	if len(existing) == 0 || strings.TrimSpace(string(existing)) == "{}" {
+	if emptyJSONConfig(existing) {
 		merged = reconcPart
 	} else {
 		if err := json.Unmarshal(existing, &merged); err != nil {
@@ -879,4 +879,12 @@ func antigravityHookObjectIsReconcManaged(value interface{}) bool {
 		}
 	}
 	return false
+}
+
+// emptyJSONConfig reports a host config with no entries. A literal `null`
+// decodes into a nil map without error, so it is treated like `{}` instead of
+// reaching the merge and writing into that nil map.
+func emptyJSONConfig(existing []byte) bool {
+	trimmed := strings.TrimSpace(string(existing))
+	return trimmed == "" || trimmed == "{}" || trimmed == "null"
 }

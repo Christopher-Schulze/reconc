@@ -43,7 +43,7 @@ func installDevinCLI(repoRoot string, force bool) (*InstallReport, error) {
 	mergedHooks := generatedHooks
 	var mergeDiff MergeDiff
 	backupPath := ""
-	if len(existing) != 0 && strings.TrimSpace(string(existing)) != "{}" {
+	if !emptyJSONConfig(existing) {
 		var existingHooks map[string]interface{}
 		if err := json.Unmarshal(existing, &existingHooks); err != nil {
 			if !force {

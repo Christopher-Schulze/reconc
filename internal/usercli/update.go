@@ -105,6 +105,13 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 		report.NextAction = "Rerun with `--allow-downgrade` to authorize the selected downgrade."
 		return report, nil
 	}
+	if comparison > 0 {
+		if err := downgradeKeepsReceiptReadable(target); err != nil {
+			report.Status = LifecycleRefused
+			report.NextAction = err.Error()
+			return report, nil
+		}
+	}
 	switch skill.State {
 	case SkillMissing:
 		if skill.Action != nil {
@@ -422,6 +429,24 @@ func updateCommand(request UpdateRequest) string {
 		command += " --allow-downgrade"
 	}
 	return command
+}
+
+// minimumReceiptReaderVersion is the first published release that reads
+// receipt format ReceiptFormatVersion (introduced in reconc-v0.10.0). The
+// running binary rewrites the receipt in that format after a downgrade, so an
+// older target would reject its own receipt and lose doctor, update and
+// uninstall.
+const minimumReceiptReaderVersion = "0.10.0"
+
+func downgradeKeepsReceiptReadable(target string) error {
+	comparison, err := compareVersionStrings(target, minimumReceiptReaderVersion)
+	if err != nil {
+		return err
+	}
+	if comparison < 0 {
+		return fmt.Errorf("reconc %s cannot read the format %s installation receipt this update would leave; downgrade at most to %s, or install %s with its own installer after `reconc uninstall`", target, ReceiptFormatVersion, minimumReceiptReaderVersion, target)
+	}
+	return nil
 }
 
 func compareVersionStrings(current string, target string) (int, error) {

@@ -75,12 +75,47 @@ func ensureWrapperTargetWithOperations(root string, force bool, operations wrapp
 	if err != nil {
 		return "", &rerrors.PolicySourceError{Message: "read " + WrapperTargetPath, Cause: err}
 	}
+	if otherPlatformBinaryPresent(root, operations.lstat) {
+		// A checkout shared between platforms (for example a host plus a
+		// container bind mount) would point the other platform at a binary it
+		// cannot execute. The wrapper's own resolver selects per platform, so
+		// no pin is published and a managed one is withdrawn.
+		if snapshot.exists && validWrapperTargetContent(snapshot.body) {
+			if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+				return "", &rerrors.PolicySourceError{Message: "remove shared-checkout " + WrapperTargetPath, Cause: err}
+			}
+		}
+		return "", nil
+	}
 	if snapshot.exists {
 		if string(snapshot.body) != artifact.Content && !validWrapperTargetContent(snapshot.body) && !force {
 			return "", &rerrors.PolicySourceError{Message: WrapperTargetPath + " exists and is not a valid reconc-managed direct target; pass --force to overwrite"}
 		}
 	}
 	return operations.writeArtifact(target, artifact.Content, false, snapshot)
+}
+
+// otherPlatformBinaryPresent reports a stable repository binary for a platform
+// other than the running one.
+func otherPlatformBinaryPresent(root string, lstat func(string) (os.FileInfo, error)) bool {
+	for _, platform := range [][2]string{
+		{"darwin", "amd64"}, {"darwin", "arm64"},
+		{"linux", "amd64"}, {"linux", "arm64"},
+		{"windows", "amd64"},
+	} {
+		if platform[0] == runtime.GOOS && platform[1] == runtime.GOARCH {
+			continue
+		}
+		artifact, err := GenerateWrapperTarget(platform[0], platform[1])
+		if err != nil {
+			continue
+		}
+		info, err := lstat(filepath.Join(root, filepath.FromSlash(strings.TrimSuffix(artifact.Content, "\n"))))
+		if err == nil && info.Mode().IsRegular() {
+			return true
+		}
+	}
+	return false
 }
 
 func validWrapperTargetContent(content []byte) bool {

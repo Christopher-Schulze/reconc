@@ -49,6 +49,7 @@ type Board struct {
 
 	overviewBytes []byte
 	overviewLines []string
+	overviewEOL   string
 	sectionLines  map[State]int
 	tasksByID     map[string]*Task
 	tasksByName   map[string]*Task
