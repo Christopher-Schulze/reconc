@@ -161,7 +161,8 @@ func matchingCommandResultsSinceWithEvidence(evidence *commandEvidenceIndex, cac
 	if evidence == nil {
 		evidence = newCommandEvidenceIndex(ExecutionInputs{CommandResults: results}, repoRoot)
 	}
-	for _, result := range evidence.results {
+	for index := range evidence.results {
+		result := &evidence.results[index]
 		if result.outcome != outcome || result.epoch < minimumEpoch {
 			continue
 		}
@@ -177,8 +178,12 @@ func matchingCommandResultsSinceWithEvidence(evidence *commandEvidenceIndex, cac
 		// status is the last stage's, so `go test ./... | tail` could
 		// record success even when the test failed - tolerating it would
 		// weaken require_command_success.
-		if stripped := stripTrailingRedirects(result.normalized); stripped != result.normalized {
-			if successfulCommandMatchesExpected(stripped, normalizedExpected, match) {
+		if !result.strippedReady {
+			result.stripped = stripTrailingRedirects(result.normalized)
+			result.strippedReady = true
+		}
+		if result.stripped != result.normalized {
+			if successfulCommandMatchesExpected(result.stripped, normalizedExpected, match) {
 				out = append(out, result.raw)
 			}
 		}
@@ -258,6 +263,10 @@ func stripTrailingRedirects(cmd string) string {
 }
 
 func matchingClaims(claims, expected []string) []string {
+	return matchingClaimsWithEvidence(nil, claims, expected)
+}
+
+func matchingClaimsWithEvidence(evidence *commandEvidenceIndex, claims, expected []string) []string {
 	if len(expected) == 0 {
 		return nil
 	}
@@ -268,9 +277,12 @@ func matchingClaims(claims, expected []string) []string {
 		expectedSet[normalizeWhitespace(e)] = struct{}{}
 	}
 	out := []string{}
-	for _, c := range claims {
-		if _, ok := expectedSet[normalizeWhitespace(c)]; ok {
-			out = append(out, c)
+	if evidence == nil {
+		evidence = newCommandEvidenceIndex(ExecutionInputs{Claims: claims}, "")
+	}
+	for _, claim := range evidence.claims {
+		if _, ok := expectedSet[claim.normalized]; ok {
+			out = append(out, claim.raw)
 		}
 	}
 	return out

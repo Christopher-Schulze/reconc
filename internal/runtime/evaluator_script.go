@@ -122,6 +122,14 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []policy.Rule, ruleIn
 			return results, err
 		}
 		evaluation := classifyScriptOutcome(outcome, err, key.timeoutSec)
+		if outcome.TimedOut {
+			ctx.operationalFailure = true
+			for _, item := range items {
+				results.handled[item.index] = true
+				results.violations[item.index] = buildBatchScriptViolation(item, key.scriptPath, defaultMode, []string{evaluation.detail})
+			}
+			continue
+		}
 		if evaluation.disposition != scriptOutcomePass && evaluation.disposition != scriptOutcomeBlock {
 			continue
 		}

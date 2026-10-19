@@ -54,11 +54,14 @@ func normalizeSessionState(state SessionState) SessionState {
 	state.EvidenceOverflow = false
 	state.EvidenceOverflowReason = ""
 	state.EvidenceOverflowLimit = ""
+	if !overflow {
+		state.EvidenceTaintToken = ""
+	}
 
 	reads := sortedUniqueExact(state.ReadPaths)
 	writes := sortedUniqueExact(state.WritePaths)
 	writeEpochs := state.WriteEpochs
-	commands := sortedUnique(boundCommandTexts(state.Commands))
+	commands := sortedUnique(boundCommandTexts(&state, state.Commands))
 	claims := sortedUnique(state.Claims)
 	results := append([]CommandResult(nil), state.CommandResults...)
 	pending := state.PendingToolCalls
@@ -123,8 +126,8 @@ const commandTruncationMarker = " ...[truncated sha256="
 // the session. A long command such as a heredoc script is ordinary agent work,
 // not an attack on the evidence budget, so the stored value is a UTF-8-safe
 // prefix followed by the SHA-256 and byte length of the complete text. Equal
-// commands still deduplicate, prefix policy matching keeps the leading words,
-// and a verifier can bind the record to the exact command.
+// commands still deduplicate. Evaluation must resolve the complete text before
+// matching policy; a prefix alone cannot preserve shell command semantics.
 func boundCommandText(command string) string {
 	if len(command) <= maxCommandBytes {
 		return command
@@ -138,10 +141,10 @@ func boundCommandText(command string) string {
 	return command[:keep] + suffix
 }
 
-func boundCommandTexts(commands []string) []string {
+func boundCommandTexts(state *SessionState, commands []string) []string {
 	bounded := make([]string, len(commands))
 	for index, command := range commands {
-		bounded[index] = boundCommandText(strings.TrimSpace(command))
+		bounded[index] = retainCommandText(state, strings.TrimSpace(command))
 	}
 	return bounded
 }
@@ -153,7 +156,7 @@ func boundCommandTexts(commands []string) []string {
 // canonical state without rebuilding every bounded collection, while
 // arbitrary callbacks still receive the defensive normalization path.
 func sessionStateIsNormalized(state SessionState) bool {
-	if !state.EvidenceOverflow && (state.EvidenceOverflowReason != "" || state.EvidenceOverflowLimit != "") {
+	if !state.EvidenceOverflow && (state.EvidenceOverflowReason != "" || state.EvidenceOverflowLimit != "" || state.EvidenceTaintToken != "") {
 		return false
 	}
 	if !normalizedExactStrings(state.ReadPaths, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes) ||
@@ -382,7 +385,10 @@ func appendBoundedCommandResultPrepared(state *SessionState, result CommandResul
 	if result.Command == "" {
 		return
 	}
-	result.Command = boundCommandText(result.Command)
+	result.Command = retainCommandText(state, result.Command)
+	if result.Command == "" {
+		return
+	}
 	result.Error = truncateBytes(result.Error, maxResultErrorBytes)
 	result.ToolUseID = truncateBytes(result.ToolUseID, maxToolUseIDBytes)
 	key := commandResultIdentity(result)
@@ -443,6 +449,7 @@ func putPendingToolCallTransient(state SessionState, key string, call PendingToo
 	updated.EvidenceOverflow = state.EvidenceOverflow
 	updated.EvidenceOverflowReason = state.EvidenceOverflowReason
 	updated.EvidenceOverflowLimit = state.EvidenceOverflowLimit
+	updated.EvidenceTaintToken = state.EvidenceTaintToken
 	return updated, fmt.Errorf("pending tool correlation rejected: %s", limit)
 }
 
@@ -662,6 +669,11 @@ func putPendingToolCall(state SessionState, key string, call PendingToolCall, cl
 }
 
 func markEvidenceOverflowWithLimit(state *SessionState, field, limit string) {
+	if state.EvidenceTaintToken != "" {
+		state.EvidenceTaintToken = ""
+		state.EvidenceOverflowReason = ""
+		state.EvidenceOverflowLimit = ""
+	}
 	state.EvidenceOverflow = true
 	if state.EvidenceOverflowReason == "" {
 		state.EvidenceOverflowReason = field

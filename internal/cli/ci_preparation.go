@@ -2,9 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"time"
 
-	"reconc.dev/reconc/internal/commandproof"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
@@ -25,17 +23,7 @@ func prepareCIEvaluation(repo string, staged bool, base, head string, inputs run
 	if !discovery.Discovered {
 		return result, 1, fmt.Errorf("no policy markers found")
 	}
-	// Staged proofs live in Reconc state, the candidate in Git and session
-	// state; load both at once and merge the proofs in their usual order.
-	var proofs runtime.ExecutionInputs
-	proofsLoaded := make(chan error, 1)
-	go func() { proofsLoaded <- addStagedProofs(discovery.RepoRoot, staged, &proofs) }()
 	result.candidate, err = agentsession.CaptureCompletionState(discovery.RepoRoot)
-	if proofErr := <-proofsLoaded; proofErr != nil {
-		return result, 1, proofErr
-	}
-	result.inputs.Commands = append(result.inputs.Commands, proofs.Commands...)
-	result.inputs.CommandResults = append(result.inputs.CommandResults, proofs.CommandResults...)
 	if err != nil {
 		return result, 1, fmt.Errorf("capture candidate: %w", err)
 	}
@@ -45,31 +33,12 @@ func prepareCIEvaluation(repo string, staged bool, base, head string, inputs run
 	if staged && (!result.candidate.GitAvailable || !result.candidate.GitStatusOK || !result.candidate.WorktreeMatchesIndex) {
 		return result, 2, fmt.Errorf("staged candidate requires readable Git status and a worktree matching the index; prepare a staged-only worktree with no unstaged or untracked changes, then rerun reconc ci --staged")
 	}
-	active, err := agentsession.ActiveEvidence(discovery.RepoRoot)
-	if err != nil {
-		return result, 1, fmt.Errorf("active evidence: %w", err)
-	}
-	mergeCIActiveEvidence(staged, active, &result.inputs)
-	result.git, err = addCIGitEvidence(discovery.RepoRoot, staged, base, head, active, &result.inputs)
+	// The candidate already contains its session evidence and current staged
+	// proofs. Loading either separately can pair an earlier proof with a newer
+	// index while both completion barriers observe only the newer candidate.
+	mergeCIActiveEvidence(staged, result.candidate.Inputs, &result.inputs)
+	result.git, err = addCIGitEvidence(result.candidate, staged, base, head, &result.inputs)
 	return result, 1, err
-}
-
-func addStagedProofs(repoRoot string, staged bool, inputs *runtime.ExecutionInputs) error {
-	if !staged {
-		return nil
-	}
-	proofs, err := commandproof.LoadCurrentSuccesses(repoRoot, time.Now())
-	if err != nil {
-		return fmt.Errorf("load staged command proofs: %w", err)
-	}
-	for _, proof := range proofs {
-		inputs.Commands = append(inputs.Commands, proof.Command)
-		inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
-			Command: proof.Command, Outcome: runtime.CommandOutcomeSuccess,
-			EvidenceEpoch: runtime.ExplicitEvidenceEpoch,
-		})
-	}
-	return nil
 }
 
 func evidenceOverflowError(candidate agentsession.CompletionStateSnapshot) error {
@@ -80,32 +49,32 @@ func evidenceOverflowError(candidate agentsession.CompletionStateSnapshot) error
 	return fmt.Errorf("persisted evidence is uncertified at %s", detail)
 }
 
-func mergeCIActiveEvidence(staged bool, active agentsession.ActiveEvidenceSnapshot, inputs *runtime.ExecutionInputs) {
+func mergeCIActiveEvidence(staged bool, active runtime.ExecutionInputs, inputs *runtime.ExecutionInputs) {
 	inputs.ReadPaths = append(inputs.ReadPaths, active.ReadPaths...)
 	inputs.Commands = append(inputs.Commands, active.Commands...)
-	if !staged {
-		for _, result := range active.CommandResults {
-			inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
-				Command: result.Command, Outcome: result.Outcome, EvidenceEpoch: result.EvidenceEpoch,
-			})
+	for _, result := range active.CommandResults {
+		// Only successes admitted by the candidate's index-bound proof loader
+		// use ExplicitEvidenceEpoch. Ordinary tool history cannot certify the index.
+		if !staged || result.EvidenceEpoch == runtime.ExplicitEvidenceEpoch && result.Outcome == runtime.CommandOutcomeSuccess {
+			inputs.CommandResults = append(inputs.CommandResults, result)
 		}
 	}
 	inputs.Claims = append(inputs.Claims, active.Claims...)
 }
 
-func addCIGitEvidence(repoRoot string, staged bool, base, head string, active agentsession.ActiveEvidenceSnapshot, inputs *runtime.ExecutionInputs) (runtime.GitDiffMetadata, error) {
-	paths, metadata, err := runtime.CollectGitWritePaths(repoRoot, staged, base, head)
+func addCIGitEvidence(candidate agentsession.CompletionStateSnapshot, staged bool, base, head string, inputs *runtime.ExecutionInputs) (runtime.GitDiffMetadata, error) {
+	paths, metadata, err := runtime.CollectGitWritePaths(candidate.RepoRoot, staged, base, head)
 	if err != nil {
 		return runtime.GitDiffMetadata{}, err
 	}
 	inputs.WritePaths = append(inputs.WritePaths, paths...)
 	if inputs.WriteEpochs == nil {
-		inputs.WriteEpochs = runtime.RelativizeEpochKeys(repoRoot, active.WriteEpochs)
+		inputs.WriteEpochs = runtime.RelativizeEpochKeys(candidate.RepoRoot, candidate.Inputs.WriteEpochs)
 	}
 	if inputs.WriteEpochs == nil {
 		inputs.WriteEpochs = map[string]uint64{}
 	}
-	epoch := active.EvidenceEpoch
+	epoch := candidate.EvidenceEpoch
 	if epoch < runtime.ExplicitEvidenceEpoch-1 {
 		epoch++
 	}

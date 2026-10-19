@@ -163,7 +163,7 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 		return RunState{}, false, fmt.Errorf("read %s: %w", cfg.OverviewPath, err)
 	}
 	if err := pathGuard.revalidate(); err != nil {
-		return RunState{}, true, fmt.Errorf("TASK paths changed while reading %s: %w", cfg.OverviewPath, err)
+		return RunState{}, true, &ValidationError{Issues: concurrentMutationIssue(cfg)}
 	}
 	body := overview.body
 	if cfg.Profile == ProfileAuto && (!bytes.Contains(body, []byte("\n## Active\n")) || bytes.Contains(body, []byte("\nCurrent:"))) {
@@ -206,7 +206,7 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 		}
 	}
 	if err := pathGuard.revalidate(); err != nil {
-		return RunState{}, true, fmt.Errorf("TASK paths changed before final read: %w", err)
+		return RunState{}, true, &ValidationError{Issues: concurrentMutationIssue(cfg)}
 	}
 	if issues := concurrentReadIssues(root, cfg, snapshots, pathGuard); len(issues) > 0 {
 		return RunState{}, true, &ValidationError{Issues: issues}
@@ -421,7 +421,7 @@ func inspectRunSectionsDetail(root string, cfg Config, task Task, pathGuard *run
 	*snapshots = append(*snapshots, snapshot)
 	body := snapshot.body
 	if err := pathGuard.revalidate(); err != nil {
-		return "", 0, true, fmt.Errorf("TASK detail changed while reading %s: %w", task.Path, err)
+		return "", 0, true, &ValidationError{Issues: concurrentMutationIssue(cfg)}
 	}
 	expectedH1 := "# TASK " + task.ID + ": " + task.Title
 	if first, _, _ := bytes.Cut(body, []byte{'\n'}); strings.TrimSpace(string(first)) != expectedH1 {

@@ -28,10 +28,22 @@ fi
 
 run_module() {
   local module_root="$1"
-  local package target
+  local package target packages targets
   local count=0
 
+  packages="$(cd "$module_root" && GOCACHE="$fuzz_cache" "$go_cmd" list ./... | LC_ALL=C sort)"
+  if [[ -z "$packages" ]]; then
+    printf 'fuzz discovery found no packages in %s\n' "$module_root" >&2
+    return 1
+  fi
   while IFS= read -r package; do
+    targets="$(
+      cd "$module_root" &&
+      GOCACHE="$fuzz_cache" "$go_cmd" test -run '^$' -list '^Fuzz' "$package" |
+        awk '/^Fuzz[A-Za-z0-9_]+$/ { print }' |
+        LC_ALL=C sort
+    )"
+    [[ -n "$targets" ]] || continue
     while IFS= read -r target; do
       printf 'fuzz %s %s (%s)\n' "$package" "$target" "$fuzz_time"
       (
@@ -41,13 +53,8 @@ run_module() {
           -fuzzminimizetime "$fuzz_minimize" "$package"
       )
       count=$((count + 1))
-    done < <(
-      cd "$module_root"
-      GOCACHE="$fuzz_cache" "$go_cmd" test -run '^$' -list '^Fuzz' "$package" |
-        awk '/^Fuzz[A-Za-z0-9_]+$/ { print }' |
-        LC_ALL=C sort
-    )
-  done < <(cd "$module_root" && GOCACHE="$fuzz_cache" "$go_cmd" list ./... | LC_ALL=C sort)
+    done <<< "$targets"
+  done <<< "$packages"
   printf 'fuzz module %s: %d targets passed\n' "$module_root" "$count"
 }
 

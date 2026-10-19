@@ -392,7 +392,7 @@ func collectTaskChecks(report *Report, state agentsession.CompletionStateSnapsho
 	}
 	if board.Active != nil {
 		report.TaskID = board.Active.ID
-		_, issues, checkErr := tasklifecycle.CheckCompletion(state.RepoRoot, board.Active.ID)
+		_, issues, checkErr := tasklifecycle.CompletionIssuesFor(board, board.Active.ID)
 		if checkErr != nil {
 			add("task/completion", StatusFail, checkErr.Error(), "Run `reconc task validate .`, repair the current TASK, then rerun `reconc done .`.")
 		} else if len(issues) == 0 {

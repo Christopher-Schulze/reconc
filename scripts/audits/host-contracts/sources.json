@@ -40,7 +40,7 @@
           "url": "https://code.claude.com/docs/en/hooks.md",
           "baseline_url": "https://code.claude.com/docs/en/hooks.md",
           "normalization": "markdown",
-          "sha256": "8f9f1cbd4a38d9eb9abac5dcac4a63bf3c4fe65e39b1c1e09d0779d317866d3c",
+          "sha256": "e96b7a8fb2e0e6d60a38995e84f0d0cdd98711b428cc2d298f02f8f27c71ea0c",
           "required_markers": [
             "PreToolUse",
             "SessionStart",

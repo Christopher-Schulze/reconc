@@ -26,7 +26,7 @@ func FuzzParseActionPolicy(f *testing.F) {
 			Kind: policy.SourceCompilerConfig, Path: ".reconc.yml", Content: body,
 		}}}
 		gotPolicy, gotErr := parseRuleDocumentsWithDecoder(bundle, decodeRuleSourceDocumentBounded)
-		wantPolicy, wantErr := parseRuleDocumentsWithDecoder(bundle, legacyTwoPassSourceDocumentDecoder)
+		wantPolicy, wantErr := parseRuleDocumentsWithDecoder(bundle, independentTwoPassSourceDocumentDecoder)
 		assertParserParity(t, gotPolicy, gotErr, wantPolicy, wantErr)
 	})
 }

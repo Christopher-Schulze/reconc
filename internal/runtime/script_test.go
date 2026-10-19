@@ -286,13 +286,13 @@ func TestEvalRequireScriptTimeoutBlocksWithConfiguredDurationAndPath(t *testing.
 	}
 }
 
-func TestWorkflowAuditBatchTimeoutFallsBackToFailClosedPerRuleChecks(t *testing.T) {
+func TestWorkflowAuditMalformedBatchFallsBackToFailClosedPerRuleChecks(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	writeFile(t, repo, "AGENTS.md", "# t\n")
 	writeScript(t, repo, "audits/run-workflow-audit", `#!/bin/sh
 if [ "${1:-}" = "--batch-json" ]; then
-  sleep 5
+  printf 'not valid batch JSON\n'
   exit 0
 fi
 printf 'fallback blocked %s\n' "${1:-}"
@@ -325,7 +325,7 @@ exit 2
 		t.Fatalf("check: %v", err)
 	}
 	if report.Decision != DecisionBlock || len(report.Violations) != 2 {
-		t.Fatalf("batch timeout fallback must preserve both blocks, got decision=%s violations=%#v", report.Decision, report.Violations)
+		t.Fatalf("malformed batch fallback must preserve both blocks, got decision=%s violations=%#v", report.Decision, report.Violations)
 	}
 	for index, ruleID := range []string{"audit-a", "audit-b"} {
 		violation := report.Violations[index]

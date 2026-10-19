@@ -138,7 +138,7 @@ func mergeReconcNestedEventMaps(destEvents, reconcEvents map[string]interface{},
 			if containsExactHookEntry(generatedEntries, entry) {
 				continue
 			}
-			preserved, removed, kept := filterReconcProcesses(entry, canonical, opts.KeepUserEdits)
+			preserved, removed, kept := filterReconcEntry(entry, canonical, generatedEntries, opts.KeepUserEdits)
 			for _, command := range removed {
 				diff.Removed = append(diff.Removed, event+": "+command)
 			}
@@ -297,7 +297,7 @@ func mergeReconcHookMaps(destHooks, reconcHooks map[string]interface{}, opts Mer
 			if containsExactHookEntry(newEntries, e) {
 				continue
 			}
-			preserved, removed, kept := filterReconcProcesses(e, canonical, opts.KeepUserEdits)
+			preserved, removed, kept := filterReconcEntry(e, canonical, newEntries, opts.KeepUserEdits)
 			for _, command := range removed {
 				diff.Removed = append(diff.Removed, event+": "+command)
 			}

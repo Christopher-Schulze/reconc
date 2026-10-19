@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 
+	"reconc.dev/reconc/internal/assurance"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/pathidentity"
@@ -16,21 +17,22 @@ import (
 // evalContext owns the root-bound path state and evaluation-local matcher,
 // command, and evidence caches shared across one policy evaluation.
 type evalContext struct {
-	lifecycle          context.Context
-	repoRoot           string
-	paths              *evaluationPathState
-	rawCommands        []string
-	currentCommands    []string
-	preCommand         bool
-	preWrite           bool
-	matchers           *runtimePathMatchers
-	templateMatchers   *runtimeTemplateMatchers
-	commandCache       *commandInvocationCache
-	commandEvidence    *commandEvidenceIndex
-	evidenceCache      *evidenceSnapshotCache
-	evidenceMemo       *evidenceMatchMemo
-	contextMemo        *matchContextMemo
-	operationalFailure bool
+	lifecycle           context.Context
+	repoRoot            string
+	paths               *evaluationPathState
+	rawCommands         []string
+	currentCommands     []string
+	preCommand          bool
+	preWrite            bool
+	matchers            *runtimePathMatchers
+	templateMatchers    *runtimeTemplateMatchers
+	commandCache        *commandInvocationCache
+	commandEvidence     *commandEvidenceIndex
+	evidenceCache       *evidenceSnapshotCache
+	evidenceMemo        *evidenceMatchMemo
+	contextMemo         *matchContextMemo
+	assuranceEvaluation *assurance.Evaluation
+	operationalFailure  bool
 }
 
 func (ctx *evalContext) lifecycleContext() context.Context {
@@ -74,21 +76,25 @@ type commandInvocationCache struct {
 }
 
 type normalizedCommandEvidence struct {
-	raw        string
-	normalized string
-	outcome    string
-	epoch      uint64
+	raw           string
+	normalized    string
+	stripped      string
+	strippedReady bool
+	outcome       string
+	epoch         uint64
 }
 
 type commandEvidenceIndex struct {
 	commands []normalizedCommandEvidence
 	results  []normalizedCommandEvidence
+	claims   []normalizedCommandEvidence
 }
 
 func newCommandEvidenceIndex(inputs ExecutionInputs, repoRoot string) *commandEvidenceIndex {
 	index := &commandEvidenceIndex{
 		commands: make([]normalizedCommandEvidence, 0, len(inputs.Commands)),
 		results:  make([]normalizedCommandEvidence, 0, len(inputs.CommandResults)),
+		claims:   make([]normalizedCommandEvidence, 0, len(inputs.Claims)),
 	}
 	for _, command := range inputs.Commands {
 		index.commands = append(index.commands, normalizedCommandEvidence{
@@ -96,10 +102,14 @@ func newCommandEvidenceIndex(inputs ExecutionInputs, repoRoot string) *commandEv
 		})
 	}
 	for _, result := range inputs.CommandResults {
+		normalized := normalizeCommandSemantics(result.Command, repoRoot)
 		index.results = append(index.results, normalizedCommandEvidence{
-			raw: result.Command, normalized: normalizeCommandSemantics(result.Command, repoRoot),
+			raw: result.Command, normalized: normalized,
 			outcome: result.Outcome, epoch: result.EvidenceEpoch,
 		})
+	}
+	for _, claim := range inputs.Claims {
+		index.claims = append(index.claims, normalizedCommandEvidence{raw: claim, normalized: normalizeWhitespace(claim)})
 	}
 	return index
 }

@@ -47,6 +47,8 @@ func TestClaudeHooksDisableSwitchFollowsSettingsPrecedence(t *testing.T) {
 		{name: "later drop-in overrides managed file", managed: map[string]string{"managed-settings.json": `{"disableAllHooks":true}`, "managed-settings.d/20-hooks.json": `{"disableAllHooks":false}`}},
 		{name: "hidden and non-json drop-ins are ignored", managed: map[string]string{"managed-settings.d/.10.json": `{"disableAllHooks":true}`, "managed-settings.d/20.txt": `{"disableAllHooks":true}`}},
 		{name: "managed hooks only blocks project hooks", managed: map[string]string{"managed-settings.d/10-lock.json": `{"allowManagedHooksOnly":true}`}, wantPath: "10-lock.json"},
+		{name: "later drop-in releases hooks-only lock", managed: map[string]string{"managed-settings.json": `{"allowManagedHooksOnly":true}`, "managed-settings.d/20-hooks.json": `{"allowManagedHooksOnly":false}`}},
+		{name: "later hooks-only lock wins", managed: map[string]string{"managed-settings.json": `{"allowManagedHooksOnly":false}`, "managed-settings.d/20-hooks.json": `{"allowManagedHooksOnly":true}`}, wantPath: "20-hooks.json"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -133,6 +135,11 @@ func TestOMPExtensionDisableSwitchHonorsLayerReplacement(t *testing.T) {
 	writeHostSetting(t, filepath.Join(repo, ".omp", "config.yml"), "disabledExtensions: [extension-module:reconc]\n")
 	if got, err := ompExtensionDisableSwitch(repo); err != nil || got == nil || !strings.HasSuffix(got.path, "config.yml") {
 		t.Fatalf("project list naming Reconc = %#v, %v", got, err)
+	}
+	writeHostSetting(t, filepath.Join(repo, ".omp", "settings.json"), `{"disabledExtensions":["extension-module:reconc"]}`)
+	writeHostSetting(t, filepath.Join(repo, ".omp", "config.yml"), "disabledExtensions: []\n")
+	if got, err := ompExtensionDisableSwitch(repo); err != nil || got != nil {
+		t.Fatalf("native empty list must override the legacy project and user lists: %#v, %v", got, err)
 	}
 
 	fallbackRepo := t.TempDir()

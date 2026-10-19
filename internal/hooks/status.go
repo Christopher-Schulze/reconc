@@ -55,6 +55,7 @@ type PlatformStatus struct {
 	Live             bool                             `json:"live"`
 	Remediation      string                           `json:"remediation,omitempty"`
 	MCP              *MCPStatus                       `json:"mcp,omitempty"`
+	RuntimeBinary    *WrapperBinaryStatus             `json:"runtime_binary,omitempty"`
 	remediation      remediationPlan
 	targetExecutable bool
 }
@@ -98,7 +99,7 @@ func InspectPlatforms(repoRoot string) ([]PlatformStatus, error) {
 		return nil, err
 	}
 	reports := make([]PlatformStatus, 0, len(platformRegistry))
-	wrapper := inspectStatusWrapper(root)
+	wrapper := inspectStatusWrapperWithBinary(root)
 	for _, platform := range Platforms() {
 		if platform.Kind == KindKimiCode {
 			reports = append(reports, inspectKimiCodePlatform(platform))
@@ -140,6 +141,7 @@ func InspectPlatform(repoRoot, kind string) (PlatformStatus, error) {
 type statusWrapperInspection struct {
 	executable bool
 	safe       bool
+	binary     *WrapperBinaryStatus
 	// current reports byte identity with the generator; an outdated managed
 	// wrapper may miss resolution or fail-closed behavior of this release.
 	current bool
@@ -153,17 +155,19 @@ func inspectStatusWrapper(root string) statusWrapperInspection {
 	if !snapshot.exists {
 		return statusWrapperInspection{safe: true, current: true}
 	}
-	return statusWrapperInspection{
+	inspection := statusWrapperInspection{
 		executable: execfile.ModeIsExecutable(snapshot.info.Mode()),
 		safe:       wrapperManagedArtifact(snapshot.body),
 		current:    string(snapshot.body) == GenerateWrapper().Content,
 	}
+	return inspection
 }
 
 func finalizePlatformStatus(root string, platform Platform, wrapper statusWrapperInspection, report *PlatformStatus) {
 	wrapperExecutable := true
 	if platform.Activation.RequiresWrapper {
 		wrapperExecutable = wrapper.executable
+		report.RuntimeBinary = wrapper.binary
 	}
 	report.Executable = report.Installed && report.targetExecutable && wrapperExecutable
 	if platform.Activation.RequiresWrapper && report.State == StateConfigured && wrapper.safe && !wrapper.current {

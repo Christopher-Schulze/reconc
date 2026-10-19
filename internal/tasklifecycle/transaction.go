@@ -305,7 +305,10 @@ func removeTransactionPathWithLease(path string, lease *taskMutationLockLease) e
 	if err := validateTaskMutationLease(lease); err != nil {
 		return err
 	}
-	return os.Remove(path)
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	return syncTransactionParent(path)
 }
 
 func openTaskMutationLockFile(directory *os.Root, name string, before os.FileInfo, createMode os.FileMode) (*os.File, error) {
@@ -381,7 +384,7 @@ func applyTransactionWithLease(repoRoot, action string, files []fileMutation, mo
 		if guardErr := journal.validateLockLease(); guardErr != nil {
 			return fmt.Errorf("publish TASK transaction: %w (rolled back); lock lease changed: %v; run `reconc task recover %s`", err, guardErr, repoRoot)
 		}
-		if removeErr := os.Remove(journalPath); removeErr != nil {
+		if removeErr := removeTransactionPathWithLease(journalPath, lease); removeErr != nil {
 			return fmt.Errorf("publish TASK transaction: %w (rolled back); journal cleanup failed: %v; run `reconc task recover %s`", err, removeErr, repoRoot)
 		}
 		return fmt.Errorf("publish TASK transaction: %w (rolled back)", err)
@@ -416,7 +419,7 @@ func applyTransactionWithLease(repoRoot, action string, files []fileMutation, mo
 	if err := committed.validateLockLease(); err != nil {
 		return err
 	}
-	if err := os.Remove(journalPath); err != nil {
+	if err := removeTransactionPathWithLease(journalPath, lease); err != nil {
 		return fmt.Errorf("TASK transaction committed but journal cleanup failed: %w; run `reconc task recover %s`", err, repoRoot)
 	}
 	return nil
@@ -688,6 +691,9 @@ func prepareTransactionDirectoriesWithLease(repoRoot string, directories []trans
 		if err := validateTransactionDirectoryMarker(repoRoot, directory, false); err != nil {
 			return err
 		}
+		if err := syncTransactionParent(absolute); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -922,6 +928,9 @@ func publishTransactionMoveWithLease(
 		removeErr := removeTransactionPathWithLease(destination, lease)
 		return errors.Join(err, removeErr)
 	}
+	if err := syncTransactionParent(destination); err != nil {
+		return err
+	}
 	if err := removeTransactionPathWithLease(source, lease); err != nil {
 		return fmt.Errorf("remove transaction move source %s: %w", recorded.Source, err)
 	}
@@ -991,7 +1000,7 @@ func writeNewTransactionFileWithLease(path string, body []byte, mode os.FileMode
 		removeErr := removeTransactionPathWithLease(path, lease)
 		return errors.Join(fmt.Errorf("publish transaction file %s: %w", path, err), removeErr)
 	}
-	return nil
+	return syncTransactionParent(path)
 }
 
 func readRegularTransactionFile(path string) ([]byte, os.FileInfo, error) {
@@ -1091,7 +1100,7 @@ func RecoverIfNeeded(repoRoot string) (bool, error) {
 		if err := journal.validateLockLease(); err != nil {
 			return err
 		}
-		if err := os.Remove(journalPath); err != nil {
+		if err := removeTransactionPathWithLease(journalPath, lease); err != nil {
 			return fmt.Errorf("remove recovered TASK journal: %w", err)
 		}
 		recovered = true
@@ -1314,6 +1323,9 @@ func rollbackTransactionMoveWithLease(repoRoot string, move transactionMove, sou
 		if err := validateLinkedMove(source, destination, move, sourceFile); err != nil {
 			removeErr := removeTransactionPathWithLease(source, lease)
 			return errors.Join(err, removeErr)
+		}
+		if err := syncTransactionParent(source); err != nil {
+			return err
 		}
 		if err := removeTransactionPathWithLease(destination, lease); err != nil {
 			return fmt.Errorf("remove rollback move destination %s: %w", move.Destination, err)

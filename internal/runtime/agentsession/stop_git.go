@@ -49,6 +49,9 @@ func gitCommandOutput(repoRoot string, args ...string) (string, error) {
 	if diagnostic := strings.TrimSpace(stderr.String()); diagnostic != "" {
 		return string(out), fmt.Errorf("git %s reported diagnostics: %s", args[0], diagnostic)
 	}
+	if len(args) > 0 && args[0] == "status" {
+		return policyRootGitStatus(repoRoot, string(out))
+	}
 	return string(out), nil
 }
 
@@ -174,7 +177,11 @@ func packedRefFields(line []byte) (objectID, ref []byte, ok bool) {
 }
 
 func resolveGitDir(repoRoot string) (string, error) {
-	dotGit := filepath.Join(repoRoot, ".git")
+	checkout, _, err := enclosingCheckout(repoRoot)
+	if err != nil || checkout == "" {
+		return "", fmt.Errorf("locate Git checkout: %w", errors.Join(err, errors.New("no enclosing .git entry")))
+	}
+	dotGit := filepath.Join(checkout, ".git")
 	info, err := os.Stat(dotGit)
 	if err != nil {
 		return "", fmt.Errorf("stat .git: %w", err)
@@ -192,7 +199,7 @@ func resolveGitDir(repoRoot string) (string, error) {
 	}
 	gitDir := strings.TrimSpace(strings.TrimPrefix(value, "gitdir:"))
 	if !filepath.IsAbs(gitDir) {
-		gitDir = filepath.Join(repoRoot, gitDir)
+		gitDir = filepath.Join(checkout, gitDir)
 	}
 	return filepath.Clean(gitDir), nil
 }
@@ -269,7 +276,7 @@ func dirtyPathsFromStatus(status string) []string {
 	paths := make([]string, 0, len(records))
 	add := func(path string) {
 		path = filepath.ToSlash(path)
-		if path == "" || stopPolicyRuntimeStateRecord(path) {
+		if path == "" || path == ".." || strings.HasPrefix(path, "../") || stopPolicyRuntimeStateRecord(path) {
 			return
 		}
 		if _, ok := seen[path]; ok {

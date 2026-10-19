@@ -198,6 +198,9 @@ func runLockedContext(ctx context.Context, options Options, forceOwnedTemp bool)
 	if taintProtection.all {
 		stateOptions.Policy.TaintResolutions = ClassPolicy{MaxFiles: -1, MaxBytes: -1}
 	}
+	if taintProtection.evidenceAll {
+		stateOptions.Policy.Sessions = ClassPolicy{MaxFiles: -1, MaxBytes: -1}
+	}
 
 	sessions := filepath.Join(project, "sessions")
 	reports := filepath.Join(project, "reports")
@@ -212,9 +215,10 @@ func runLockedContext(ctx context.Context, options Options, forceOwnedTemp bool)
 		evidenceProtected[activeID] = true
 	}
 	report.Classes = append(report.Classes,
-		pruneClass("sessions", sessions, stateOptions.Policy.Sessions, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
+		pruneClass("sessions", sessions, stateOptions.Policy.Sessions, options.Now, options.DryRun, protectedSessionNames(evidenceProtected), nil, &report),
 		pruneClass("reports", reports, stateOptions.Policy.Reports, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
 		pruneClass("locks", locks, stateOptions.Policy.Locks, options.Now, options.DryRun, map[string]bool{
+			EvidenceTaintLockName:          true,
 			activeID + ".lock":             active != "",
 			activeID + ".stop-policy.lock": active != "",
 		}, nil, &report),
@@ -382,11 +386,15 @@ func pruneProjectRoots(options Options, report *Report, preserveRecent bool) Cla
 		if decisionErr != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("inspect policy decision for project state root %s: %v", path, decisionErr))
 		}
+		taintPresent, taintErr := evidenceTaintBoundaryPresent(path)
+		if taintErr != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("inspect evidence taint for project state root %s: %v", path, taintErr))
+		}
 		actionStatePresent, actionStateErr := durableActionStateBoundaryPresent(path)
 		if actionStateErr != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("inspect action state for project state root %s: %v", path, actionStateErr))
 		}
-		live := path == current || activeSession != "" || activeErr != nil || decisionPresent || decisionErr != nil ||
+		live := path == current || activeSession != "" || activeErr != nil || decisionPresent || decisionErr != nil || taintPresent || taintErr != nil ||
 			actionStatePresent || actionStateErr != nil
 		recent := preserveRecent && options.Policy.Locks.MaxAge > 0 && options.Now.Sub(latest) <= options.Policy.Locks.MaxAge
 		item := candidate{
@@ -626,6 +634,11 @@ func pruneClassInspected(
 			path: filepath.Join(dir, entry.Name()), name: entry.Name(), size: info.Size(), mtime: info.ModTime(),
 			active: activeNames != nil && activeNames[entry.Name()], probeLock: name == "locks", info: info,
 		}
+		if name == "sessions" {
+			if id, ok := commandTextSessionID(entry.Name()); ok {
+				protectCommandText(&item, filepath.Dir(dir), map[string]bool{id: activeNames[id+".json"]}, false)
+			}
+		}
 		if inspect != nil {
 			if err := inspect(item.path, entry.Name(), info); err != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("inspect %s entry %s: %v", name, item.path, err))
@@ -812,6 +825,13 @@ func acquireCandidateLease(parent *os.Root, name string, item candidate, dryRun 
 		return lease, live, errors.Join(probeErr, closeErr, lease.close())
 	}
 	live, probeErr = lease.tryLockDirectory(project, "locks")
+	if probeErr == nil && !live {
+		_, taintErr := project.Lstat("evidence-taint.json")
+		live = taintErr == nil
+		if taintErr != nil && !errors.Is(taintErr, os.ErrNotExist) {
+			probeErr = taintErr
+		}
+	}
 	closeErr := project.Close()
 	if probeErr != nil || closeErr != nil {
 		return lease, false, errors.Join(probeErr, closeErr, lease.close())

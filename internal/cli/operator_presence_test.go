@@ -13,8 +13,8 @@ import (
 func TestOperatorAdministrationRequiresAnInteractiveTerminal(t *testing.T) {
 	previous := confirmOperatorPresence
 	t.Cleanup(func() { confirmOperatorPresence = previous })
-	// The real check: `go test` stdin is not a terminal, exactly like an
-	// agent tool call or a script run by one.
+	// Non-terminal invocations are refused. An automated PTY can satisfy the
+	// interactive check, so this test makes no caller-identity claim.
 	confirmOperatorPresence = func(action string, prompt io.Writer) error {
 		return confirmOperatorAtTerminal(action, strings.NewReader("000000\n"), false, prompt, "123456")
 	}
@@ -49,6 +49,9 @@ func TestOperatorConfirmationAcceptsOnlyTheShownCode(t *testing.T) {
 	if !strings.Contains(prompt.String(), "type 482913") {
 		t.Fatalf("prompt does not show the code: %q", prompt.String())
 	}
+	if !strings.Contains(prompt.String(), "does not authenticate a human") {
+		t.Fatalf("confirmation overstates its authority: %q", prompt.String())
+	}
 	for _, answer := range []string{"482914\n", "\n", "yes\n", ""} {
 		err := confirmOperatorAtTerminal("reconc hook pause", strings.NewReader(answer), true, io.Discard, "482913")
 		if err == nil || !strings.Contains(err.Error(), "did not match") {
@@ -58,5 +61,12 @@ func TestOperatorConfirmationAcceptsOnlyTheShownCode(t *testing.T) {
 	code, err := operatorConfirmationCode()
 	if err != nil || len(code) != 6 || strings.Trim(code, "0123456789") != "" {
 		t.Fatalf("confirmation code = %q, %v", code, err)
+	}
+}
+
+func TestOperatorConfirmationRefusesUnwrittenPrompt(t *testing.T) {
+	err := confirmOperatorAtTerminal("reconc hook pause", strings.NewReader("482913\n"), true, failingWriter{}, "482913")
+	if err == nil || !strings.Contains(err.Error(), "write confirmation") {
+		t.Fatalf("unwritten confirmation was accepted: %v", err)
 	}
 }

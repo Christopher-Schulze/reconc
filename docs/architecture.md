@@ -338,6 +338,9 @@ candidate insertion and digest ordering.
    file and moved source to exact bytes and mode, revalidate the full
    precondition set and each operation, and publish moves through an atomic
    no-clobber hard-link transition whose intermediate state is recoverable.
+   The destination directory is flushed before unlinking the source; rollback
+   applies the same barrier in reverse. Created entries, removals and journal
+   cleanup also flush their parent directories where the platform supports it.
    Prepared and
    committed journal phases plus private random markers bind newly created
    parent directories to safe rollback or commit finalization; unproven or
@@ -995,10 +998,13 @@ the complete sealed and live chain. A triggering event is retried only after
 the previous live epoch is durably sealed. Segment-chain
 tampering, an oversized individual item, storage failure, or exhaustion of the
 64-segment session budget creates a project-scoped taint that survives session
-cleanup and is inherited on the next SessionStart. Command text is the
-exception to the item rule: a command above 32 KiB is stored as a UTF-8-safe
-prefix bound to the SHA-256 and byte length of the full text, so long heredocs
-never taint.
+cleanup and is inherited on the next SessionStart. Commands above 32 KiB retain
+their complete text in immutable, digest-addressed objects beside bounded
+UTF-8-safe session references. Policy observations verify and resolve the full
+text, including cached Stop decisions. Individual commands, complete evidence
+and per-session object storage each have a 16 MiB ceiling; missing or corrupt
+objects and legacy references without recoverable tails fail closed. See
+`docs/documentation.md` for the storage and recovery contracts.
 
 Taint is a third terminal state, not a policy pass. PreToolUse blocks every
 repository write and command except the allowlisted read-only Reconc
@@ -1007,11 +1013,18 @@ unavailable. Repository run enabled keeps Stop blocked. Repository run disabled
 records an uncertified termination and releases Stop without clearing taint.
 Explicit user interrupt remains the host escape and also does not clear taint.
 Resolution requires the exact SHA-256 token of the current taint and a bounded
-operator reason, with or without an active session. The resolver writes a
-durable receipt containing the abandoned taint before removing the live marker
-and, under the active session's lock, clears that session's matching overflow.
+operator reason, with or without an active session. The resolver retains the
+first durable resolution receipt, then resets a broken or exhausted evidence
+window and removes only recognized owned objects and segments. Unknown segment
+entries are preserved and block cleanup; partial failure keeps taint in force and the
+same token permits a retry. Ordinary field overflow preserves healthy evidence.
+Origin and active session leases precede the permanent project taint lock;
+concurrent faults cannot be erased by resolving an older token.
 The resolver is operator-only: the pre-tool gate refuses it from agent tool
 calls, together with `hook pause`, `hook resume`, and `operator:*` claims.
+The terminal confirmation is a local interaction requirement, not human
+authentication. A process with the same user rights can automate a PTY or
+modify local state; independent approval is outside this contract.
 
 An operator pause is the bounded incident valve (one minute to 24 hours).
 Pre-tool, permission, MCP, Stop, subagent-Stop, and CI gates pass with a notice
@@ -1349,11 +1362,12 @@ Replacement tests accept only two safe outcomes: the opened identity detects
 the replacement, or the operating system refuses the
 replacement while that identity is open.
 
-The audit layout is a private specialization of the bounded JSONL contract:
-`.reconc` is `0700`; live and archive evidence, the detached head, lock,
+The audit layout uses the shared repository-control root: new `.reconc`
+directories use `0755`, while existing modes and ACLs remain unchanged.
+Live and archive evidence, the detached head, lock,
 append journal, and temporary backups are `0600`; and every member is checked
 through the private filesystem security boundary before read or mutation.
-Legacy `0755`/`0644` audit state is migrated in place only after identity and
+Legacy exposed audit files are secured in place only after identity and
 regular-file checks; a symlink, special file, wrong owner, or invalid hard-link
 state is rejected without deleting evidence. JSONL hash-chain, archive count,
 size bounds, and public CLI output remain unchanged. Retention inspects the
@@ -1405,8 +1419,15 @@ default;
 the hook-runtime state boundary uses a thirty-second contention budget because
 its concurrent writers perform bounded JSON/state work under the lock.
 
-The lock order is one-way: Stop-policy report lock -> session lock; repository
-run state descriptor -> run-decision JSONL lock. Receipt, audit, retention,
+The lock order is one-way: Stop-policy report lock -> session lock;
+lexicographically sorted origin/active session locks -> project evidence-taint
+lock; repository run state descriptor -> run-decision JSONL lock. Taint
+publication never acquires a session lock while holding the project lock.
+The project taint lease is established under the global root-retention lock;
+its non-blocking acquisition releases that global lock before contention waits
+or recovery publication. Global cleanup preserves unresolved taint roots and
+rechecks marker presence under the discovered project leases.
+Receipt, audit, retention,
 TASK lifecycle, command-proof, compiler, and bootstrap locks are independent
 transaction boundaries and are never acquired while holding one of those
 other class locks. Command-proof retention runs only after its capture lock is
@@ -1419,10 +1440,12 @@ failure can never replace the original durability failure.
 One-shot hook processes always use the exact Stop fingerprint. A persistent
 session worker additionally owns an isolated, memory-only cache of at most 64
 repository/session generations and a separate 16 MiB aggregate cache of
-verified evidence-segment prefixes. Prefix hits reread each bounded segment
-through an identity-stable regular-file snapshot and compare its exact byte
-hash before reusing decoded immutable evidence; segment count, chain head,
-linkage, and the current state revision remain mandatory. After an exact successful report for a costly
+verified evidence-segment prefixes. Prefix hits revalidate file identities and
+reliable operating-system change generations before reusing decoded immutable
+evidence. Changed or unavailable generations require bounded reads and digest
+chain verification; segment count, chain head, linkage and the current state
+revision remain mandatory. Full-command objects are read and hash-verified
+before policy reuse, including cache hits. After an exact successful report for a costly
 dirty state, a repeated Stop may replace dirty-file content hashing with
 conservative generation samples. The generation binds canonical root identity,
 Git status, HEAD and index entries, platform file identity and change time,
@@ -1527,14 +1550,15 @@ Stop reads TASK state through `tasklifecycle.InspectRunState`. Executable
 response before policy report construction and without a Git process.
 `blocked`, `complete`, and `absent` dispositions continue to the terminal Stop
 gate; `invalid` fails closed. This fast path never bypasses PreToolUse, TASK
-policy, or terminal evidence gates. The TASK lifecycle package shares one
+policy, mutation transactions, pre-commit, or terminal evidence and policy
+gates. The TASK lifecycle package shares one
 identity-aware path guard across configuration, overview, runtime-state, and
 detail reads. It rejects links, reparse/irregular components, and non-directory
 intermediates, stores verified filesystem identities rather than path strings,
 and revalidates the snapshot after each fast-path detail read and before
-accepting the final overview observation.
-mutation transactions, pre-commit, or terminal policy enforcement. The
-no-progress guard compares typed TASK state plus a write/command material-event
+accepting the final overview observation. Transient guard races use the same
+bounded retries as the other TASK observations; persistent instability fails
+closed. The no-progress guard compares typed TASK state plus a write/command material-event
 counter inside the locked state of that exact session; reads, unrelated events,
 and concurrent sessions cannot fake or reset progress. At six events,
 repository mode releases one Stop and resets only that session while leaving
@@ -1634,7 +1658,7 @@ same Git candidate and ignores mutable agent-session command outcomes. It also
 requires readable Git status and an index-matching worktree with no unstaged or
 untracked changes, so live content gates evaluate the staged candidate. Parallel
 snapshot capture is cross-process serialized and transient Git index locks are
-retried for two seconds. Before process start, `reconc exec` captures the active
+retried within a five-second total deadline. Before process start, `reconc exec` captures the active
 session identity, its generation, and causal epoch. It records the outcome at
 that captured epoch with `reconc-exec` provenance. A later write cannot refresh
 the result, and a session switch cannot reassign it. Restarted or removed owners

@@ -109,7 +109,7 @@ func (loaded *stopLoadedEvidence) loadRevision(
 		(raw.EvidenceSegmentCount == 0 || verifiedEvidencePrefixMatches(loaded.prefix, repoRoot, raw.SessionID, defaultEvidenceSegmentLoadHooks())) {
 		complete := raw
 		applyLoadedStopEvidence(&complete, loaded.complete)
-		return complete, nil
+		return resolveObservedCommandTexts(complete, cache)
 	}
 	var prefix verifiedEvidencePrefix
 	complete, err := loadCompleteSessionEvidenceWithCacheCapture(repoRoot, raw, cache, &prefix)
@@ -366,7 +366,7 @@ func loadCompleteSessionEvidenceWithHooksCapture(
 	}
 	if state.EvidenceSegmentCount == 0 {
 		cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
-		return state, nil
+		return resolveObservedCommandTexts(state, cache)
 	}
 	if state.EvidenceSegmentCount > maxEvidenceSegments {
 		return SessionState{}, evidenceLoadFailure(cache, repoRoot, state, &evidenceIntegrityError{
@@ -443,7 +443,7 @@ func loadCompleteSessionEvidenceWithHooksCapture(
 		state.Commands, state.Claims, state.CommandResults); err != nil {
 		return SessionState{}, evidenceCapacityFailure(cache, repoRoot, state, err)
 	}
-	return complete, nil
+	return resolveObservedCommandTexts(complete, cache)
 }
 
 func evidenceLoadFailure(cache *StopDecisionCache, repoRoot string, state SessionState, cause error) error {
@@ -457,9 +457,7 @@ func evidenceLoadFailure(cache *StopDecisionCache, repoRoot string, state Sessio
 
 func evidenceCapacityFailure(cache *StopDecisionCache, repoRoot string, state SessionState, cause error) error {
 	cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
-	state.EvidenceOverflow = true
-	state.EvidenceOverflowReason = "evidence_segments"
-	state.EvidenceOverflowLimit = "aggregate_bytes"
+	markEvidenceOverflowWithLimit(&state, "evidence_segments", "aggregate_bytes")
 	if err := persistEvidenceTaint(repoRoot, state); err != nil {
 		return errors.Join(cause, err)
 	}
@@ -567,9 +565,7 @@ func (cache *StopDecisionCache) removeVerifiedEvidencePrefixLocked(key string) {
 }
 
 func persistEvidenceChainFailure(repoRoot string, state SessionState, cause error) error {
-	state.EvidenceOverflow = true
-	state.EvidenceOverflowReason = "evidence_segments"
-	state.EvidenceOverflowLimit = "chain_integrity"
+	markEvidenceOverflowWithLimit(&state, "evidence_segments", "chain_integrity")
 	if err := persistEvidenceTaint(repoRoot, state); err != nil {
 		return errors.Join(cause, err)
 	}
@@ -799,6 +795,22 @@ func mergedEvidenceBytes(state SessionState) int {
 }
 
 func persistEvidenceTaint(repoRoot string, state SessionState) error {
+	return withEvidenceTaintLock(repoRoot, func() error {
+		return persistEvidenceTaintLocked(repoRoot, state)
+	})
+}
+
+func persistEvidenceTaintLocked(repoRoot string, state SessionState) error {
+	if state.EvidenceTaintToken != "" {
+		current, err := loadEvidenceTaint(repoRoot)
+		if err != nil || current != nil {
+			return err
+		}
+	}
+	resolved, err := evidenceTaintWasResolved(state)
+	if err != nil || resolved {
+		return err
+	}
 	taint := evidenceTaint{
 		FormatVersion: evidenceTaintFormatVersion,
 		RepoRoot:      repoRoot,
@@ -865,6 +877,10 @@ func ReadEvidenceTaintStatus(repoRoot string) (EvidenceTaintStatus, error) {
 			return EvidenceTaintStatus{}, activeErr
 		}
 		if active != "" && state.EvidenceOverflow {
+			resolved, err := evidenceTaintWasResolved(state)
+			if err != nil || resolved {
+				return EvidenceTaintStatus{}, err
+			}
 			taint = &evidenceTaint{
 				FormatVersion: evidenceTaintFormatVersion,
 				RepoRoot:      root,
@@ -912,16 +928,7 @@ func ResolveEvidenceTaint(repoRoot, expectedToken, reason string) (EvidenceTaint
 	if err != nil {
 		return EvidenceTaintStatus{}, err
 	}
-	if active == "" {
-		return resolveEvidenceTaintLocked(root, "", expectedToken, reason)
-	}
-	var status EvidenceTaintStatus
-	err = withSessionLock(root, active, func() error {
-		var resolveErr error
-		status, resolveErr = resolveEvidenceTaintLocked(root, active, expectedToken, reason)
-		return resolveErr
-	})
-	return status, err
+	return resolveEvidenceTaintWithLeases(root, active, expectedToken, reason)
 }
 
 func resolveEvidenceTaintLocked(root, activeID, expectedToken, reason string) (EvidenceTaintStatus, error) {
@@ -959,6 +966,12 @@ func resolveEvidenceTaintLocked(root, activeID, expectedToken, reason string) (E
 	if token != expectedToken {
 		return EvidenceTaintStatus{}, errors.New("evidence taint token changed; inspect status and retry with the exact current token")
 	}
+	if !persisted {
+		if err := persistEvidenceTaintLocked(root, activeState); err != nil {
+			return EvidenceTaintStatus{}, err
+		}
+		persisted = true
+	}
 	resolution := evidenceTaintResolution{
 		FormatVersion: "evidence-taint-resolution-v1",
 		Token:         token,
@@ -974,8 +987,23 @@ func resolveEvidenceTaintLocked(root, activeID, expectedToken, reason string) (E
 	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
 		return EvidenceTaintStatus{}, fmt.Errorf("mkdir evidence taint resolution dir: %w", err)
 	}
-	if _, err := atomicfile.WritePrivateIfChanged(path, body, 0o600); err != nil {
+	if err := publishEvidenceResolution(path, resolution, body); err != nil {
 		return EvidenceTaintStatus{}, fmt.Errorf("write evidence taint resolution: %w", err)
+	}
+	if evidenceWindowNeedsReset(*taint) {
+		if err := resetResolvedEvidenceWindow(root, taint.SessionID); err != nil {
+			return EvidenceTaintStatus{}, err
+		}
+		if activeID == taint.SessionID {
+			activeState, err = readSessionStateResolved(root, activeID)
+			if err != nil {
+				return EvidenceTaintStatus{}, err
+			}
+		}
+	} else if taint.SessionID != activeID {
+		if err := clearResolvedOriginOverflow(root, *taint); err != nil {
+			return EvidenceTaintStatus{}, err
+		}
 	}
 	if activeID != "" && activeState.EvidenceOverflow &&
 		strings.TrimSpace(activeState.EvidenceOverflowReason) == taint.Field &&
@@ -983,12 +1011,13 @@ func resolveEvidenceTaintLocked(root, activeID, expectedToken, reason string) (E
 		activeState.EvidenceOverflow = false
 		activeState.EvidenceOverflowReason = ""
 		activeState.EvidenceOverflowLimit = ""
+		activeState.EvidenceTaintToken = ""
 		if err := saveSessionStateLocked(activeState); err != nil {
 			return EvidenceTaintStatus{}, fmt.Errorf("clear resolved evidence taint from active session: %w", err)
 		}
 	}
 	if persisted {
-		if err := os.Remove(evidenceTaintPath(root)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := removeResolvedEvidenceTaint(root); err != nil {
 			return EvidenceTaintStatus{}, fmt.Errorf("remove resolved evidence taint: %w", err)
 		}
 	}
@@ -1012,4 +1041,12 @@ func applyEvidenceTaint(state *SessionState, taint evidenceTaint) {
 	state.EvidenceOverflow = true
 	state.EvidenceOverflowReason = taint.Field
 	state.EvidenceOverflowLimit = taint.Limit
+	token, err := evidenceTaintToken(taint)
+	if err != nil {
+		state.EvidenceTaintToken = ""
+		state.EvidenceOverflowReason = "evidence_taint"
+		state.EvidenceOverflowLimit = "serialization"
+		return
+	}
+	state.EvidenceTaintToken = token
 }

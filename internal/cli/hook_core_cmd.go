@@ -168,6 +168,9 @@ func runHookEvidenceResolve(args []string, stdout, stderr io.Writer) error {
 	if repo == "" || token == "" || reason == "" {
 		return &CLIError{ExitCode: 1, Message: "reconc hook evidence-resolve: usage: reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]"}
 	}
+	if _, err := fmt.Fprintln(stderr, "This abandons reviewed evidence. Damaged or exhausted windows are cleared, including reads, writes, commands and claims; reproduce all required evidence."); err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook evidence-resolve: write recovery notice: " + err.Error()}
+	}
 	if err := confirmOperatorPresence("reconc hook evidence-resolve", stderr); err != nil {
 		return err
 	}
@@ -180,7 +183,7 @@ func runHookEvidenceResolve(args []string, stdout, stderr io.Writer) error {
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(status)
 	}
-	fmt.Fprintf(stdout, "resolved evidence taint %s (%s/%s); start a fresh session and reproduce required evidence\n", status.Token, status.Field, status.Limit)
+	fmt.Fprintf(stdout, "resolved evidence taint %s (%s/%s); reproduce required evidence before certification\n", status.Token, status.Field, status.Limit)
 	return nil
 }
 
@@ -275,6 +278,9 @@ func runHookStatus(args []string, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "%s: %s (%s; %s)\n", report.Kind, style.decision(string(report.State)), report.Detail, live)
 		fmt.Fprintf(stdout, "  generated=%t installed=%t executable=%t configured=%t live=%t\n",
 			report.Generated, report.Installed, report.Executable, report.Configured, report.Live)
+		if err := writeHookBinaryStatus(stdout, report.RuntimeBinary); err != nil {
+			return fmt.Errorf("write hook runtime binary status: %w", err)
+		}
 		observationEvents := make([]string, 0, len(report.Observations))
 		for event := range report.Observations {
 			observationEvents = append(observationEvents, event)

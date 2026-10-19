@@ -132,11 +132,17 @@ func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode polic
 			reportedSuccessful.add(result.raw)
 		}
 	}
-	findings, err := assurance.Evaluate(ctx.repoRoot, gates, assurance.Inputs{
-		ChangedPaths: inputs.WritePaths, WriteEpochs: inputs.WriteEpochs,
-		SuccessfulCommandEvidence: successfulAssuranceEvidence(evidenceIndex),
-		Now:                       time.Now().UTC(),
-	})
+	if ctx.assuranceEvaluation == nil {
+		ctx.assuranceEvaluation, err = assurance.NewEvaluation(ctx.repoRoot, assurance.Inputs{
+			ChangedPaths: inputs.WritePaths, WriteEpochs: inputs.WriteEpochs,
+			SuccessfulCommandEvidence: successfulAssuranceEvidence(evidenceIndex),
+			Now:                       time.Now().UTC(),
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	findings, err := ctx.assuranceEvaluation.Evaluate(gates)
 	if err != nil {
 		return nil, err
 	}
@@ -773,7 +779,7 @@ func evalRequireClaim(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mo
 		return nil, nil
 	}
 	required := stringListField(rule, "claims")
-	matchedClaims := matchingClaims(inputs.Claims, required)
+	matchedClaims := matchingClaimsWithEvidence(ctx.commandEvidence, inputs.Claims, required)
 	if len(matchedClaims) > 0 {
 		return nil, nil
 	}

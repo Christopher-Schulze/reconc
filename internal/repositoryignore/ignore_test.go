@@ -36,7 +36,7 @@ func TestMergeRejectsMalformedMarkers(t *testing.T) {
 }
 
 func TestBodyIgnoresBootstrapAndRemovalCandidates(t *testing.T) {
-	for _, pattern := range []string{"*.reconc-candidate-*", "*.reconc-remove-candidate-*"} {
+	for _, pattern := range []string{"*.reconc-candidate-*", "*.reconc-remove-candidate-*", "/tools/reconc/bin/hook-target"} {
 		if !strings.Contains(Body(), pattern) {
 			t.Fatalf("managed ignore body is missing %q", pattern)
 		}

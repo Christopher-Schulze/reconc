@@ -11,6 +11,13 @@ func cloneSessionState(state SessionState) SessionState {
 	state.WritePaths = cloneSessionStrings(state.WritePaths)
 	state.WriteEpochs = cloneSessionUint64Map(state.WriteEpochs)
 	state.Commands = cloneSessionStrings(state.Commands)
+	if state.commandTexts != nil {
+		texts := make(map[string]string, len(state.commandTexts))
+		for reference, command := range state.commandTexts {
+			texts[reference] = command
+		}
+		state.commandTexts = texts
+	}
 	state.Claims = cloneSessionStrings(state.Claims)
 	state.CommandResults = cloneSessionCommandResults(state.CommandResults)
 	state.PendingToolCalls = cloneSessionPendingToolCalls(state.PendingToolCalls)
@@ -24,7 +31,9 @@ func cloneSessionStrings(values []string) []string {
 	if values == nil {
 		return nil
 	}
-	return append([]string(nil), values...)
+	out := make([]string, len(values))
+	copy(out, values)
+	return out
 }
 
 func cloneSessionUint64Map(values map[string]uint64) map[string]uint64 {

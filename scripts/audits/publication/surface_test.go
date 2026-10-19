@@ -290,19 +290,26 @@ func TestHostIntegrationDocumentationCoversStructuredContract(t *testing.T) {
 	}
 }
 
-func TestBootstrapUsesDeclaredLatestPublishedReleaseTag(t *testing.T) {
+func TestBootstrapUsesImmutableHistoricalReleaseTag(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	readme := readPublicSurfaceFile(t, root, "README.md")
-	publishedPattern := regexp.MustCompile("latest published release is `(reconc-v[0-9]+\\.[0-9]+\\.[0-9]+)`")
+	status := markdownSection(t, "README.md", readme, "Status")
+	if regexp.MustCompile(`reconc-v[0-9]+\.[0-9]+\.[0-9]+`).MatchString(status) {
+		t.Error("README status assigns a current product version to development documentation")
+	}
+	if !strings.Contains(status, "https://github.com/Christopher-Schulze/reconc/releases") {
+		t.Error("README status omits the published release inventory")
+	}
+	publishedPattern := regexp.MustCompile("historical installation example selects the published `(reconc-v[0-9]+\\.[0-9]+\\.[0-9]+)`")
 	publishedMatch := publishedPattern.FindStringSubmatch(readme)
 	if len(publishedMatch) != 2 {
-		t.Fatal("README.md does not declare one latest published release tag")
+		t.Fatal("README.md does not identify one historical installation tag")
 	}
 	expectedRef := publishedMatch[1]
 	command := exec.Command("git", "rev-parse", "--verify", "refs/tags/"+expectedRef+"^{commit}")
 	command.Dir = root
 	if err := command.Run(); err != nil {
-		t.Fatalf("declared latest published tag %q does not exist: %v", expectedRef, err)
+		t.Fatalf("historical installation tag %q does not exist: %v", expectedRef, err)
 	}
 	for _, installer := range []string{"install.sh", "install.ps1"} {
 		command = exec.Command("git", "show", expectedRef+":"+installer)
@@ -318,7 +325,7 @@ func TestBootstrapUsesDeclaredLatestPublishedReleaseTag(t *testing.T) {
 		}
 		for _, match := range matches {
 			if match[1] != expectedRef {
-				t.Errorf("README.md %s source = %q, want declared latest published tag %q", installer, match[1], expectedRef)
+				t.Errorf("README.md %s source = %q, want historical installation tag %q", installer, match[1], expectedRef)
 			}
 		}
 	}

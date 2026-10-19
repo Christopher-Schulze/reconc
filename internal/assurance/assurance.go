@@ -94,70 +94,12 @@ func evaluateWithWorkerLimit(repoRoot string, gates []policy.AssuranceGate, inpu
 var detectModuleRoots = stackdetect.Detect
 
 func evaluateWithState(repoRoot string, gates []policy.AssuranceGate, inputs Inputs, workerLimit int) ([]Finding, *evaluationState, error) {
-	root, err := canonicalRoot(repoRoot)
+	evaluation, err := newEvaluation(repoRoot, inputs, workerLimit)
 	if err != nil {
 		return nil, newEvaluationState(nil, workerLimit), err
 	}
-	if len(inputs.ChangedPaths) > maxChangedPaths {
-		return nil, newEvaluationState(nil, workerLimit), fmt.Errorf("assurance changed-path budget exceeded: %d > %d", len(inputs.ChangedPaths), maxChangedPaths)
-	}
-	if inputs.Now.IsZero() {
-		inputs.Now = time.Now().UTC()
-	}
-	state := newEvaluationState(inputs.ChangedPaths, workerLimit)
-	state.commandEvidence = commandEvidenceForInputs(inputs)
-	state.writeEpochs = inputs.WriteEpochs
-	// Only applicability-scoped gates consult module roots, so the repository
-	// walk runs at most once and only when such a gate is evaluated.
-	var detection stackdetect.Result
-	detected := false
-	findings := []Finding{}
-	for _, gate := range gates {
-		if len(gate.ApplicableIf) > 0 && !detected {
-			detection, err = detectModuleRoots(root)
-			if err != nil {
-				return nil, state, fmt.Errorf("detect assurance module roots: %w", err)
-			}
-			detected = true
-		}
-		scopes, moduleAware, err := selectModuleScopes(root, detection, gate, inputs.ChangedPaths)
-		if err != nil {
-			return nil, state, fmt.Errorf("assurance gate %s module scope: %w", gate.ID, err)
-		}
-		if moduleAware {
-			for _, scope := range scopes {
-				scopedState := newEvaluationState(scope.changedPaths, workerLimit)
-				scopedState.budget = state.budget
-				scopedState.commandEvidence = append([]CommandEvidence(nil), state.commandEvidence...)
-				scopedState.writeEpochs = inputs.WriteEpochs
-				scopedState.scopePrefix = scope.rootRel
-				scopedInputs := inputs
-				scopedInputs.ChangedPaths = scope.changedPaths
-				scopedGate := gate
-				scopedGate.ApplicableIf = nil
-				gateFindings, err := evaluateGate(scope.rootAbs, scopedGate, scopedInputs, scopedState, &scope)
-				if err != nil {
-					return nil, state, fmt.Errorf("assurance gate %s module %s: %w", gate.ID, scope.rootRel, err)
-				}
-				findings = append(findings, rebaseScopedFindings(gateFindings, scope)...)
-				state.scoped = append(state.scoped, scopedState)
-			}
-			continue
-		}
-		applies, err := state.applies(root, gate.ApplicableIf)
-		if err != nil {
-			return nil, state, fmt.Errorf("assurance gate %s applicability: %w", gate.ID, err)
-		}
-		if !applies {
-			continue
-		}
-		gateFindings, err := evaluateGate(root, gate, inputs, state, nil)
-		if err != nil {
-			return nil, state, fmt.Errorf("assurance gate %s: %w", gate.ID, err)
-		}
-		findings = append(findings, gateFindings...)
-	}
-	return limitFindings(findings), state, nil
+	findings, err := evaluation.Evaluate(gates)
+	return findings, evaluation.state, err
 }
 
 func evaluateGate(root string, gate policy.AssuranceGate, inputs Inputs, state *evaluationState, scope *moduleScope) ([]Finding, error) {

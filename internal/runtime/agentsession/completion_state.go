@@ -175,6 +175,13 @@ func completionExecutionInputs(
 		append([]string{}, state.Commands...), append([]CommandResult{}, state.CommandResults...),
 		append([]string{}, state.Claims...),
 	)
+	// Mutable session history cannot mint the marker reserved for verified
+	// staged receipts. Only the proof loader below may add that authority.
+	for index := range inputs.CommandResults {
+		if inputs.CommandResults[index].EvidenceEpoch == runtime.ExplicitEvidenceEpoch {
+			inputs.CommandResults[index].EvidenceEpoch = 0
+		}
+	}
 	if !gitAvailable || !gitStatusOK {
 		return inputs, nil
 	}

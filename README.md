@@ -275,8 +275,9 @@ state exactly what remains outside the boundary.
 
 ## Install and Bootstrap
 
-The following immutable installation example selects the published v0.10.3
-release. Later changes on `main` remain unreleased; use the source-build path
+The following historical installation example selects the published `reconc-v0.10.3`
+tag. Select a published tag from [Releases](https://github.com/Christopher-Schulze/reconc/releases)
+for an intentional installation. Later changes on `main` remain unreleased; use the source-build path
 below when those development changes are required.
 
 ### Native release installation
@@ -1022,8 +1023,8 @@ Exit codes are stable for humans, agents, and CI:
 
 The repo ships an agent-facing skill at `skills/reconc/SKILL.md`, embeds the
 complete five-file payload in the binary, and exports a deterministic skill ZIP
-and manifest when release artifacts are built from this source. No release of
-these changes has been published.
+and manifest when release artifacts are built from this source. Tagged release
+assets bind the skill payload to their exact source commit.
 
 The skill is optional guidance. An explicit normal install places it in the
 shared local discovery root for Codex, Devin CLI, Cursor CLI, OMP CLI, and DSH.
@@ -1075,6 +1076,7 @@ Do not commit mutable runtime state:
 - `*.reconc-remove-candidate-*`
 - `dist/`
 - `tools/reconc/dist/`
+- `tools/reconc/bin/hook-target`
 
 ## FAQ
 
@@ -1161,21 +1163,26 @@ roadmap.
 ### What happens when evidence is incomplete or corrupted?
 
 Reconc fails closed. Recoverable capacity pressure seals evidence into linked
-segments, and a command longer than 32 KiB is stored as a digest-bound prefix
-instead of tainting the session. Missing or corrupt segments, an event too
-large for an empty segment, or exhausted segment capacity creates durable
-evidence taint. Read-only Reconc diagnostics keep running, but certified claims
+segments. Commands longer than 32 KiB retain their full text in verified
+digest-addressed objects alongside bounded session references. Missing or
+corrupt objects or segments, oversized events and exhausted storage create
+durable evidence taint. Read-only Reconc diagnostics keep running, but certified claims
 and completion remain blocked until the operator resolves the taint from a
 terminal with the token printed by `reconc hook evidence-status .`; this works
-while the agent session stays active, so no context is lost.
+while the host session stays active. Recovery resets broken or exhausted
+evidence windows and preserves the host context; required evidence must be
+reproduced. Unknown segment entries or changed selected artifacts remain and
+block cleanup; an interrupted cleanup can retry the same reviewed token.
 
 ### How do I get out of a blocked session without removing hooks?
 
 Run `reconc hook pause . --for 30m --reason "<why>"` from your own terminal.
 Blocking gates pass with a notice until the pause expires or
 `reconc hook resume .` ends it; evidence is still recorded, and destructive
-Git commands stay refused. Agents cannot pause, resume, resolve taint, or
-record `operator:*` claims through their tool calls.
+Git commands stay refused. Recognized tool invocations of administration
+commands are refused, and the CLI requires a terminal confirmation code.
+That code adds a local interaction step; it does not authenticate a human or
+isolate another process running as the same user.
 
 ### How do I upgrade, troubleshoot, or remove it?
 
@@ -1265,7 +1272,7 @@ through the private route in
 ## Status
 
 Development source has no assigned product release version.
-The latest published release is `reconc-v0.10.3`.
+Published tags and artifacts are listed in [Releases](https://github.com/Christopher-Schulze/reconc/releases).
 Only Christopher's explicit instruction assigns a release tag to a chosen
 commit. Development builds report `dev` with available VCS metadata; managed
 builds include the commit and dirty state. Changed schemas use content-addressed

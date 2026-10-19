@@ -21,6 +21,7 @@ const (
 // compiled policy lockfile remains committable.
 func Body() string {
 	return fmt.Sprintf(`/tools/reconc/dist/
+/tools/reconc/bin/hook-target
 .reconc/*
 !.reconc/
 !%s

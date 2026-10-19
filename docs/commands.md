@@ -895,9 +895,11 @@ part of that value. Non-evidence value flags reject leading-dash values.
 
 ### `reconc ci [repo] (--staged | --base REF [--head REF]) [--read PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--auto-claim] [--json] [--format text|json|sarif|junit] [--output PATH]`
 Git-aware check. Derives write paths from the working-tree index or a
-`base..head` range instead of explicit `--write` flags. The underlying Git
-diff uses `--no-renames --name-only -z`, so a rename contributes both its
+`base...head` merge-base range instead of explicit `--write` flags. The underlying Git
+diff uses `--relative --no-renames --name-only -z`, so a rename contributes both its
 source deletion and destination creation regardless of Git rename settings.
+When the policy root is inside a larger Git checkout, paths are relative to
+that policy root and changes outside it do not enter its write-rule evidence.
 It inherits recorded read paths, commands, and claims from the active agent
 session. In `--staged`
 mode, successful-command rules accept only current `reconc exec --staged`
@@ -1358,7 +1360,11 @@ unescaped; a managed JSON artifact that earlier releases wrote with
 Each platform generator runs once
 per status inspection. The target bytes and mode come from one stable snapshot,
 and the shared wrapper is inspected once for the complete multi-platform report
-rather than reopened per platform. Pi is `configured` only when the
+rather than reopened per platform. Wrapper-dependent rows include
+`runtime_binary` with the selected path, resolver source, embedded version,
+source digest, or inspection error. The selected executable is inspected once,
+never executed. Development targets retain resolver precedence; ambiguous
+distribution targets fail before PATH fallback. Pi is `configured` only when the
 canonical root has a saved `true` trust entry or `defaultProjectTrust` is
 `always`; Reconc never mutates either setting and reports `pi --approve` as the
 one-run alternative. GitHub Copilot status verifies its generator-exact
@@ -1541,9 +1547,12 @@ Assert a workflow claim (e.g. `ci-green`). Written to the session
 state consulted by later hook-runtime checks and `ci` calls; recording only
 persists the claim and runs no policy evaluation or script. `--session`
 selects an exact existing session instead of resolving the active pointer.
-Claims named `operator:*` are operator-only: an agent tool call that tries to
-record one is refused before execution, so the operator records it from a
-terminal.
+Claims named `operator:*` are reserved for local administration. Recognized
+tool invocations are refused; the CLI requires an interactive terminal and
+the exact displayed confirmation code. The same confirmation applies to
+pause, resume, and evidence recovery. This prevents accidental administration,
+not PTY automation or state changes by another same-user process; it does not
+prove human identity or provide independent approval evidence.
 Session FixPlan `assert_claim` actions emit this command; standalone evaluation
 keeps `reconc check --claim <name>` for one-shot evidence.
 
@@ -1559,9 +1568,15 @@ command stays available while the session is tainted.
 Explicitly abandon one reviewed tainted evidence window. The command requires
 an exact current token and a bounded operator reason, and works with or without
 an active session. It writes an immutable resolution receipt before clearing
-the live taint; with an active session it also clears that session's matching
-overflow under the session lock, so recovery never discards the agent's
-context. Work that depended on the dropped evidence must be reproduced. The
+the live taint. Broken chains and exhausted command-object/segment windows reset
+the origin's reads, writes, command outcomes and claims, reclaim recognized
+owned evidence files, and keep the host session ID and context. Unknown segment
+entries or changed selected artifacts remain and keep recovery blocked; other
+files in the shared session directory remain outside cleanup. Origin/active session leases
+and the project taint lock serialize recovery; partial cleanup retains the taint
+and can retry the same token. The original review receipt is never replaced.
+Ordinary field overflows retain healthy evidence. Required lost evidence must
+be reproduced before certification. The
 command is operator-only: agent tool calls that issue it are refused.
 
 ### `reconc hook pause [repo] --for DURATION --reason TEXT [--json]`
@@ -1725,7 +1740,7 @@ Legacy version 1 journals remain recoverable without claiming their unrecorded
 parent directories. Done rows are required newest-first before visible-window
 trimming. Lock, unlock, close, and cleanup failures remain explicit. Normal reads never open
 unlinked archive history. Briefings cap blockers/evidence and free text;
-transactions cap journals at 4 MiB.
+transactions cap journals at 32 MiB.
 
 ### `reconc prune [repo] [--dry-run] [--json]`
 Run the product retention core immediately. It bounds external session,

@@ -14,10 +14,10 @@ import (
 	"reconc.dev/reconc/internal/shellcommand"
 )
 
-// OperatorClaimPrefix marks claims only the operator may record. A policy that
-// names such a claim in require_claim cannot be satisfied by the agent it
-// restrains: agent tool calls that try to record one are refused before
-// execution, while the operator records it from a terminal.
+// OperatorClaimPrefix reserves a workflow claim for local administration.
+// Recognized tool invocations are refused and the CLI requires terminal
+// confirmation. This convention does not authenticate a human or prevent a
+// process with the same privileges from changing state or automating a PTY.
 const OperatorClaimPrefix = "operator:"
 
 const (
@@ -276,7 +276,7 @@ func operatorOnlyCommandReason(command string) string {
 }
 
 func operatorOnlyMessage(what string) string {
-	return fmt.Sprintf("reconc blocked an operator-only command (%s). Agent tool calls cannot pause hooks, resolve evidence taint, or record `%s*` claims; these commands also require the operator to confirm a one-time code at an interactive terminal, so ask the operator to run it there.", what, OperatorClaimPrefix)
+	return fmt.Sprintf("reconc blocked an operator-only command (%s). Recognized tool invocations of pause, resume, evidence recovery, and `%s*` claims are refused. Ask the operator to confirm this action locally at an interactive terminal. This workflow does not authenticate a human or isolate processes with the same privileges.", what, OperatorClaimPrefix)
 }
 
 func nextOperand(words []string, start int) (string, int) {

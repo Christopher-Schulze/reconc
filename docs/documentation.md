@@ -287,13 +287,15 @@ bounded temporary Git fixture instead of rescanning the real repository under
 the race detector. `make test-langchain` is the separate hash-pinned external
 consumer proof. The `LangChain MCP interoperability` check is required for
 protected `main`, and the Release workflow reruns the same proof against the
-exact selected tag before publication. `make fuzz` uses 500 executions and one worker per target
+exact selected tag before publication. `make fuzz` uses Go's `500x` execution budget and one worker per target
 by default, avoiding the Go 1.26 time-deadline shutdown race while keeping the
-gate deterministic and bounded. Minimization is likewise bounded to ten exact
-executions, and a disposable per-run Go fuzz cache prevents machine-local corpus
+randomized gate bounded. Each minimization attempt uses Go's `10x` budget,
+and a disposable per-run Go fuzz cache prevents machine-local corpus
 history from consuming or changing that fixed budget. `FUZZ_TIME`,
 `FUZZ_MINIMIZE`, and `FUZZ_PARALLEL` explicitly change those budgets and the
 worker count. Direct `go test ./...` validates only the root module.
+Package and target discovery failures stop the fuzz gate; an empty package
+inventory is an error, while a package without fuzz targets is valid.
 
 `make benchmark-record` runs the calibrated performance-history suite five
 times with 250-millisecond benchmark samples and three bounded internal
@@ -339,10 +341,10 @@ metrics remain from the timed pass. Every workload sample records
 runner also performs its standard warmup. RSS describes the full process lifetime, including setup
 and platform-accounted child usage, rather than the outer Go driver. It is
 shared by benchmarks executed in the same process, not a per-operation or
-retained-cache measurement. The gate compares the median of the per-sample
-peaks with the same tolerance, so one sample's garbage-collection timing on a
-shared runner cannot fail it; the maximum across all samples stays in the
-report. Unsupported platform RSS remains zero.
+retained-cache measurement. The gate compares the maximum of all per-sample
+process peaks with the configured tolerance. A single excessive peak remains
+a regression; measurement noise requires investigation rather than replacing
+the peak contract with a median. Unsupported platform RSS remains zero.
 Compilation and sampling share bounded package deadlines; output is limited
 to 16 MiB per stream, binary size is limited to 512 MiB for streamed hashing,
 and private build directories are removed after recording. Binary identity never bypasses a
@@ -1351,10 +1353,12 @@ rule-level; matched paths receive repository-relative URI-safe artifact
 locations without invented line numbers.
 
 For Git-derived CI write evidence, `reconc ci` invokes `git diff` with
-`--no-renames --name-only -z`. A detected rename therefore contributes both
+`--relative --no-renames --name-only -z`. A detected rename therefore contributes both
 the source deletion and destination creation, independent of repository Git
 rename configuration. NUL-delimited bytes remain verbatim, so spaces,
 Unicode, tabs, and newlines in either path stay policy-matchable.
+For a policy root inside a larger Git checkout, CI paths are relative to that
+root; outer changes remain part of Git cleanliness but not its write evidence.
 
 The shared neutral report model includes bounded rule, mode, message,
 remediation, matched-path, candidate-fingerprint, policy-lock, worktree, and
@@ -2356,7 +2360,11 @@ publication, the transaction revalidates
 every source, destination, content hash, and mode both as a complete set and
 immediately before its operation. Moves retain the source before-image and use
 a no-clobber hard-link transition; recovery safely recognizes the linked
-intermediate state. Version 2 journals record `prepared` or `committed`; a
+intermediate state. The destination directory is synchronized before unlinking
+the source, including rollback moves. New file and directory entries, removals,
+and journal cleanup also synchronize their bound parent before success;
+Windows preserves its supported rooted boundary without claiming a directory
+flush its API cannot provide. Version 2 journals record `prepared` or `committed`; a
 committed journal is finalized without rolling back published work. Every
 missing parent created for a file or move receives a private random ownership
 marker recorded before creation. Prepared rollback validates those markers and
@@ -2370,7 +2378,7 @@ Journals reject unknown fields, trailing JSON values,
 non-canonical paths, and inconsistent images. Archived detail bodies are not
 reopened by normal status or briefing reads. Runtime paths reject symlink
 components; journal presence and decoding use one stable, non-symlink,
-identity-revalidated regular-file snapshot capped at 4 MiB. Rollback restores the original
+identity-revalidated regular-file snapshot capped at 32 MiB. Rollback restores the original
 file bytes and permission mode. Running `task recover` with no journal is a
 successful idempotent no-op and reports `recovered: false`.
 
@@ -2846,10 +2854,11 @@ runtime state while explicitly re-including `.reconc/install.lock.json` and
 `.reconc/policy.lock.json`:
 
 - `/tools/reconc/dist/`
+- `/tools/reconc/bin/hook-target`
 - `.reconc/*`
 - `!.reconc/`
-- `!.reconc/install.lock.json`
 - `!.reconc/policy.lock.json`
+- `!.reconc/install.lock.json`
 - `.reconc/audit.jsonl*`
 - `.reconc/cache/`
 - `.reconc/locks/`
@@ -2857,7 +2866,6 @@ runtime state while explicitly re-including `.reconc/install.lock.json` and
 - `.reconc/run/`
 - `.reconc/sessions/`
 - `.reconc/task-transaction.json`
-- `.reconc/repository-sync-transaction.json`
 - `.reconc/bootstrap-*.json`
 - `*.reconc-candidate-*`
 - `*.reconc-remove-candidate-*`
@@ -2939,10 +2947,18 @@ empty segment state drops that session's prefix and returns to the normal
 fail-closed load path. The cache is memory-only, bounded to 64 entries and
 16 MiB of retained evidence, and one-shot handlers pass no cache.
 
-A command longer than 32 KiB is ordinary agent work, not an overflow: the
-command and command-result evidence store a UTF-8-safe prefix followed by
-` ...[truncated sha256=<hex> bytes=<n>]`, which binds the record to the exact
-full text, keeps equal long commands deduplicated, and never taints the
+A command longer than 32 KiB retains its complete policy meaning: session and
+command-result records store a UTF-8-safe prefix followed by
+` ...[truncated sha256=<hex> bytes=<n>]`, and immutable content-addressed objects
+beside the session store the full text. Every policy observation, including a
+Stop cache hit, verifies the referenced bytes and resolves them before matching.
+Each complete command is capped at 16 MiB; its session's full-command objects,
+including orphaned objects, share a 16 MiB storage ceiling. Complete merged
+evidence retains its independent 16 MiB aggregate budget, including JSON-encoded
+result sizes. Missing or corrupt objects fail closed; policy observations and
+storage exhaustion persist a project-scoped taint that survives a new session.
+Legacy truncated records without their full text require recapturing the
+original evidence. Ordinary commands within these bounds do not taint the
 session. Session state and sealed segments are written as compact JSON
 without HTML escaping, so shell operators such as `&&`, `<`, and `>` count
 once against the byte budgets. When a field budget or the 1 MiB serialized
@@ -2966,27 +2982,37 @@ Recovery is explicit and never requires discarding the session: the operator
 inspects `reconc hook evidence-status .` from a terminal, then passes its exact
 token and a reason to `reconc hook evidence-resolve . --token TOKEN --reason TEXT`.
 Reconc writes an immutable resolution receipt before removing the live taint.
-With an active session, the resolution runs under that session's lock and also
-clears the session's overflow when it is the overflow the token names; a
-different, newer overflow stays and is reported under a new token. Work that
-depended on the dropped evidence must be reproduced. Read-only evidence-status
+Resolution leases the origin and active sessions in stable order, then the
+permanent project taint lock; concurrent new failures cannot be erased by an
+older review. A broken command-object/segment chain or exhausted aggregate or
+segment budget resets the origin's complete evidence window, including reads,
+writes, command outcomes and claims, while retaining its host session ID and
+runtime. Only recognized owned command objects and segment files are reclaimed;
+unknown or replaced paths remain. The clean window is published before cleanup,
+and the durable taint stays until cleanup succeeds. A failed or interrupted
+attempt can retry the same token without replacing its first review reason.
+Ordinary field-overflow recovery retains healthy evidence and clears matching
+origin/active flags. Propagated flags keep their source token, so a retained
+resolution prevents another session from resurrecting that old gap; new
+independent failures still block. Every prerequisite lost with a reset must be
+proved again before certification. Read-only evidence-status
 inspection can expose an overflow directly from the active state before that
 durable taint exists; JSON marks this observation with `persisted=false`, and
 the same token resolves it.
 
-Operator administration. Agent tool calls can never issue the commands that
-lift their own restraint: `reconc hook pause`, `reconc hook resume`,
+Operator administration uses local confirmation for commands that lift
+restraint: `reconc hook pause`, `reconc hook resume`,
 `reconc hook evidence-resolve`, or `reconc hook claim` for a claim named
 `operator:*`. The pre-tool and MCP command gates refuse such an invocation in
 every executable position (including nested `sh -c` bodies and a dynamic claim
-name) before execution; the operator runs them from a terminal. Because a
-textual guard cannot see through scripts, aliases, or copied binaries, the
-commands themselves also require operator presence: stdin must be an
-interactive terminal and the operator types back a six-digit one-time code the
-command prints, so piped, scripted, and agent-run invocations change nothing. A
-`require_claim` rule that lists an `operator:` claim is therefore satisfiable
-only by the operator, while ordinary claims stay agent-recordable. Recording a
-claim only persists it; the gates that consult claims evaluate the current set
+name) before execution. The CLI also requires terminal input and an exact
+six-digit confirmation code, refusing non-terminal input and mismatched codes.
+These checks prevent accidental administration through recognized tool calls;
+they do not authenticate a human. A same-user process can automate a PTY,
+invoke unrecognized code, or modify private local state. `operator:` claims
+are workflow assertions, never independent approval evidence. Ordinary claims
+remain agent-recordable. Recording a claim only persists it; the gates that
+consult claims evaluate the current set
 themselves, so no policy script runs on the claim path. The sanctioned valve
 for an incident is `reconc hook pause . --for DURATION --reason TEXT` (one
 minute to 24 hours) instead of removing or stubbing hooks: while the pause is
@@ -2998,8 +3024,8 @@ guard keep holding. The pause ends at its expiry or with `reconc hook resume .`.
 per-repository record keeps the 32 most recent pauses with reason, start,
 expiry, and resume time; an unreadable or foreign record means no pause, so a
 damaged valve leaves enforcement on. This guard follows the documented
-same-user model: it stops an agent from administering itself through its tool
-calls, not a process that can rewrite the user's private state directly.
+same-user model: it refuses recognized administration commands and adds an
+explicit interaction step, without isolating an agent from local authority.
 The latest unresolved policy block is retained without an age limit and also
 protects its project-state root from global cleanup. A validated non-blocking
 decision removes that receipt durably; retention never converts block to pass.
@@ -3032,7 +3058,8 @@ repository-wide active-session pointer serializes reads, writes, and cleanup on
 its own lock, acquired only after any session lock, so native Windows sharing
 rules cannot turn concurrent hooks into lost evidence or failed publication.
 
-Default persistent budgets are 32 session files / 8 MiB / 14 days, 32 reports
+Default persistent budgets are 32 session files, including full-command objects,
+/ 8 MiB / 14 days, 32 reports
 / 8 MiB / 14 days, 128 locks / 1 MiB / 24 hours, 64 staged command proofs /
 256 KiB / 24 hours, 32 pre-decision caches / 512 KiB / 14 days, 32 evidence
 taint-resolution receipts / 512 KiB / 14 days, 32 rotated-evidence session
@@ -3040,6 +3067,8 @@ directories / 64 MiB / 14 days, 16 MiB total external state, and 32 MiB / 14
 days for generated audit binaries. Rotated evidence is inspected as a complete
 contiguous chain and removed only as one session directory under its session
 lock; active sessions and the session named by unresolved taint are protected.
+Their full-command objects are also protected under class and total pressure;
+removal of an inactive object's bytes requires its session lease.
 Malformed, oversized, irregular, or concurrently leased chains are reported
 and preserved. The active session's
 pre-decision cache is protected. All taint-resolution receipts are protected
@@ -3054,6 +3083,12 @@ global project-retention lock, Reconc non-blockingly acquires its root-retention
 lock and every regular file in its `locks/` directory on the discovered
 identities. Contention preserves the root under age, count, and byte pressure;
 successful probes remain held through identity-bound removal. A recognized
+root with an unresolved evidence-taint marker is protected even without an
+active session and even when the marker is malformed. Cleanup rechecks marker
+presence after acquiring project leases. Taint publication establishes its
+permanent project lock under the global root-retention lock; contention releases
+the global lock before retrying, so recovery may still publish session state.
+A recognized
 root containing a durable `action/`
 state boundary is also protected because generic retention cannot safely return
 consumed budget capacity or break action-ledger archive and transaction truth;
@@ -3646,6 +3681,9 @@ Native assurance is intentionally bounded: 20,000 changed paths, 4,096 unique
 files, 4 MiB per file, 32 MiB total reads, 50,000 applicability or reserved-dir
 walk entries, and 50 returned findings plus one explicit omitted-count marker.
 An unreadable or over-budget authority surface is an error and fails closed.
+Separate native-assurance rules in one policy observation share lazy module
+discovery, scoped module state, file facts, and the same aggregate read budget.
+Successful command evidence is converted once for that observation.
 Matching gates reuse one canonical path resolution and one bounded in-memory
 file snapshot per evaluation, so overlapping source gates do not reread the
 same bytes from the SSD. The assurance reader obtains bytes and opened regular
@@ -4379,6 +4417,12 @@ the registry's per-surface documented route sets. Separate `expected_events`,
 the complete artifact routes and which ones a live runtime actually executed.
 Liveness is stored outside the repository and each route writes at most once
 every six hours.
+Wrapper-dependent rows also report `runtime_binary`: selected path, resolver
+source, embedded version and source digest, or a resolution/inspection error.
+The complete status command resolves and inspects that binary once without
+executing it. Development targets retain precedence over a valid direct pin,
+then repository distributions and PATH; ambiguous distribution targets fail
+before PATH fallback. Static configuration is not proof of binary freshness.
 Status remediation is derived from an internal typed disposition and exact
 program-plus-argv data, never from diagnostic prose. A normal install, a
 managed forced repair, a user-owned conflict, a host-specific action, and no
@@ -4408,6 +4452,12 @@ are recognized only by reconstructing their complete byte-exact template;
 unparseable commands and marker text alone remain user-owned. Standalone
 plugins and hook files likewise require the format-defined exact first-line,
 top-level object, or parsed-command signature before Reconc may replace them.
+Install reports changes to owned handler or group metadata such as timeouts
+and matchers. Uninstall remains exact: review and reinstall a recognized
+managed shape before removing an edited artifact. Copilot upgrades recognize
+nonempty subsets of known current events only when their complete commands,
+type, and working directory prove ownership; marker text in a foreign command
+never grants replacement authority.
 
 Hook output that exceeds a route's byte budget still delivers a decision, on
 the channel that route's host reads. Cursor, GitHub Copilot, and Grok express
@@ -5906,9 +5956,10 @@ lifecycle has closed. The evaluator admits only a consistent `pass` outcome with
 exit code 0. Exit code 2 remains an attributed policy block;
 timeouts, launch or process failures, every other exit, and contradictory or
 unknown statuses fail closed. Timeout diagnostics use the effective configured
-duration and matched path without trusting partial script output. A failed or
-malformed batched workflow audit falls back to per-rule execution under the same
-contract instead of being counted as handled. Workflow-audit launchers bind their
+duration and matched path without trusting partial script output. A timed-out
+batch fails each participating rule without repeating the timed-out work.
+Non-timeout batch failures and malformed output retain per-rule fallback.
+Workflow-audit launchers bind their
 cache keys to a recursive content digest of the runner source, module files,
 and generated inputs; missing or unreadable inputs fail closed. They build
 cached binaries behind an atomic mkdir build lock and publish through randomized

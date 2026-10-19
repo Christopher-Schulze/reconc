@@ -111,6 +111,9 @@ func runPreDecisionResolvedWithEvaluatorAndStopCache(
 	if cacheable {
 		cached, cachedOK := readPreDecisionCacheCandidate(root, payload)
 		if cachedOK && cached.Key == inputs.key {
+			if err := writeActiveSession(root, payload.SessionID); err != nil {
+				return adaptPreDecision(Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): refresh active session: %s", err)}, permission)
+			}
 			if current, ok := resamplePreDecisionInputsWithEvaluatorAndStopCache(root, payload, inputs, evaluator, stopCache); ok &&
 				inputs.identity.equal(current.identity) && cached.Key == current.key && current.cacheableAt(time.Now()) {
 				return adaptPreDecision(Result{

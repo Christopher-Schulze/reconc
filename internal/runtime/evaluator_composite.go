@@ -187,7 +187,7 @@ func evalCheck(ctx *evalContext, c policy.Check, captures map[string]string, inp
 	case policy.KindRequireEvidence:
 		return evalCheckRequireEvidence(ctx, c, captures)
 	case policy.KindRequireClaim:
-		return evalCheckRequireClaim(c, inputs)
+		return evalCheckRequireClaim(ctx, c, inputs)
 	case policy.KindRequireCommand:
 		return evalCheckRequireCommand(ctx, c, inputs, false, 0)
 	case policy.KindRequireCommandSuccess:
@@ -377,8 +377,8 @@ func evalCheckRequireEvidence(ctx *evalContext, c policy.Check, captures map[str
 	return true, "", nil
 }
 
-func evalCheckRequireClaim(c policy.Check, inputs ExecutionInputs) (bool, string, error) {
-	matched := matchingClaims(inputs.Claims, c.Claims)
+func evalCheckRequireClaim(ctx *evalContext, c policy.Check, inputs ExecutionInputs) (bool, string, error) {
+	matched := matchingClaimsWithEvidence(ctx.commandEvidence, inputs.Claims, c.Claims)
 	if len(matched) > 0 {
 		return true, "", nil
 	}

@@ -125,7 +125,9 @@ type SessionState struct {
 	EvidenceOverflow           bool     `json:"evidence_overflow,omitempty"`
 	EvidenceOverflowReason     string   `json:"evidence_overflow_reason,omitempty"`
 	EvidenceOverflowLimit      string   `json:"evidence_overflow_limit,omitempty"`
+	EvidenceTaintToken         string   `json:"evidence_taint_token,omitempty"`
 	UncertifiedTermination     bool     `json:"uncertified_termination,omitempty"`
+	commandTexts               map[string]string
 }
 
 type sessionStateSizeError struct {
@@ -327,7 +329,11 @@ func LoadSessionState(repoRoot, sessionID string) (SessionState, error) {
 	if err != nil {
 		return SessionState{}, err
 	}
-	return loadSessionStateWithLockResolved(root, sessionID)
+	state, err := loadSessionStateWithLockResolved(root, sessionID)
+	if err != nil {
+		return SessionState{}, err
+	}
+	return resolveCommandTexts(state)
 }
 
 func loadSessionStateWithLockResolved(root, sessionID string) (SessionState, error) {
@@ -350,6 +356,17 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 	} else if taint != nil {
 		applyEvidenceTaint(&state, *taint)
 	} else if state.EvidenceOverflow {
+		resolved, err := evidenceTaintWasResolved(state)
+		if err != nil {
+			return SessionState{}, err
+		}
+		if resolved {
+			state.EvidenceOverflow = false
+			state.EvidenceOverflowReason = ""
+			state.EvidenceOverflowLimit = ""
+			state.EvidenceTaintToken = ""
+			return state, nil
+		}
 		if err := persistEvidenceTaint(root, state); err != nil {
 			return SessionState{}, err
 		}
@@ -452,6 +469,7 @@ func saveSessionStateLockedIfChanged(state SessionState) (bool, error) {
 	// Deterministic compact marshalling (sorted keys, trailing newline) keeps
 	// the bounded publication small while remaining compatible with the JSON
 	// readers used for current and legacy session files.
+	state = normalizeSessionState(state)
 	data, err := marshalStateDeterministic(state)
 	if err != nil {
 		return false, fmt.Errorf("marshal session state: %w", err)
@@ -463,6 +481,9 @@ func writeSessionStateLockedIfChanged(state SessionState, data []byte) (bool, er
 	path := sessionStatePath(state.RepoRoot, state.SessionID)
 	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
 		return false, fmt.Errorf("mkdir session dir: %w", err)
+	}
+	if err := publishCommandTexts(state); err != nil {
+		return false, err
 	}
 	result, err := atomicfile.WritePrivateIfChanged(path, data, 0o600)
 	if err != nil {
@@ -493,6 +514,10 @@ func ensurePrivateStateDir(path string) error {
 var repairPrivateStateDir = privatefs.RepairDirectory
 
 func publishPrivateStateDirectory(root, path string) error {
+	return withProjectStatePublicationLock(root, func() error { return repairPrivateStateDir(path) })
+}
+
+func withProjectStatePublicationLock(root string, publish func() error) error {
 	if err := repairPrivateStateDir(root); err != nil {
 		return fmt.Errorf("secure private state root: %w", err)
 	}
@@ -507,7 +532,7 @@ func publishPrivateStateDirectory(root, path string) error {
 			wrapOperationError("close project state publication lock", lock.Close()),
 		)
 	}
-	publicationErr := repairPrivateStateDir(path)
+	publicationErr := publish()
 	unlockErr := unlock()
 	closeErr := lock.Close()
 	return errors.Join(
@@ -658,9 +683,7 @@ func mutateSessionStateResolvedMode(root, sessionID string, mutate func(SessionS
 					return fmt.Errorf("marshal session state: %w", marshalErr)
 				}
 				updated = state
-				updated.EvidenceOverflow = true
-				updated.EvidenceOverflowReason = "session_state"
-				updated.EvidenceOverflowLimit = "byte_budget"
+				markEvidenceOverflowWithLimit(&updated, "session_state", "byte_budget")
 				if err := persistEvidenceTaint(root, updated); err != nil {
 					return err
 				}
@@ -1176,10 +1199,11 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-// AppendCommand adds one command string. Text beyond the per-command limit is
-// stored as a digest-bound prefix (boundCommandText), never as a taint.
+// AppendCommand retains complete command text for publication alongside its
+// bounded, digest-bound state reference.
 func AppendCommand(state SessionState, cmd string) SessionState {
-	appendBoundedString(&state, &state.Commands, boundCommandText(strings.TrimSpace(cmd)), maxCommandEvidenceItems, maxCommandEvidenceBytes, maxCommandBytes, "commands")
+	command := retainCommandText(&state, strings.TrimSpace(cmd))
+	appendBoundedString(&state, &state.Commands, command, maxCommandEvidenceItems, maxCommandEvidenceBytes, maxCommandBytes, "commands")
 	return state
 }
 

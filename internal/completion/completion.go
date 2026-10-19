@@ -22,13 +22,13 @@ func GenerateBash(w io.Writer) error {
 # directory scanned by bash-completion, e.g. /etc/bash_completion.d/ or
 # /usr/local/etc/bash_completion.d/, then restart your shell).
 _reconc() {
-    local cur prev sub nested leaf flags values
+    local cur prev sub nested="" leaf="" flags="" values=""
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
 	prev="${COMP_WORDS[COMP_CWORD-1]}"
     sub="${COMP_WORDS[1]}"
-    nested="${COMP_WORDS[2]}"
-    leaf="${COMP_WORDS[3]}"`)
+    if (( COMP_CWORD > 2 )); then nested="${COMP_WORDS[2]}"; fi
+    if (( COMP_CWORD > 3 )); then leaf="${COMP_WORDS[3]}"; fi`)
 	fmt.Fprintf(w, "    local subcmds=%q\n", strings.Join(commandmeta.PublicSortedNames(), " "))
 	fmt.Fprintln(w, `
     # First word after 'reconc' -> subcommand completion.
@@ -158,7 +158,7 @@ func GenerateZsh(w io.Writer) error {
 # /usr/local/share/zsh/site-functions/_reconc) or source it directly.
 
 _reconc() {
-    local -a subcmds flags values
+    local -a subcmds flags=() values=()
     subcmds=(`)
 	for _, command := range commands {
 		fmt.Fprintf(w, "        %q\n", command.Name+":"+command.Summary)
@@ -171,8 +171,9 @@ _reconc() {
     fi
 
     local sub="${words[2]}"
-	local nested="${words[3]}"
-	local leaf="${words[4]}"
+	local nested="" leaf=""
+    if (( CURRENT > 3 )); then nested="${words[3]}"; fi
+    if (( CURRENT > 4 )); then leaf="${words[4]}"; fi
 
     if (( CURRENT == 3 )); then
         case "${sub}" in`)

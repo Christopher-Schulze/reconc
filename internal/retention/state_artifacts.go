@@ -14,6 +14,8 @@ import (
 )
 
 const (
+	// EvidenceTaintLockName is permanent coordination state, not a session ID.
+	EvidenceTaintLockName           = ".evidence-taint.lock"
 	maxPreDecisionArtifactBytes     = 16 * 1024
 	maxTaintResolutionArtifactBytes = 32 * 1024
 	evidenceTaintVersion            = "evidence-taint-v1"
@@ -42,6 +44,22 @@ type taintResolutionProtection struct {
 	all           bool
 	evidenceNames map[string]bool
 	evidenceAll   bool
+}
+
+// Presence alone protects unresolved evidence, including malformed markers.
+// Only explicit evidence resolution may remove this boundary.
+func evidenceTaintBoundaryPresent(project string) (bool, error) {
+	info, err := os.Lstat(filepath.Join(project, "evidence-taint.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() {
+		return false, errors.New("evidence taint is not a regular file")
+	}
+	return true, nil
 }
 
 func inspectPreDecisionArtifact(_ string, name string, info os.FileInfo) error {

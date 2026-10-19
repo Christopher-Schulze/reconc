@@ -78,14 +78,18 @@ func claudeHooksDisableSwitch(root string) (*hostDisableSwitch, error) {
 		return nil, err
 	}
 	var managedDisable *hostDisableSwitch
+	var managedOnly *hostDisableSwitch
 	managedSet := false
 	for _, path := range managed {
 		document, err := readHostSettingsJSON(path)
 		if err != nil {
 			return nil, err
 		}
-		if only, ok := document["allowManagedHooksOnly"].(bool); ok && only {
-			return &hostDisableSwitch{path: path, detail: "managed allowManagedHooksOnly=true in " + path + " blocks project hooks"}, nil
+		if only, ok := document["allowManagedHooksOnly"].(bool); ok {
+			managedOnly = nil
+			if only {
+				managedOnly = &hostDisableSwitch{path: path, detail: "managed allowManagedHooksOnly=true in " + path + " blocks project hooks"}
+			}
 		}
 		if disabled, ok := document["disableAllHooks"].(bool); ok {
 			managedSet = true
@@ -94,6 +98,9 @@ func claudeHooksDisableSwitch(root string) (*hostDisableSwitch, error) {
 				managedDisable = &hostDisableSwitch{path: path, detail: "managed disableAllHooks=true in " + path}
 			}
 		}
+	}
+	if managedOnly != nil {
+		return managedOnly, nil
 	}
 	if managedSet {
 		return managedDisable, nil
@@ -148,10 +155,10 @@ func firstBooleanDisableAllHooks(layers []string) (*hostDisableSwitch, error) {
 }
 
 // ompExtensionDisableSwitch evaluates OMP's disabledExtensions. Settings
-// layers replace arrays, so a project layer that sets the list decides over
-// the user layer. The main session applies a change without a restart.
+// layers replace arrays. Native project config.yml overrides the legacy
+// project settings.json; either project list decides over the user layer.
+// The main session applies a change without a restart.
 func ompExtensionDisableSwitch(root string) (*hostDisableSwitch, error) {
-	projectSet := false
 	for _, path := range []string{
 		filepath.Join(root, ".omp", "config.yml"),
 		filepath.Join(root, ".omp", "settings.json"),
@@ -163,12 +170,9 @@ func ompExtensionDisableSwitch(root string) (*hostDisableSwitch, error) {
 		if !set {
 			continue
 		}
-		projectSet = true
 		if slices.Contains(list, ompReconcExtensionID) {
 			return &hostDisableSwitch{path: path, detail: "disabledExtensions lists " + ompReconcExtensionID + " in " + path}, nil
 		}
-	}
-	if projectSet {
 		return nil, nil
 	}
 	agentDir, err := ompAgentDir(root)

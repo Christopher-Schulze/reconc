@@ -193,7 +193,11 @@ func installManagedPlatformFile(kind, repoRoot string, force bool, managed func(
 	} else if writeAction == "unchanged" {
 		action = writeAction
 	}
-	return &InstallReport{Kind: kind, RepoRoot: root, TargetPath: artifact.TargetPath, Action: action, Executable: artifact.Executable, NextAction: nextAction}, nil
+	report := &InstallReport{Kind: kind, RepoRoot: root, TargetPath: artifact.TargetPath, Action: action, Executable: artifact.Executable, NextAction: nextAction}
+	if snapshot.exists && action == "updated" && managed(snapshot.body) {
+		report.DroppedUserEdits = []string{artifact.TargetPath + ": managed content replaced; review local customizations"}
+	}
+	return report, nil
 }
 
 func isManagedGitHubCopilotConfig(data []byte) bool {
@@ -214,26 +218,36 @@ func isManagedGitHubCopilotConfig(data []byte) bool {
 	if json.Unmarshal(data, &document) != nil || document.Version != 1 || len(document.Hooks) == 0 {
 		return false
 	}
-	expectedRoutes, ok := githubCopilotExpectedRoutes()
-	if !ok {
+	generated, err := Generate(KindGitHubCopilot)
+	if err != nil {
 		return false
 	}
-	if len(document.Hooks) != len(expectedRoutes) {
+	var current struct {
+		Hooks map[string][]map[string]interface{} `json:"hooks"`
+	}
+	if json.Unmarshal([]byte(generated.Content), &current) != nil {
 		return false
 	}
-	for event, route := range expectedRoutes {
-		entries := document.Hooks[event]
-		if len(entries) != 1 {
+	for event, entries := range document.Hooks {
+		canonical := current.Hooks[event]
+		if len(entries) != 1 || len(canonical) != 1 || !managedCopilotEntry(entries[0], canonical[0]) {
 			return false
 		}
-		entry := entries[0]
-		bashCommand, _ := entry["bash"].(string)
-		powershellCommand, _ := entry["powershell"].(string)
-		entryType, _ := entry["type"].(string)
-		cwd, _ := entry["cwd"].(string)
-		if entryType != "command" || cwd != "." ||
-			!githubCopilotCommandHasRoute(bashCommand, route) ||
-			!githubCopilotCommandHasRoute(powershellCommand, route) {
+	}
+	return true
+}
+
+func managedCopilotEntry(entry, canonical map[string]interface{}) bool {
+	for key := range entry {
+		switch key {
+		case "type", "bash", "powershell", "cwd", "timeoutSec", "matcher":
+		default:
+			return false
+		}
+	}
+	for _, key := range []string{"type", "bash", "powershell", "cwd"} {
+		value, ok := entry[key].(string)
+		if !ok || value != canonical[key] {
 			return false
 		}
 	}
@@ -258,15 +272,6 @@ func githubCopilotExpectedRoutes() (map[string]string, bool) {
 		}
 	}
 	return routes, len(routes) != 0
-}
-
-func githubCopilotCommandHasRoute(command, route string) bool {
-	for _, field := range strings.Fields(command) {
-		if strings.Trim(field, `"';`) == route {
-			return true
-		}
-	}
-	return false
 }
 
 func existingRepoRoot(repoRoot string) (string, error) {

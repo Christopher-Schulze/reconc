@@ -26,6 +26,11 @@ func enforceStateTotal(
 ) ClassReport {
 	class := ClassReport{Name: "state-total"}
 	candidates := []candidate{}
+	evidenceProtected := cloneProtectedNames(taintProtection.evidenceNames)
+	if hasActive {
+		evidenceProtected[activeID] = true
+	}
+	protectedSessions := protectedSessionNames(evidenceProtected)
 	for _, dir := range []string{"sessions", "reports", "locks", "command-proofs", "policy-decisions", "pre-decisions", "evidence-taint-resolutions"} {
 		path := filepath.Join(project, dir)
 		entries, err := boundedio.ReadDirNoSymlink(path, maxRetentionDirectoryEntries)
@@ -49,13 +54,18 @@ func enforceStateTotal(
 				continue
 			}
 			active := hasActive && (dir == "sessions" || dir == "reports") && entry.Name() == activeID+".json"
+			active = active || dir == "sessions" && (taintProtection.evidenceAll || protectedSessions[entry.Name()])
 			active = active || hasActive && dir == "locks" && (entry.Name() == activeID+".lock" || entry.Name() == activeID+".stop-policy.lock")
+			active = active || dir == "locks" && entry.Name() == EvidenceTaintLockName
 			active = active || dir == "policy-decisions" && entry.Name() == "latest.json"
 			active = active || hasActive && dir == "pre-decisions" && entry.Name() == activeID+".json"
 			active = active || dir == "evidence-taint-resolutions" && (taintProtection.all || taintProtection.names[entry.Name()])
 			item := candidate{
 				path: filepath.Join(path, entry.Name()), name: dir + "/" + entry.Name(), size: info.Size(), mtime: info.ModTime(),
 				active: active, probeLock: dir == "locks", info: info,
+			}
+			if dir == "sessions" {
+				protectCommandText(&item, project, evidenceProtected, taintProtection.evidenceAll)
 			}
 			var inspect stateArtifactInspector
 			switch dir {
@@ -75,10 +85,6 @@ func enforceStateTotal(
 			candidates = append(candidates, item)
 			class.BytesBefore += item.size
 		}
-	}
-	evidenceProtected := cloneProtectedNames(taintProtection.evidenceNames)
-	if hasActive {
-		evidenceProtected[activeID] = true
 	}
 	evidenceCandidates, ok := evidenceSegmentCandidates(
 		filepath.Join(project, "evidence"), evidenceProtected, taintProtection.evidenceAll, report,

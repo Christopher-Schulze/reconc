@@ -58,13 +58,16 @@ func TestParseRuleDocumentsDecodesEachRuleSourceOnce(t *testing.T) {
 	}
 }
 
-func TestSharedSourceDocumentMatchesLegacyTwoDecoderBehavior(t *testing.T) {
+func TestSharedSourceDocumentMatchesTwoPassDecoderBehavior(t *testing.T) {
 	t.Parallel()
 	corpus := []struct {
 		name string
 		body string
 	}{
 		{name: "empty", body: ""},
+		{name: "comment only", body: "#"},
+		{name: "comment lines", body: "# first\n# second\n"},
+		{name: "byte order mark only", body: "\xef\xbb\xbf"},
 		{name: "null", body: "null\n"},
 		{name: "rules and actions", body: "rules:\n  - id: deny\n    kind: deny_write\n    paths: [generated/**]\n    message: blocked\nactions:\n  defaults:\n    declared_tool: warn\n"},
 		{name: "canonical scalars", body: "actions:\n  rules:\n    - id: scalar\n      decision: block\n      when:\n        predicate:\n          source: context\n          pointer: /value\n          op: eq\n          value: {null: null, bool: true, int: 42, float: 4.2, string: value}\n"},
@@ -85,7 +88,7 @@ func TestSharedSourceDocumentMatchesLegacyTwoDecoderBehavior(t *testing.T) {
 			t.Parallel()
 			bundle := actionBundle(test.body)
 			gotPolicy, gotErr := parseRuleDocumentsWithDecoder(bundle, decodeRuleSourceDocumentBounded)
-			wantPolicy, wantErr := parseRuleDocumentsWithDecoder(bundle, legacyTwoPassSourceDocumentDecoder)
+			wantPolicy, wantErr := parseRuleDocumentsWithDecoder(bundle, independentTwoPassSourceDocumentDecoder)
 			assertParserParity(t, gotPolicy, gotErr, wantPolicy, wantErr)
 		})
 	}
@@ -136,25 +139,66 @@ func maximumLegalMixedDocument() string {
 	return body.String()
 }
 
-func legacyTwoPassSourceDocumentDecoder(source policy.PolicySource) (*parserSourceDocument, error) {
+func TestParseEmptyRuleSourcesPreservesYAMLContract(t *testing.T) {
+	for _, source := range []policy.PolicySource{
+		{Kind: policy.SourceCompilerConfig, Path: ".reconc.yml"},
+		{Kind: policy.SourcePolicyFile, Path: "policies/empty.yml"},
+		{Kind: policy.SourcePolicyFile, Path: ".reconc/impact/candidate.yml", BlockID: policy.ImpactCandidateBlockPrefix + "candidate"},
+	} {
+		for _, test := range []struct {
+			name, body string
+			invalid    bool
+		}{
+			{name: "empty"},
+			{name: "whitespace", body: " \t\r\n"},
+			{name: "comment", body: "#"},
+			{name: "comment lines", body: "# first\n# second\n"},
+			{name: "byte order mark", body: "\xef\xbb\xbf"},
+			{name: "mapping", body: "{}\n"},
+			{name: "explicit null", body: "null\n", invalid: true},
+			{name: "empty explicit document", body: "---\n", invalid: true},
+		} {
+			t.Run(source.Path+"/"+test.name, func(t *testing.T) {
+				source.Content = test.body
+				parsed, err := ParseRuleDocuments(&ingest.SourceBundle{Sources: []policy.PolicySource{source}})
+				if test.invalid {
+					var validation *rerrors.RuleValidationError
+					if !errors.As(err, &validation) {
+						t.Fatalf("invalid empty document error = %v", err)
+					}
+					return
+				}
+				if err != nil || parsed == nil || len(parsed.Rules) != 0 || parsed.Actions != nil || parsed.DefaultMode != DefaultMode {
+					t.Fatalf("empty policy = %#v, %v", parsed, err)
+				}
+			})
+		}
+	}
+}
+
+func independentTwoPassSourceDocumentDecoder(source policy.PolicySource) (*parserSourceDocument, error) {
 	document, err := decodeYAMLDocumentBounded(source.Content, source.Path)
 	if err != nil {
 		return nil, err
 	}
-	root, err := legacyDecodeActionDocument(source.Content, source.Path)
+	root, err := independentDecodeActionDocument(source.Content, source.Path)
 	if err != nil {
 		return nil, err
 	}
 	return &parserSourceDocument{root: root, mapping: document.mapping}, nil
 }
 
-func legacyDecodeActionDocument(raw, context string) (*yaml.Node, error) {
+func independentDecodeActionDocument(raw, context string) (*yaml.Node, error) {
 	if strings.TrimSpace(raw) == "" {
 		return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}, nil
 	}
 	decoder := yaml.NewDecoder(strings.NewReader(raw))
 	var document yaml.Node
-	if err := decoder.Decode(&document); err != nil {
+	// Bounded YAML admission intentionally accepts comment-only empty input.
+	// Retain an independent action-node parse with that current contract.
+	if err := decoder.Decode(&document); err == io.EOF {
+		return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}, nil
+	} else if err != nil {
 		return nil, actionErrorWithCause("invalid yaml in "+context, err)
 	}
 	var trailing yaml.Node
@@ -173,16 +217,16 @@ func legacyDecodeActionDocument(raw, context string) (*yaml.Node, error) {
 func assertParserParity(t *testing.T, gotPolicy *ParsedPolicy, gotErr error, wantPolicy *ParsedPolicy, wantErr error) {
 	t.Helper()
 	if (gotErr == nil) != (wantErr == nil) {
-		t.Fatalf("shared error = %v, legacy error = %v", gotErr, wantErr)
+		t.Fatalf("shared error = %v, two-pass error = %v", gotErr, wantErr)
 	}
 	if gotErr != nil {
 		var gotValidation, wantValidation *rerrors.RuleValidationError
 		if !errors.As(gotErr, &gotValidation) || !errors.As(wantErr, &wantValidation) {
-			t.Fatalf("error classes differ: shared=%T legacy=%T", gotErr, wantErr)
+			t.Fatalf("error classes differ: shared=%T two-pass=%T", gotErr, wantErr)
 		}
 		return
 	}
 	if !reflect.DeepEqual(gotPolicy, wantPolicy) {
-		t.Fatalf("parsed policies differ:\nshared: %#v\nlegacy: %#v", gotPolicy, wantPolicy)
+		t.Fatalf("parsed policies differ:\nshared: %#v\ntwo-pass: %#v", gotPolicy, wantPolicy)
 	}
 }

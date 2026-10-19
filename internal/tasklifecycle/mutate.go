@@ -236,6 +236,16 @@ func CheckCompletion(repoRoot, id string) (string, []Issue, error) {
 	if err != nil {
 		return "", nil, err
 	}
+	return CompletionIssuesFor(board, id)
+}
+
+// CompletionIssuesFor checks one TASK against an already inspected board.
+// It performs no second filesystem observation; callers retain their existing
+// before/after candidate checks to detect changes after that inspection.
+func CompletionIssuesFor(board *Board, id string) (string, []Issue, error) {
+	if board == nil {
+		return "", nil, fmt.Errorf("no typed TASK lifecycle is configured or present")
+	}
 	var task *Task
 	if id == "" {
 		task = board.Active
