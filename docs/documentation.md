@@ -2779,7 +2779,10 @@ sidecar. A project with a different approved template name must add that exact
 root and nested pattern to its own `deny_write.exclude_paths`; broad `.env.*`
 exceptions would also permit unapproved secret names. The built-in
 `host-hook-config-read-only` template blocks agent writes to every
-repository-local hook artifact the registry installs, the wrapper, and the host
+repository-local hook artifact the registry installs, the wrapper, every path
+the wrapper runs a binary from (`tools/reconc/bin/hook-target`, the development
+binaries `tools/reconc/.build/bin/reconc`, `.build/bin/reconc`, and root
+`reconc`, `tools/reconc/dist/**`, and `dist/reconc-*`), and the host
 settings that can switch an installed hook off: `.claude/settings.local.json`,
 `.codex/config.toml`, `.github/copilot/settings.json` and
 `settings.local.json`, and OMP's `.omp/config.yml` and `.omp/settings.json`.
@@ -4970,7 +4973,9 @@ The built-in read/write/edit tools retain typed input. Each call carries the
 session's current directory from DSH's `workingDirectory` service, because the
 `working_directory` tool moves relative file operations and new processes away
 from the project directory in the session header; the header directory stays
-the project and session identity. Relative native file paths are resolved
+the project and session identity. When that service is missing or fails, the
+call is denied, because Reconc cannot place its relative paths or new
+processes. Relative native file paths are resolved
 against that current directory: inside the repository they become
 policy-root-relative, outside it they stay absolute. Bash running outside the
 repository root is never treated as stateless root Bash. Both native
@@ -5504,7 +5509,10 @@ hot-reloads settings files, so `ConfigChange` gates `user_settings`,
 `project_settings`, and `local_settings`: a change that sets an effective
 `disableAllHooks: true` or leaves `.claude/settings.json` without Reconc's
 generator-exact entries exits 2, and the running session keeps its current
-settings. A change Reconc cannot evaluate is blocked too. Managed-policy changes
+settings. Only the settings decide: a wrapper or binary problem that degrades
+`reconc hook status` does not freeze settings edits, so the edit that restores
+the managed entries goes through. Claude Code shows a blocked `ConfigChange`
+only in its debug log. A change Reconc cannot evaluate is blocked too. Managed-policy changes
 cannot be blocked by any hook, and skill changes cannot disable hooks.
 `reconc hook status` reports the artifact as installed but not running when the
 file-based managed policy (`managed-settings.json`, then `managed-settings.d/`)
@@ -5598,8 +5606,12 @@ metadata as pending evidence so PostToolUse can record exact evidence when the
 post payload only carries a step index/result. When the post payload names the
 executed call and it differs from the call PreToolUse allowed (another hook's
 `overwrite` merged new arguments before execution), the evidence records the
-executed call, the post route warns, and the Stop gate evaluates the real
-write; Reconc cannot undo that host mutation. The host's `conversationId` is
+executed call, the post route warns, and every later PreToolUse and the Stop
+of that conversation are blocked with the reason. Reconc cannot undo that host
+mutation, and the hooks reference specifies neither hook order nor how
+overwrites of several hooks merge, so no Reconc hook can be placed to check the
+arguments that run. Removing the overwriting hook and starting a new
+conversation restores enforcement. The host's `conversationId` is
 the session identity and its documented 0-based `stepIdx` is a monotonic
 trajectory sequence, so consumed step calls use a persisted high-water mark
 instead of one tombstone per call. The mark survives PostInvocation rollover,
@@ -5646,7 +5658,10 @@ and `compaction` (recovery context joins the compaction request's system
 parts), and the server event stream, where `session.execution.succeeded` or
 `failed` runs the stop gate and `session.execution.interrupted` never does.
 The 2.x stream carries every session the server runs, so lifecycle events
-reach the adapter only for sessions its location-bound hooks have seen.
+reach the adapter only for sessions its location-bound hooks have seen; the
+plugin tracks the 4096 most recently active of them, and a session's own hooks
+refresh it. An event that fails is logged and skipped, so later lifecycle and
+continuation events are still handled.
 Continuation uses `session.prompt` with queue delivery and a metadata marker
 that identifies the injected prompt. A one-shot `opencode run --standalone`
 stops its private server when the run ends, so a continuation requested at

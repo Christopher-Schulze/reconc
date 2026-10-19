@@ -467,13 +467,14 @@ export function apply(ctx) {
 
   // Relative file operations and new processes run in the session's current
   // directory, which the working_directory tool can move away from the
-  // project directory recorded in the session header.
-  const workingDirectory = (agent, fallback) => {
+  // project directory recorded in the session header. The host service always
+  // reports that directory; without it Reconc cannot place the call.
+  const workingDirectory = agent => {
     try {
       const directory = ctx.get('workingDirectory')?.get(agent.session)
-      return typeof directory === 'string' && isAbsolute(directory) ? directory : fallback
+      return typeof directory === 'string' && isAbsolute(directory) ? directory : undefined
     } catch {
-      return fallback
+      return undefined
     }
   }
 
@@ -484,12 +485,16 @@ export function apply(ctx) {
     if (identity && isRepoDirectory(identity.cwd) === false) return next()
     if (disposing) return { kind: 'deny', reason: 'Reconc extension is disposing' }
     if (identity) {
+      const directory = workingDirectory(identity.agent)
+      if (directory === undefined) {
+        return { kind: 'deny', reason: 'DeepSeek Harness did not report this session\'s working directory, so Reconc cannot place its relative paths or new processes; use a DeepSeek Harness release with the workingDirectory service.' }
+      }
       try {
         const output = await withinRouteDeadline('dsh-pre-tool-use', exec.signal, async signal => {
           await waitForSession(identity, signal)
           return transport.run('dsh-pre-tool-use', {
             hook_event_name: 'tools/pre-execute', session_id: identity.session, cwd: identity.cwd,
-            working_directory: workingDirectory(identity.agent, identity.cwd),
+            working_directory: directory,
             tool_name: identity.name, tool_input: identity.arguments, tool_call_id: identity.call,
             root_call_id: identity.rootCall, agent_id: identity.agentId,
             bash_stateful: identity.name === 'bash' && statefulBash(),

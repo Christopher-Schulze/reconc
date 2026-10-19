@@ -12,12 +12,14 @@ const runtimes = []
 let guard, cleanup
 const contexts = []
 let sessionDirectory
+let workingDirectoryService = true
 const ctx = {
   registry: { values: () => runtimes.values() },
   on(name, listener) { listeners.set(name, listener); return () => listeners.delete(name) },
   tools: { guard(listener) { guard = listener; return () => { guard = undefined } } },
   systemPrompt: { context(entry) { contexts.push(entry); return () => {} } },
-  get(name) { return name === 'workingDirectory' && sessionDirectory ? { get: () => sessionDirectory } : undefined },
+  // The host service reports the header directory until the session moves.
+  get(name) { return name === 'workingDirectory' && workingDirectoryService ? { get: () => sessionDirectory ?? repo } : undefined },
   provide() { return () => {} },
   effect(factory) { cleanup = factory() },
 }
@@ -134,7 +136,12 @@ if (mode === 'diagnostics-timer') {
       sessionDirectory = undefined
       const forwarded = records().filter(row => row.event === 'dsh-pre-tool-use').map(row => row.workingDirectory)
       assert.equal(forwarded.at(-1), repo + '/docs', 'the session working directory must reach the policy')
-      assert.equal(forwarded[0], repo, 'without the service the project directory is the working directory')
+      assert.equal(forwarded[0], repo, 'an unmoved session works in its header directory')
+      workingDirectoryService = false
+      const unplaced = await listeners.get('tools/pre-execute')(call('read', { path: 'spec.md' }), () => ({ kind: 'allow' }))
+      workingDirectoryService = true
+      assert.equal(unplaced.kind, 'deny', 'a call Reconc cannot place must not run')
+      assert.match(unplaced.reason, /working directory/)
       const steered = []
       agent.steer = message => steered.push(message)
       await listeners.get('agent/turn-stopping')({ agent, turn: 1 })

@@ -72,8 +72,13 @@ func runAntigravityPreToolUseResolvedWithEvaluatorAndStopCache(
 	if err != nil {
 		return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: err.Error()})
 	}
-	if parsed, parseErr := ParsePayload(payload); parseErr == nil && antigravitySendsProcessInput(parsed) {
-		return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: "reconc blocked manage_task send_input: input written into a running process cannot be bound to a command Reconc reviewed; run the command through run_command instead."})
+	if parsed, parseErr := ParsePayload(payload); parseErr == nil {
+		if antigravitySendsProcessInput(parsed) {
+			return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: "reconc blocked manage_task send_input: input written into a running process cannot be bound to a command Reconc reviewed; run the command through run_command instead."})
+		}
+		if reason := antigravityOverwriteBlock(root, parsed.SessionID); reason != "" {
+			return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: reason})
+		}
 	}
 	result := runPreToolUseResolvedWithEvaluatorAndStopCache(root, payload, evaluator, stopCache)
 	if result.ExitCode != 0 || result.Err != nil {
@@ -191,7 +196,13 @@ func runAntigravityPostToolUseResolved(root string, payloadBytes []byte) Result 
 		result = runPostToolUseResolved(root, body)
 	}
 	if overwritten {
-		warning := "reconc hook (Antigravity post, warn): the executed tool arguments differ from the arguments Reconc checked (another hook's overwrite); evidence records the executed call and the stop gate re-evaluates it"
+		warning := "reconc hook (Antigravity post, warn): the executed tool arguments differ from the arguments Reconc checked (another hook's overwrite); evidence records the executed call, and this conversation's later calls and Stop stay blocked"
+		if _, err := mutateSessionStateResolved(root, parsed.SessionID, func(state SessionState) SessionState {
+			state.HostArgumentOverwrite = toolName
+			return state
+		}); err != nil {
+			warning += "; record the overwrite: " + err.Error()
+		}
 		if result.Stderr != "" {
 			warning += "; " + result.Stderr
 		}
@@ -272,7 +283,28 @@ func runAntigravityStopResolvedWithEvaluatorAndCache(
 	if err != nil {
 		return AdaptAntigravityResult("antigravity-stop", Result{ExitCode: 2, Stderr: err.Error()})
 	}
+	if parsed, parseErr := ParsePayload(payload); parseErr == nil {
+		if reason := antigravityOverwriteBlock(root, parsed.SessionID); reason != "" {
+			return AdaptAntigravityResult("antigravity-stop", Result{ExitCode: 2, Stderr: reason})
+		}
+	}
 	return AdaptAntigravityResult("antigravity-stop", runStopResolvedWithEvaluatorAndCache(root, payload, runtimeName, evaluator, stopCache))
+}
+
+// antigravityOverwriteBlock holds a conversation in which another hook's
+// `overwrite` changed checked arguments. Antigravity documents neither hook
+// order nor how overwrites merge, so no Reconc check can see the arguments
+// that run; only removing that hook and starting a new conversation restores
+// enforcement. An unreadable state blocks as well.
+func antigravityOverwriteBlock(root, sessionID string) string {
+	state, err := readSessionStateResolved(root, sessionID)
+	if err != nil {
+		return "reconc blocked this Antigravity call: read session state: " + err.Error()
+	}
+	if state.HostArgumentOverwrite == "" {
+		return ""
+	}
+	return fmt.Sprintf("reconc blocked this Antigravity call: another hook rewrote the arguments of an earlier %s call after Reconc checked them (Antigravity `overwrite`). Antigravity does not order hooks, so Reconc cannot check the arguments that run. Remove the hook that returns `overwrite` from .agents/hooks.json, ~/.gemini/config/hooks.json, the CLI settings, or the plugin that ships it, then start a new conversation.", state.HostArgumentOverwrite)
 }
 
 func NormalizeAntigravityPayload(event string, payloadBytes []byte) ([]byte, error) {

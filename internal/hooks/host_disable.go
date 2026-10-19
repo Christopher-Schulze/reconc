@@ -3,6 +3,7 @@ package hooks
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -327,10 +328,17 @@ func ClaudeConfigChangeBlockReason(root, source string) (string, error) {
 	if source != "project_settings" {
 		return "", nil
 	}
-	report, err := InspectPlatform(root, KindClaudeCode)
+	resolved, err := existingRepoRoot(root)
 	if err != nil {
 		return "", err
 	}
+	platform, ok := PlatformForKind(KindClaudeCode)
+	if !ok {
+		return "", fmt.Errorf("unknown hook kind %q", KindClaudeCode)
+	}
+	// Judge the settings artifact alone: a wrapper or binary problem must not
+	// freeze settings edits, including the one that restores the entries.
+	report := inspectPlatform(resolved, platform)
 	if report.State != StateConfigured {
 		return "Reconc keeps its managed Claude Code hooks in .claude/settings.json; after the change: " + report.Detail, nil
 	}

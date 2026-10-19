@@ -856,6 +856,23 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
 }__EXPORT_TAIL__
 `
 
+// openCodeSessionTracker remembers the most recently active sessions; a
+// session's own hooks refresh it, so eviction drops the least recently active.
+const openCodeSessionTracker = `const trackedSessions = (limit) => {
+  const sessions = new Set()
+  return {
+    track(sessionID) {
+      if (typeof sessionID !== "string" || !sessionID) return
+      sessions.delete(sessionID)
+      if (sessions.size >= limit) sessions.delete(sessions.values().next().value)
+      sessions.add(sessionID)
+    },
+    has: (sessionID) => sessions.has(sessionID),
+    forget: (sessionID) => sessions.delete(sessionID),
+  }
+}
+`
+
 // openCodeV2Entry adapts OpenCode 2.x domain hooks to the 1.x hook object, so
 // both versions share one policy adapter and one worker. OpenCode 2.x loads
 // setup() from the default export and ignores server(); 1.x does the reverse.
@@ -890,14 +907,11 @@ const openCodeV1EventType = (event) => {
 // plugin instance has seen through its own location-bound hooks.
 const maxTrackedSessions = 4096
 
+` + openCodeSessionTracker + `
 const ReconcOpenCodeSetup = async (ctx) => {
   const location = ctx?.location || {}
-  const sessions = new Set()
-  const track = (sessionID) => {
-    if (typeof sessionID !== "string" || !sessionID || sessions.has(sessionID)) return
-    if (sessions.size >= maxTrackedSessions) sessions.delete(sessions.values().next().value)
-    sessions.add(sessionID)
-  }
+  const sessions = trackedSessions(maxTrackedSessions)
+  const track = sessions.track
   const ownsEvent = (event) => {
     if (!sessions.has(event?.data?.sessionID)) return false
     const directory = event?.location?.directory
@@ -982,10 +996,16 @@ const ReconcOpenCodeSetup = async (ctx) => {
   const events = (async () => {
     try {
       for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
-        const type = openCodeV1EventType(event)
-        if (!type || !ownsEvent(event)) continue
-        await hooks.event({ event: { type, properties: event?.data || {} } })
-        if (type === "session.deleted") sessions.delete(event.data.sessionID)
+        // One failing event must not end lifecycle and continuation handling
+        // for every later event.
+        try {
+          const type = openCodeV1EventType(event)
+          if (!type || !ownsEvent(event)) continue
+          await hooks.event({ event: { type, properties: event?.data || {} } })
+          if (type === "session.deleted") sessions.forget(event.data.sessionID)
+        } catch (error) {
+          console.error("reconc OpenCode event handling failed: " + String(error))
+        }
       }
     } catch (error) {
       if (!controller.signal.aborted) console.error("reconc OpenCode event stream ended: " + String(error))

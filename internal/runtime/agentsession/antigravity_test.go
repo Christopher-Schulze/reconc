@@ -415,6 +415,16 @@ func TestAntigravityOverwrittenArgumentsRecordTheExecutedCall(t *testing.T) {
 	if len(state.WritePaths) != 1 || state.WritePaths[0] != "generated/out.txt" {
 		t.Fatalf("evidence must record the executed write, got %+v", state.WritePaths)
 	}
+	// Antigravity does not order hooks, so no later check can see the call that
+	// runs: the conversation stays blocked once an overwrite was observed.
+	next := RunAntigravityPreToolUse(repo, []byte(`{"conversationId":"ag-overwrite","stepIdx":6,"toolCall":{"name":"view_file","args":{"AbsolutePath":"src/app.go"}}}`))
+	if !strings.Contains(next.Stdout, `"decision":"deny"`) || !strings.Contains(next.Stdout, "overwrite") {
+		t.Fatalf("a call after an observed overwrite was not denied: exit=%d stdout=%s stderr=%s", next.ExitCode, next.Stdout, next.Stderr)
+	}
+	stop := RunAntigravityStop(repo, []byte(`{"conversationId":"ag-overwrite"}`))
+	if strings.Contains(stop.Stdout, `"decision":"stop"`) || !strings.Contains(stop.Stdout, "overwrite") {
+		t.Fatalf("Stop after an observed overwrite was not held: stdout=%s stderr=%s", stop.Stdout, stop.Stderr)
+	}
 
 	pre = RunAntigravityPreToolUse(repo, []byte(`{"conversationId":"ag-same","stepIdx":5,"toolCall":{"name":"replace_file_content","args":{"TargetFile":"src/app.go"}}}`))
 	if pre.ExitCode != 0 {

@@ -222,4 +222,22 @@ func TestClaudeConfigChangeBlockReason(t *testing.T) {
 	if reason, err := ClaudeConfigChangeBlockReason(repo, "local_settings"); err != nil || reason != "" {
 		t.Fatalf("a local change is judged only by disableAllHooks: %q, %v", reason, err)
 	}
+	// Only the settings decide: an outdated wrapper or an unresolvable binary
+	// must not freeze settings edits, including the edit that restores the
+	// managed entries.
+	if _, err := Install(KindClaudeCode, repo, true); err != nil {
+		t.Fatal(err)
+	}
+	wrapper := filepath.Join(repo, filepath.FromSlash(WrapperPath))
+	body, err := os.ReadFile(wrapper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wrapper, append(body, []byte("# outdated\n")...), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if reason, err := ClaudeConfigChangeBlockReason(repo, "project_settings"); err != nil || reason != "" {
+		t.Fatalf("a settings change was blocked for a wrapper problem: %q, %v", reason, err)
+	}
 }

@@ -977,6 +977,9 @@ if (kind === "opencode" || kind === "kilo") {
     tools: { guard: (listener) => { guard = listener; return () => { guard = undefined } } },
     systemPrompt: { context: (entry) => { contexts.push(entry); return () => contexts.pop() } },
     registry: { values: () => runtimes.values() },
+    // DSH's workingDirectory service reports the header directory until the
+    // session moves.
+    get: (name) => name === "workingDirectory" ? { get: (session) => session?.header?.cwd } : undefined,
     provide: () => () => {},
     effect: (factory) => { cleanup = factory(); return () => cleanup() },
   }

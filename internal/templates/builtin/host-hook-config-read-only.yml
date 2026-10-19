@@ -1,4 +1,4 @@
-description: "Deny agent writes to installed Reconc hook artifacts and the host settings that can disable them."
+description: "Deny agent writes to installed Reconc hook artifacts, the binaries the hook wrapper runs, and the host settings that can disable them."
 kind: deny_write
 mode: block
 message: "Reconc hook artifacts and the host settings that can switch them off are operator-owned; change them with `reconc hook install` or outside the agent session."
@@ -6,6 +6,12 @@ paths:
   - ".git/hooks/pre-commit"
   - ".githooks/pre-commit"
   - "tools/reconc/bin/hook"
+  - "tools/reconc/bin/hook-target"
+  - "tools/reconc/.build/bin/reconc"
+  - ".build/bin/reconc"
+  - "reconc"
+  - "tools/reconc/dist/**"
+  - "dist/reconc-*"
   - ".claude/settings.json"
   - ".claude/settings.local.json"
   - ".codex/hooks.json"

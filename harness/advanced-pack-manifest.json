@@ -536,8 +536,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.dsh/reconc.mjs",
       "mode": 420,
-      "size": 25422,
-      "sha256": "7580ce0da5ea8fa97ad272ea8f0146d94ffd0ece176b865a861c64de08ddb1eb",
+      "size": 25807,
+      "sha256": "32ad872f94b1fce36d9439f1a748d6ff30c8bcdbdaaaaa7cd39c2038cf48b9a3",
       "ownership": "pack-file"
     },
     {
@@ -599,8 +599,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.opencode/plugins/reconc.js",
       "mode": 420,
-      "size": 41117,
-      "sha256": "af61d653b8aadf0380fd5ff7d65831c816a046736f89068e5e0ee5f82e8f0e22",
+      "size": 41607,
+      "sha256": "5394a5386771ec2767851cf0c2a1e1e1cd3049c3949b3bd77550dee270839bf1",
       "ownership": "pack-file"
     },
     {
@@ -863,6 +863,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 910752,
-  "digest": "a02c485b7474b3fc4629e35ec1739830ba2099425b75b869ee464ae08f3a48cf"
+  "total_bytes": 911627,
+  "digest": "50804fded0533df7215e9a7b142ad733b8c03430359093b49050a28ba97aadda"
 }

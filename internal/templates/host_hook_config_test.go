@@ -29,6 +29,9 @@ func TestHostHookConfigTemplateCoversEveryRepositoryHookArtifact(t *testing.T) {
 	}
 	want := []string{
 		hooks.WrapperPath, hooks.DSHPatchPath,
+		// Every path the wrapper resolves a binary from: replacing any of them
+		// replaces the program every hook runs.
+		hooks.WrapperTargetPath, "tools/reconc/dist/**", "dist/reconc-*",
 		".claude/settings.local.json",
 		".github/copilot/settings.json", ".github/copilot/settings.local.json",
 		".omp/config.yml", ".omp/settings.json",
@@ -40,6 +43,7 @@ func TestHostHookConfigTemplateCoversEveryRepositoryHookArtifact(t *testing.T) {
 			}
 		}
 	}
+	want = append(want, hooks.WrapperDevelopmentBinaryPaths...)
 	for _, path := range want {
 		if !slices.Contains(paths, path) {
 			t.Errorf("host-hook-config-read-only omits %s", path)

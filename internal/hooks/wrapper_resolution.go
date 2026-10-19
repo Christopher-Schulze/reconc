@@ -73,8 +73,12 @@ func inspectWrapperBinary(root string) WrapperBinaryStatus {
 	return status
 }
 
+// WrapperDevelopmentBinaryPaths are the repository paths the wrapper runs
+// before any platform probe, in order.
+var WrapperDevelopmentBinaryPaths = []string{"tools/reconc/.build/bin/reconc", ".build/bin/reconc", "reconc"}
+
 func resolveWrapperBinary(root string) (string, string, error) {
-	for _, relative := range []string{"tools/reconc/.build/bin/reconc", ".build/bin/reconc", "reconc"} {
+	for _, relative := range WrapperDevelopmentBinaryPaths {
 		path := filepath.Join(root, filepath.FromSlash(relative))
 		if wrapperCandidateTrusted(path) {
 			return path, "development", nil

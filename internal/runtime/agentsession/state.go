@@ -107,7 +107,10 @@ type SessionState struct {
 	// AntigravityStepHighWater is the highest verified monotonic stepIdx
 	// retired for this conversation. A pointer preserves step zero while
 	// keeping legacy states without a sequence marker distinguishable.
-	AntigravityStepHighWater   *uint64  `json:"antigravity_step_high_water,omitempty"`
+	AntigravityStepHighWater *uint64 `json:"antigravity_step_high_water,omitempty"`
+	// HostArgumentOverwrite names the tool whose arguments another hook
+	// rewrote after Reconc checked them; the conversation stays blocked.
+	HostArgumentOverwrite      string   `json:"host_argument_overwrite,omitempty"`
 	ConsumedApprovalIdentities []string `json:"consumed_approval_identities,omitempty"`
 	MaterialEvents             uint64   `json:"material_events,omitempty"`
 	LastMaterialSignature      string   `json:"last_material_signature,omitempty"`

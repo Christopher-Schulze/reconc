@@ -61,7 +61,11 @@ const register = (domain) => async (name, callback) => {
   return { dispose: async () => {} }
 }
 const sessionID = "ses_v2"
+// An event that throws while it is read must not end lifecycle handling.
+let poisoned = false
+const poison = { type: "session.execution.succeeded", get data() { poisoned = true; throw new Error("unreadable event") } }
 const queued = [
+  poison,
   { type: "session.execution.succeeded", data: { sessionID: "ses_other" } },
   { type: "session.execution.succeeded", data: { sessionID }, location: { directory: "/elsewhere" } },
   { type: "session.created", data: { sessionID } },
@@ -116,8 +120,10 @@ const compaction = { sessionID, system: [] }
 await registrations.get("session.compaction")(compaction)
 if (compaction.system.length !== 1 || compaction.system[0].text !== "recovery-packet") throw new Error("2.x compaction context drift: " + JSON.stringify(compaction.system))
 startEvents()
-await drained
+const drainedInTime = await Promise.race([drained.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 10000))])
+if (!drainedInTime) throw new Error("lifecycle handling stopped before the event stream drained")
 await cleanup()
+if (!poisoned) throw new Error("the unreadable event was never delivered")
 if (prompts.length !== 1 || prompts[0].sessionID !== sessionID || prompts[0].delivery !== "queue" ||
     prompts[0].text !== "finish the Reconc run" || !String(prompts[0].metadata?.reconc_message_id).startsWith("msg_reconc_")) {
   throw new Error("2.x continuation drift: " + JSON.stringify(prompts))
@@ -154,5 +160,41 @@ if (prompts.length !== 1 || prompts[0].sessionID !== sessionID || prompts[0].del
 	post := bunHookPayload(t, records, "opencode-post-tool-use")["tool_response"].(map[string]interface{})
 	if post["exit_code"] != float64(0) || post["success"] != true {
 		t.Fatalf("2.x shell outcome = %#v", post)
+	}
+}
+
+// The 2.x tracker keeps the most recently active sessions: a session's own
+// hooks refresh it, so eviction drops the least recently active one.
+func TestOpenCodeSessionTrackerEvictsTheLeastRecentlyActiveSession(t *testing.T) {
+	bun, err := exec.LookPath("bun")
+	if err != nil {
+		t.Fatalf("Bun is required to verify the generated OpenCode plugin: %v", err)
+	}
+	artifact, err := Generate(KindOpenCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(artifact.Content, openCodeSessionTracker) {
+		t.Fatal("the generated plugin does not ship the tested session tracker")
+	}
+	driver := openCodeSessionTracker + `
+const sessions = trackedSessions(2)
+sessions.track("a")
+sessions.track("b")
+sessions.track("a")
+sessions.track("c")
+if (!sessions.has("a") || sessions.has("b") || !sessions.has("c")) throw new Error("tracker evicted an active session")
+sessions.forget("a")
+if (sessions.has("a")) throw new Error("a deleted session stays tracked")
+sessions.track("")
+sessions.track(42)
+if (sessions.has("") || sessions.has(42)) throw new Error("tracker accepted an invalid session id")
+`
+	path := filepath.Join(t.TempDir(), "tracker.js")
+	if err := os.WriteFile(path, []byte(driver), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command(bun, path).CombinedOutput(); err != nil {
+		t.Fatalf("session tracker: %v\n%s", err, output)
 	}
 }
