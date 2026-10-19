@@ -47,6 +47,10 @@ type Invocation struct {
 	Source       string
 	Words        []string
 	DynamicWords []bool
+	// EnvironmentChanged reports an assignment prefix (`VAR=x cmd`) or an
+	// `env` wrapper: either can redirect what an otherwise read-only program
+	// executes (GIT_EXTERNAL_DIFF, LD_PRELOAD, RIPGREP_CONFIG_PATH, ...).
+	EnvironmentChanged bool
 }
 
 // CompiledExpectation is an immutable parse of one expected command. The
@@ -449,6 +453,7 @@ func invocationsAt(state *parserState, command string, maxDepth, depth int) ([]I
 		if !wrapped {
 			invocation.Source = wordsSource(words)
 		}
+		invocation.EnvironmentChanged = len(call.Assigns) > 0 || wrapperWordsInclude(words[:len(words)-len(effective)], "env")
 		result = append(result, invocation)
 
 		nestedCommand, nestedResolved := nestedCommandString(effective)
@@ -595,6 +600,15 @@ func renderedWord(word *syntax.Word) string {
 		return "<dynamic>"
 	}
 	return rendered.String()
+}
+
+func wrapperWordsInclude(wrappers []commandWord, name string) bool {
+	for _, word := range wrappers {
+		if baseName(word.value) == name {
+			return true
+		}
+	}
+	return false
 }
 
 func invocationFromWords(words []commandWord) Invocation {

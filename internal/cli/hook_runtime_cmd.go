@@ -49,6 +49,18 @@ func (readiness *firstClassRouteReadiness) platform(root, kind string) (hooks.Pl
 	return report, err
 }
 
+// devinOwnsEvent defers a compatible duplicate to the first-class Devin route.
+// A payload marker proves the event came from Devin. The inherited
+// DEVIN_PROJECT_DIR alone suffices only for non-blocking routes: any process
+// started from a Devin shell carries it, and a blocking Claude, Codex or
+// Cursor gate must never be skipped on the environment alone.
+func devinOwnsEvent(route hooks.RuntimeRoute, payload []byte, repo string) bool {
+	if agentsession.PayloadMarkedDevin(payload) {
+		return true
+	}
+	return route.ErrorPolicy != hooks.FailureBlock && agentsession.PayloadLooksLikeDevin(payload, repo)
+}
+
 func dedupToFirstClassRoute(readiness *firstClassRouteReadiness, root agentsession.ResolvedRepoRoot, sourceRuntime, firstClassKind, event string, stderr io.Writer) bool {
 	report, err := readiness.platform(root.Path(), firstClassKind)
 	if err != nil || report.State != hooks.StateConfigured {
@@ -189,7 +201,7 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 			return nil
 		}
 	}
-	if route.PlatformKind != hooks.KindDevinCLI && agentsession.PayloadLooksLikeDevin(payload, repo) {
+	if route.PlatformKind != hooks.KindDevinCLI && devinOwnsEvent(route, payload, repo) {
 		if dedupToFirstClassRoute(readiness, root, route.PlatformKind, hooks.KindDevinCLI, event, stderr) {
 			return nil
 		}
@@ -348,7 +360,7 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 		timing.policyDecision = ""
 	}
 
-	emitHookRuntimeResult(result, stdout, stderr)
+	result.ExitCode = emitHookRuntimeDecision(route, result, stdout, stderr)
 	if result.ExitCode != 0 {
 		exitCode = result.ExitCode
 		return &CLIError{ExitCode: result.ExitCode, Message: ""}
@@ -356,15 +368,30 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	return nil
 }
 
+// emitHookRuntimeDecision writes the result and returns the exit code to
+// report. Several hosts read a deny from stdout with exit 0, so a blocking
+// route whose stdout never reached the host must not exit 0, which those hosts
+// read as allow.
+func emitHookRuntimeDecision(route hooks.RuntimeRoute, result agentsession.Result, stdout, stderr io.Writer) int {
+	if err := emitHookRuntimeResult(result, stdout, stderr); err != nil && result.ExitCode == 0 && route.ErrorPolicy == hooks.FailureBlock {
+		fmt.Fprintln(stderr, "reconc hook runtime: write hook decision: "+err.Error())
+		return 2
+	}
+	return result.ExitCode
+}
+
 // emitHookRuntimeResult owns the one-byte terminal framing included by every
-// non-empty stdout or stderr stream in the route output budget.
-func emitHookRuntimeResult(result agentsession.Result, stdout, stderr io.Writer) {
+// non-empty stdout or stderr stream in the route output budget. It reports a
+// failed stdout write, which may have carried the host decision.
+func emitHookRuntimeResult(result agentsession.Result, stdout, stderr io.Writer) error {
+	var stdoutErr error
 	if result.Stdout != "" {
-		fmt.Fprintln(stdout, result.Stdout)
+		_, stdoutErr = fmt.Fprintln(stdout, result.Stdout)
 	}
 	if result.Stderr != "" {
 		fmt.Fprintln(stderr, result.Stderr)
 	}
+	return stdoutErr
 }
 
 type hookRuntimeFailureStage string

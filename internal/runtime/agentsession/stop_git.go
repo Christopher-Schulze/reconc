@@ -22,15 +22,34 @@ import (
 	"reconc.dev/reconc/internal/runtime"
 )
 
+// gitCommandOutput returns Git's stdout only. Porcelain parsers must never see
+// diagnostics: a warning such as an unreadable directory would otherwise merge
+// into the first record, hiding a real dirty path behind a phantom one. A
+// successful command that still wrote diagnostics reports them as an error,
+// so callers treat the observation as unverified instead of complete.
 func gitCommandOutput(repoRoot string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := gitexec.CommandContext(ctx, repoRoot, nil, args...)
-	out, err := boundedexec.CombinedOutput(cmd, maxStopGitOutputBytes)
+	stderr, err := boundedexec.NewBuffer(maxStopGitOutputBytes)
+	if err != nil {
+		return "", err
+	}
+	cmd.Stderr = stderr
+	out, err := boundedexec.Output(cmd, maxStopGitOutputBytes)
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return string(out), fmt.Errorf("git %s timed out", strings.Join(args, " "))
 	}
-	return string(out), err
+	if err != nil {
+		if diagnostic := strings.TrimSpace(stderr.String()); diagnostic != "" {
+			err = fmt.Errorf("%w: %s", err, diagnostic)
+		}
+		return string(out), err
+	}
+	if diagnostic := strings.TrimSpace(stderr.String()); diagnostic != "" {
+		return string(out), fmt.Errorf("git %s reported diagnostics: %s", args[0], diagnostic)
+	}
+	return string(out), nil
 }
 
 // gitHeadFingerprint reads Git's HEAD and referenced object directly. Stop
@@ -435,7 +454,7 @@ func submoduleWorktreeHash(root string) string {
 	if err != nil {
 		return "submodule-error:" + err.Error()
 	}
-	rawStatus, err := gitCommandOutput(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	rawStatus, err := gitCommandOutput(root, "status", "--porcelain=v1", "-z", "--ignore-submodules=none", "--untracked-files=all")
 	if err != nil {
 		return "submodule-error:" + err.Error()
 	}

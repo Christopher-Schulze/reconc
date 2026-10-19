@@ -364,7 +364,15 @@ func gitHead(repoRoot string) (string, error) {
 	if err == nil {
 		return head, nil
 	}
-	if _, symbolicErr := gitOutput(repoRoot, "symbolic-ref", "--quiet", "HEAD"); symbolicErr == nil {
+	// Only a symbolic HEAD whose target ref does not exist is unborn; a
+	// timeout, broken ref or unreadable repository stays an error.
+	ref, symbolicErr := gitOutput(repoRoot, "symbolic-ref", "--quiet", "HEAD")
+	if symbolicErr != nil || ref == "" {
+		return "", err
+	}
+	_, verifyErr := gitOutput(repoRoot, "show-ref", "--verify", "--quiet", ref)
+	var exitErr *exec.ExitError
+	if errors.As(verifyErr, &exitErr) && exitErr.ExitCode() == 1 {
 		return "UNBORN", nil
 	}
 	return "", err
@@ -395,7 +403,7 @@ func canonicalRepoRoot(repoRoot string) (string, error) {
 func requireCleanAgainstIndex(repoRoot string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), gitCommandTimeout)
 	defer cancel()
-	cmd := gitexec.CommandContext(ctx, repoRoot, nil, "diff", "--quiet", "--")
+	cmd := gitexec.CommandContext(ctx, repoRoot, nil, "diff", "--quiet", "--ignore-submodules=none", "--")
 	if err := cmd.Run(); err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return fmt.Errorf("inspect tracked unstaged changes: git diff timed out after %s", gitCommandTimeout)
@@ -406,7 +414,9 @@ func requireCleanAgainstIndex(repoRoot string) error {
 		}
 		return fmt.Errorf("inspect tracked unstaged changes: %w", err)
 	}
-	untracked, err := gitOutputBytes(repoRoot, "ls-files", "--others", "--exclude-standard", "-z")
+	// `:/` lists untracked paths from the top level even when the policy root
+	// is a subdirectory; a cwd-relative listing would miss them.
+	untracked, err := gitOutputBytes(repoRoot, "ls-files", "--others", "--exclude-standard", "-z", "--full-name", "--", ":/")
 	if err != nil {
 		return err
 	}

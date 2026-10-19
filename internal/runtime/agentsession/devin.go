@@ -196,7 +196,14 @@ func PayloadLooksLikeDevin(payloadBytes []byte, repoRoot string) bool {
 			return true
 		}
 	}
-	if len(bytes.TrimSpace(payloadBytes)) == 0 {
+	return PayloadMarkedDevin(payloadBytes)
+}
+
+// PayloadMarkedDevin reports a Devin identity carried by the payload itself.
+// Unlike the inherited DEVIN_PROJECT_DIR, which every process started from a
+// Devin shell carries, it proves the event came from Devin.
+func PayloadMarkedDevin(payloadBytes []byte) bool {
+	if len(bytes.TrimSpace(payloadBytes)) == 0 || !bytes.Contains(bytes.ToLower(payloadBytes), []byte("devin")) {
 		return false
 	}
 	var raw map[string]interface{}

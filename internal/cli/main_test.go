@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,9 @@ import (
 )
 
 func TestMain(testingMain *testing.M) {
+	// Package tests act as the operator; TestOperatorAdministrationRequires*
+	// restore and exercise the real interactive confirmation.
+	confirmOperatorPresence = func(string, io.Writer) error { return nil }
 	directory, err := os.MkdirTemp("", "reconc-cli-test-*")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

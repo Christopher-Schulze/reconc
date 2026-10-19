@@ -77,11 +77,11 @@ func runHook(args []string, version string, stdout, stderr io.Writer) error {
 	case "evidence-status":
 		return runHookEvidenceStatus(args[1:], stdout)
 	case "evidence-resolve":
-		return runHookEvidenceResolve(args[1:], stdout)
+		return runHookEvidenceResolve(args[1:], stdout, stderr)
 	case "pause":
-		return runHookPause(args[1:], stdout)
+		return runHookPause(args[1:], stdout, stderr)
 	case "resume":
-		return runHookResume(args[1:], stdout)
+		return runHookResume(args[1:], stdout, stderr)
 	case "pause-status":
 		return runHookPauseStatus(args[1:], stdout)
 	}
@@ -131,7 +131,7 @@ func runHookEvidenceStatus(args []string, stdout io.Writer) error {
 	return nil
 }
 
-func runHookEvidenceResolve(args []string, stdout io.Writer) error {
+func runHookEvidenceResolve(args []string, stdout, stderr io.Writer) error {
 	repo := ""
 	token := ""
 	reason := ""
@@ -167,6 +167,9 @@ func runHookEvidenceResolve(args []string, stdout io.Writer) error {
 	}
 	if repo == "" || token == "" || reason == "" {
 		return &CLIError{ExitCode: 1, Message: "reconc hook evidence-resolve: usage: reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]"}
+	}
+	if err := confirmOperatorPresence("reconc hook evidence-resolve", stderr); err != nil {
+		return err
 	}
 	status, err := agentsession.ResolveEvidenceTaint(repo, token, reason)
 	if err != nil {

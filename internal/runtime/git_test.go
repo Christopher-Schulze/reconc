@@ -157,7 +157,7 @@ func TestCollectGitWritePathsStagedRenameIncludesBothPaths(t *testing.T) {
 				t.Fatalf("collect: %v", err)
 			}
 			requireGitPaths(t, paths, []string{newPath, oldPath})
-			if metadata.GitCommand != "git diff --cached --no-renames --name-only -z" {
+			if metadata.GitCommand != "git diff --cached --no-renames --ignore-submodules=none --name-only -z" {
 				t.Fatalf("git command=%q", metadata.GitCommand)
 			}
 		})
@@ -182,7 +182,7 @@ func TestCollectGitWritePathsRangeRenameIncludesBothPaths(t *testing.T) {
 				t.Fatalf("collect: %v", err)
 			}
 			requireGitPaths(t, paths, []string{newPath, oldPath})
-			if metadata.GitCommand != "git diff HEAD~1...HEAD --no-renames --name-only -z" {
+			if metadata.GitCommand != "git diff HEAD~1...HEAD --no-renames --ignore-submodules=none --name-only -z" {
 				t.Fatalf("git command=%q", metadata.GitCommand)
 			}
 		})

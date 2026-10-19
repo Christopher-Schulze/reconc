@@ -654,6 +654,15 @@ func TestCommandWriteClassificationFailsClosedForExecutableOrOutputFlags(t *test
 		{command: "git diff --output=AGENTS.md", want: true},
 		{command: "rg --pre touch AGENTS.md .", want: true},
 		{command: "reconc check .", want: true},
+		{command: "GIT_EXTERNAL_DIFF=./x.sh git diff", want: true},
+		{command: "RIPGREP_CONFIG_PATH=cfg rg pattern", want: true},
+		{command: "LD_PRELOAD=./evil.so cat AGENTS.md", want: true},
+		{command: "env GIT_EXTERNAL_DIFF=./x.sh git status", want: true},
+		{command: "git diff", want: true},
+		{command: "git show HEAD", want: true},
+		{command: "git log -p", want: true},
+		{command: "git diff --no-ext-diff --no-textconv", want: false},
+		{command: "git log --no-ext-diff --no-textconv --oneline", want: false},
 	}
 	for _, test := range tests {
 		if got := commandMayWriteRepository(test.command); got != test.want {

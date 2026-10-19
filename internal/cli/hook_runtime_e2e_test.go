@@ -849,8 +849,9 @@ func TestHookRuntimeDevinDedupIsVisibleWhenDevinHooksInstalled(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	payload := `{"session_id":"ses_devenv2","tool_name":"Write","tool_input":{"file_path":"generated/out.txt"}}`
-	_, stderrStr, code := runWithStdin(t, payload, "hook", "runtime", "claude-pre-tool-use", repo)
+	// The inherited environment alone may defer an observing route ...
+	payload := `{"session_id":"ses_devenv2","tool_name":"Write","tool_input":{"file_path":"generated/out.txt"},"tool_response":{}}`
+	_, stderrStr, code := runWithStdin(t, payload, "hook", "runtime", "claude-post-tool-use", repo)
 	if code != 0 {
 		t.Fatalf("dedup to first-class Devin route should exit 0, got %d", code)
 	}
@@ -861,11 +862,17 @@ func TestHookRuntimeDevinDedupIsVisibleWhenDevinHooksInstalled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if liveness["claude"].Routes["claude-pre-tool-use"] == "" {
+	if liveness["claude"].Routes["claude-post-tool-use"] == "" {
 		t.Fatalf("dedup liveness was not attributed to the source runtime: %#v", liveness)
 	}
-	if _, orphaned := liveness["claude-pre-tool-use"]; orphaned {
+	if _, orphaned := liveness["claude-post-tool-use"]; orphaned {
 		t.Fatalf("dedup created an orphan runtime record: %#v", liveness)
+	}
+	// ... but never a blocking gate: a Claude process started from a Devin
+	// shell carries the same variable while Devin's hooks see none of its calls.
+	_, stderrStr, code = runWithStdin(t, `{"session_id":"ses_devenv2","tool_name":"Write","tool_input":{"file_path":"generated/out.txt"}}`, "hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 2 || strings.Contains(stderrStr, "deduplicated") {
+		t.Fatalf("inherited DEVIN_PROJECT_DIR skipped a blocking Claude gate: code=%d stderr=%q", code, stderrStr)
 	}
 }
 

@@ -1125,6 +1125,32 @@ func TestRuleToMapCoversOptionalFields(t *testing.T) {
 	}
 }
 
+func TestCompileWarnsOnUncapturedCompositeCheckVariable(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	writeFile(t, repo, "policies/rules.yml",
+		"rules:\n"+
+			"  - id: uncaptured\n    kind: all_of\n    when_paths: ['src/**']\n    checks:\n      - kind: deny_write\n        paths: ['generated/{module}/**']\n    mode: block\n    message: m\n"+
+			"  - id: captured\n    kind: all_of\n    when_paths: ['src/{module}/**']\n    checks:\n      - kind: deny_write\n        paths: ['generated/{module}/**']\n    mode: block\n    message: m\n")
+	compiled, err := CompileRepoPolicy(repo, "0.1.0-test")
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	hits := 0
+	for _, warning := range compiled.Warnings {
+		if strings.Contains(warning, "which when_paths does not capture") {
+			hits++
+			if !strings.Contains(warning, "'uncaptured'") {
+				t.Fatalf("warning names the wrong rule: %s", warning)
+			}
+		}
+	}
+	if hits != 1 {
+		t.Fatalf("uncaptured check variable warnings = %d, want 1: %v", hits, compiled.Warnings)
+	}
+}
+
 func TestCompileWarnsOnBraceVariableInNonCaptureKind(t *testing.T) {
 	withRECONCHome(t)
 	repo := t.TempDir()

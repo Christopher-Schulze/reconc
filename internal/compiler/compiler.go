@@ -1359,6 +1359,7 @@ func braceVariableWarnings(rules []policy.Rule) []string {
 				globField{"before_paths", r.BeforePaths},
 			)
 		}
+		warnings = append(warnings, uncapturedCheckPathWarnings(r)...)
 		for _, field := range fields {
 			for _, pattern := range field.patterns {
 				variables, err := templates.Variables(pattern)
@@ -1373,6 +1374,41 @@ func braceVariableWarnings(rules []policy.Rule) []string {
 					warnings = append(warnings, fmt.Sprintf(
 						"rule '%s': %s pattern %q uses %s, but kind %s does not capture template variables; doublestar matches it as the literal text %q",
 						r.ID, field.name, pattern, match, r.Kind, strings.Trim(match, "{}")))
+				}
+			}
+		}
+	}
+	return warnings
+}
+
+// uncapturedCheckPathWarnings flags composite sub-check path variables that
+// the rule's when_paths never capture; at runtime such a check fails closed.
+func uncapturedCheckPathWarnings(r policy.Rule) []string {
+	if len(r.Checks) == 0 {
+		return nil
+	}
+	captured := map[string]bool{}
+	for _, pattern := range r.WhenPaths {
+		variables, err := templates.Variables(pattern)
+		if err != nil {
+			continue
+		}
+		for _, variable := range variables {
+			captured[variable.Name] = true
+		}
+	}
+	warnings := []string{}
+	for index, check := range r.Checks {
+		for _, pattern := range check.Paths {
+			variables, err := templates.Variables(pattern)
+			if err != nil {
+				continue
+			}
+			for _, variable := range variables {
+				if !captured[variable.Name] {
+					warnings = append(warnings, fmt.Sprintf(
+						"rule '%s': check %d %s path %q uses {%s}, which when_paths does not capture; the check fails closed",
+						r.ID, index+1, check.Kind, pattern, variable.Name))
 				}
 			}
 		}

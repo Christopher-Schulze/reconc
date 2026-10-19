@@ -85,7 +85,7 @@ func commandMayWriteRepository(command string) bool {
 		return true
 	}
 	for _, invocation := range invocations {
-		if !knownReadOnlyInvocation(invocation.Words) {
+		if invocation.EnvironmentChanged || !knownReadOnlyInvocation(invocation.Words) {
 			return true
 		}
 	}
@@ -117,10 +117,14 @@ func knownReadOnlyInvocation(words []string) bool {
 			return false
 		}
 		switch words[1] {
-		case "check-ignore", "describe", "log", "ls-files", "ls-tree", "rev-parse", "show", "status":
+		case "check-ignore", "describe", "ls-files", "ls-tree", "rev-parse", "status":
 			return !hasCommandOption(words[2:], "--output", "-o", "--ext-diff", "--textconv")
-		case "diff":
-			return !hasCommandOption(words[2:], "--output", "-o", "--ext-diff", "--textconv")
+		case "diff", "log", "show":
+			// Repository configuration and attributes can attach external diff
+			// and textconv programs to these commands, so they are read-only
+			// only when the caller disables both explicitly.
+			return !hasCommandOption(words[2:], "--output", "-o", "--ext-diff", "--textconv") &&
+				hasCommandOption(words[2:], "--no-ext-diff") && hasCommandOption(words[2:], "--no-textconv")
 		case "branch":
 			return len(words) == 2
 		default:

@@ -69,16 +69,19 @@ func CollectGitWritePaths(repoRoot string, staged bool, base, head string) ([]st
 	mode := GitModeStaged
 	resolvedHead := head
 	if staged {
-		args = []string{"diff", "--cached", "--no-renames", "--name-only", "-z"}
-		commandStr = "git diff --cached --no-renames --name-only -z"
+		// Repository config (diff.ignoreSubmodules, submodule.<name>.ignore)
+		// survives the hermetic environment and would hide a committed
+		// submodule bump from every path rule.
+		args = []string{"diff", "--cached", "--no-renames", "--ignore-submodules=none", "--name-only", "-z"}
+		commandStr = "git diff --cached --no-renames --ignore-submodules=none --name-only -z"
 	} else {
 		if resolvedHead == "" {
 			resolvedHead = "HEAD"
 		}
 		mode = GitModeRange
 		spec := fmt.Sprintf("%s...%s", base, resolvedHead)
-		args = []string{"diff", spec, "--no-renames", "--name-only", "-z"}
-		commandStr = "git diff " + spec + " --no-renames --name-only -z"
+		args = []string{"diff", spec, "--no-renames", "--ignore-submodules=none", "--name-only", "-z"}
+		commandStr = "git diff " + spec + " --no-renames --ignore-submodules=none --name-only -z"
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), gitDiffTimeout)

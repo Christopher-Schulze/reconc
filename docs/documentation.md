@@ -2261,7 +2261,16 @@ worktree, index, common-directory, object-store, config, hook, prompt, locale,
 pager, and optional-lock settings are removed or pinned before Git starts, so
 foreign process state cannot enter proof, completion, Stop, memory, alias, or
 runtime-diff evidence. Repository-local Git state remains the selected source;
-Repository Sync alone receives explicit ephemeral object-store overrides.
+Repository Sync alone receives explicit ephemeral object-store overrides. The
+one ambient redirection kept is the temporary commit index Git itself names in
+`GIT_INDEX_FILE` while running hooks for `git commit -a`, `-i`, `-o`, or a
+pathspec commit: a regular file named `index`, `index.lock`, or
+`next-index-*.lock` directly inside the repository's own Git directory, so the
+staged gate evaluates exactly what the commit records. Staged and range diffs
+and Stop status observations pass `--ignore-submodules=none`, so repository
+configuration cannot hide a submodule bump from path rules, and Git
+diagnostics on stderr never enter porcelain parsing: a status that wrote
+diagnostics is treated as unverified rather than complete.
 Portable workflow audits reserve `docs/tasks/` and `docs/tasks/done/` for
 referenced `TASK-NNNN-Name.md` details. An unreferenced conforming detail keeps
 the atomic `promote-task-done` remediation; any other Markdown file is reported
@@ -2544,7 +2553,13 @@ mutating commands
 cannot skip that decision: hosts that cannot provide `reconc_write_paths` are
 blocked with an unsupported-capability message rather than a fake authority
 change or an impossible approval. Known read-only commands without declared
-writes stay outside the native approval path.
+writes stay outside the native approval path. A command with an environment
+assignment prefix (`VAR=value cmd`) or an `env` wrapper is never known
+read-only, because variables such as `GIT_EXTERNAL_DIFF`, `LD_PRELOAD`, or
+`RIPGREP_CONFIG_PATH` redirect what the program executes; `git diff`,
+`git log`, and `git show` count as read-only only with both `--no-ext-diff`
+and `--no-textconv`, since repository configuration and attributes can attach
+external programs to them.
 
 The authority registry and policy are private operator state selected with
 `RECONC_APPROVAL_AUTHORITIES`, `RECONC_APPROVAL_POLICY`, and
@@ -2926,7 +2941,11 @@ lift their own restraint: `reconc hook pause`, `reconc hook resume`,
 `reconc hook evidence-resolve`, or `reconc hook claim` for a claim named
 `operator:*`. The pre-tool and MCP command gates refuse such an invocation in
 every executable position (including nested `sh -c` bodies and a dynamic claim
-name) before execution; the operator runs them from a terminal. A
+name) before execution; the operator runs them from a terminal. Because a
+textual guard cannot see through scripts, aliases, or copied binaries, the
+commands themselves also require operator presence: stdin must be an
+interactive terminal and the operator types back a six-digit one-time code the
+command prints, so piped, scripted, and agent-run invocations change nothing. A
 `require_claim` rule that lists an `operator:` claim is therefore satisfiable
 only by the operator, while ordinary claims stay agent-recordable. Recording a
 claim only persists it; the gates that consult claims evaluate the current set
@@ -3121,7 +3140,10 @@ pathological overflow explicit instead of allowing unbounded materialization.
 
 Single-identifier brace groups such as `{task_id}` are template captures only
 for capture-aware rule kinds. In other glob fields they retain doublestar's
-literal brace behavior. Compilation emits an explicit warning naming the rule,
+literal brace behavior. A composite (`all_of`, `any_of`, `not`) `deny_write`
+sub-check binds the parent's captures into its paths as literal data; a
+variable the parent's `when_paths` does not capture makes the sub-check fail
+closed and produces a compile warning. Compilation emits an explicit warning naming the rule,
 field, and literal interpretation; the warning is advisory rather than a
 compile error for compatibility. Capture-aware matching preserves the same
 validated doublestar language before and after substitution: `/**/` matches
@@ -4306,7 +4328,9 @@ Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI,
 Kilo Code, Oh My Pi, DeepSeek Harness, Pi, ZCode, Grok Build, and Kimi Code CLI. It owns native event names,
 normalized lifecycle coverage, compatibility routes, config and scaffold paths,
 failure behavior, timeout budgets, output budgets, installation strategy, and
-activation probes. `reconc hook status
+activation probes. A route whose failure behavior is blocking exits 2 when its
+stdout decision cannot be written, because hosts that read a deny as exit 0
+plus JSON would otherwise see an allow. `reconc hook status
 [repo] [--json]` validates every registered artifact and reports `absent`,
 `installed`, `configured`, `degraded`, `shadowed`, or `unsupported`.
 `configured` means the static configuration is complete and host-discoverable;
@@ -5226,7 +5250,10 @@ retained as an observation event because it cannot inject context. Devin uses
 suppresses compatible Claude-hook duplicates. Native tool events require
 `session_id`, `prompt_id`, and `tool_use_id`; SessionStart may precede the first
 `prompt_id`. Native payloads need no `cwd` when `DEVIN_PROJECT_DIR` resolves to
-the selected repository. Generated matchers cover the documented file, shell,
+the selected repository. Duplicate suppression of compatible Claude, Codex, or
+Cursor routes on the inherited `DEVIN_PROJECT_DIR` alone applies only to
+non-blocking routes; a pre-tool, permission, or Stop gate is deferred to Devin
+only when the payload itself carries a Devin marker. Generated matchers cover the documented file, shell,
 process, and MCP tool names. File writes and shell preflights use the policy
 gate for the native input it receives. `write_to_process`, `mcp_call_tool`,
 namespaced MCP, and unclassified names that reach the generated matcher are

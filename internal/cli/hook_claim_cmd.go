@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
@@ -59,6 +60,11 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 		return &CLIError{ExitCode: 1, Message: "reconc hook claim: usage: reconc hook claim <repo> <claim-name> [--session ID] [--json]"}
 	}
 
+	if strings.HasPrefix(strings.TrimSpace(claim), agentsession.OperatorClaimPrefix) {
+		if err := confirmOperatorPresence("reconc hook claim "+strings.TrimSpace(claim), stderr); err != nil {
+			return err
+		}
+	}
 	report, err := agentsession.RecordClaim(repo, claim, sessionID)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook claim: " + err.Error()}

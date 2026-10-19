@@ -8,6 +8,7 @@ import (
 
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/templates"
 )
 
 // Composite rule evaluation (W26): all_of / any_of / not.
@@ -194,7 +195,7 @@ func evalCheck(ctx *evalContext, c policy.Check, captures map[string]string, inp
 	case policy.KindForbidCommand:
 		return evalCheckForbidCommand(ctx, c, inputs)
 	case policy.KindDenyWrite:
-		return evalCheckDenyWrite(ctx, c, inputs)
+		return evalCheckDenyWrite(ctx, c, captures, inputs)
 	case policy.KindRequireScript:
 		return evalCheckRequireScript(ctx, c, captures, inputs)
 	}
@@ -374,8 +375,18 @@ func evalCheckForbidCommand(ctx *evalContext, c policy.Check, inputs ExecutionIn
 	return false, "forbidden command(s) ran: " + joinForHumans(hits), nil
 }
 
-func evalCheckDenyWrite(ctx *evalContext, c policy.Check, inputs ExecutionInputs) (bool, string, error) {
-	matched, err := matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, c.Paths)
+func evalCheckDenyWrite(ctx *evalContext, c policy.Check, captures map[string]string, inputs ExecutionInputs) (bool, string, error) {
+	patterns, substituted, err := substituteCheckPathCaptures(c.Paths, captures)
+	if err != nil {
+		return false, "", &checkEvalError{reason: "deny_write paths: " + err.Error()}
+	}
+	matchers := ctx.matchers
+	if substituted {
+		// Captured patterns are concrete per context and not part of the
+		// compiled plan, so they use the uncompiled matcher.
+		matchers = nil
+	}
+	matched, err := matchingPathsWithMatchers(matchers, inputs.WritePaths, patterns)
 	if err != nil {
 		return false, "", err
 	}
@@ -383,6 +394,33 @@ func evalCheckDenyWrite(ctx *evalContext, c policy.Check, inputs ExecutionInputs
 		return true, "", nil
 	}
 	return false, "writes to forbidden paths: " + joinForHumans(matched), nil
+}
+
+// substituteCheckPathCaptures binds the parent's captures into a sub-check's
+// path globs as literal data. A variable the parent did not capture is an
+// error, so the check fails closed instead of matching the literal brace text.
+func substituteCheckPathCaptures(patterns []string, captures map[string]string) ([]string, bool, error) {
+	out := patterns
+	substituted := false
+	for index, pattern := range patterns {
+		variables, err := templates.Variables(pattern)
+		if err != nil {
+			return nil, false, err
+		}
+		if len(variables) == 0 {
+			continue
+		}
+		concrete, err := substituteTemplateGlobLiteral(pattern, captures)
+		if err != nil {
+			return nil, false, err
+		}
+		if !substituted {
+			out = append([]string(nil), patterns...)
+			substituted = true
+		}
+		out[index] = concrete
+	}
+	return out, substituted, nil
 }
 
 // buildCompositeViolation is the violation builder for composite rules.

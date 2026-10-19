@@ -5,9 +5,12 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"reconc.dev/reconc/internal/boundedio"
 )
 
 const gitCancellationWait = 250 * time.Millisecond
@@ -40,7 +43,7 @@ func CommandContext(
 	gitArgs = append(gitArgs, args...)
 	command := exec.CommandContext(ctx, "git", gitArgs...)
 	command.Dir = directory
-	command.Env = hermeticEnvironment(objects)
+	command.Env = hermeticEnvironment(directory, objects)
 	configureGitCommand(command)
 	return command
 }
@@ -54,7 +57,7 @@ func ConfigAwareCommandContext(ctx context.Context, args ...string) *exec.Cmd {
 	return command
 }
 
-func hermeticEnvironment(objects *ObjectDirectories) []string {
+func hermeticEnvironment(directory string, objects *ObjectDirectories) []string {
 	environment := make([]string, 0, len(os.Environ())+9)
 	for _, entry := range os.Environ() {
 		key := entry
@@ -74,6 +77,9 @@ func hermeticEnvironment(objects *ObjectDirectories) []string {
 		"GIT_PAGER=cat",
 		"LC_ALL=C",
 	)
+	if index, ok := commitIndexFile(directory); ok {
+		environment = append(environment, "GIT_INDEX_FILE="+index)
+	}
 	if objects == nil {
 		return environment
 	}
@@ -90,4 +96,68 @@ func hermeticEnvironment(objects *ObjectDirectories) []string {
 		environment = append(environment, key+"="+overrides[key])
 	}
 	return environment
+}
+
+// commitIndexFile keeps the one ambient redirection Git itself applies while
+// running hooks: `git commit -a`, `-i`, `-o` and pathspec commits stage into a
+// temporary index named by GIT_INDEX_FILE, and that index, not .git/index, is
+// what the commit records. Only a regular file named index, index.lock or
+// next-index-*.lock directly inside the repository's own Git directory is
+// accepted, so the variable cannot point a gate at an arbitrary index.
+func commitIndexFile(directory string) (string, bool) {
+	value := strings.TrimSpace(os.Getenv("GIT_INDEX_FILE"))
+	if value == "" || directory == "" {
+		return "", false
+	}
+	name := filepath.Base(value)
+	if name != "index" && name != "index.lock" && !(strings.HasPrefix(name, "next-index-") && strings.HasSuffix(name, ".lock")) {
+		return "", false
+	}
+	if !filepath.IsAbs(value) {
+		value = filepath.Join(directory, value)
+	}
+	info, err := os.Lstat(value)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	gitDir, ok := repositoryGitDir(directory)
+	if !ok {
+		return "", false
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(value))
+	if err != nil || parent != gitDir {
+		return "", false
+	}
+	return filepath.Join(parent, name), true
+}
+
+// repositoryGitDir resolves directory/.git as a directory or a `gitdir:` file.
+func repositoryGitDir(directory string) (string, bool) {
+	dotGit := filepath.Join(directory, ".git")
+	info, err := os.Lstat(dotGit)
+	if err != nil {
+		return "", false
+	}
+	target := dotGit
+	if info.Mode().IsRegular() {
+		body, readErr := boundedio.ReadRegularFile(dotGit, 4096)
+		if readErr != nil {
+			return "", false
+		}
+		pointer, found := strings.CutPrefix(strings.TrimSpace(string(body)), "gitdir: ")
+		if !found {
+			return "", false
+		}
+		target = pointer
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(directory, target)
+		}
+	} else if !info.IsDir() {
+		return "", false
+	}
+	resolved, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		return "", false
+	}
+	return resolved, true
 }

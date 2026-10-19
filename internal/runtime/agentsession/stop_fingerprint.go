@@ -668,7 +668,7 @@ func stopPolicyGitSnapshotFor(repoRoot string) stopPolicyGitSnapshot {
 	default:
 		mode = "normal"
 	}
-	raw, err := gitCommandOutput(repoRoot, "status", "--porcelain=v1", "-z", "--untracked-files="+mode)
+	raw, err := gitCommandOutput(repoRoot, "status", "--porcelain=v1", "-z", "--ignore-submodules=none", "--untracked-files="+mode)
 	status := filterStopPolicyGitStatus(raw)
 	if err != nil {
 		status = "error:" + err.Error() + "\n" + status
@@ -682,7 +682,7 @@ func stopPolicyGitSnapshotFor(repoRoot string) stopPolicyGitSnapshot {
 }
 
 func completionPolicyGitSnapshotFor(repoRoot string) stopPolicyGitSnapshot {
-	raw, err := gitCommandOutput(repoRoot, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	raw, err := gitCommandOutput(repoRoot, "status", "--porcelain=v1", "-z", "--ignore-submodules=none", "--untracked-files=all")
 	status := filterStopPolicyGitStatus(raw)
 	if err != nil {
 		status = "error:" + err.Error() + "\n" + status

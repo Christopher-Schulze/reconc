@@ -273,7 +273,7 @@ func operatorOnlyCommandReason(command string) string {
 }
 
 func operatorOnlyMessage(what string) string {
-	return fmt.Sprintf("reconc blocked an operator-only command (%s). Agent tool calls cannot pause hooks, resolve evidence taint, or record `%s*` claims; ask the operator to run it in a terminal.", what, OperatorClaimPrefix)
+	return fmt.Sprintf("reconc blocked an operator-only command (%s). Agent tool calls cannot pause hooks, resolve evidence taint, or record `%s*` claims; these commands also require the operator to confirm a one-time code at an interactive terminal, so ask the operator to run it there.", what, OperatorClaimPrefix)
 }
 
 func nextOperand(words []string, start int) (string, int) {

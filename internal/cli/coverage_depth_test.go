@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 
@@ -72,7 +73,7 @@ func TestHookEvidenceResolveCLIRejectsIncompleteAndUnresolvableRequests(t *testi
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var stdout bytes.Buffer
-			err := runHookEvidenceResolve(test.args, &stdout)
+			err := runHookEvidenceResolve(test.args, &stdout, io.Discard)
 			if test.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), test.wantError) {
 					t.Fatalf("error = %v, want substring %q", err, test.wantError)
