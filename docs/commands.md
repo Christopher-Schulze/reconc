@@ -217,12 +217,17 @@ Installers and `reconc install-cli`:
 - `RECONC_RELEASE_BASE` -- release download mirror
 - `RECONC_ATTESTATION_TOOL` -- alternate `gh`-compatible verifier used only by
   `reconc update` and its offline fixtures. Shipped native installers always
-  require `gh` and the fixed `Christopher-Schulze/reconc` identity
+  require `gh` and the fixed `Christopher-Schulze/reconc` identity. Only the
+  `gh` that PATH resolves records `github-verified`; a success reported by any
+  other verifier keeps the checksum-verified `embedded-verified` state
 - `RECONC_INSTALL_MANAGER`, `RECONC_INSTALL_CHANNEL`,
   `RECONC_INSTALL_ARTIFACT`, `RECONC_INSTALL_RELEASE_TAG`, and
   `RECONC_INSTALL_PROVENANCE` -- installer-to-binary transaction metadata;
   reserved for shipped native installers, not user configuration.
-  `install-cli` rejects unsupported ownership claims through this surface
+  `install-cli` rejects unsupported ownership claims through this surface. A
+  `github-verified` claim is recorded only after the installed binary verifies
+  against its release attestation with `gh`; without `gh` the receipt records
+  `embedded-verified`, and a failing verification refuses the receipt
 
 Variables prefixed `RECONC_HOOK_` other than the timing pair (for example
 `RECONC_HOOK_REPO_RESOLVED`, `RECONC_HOOK_RUNTIME`) are internal wrapper
@@ -1333,6 +1338,9 @@ Kilo Code pure mode, legacy Kilo Code plugin placement, Grok's native
 project-hook artifact, OMP's generator-exact ExtensionAPI module, and Pi's
 generator-exact extension plus project trust. DSH status checks both owned
 files and reports `configured`; host loading remains a separate fact.
+Generated host JSON keeps shell operators such as `2>/dev/null` and `&&`
+unescaped; a managed JSON artifact that earlier releases wrote with
+`\u003e`-style escapes is the same document and stays `configured`.
 Each platform generator runs once
 per status inspection. The target bytes and mode come from one stable snapshot,
 and the shared wrapper is inspected once for the complete multi-platform report

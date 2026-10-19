@@ -140,12 +140,15 @@ func ReadHookPauseStatus(repoRoot string, now time.Time) (HookPauseStatus, error
 // activeHookPause reads the pause on the hook hot path. Any unreadable or
 // foreign record means no pause: a damaged valve keeps enforcement on.
 func activeHookPause(root string, now time.Time) (hookPauseRecord, bool) {
-	file, err := loadHookPauseFile(root)
+	file, err := readHookPauseForHook(root)
 	if err != nil {
 		return hookPauseRecord{}, false
 	}
 	return newestActivePause(file, now.UTC())
 }
+
+// readHookPauseForHook is the hook hot path's pause reader seam.
+var readHookPauseForHook = loadHookPauseFile
 
 func newestActivePause(file hookPauseFile, now time.Time) (hookPauseRecord, bool) {
 	if len(file.History) == 0 {

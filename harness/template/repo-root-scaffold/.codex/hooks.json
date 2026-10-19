@@ -4,7 +4,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-interrupt \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-interrupt \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-interrupt \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-interrupt \"$repo\"",
             "timeout": 3,
             "type": "command"
           }
@@ -15,7 +15,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-permission-request \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-permission-request \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-permission-request \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-permission-request \"$repo\"",
             "timeout": 10,
             "type": "command"
           }
@@ -27,7 +27,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-post-compaction \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-post-compaction \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-post-compaction \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-post-compaction \"$repo\"",
             "timeout": 5,
             "type": "command"
           }
@@ -38,7 +38,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-post-tool-use \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-post-tool-use \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-post-tool-use \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-post-tool-use \"$repo\"",
             "timeout": 5,
             "type": "command"
           }
@@ -48,7 +48,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-mcp-after \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-mcp-after \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-mcp-after \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-mcp-after \"$repo\"",
             "timeout": 5,
             "type": "command"
           }
@@ -60,7 +60,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-pre-compaction \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-pre-compaction \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-pre-compaction \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-pre-compaction \"$repo\"",
             "timeout": 5,
             "type": "command"
           }
@@ -71,7 +71,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-pre-tool-use \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-pre-tool-use \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-pre-tool-use \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-pre-tool-use \"$repo\"",
             "timeout": 10,
             "type": "command"
           }
@@ -81,7 +81,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-mcp-before \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-mcp-before \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-mcp-before \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-mcp-before \"$repo\"",
             "timeout": 10,
             "type": "command"
           }
@@ -93,7 +93,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-session-end \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-session-end \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-session-end \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-session-end \"$repo\"",
             "timeout": 3,
             "type": "command"
           }
@@ -104,7 +104,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-session-start \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-session-start \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-session-start \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-session-start \"$repo\"",
             "statusMessage": "reconc: initializing policy session",
             "timeout": 5,
             "type": "command"
@@ -115,7 +115,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-compaction-recovery \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-compaction-recovery \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-compaction-recovery \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-compaction-recovery \"$repo\"",
             "timeout": 5,
             "type": "command"
           }
@@ -127,7 +127,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-stop \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-stop \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-stop \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-stop \"$repo\"",
             "timeout": 30,
             "type": "command"
           }
@@ -138,7 +138,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-subagent-start \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-subagent-start \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-subagent-start \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-subagent-start \"$repo\"",
             "timeout": 5,
             "type": "command"
           }
@@ -149,7 +149,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-subagent-stop \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-subagent-stop \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-subagent-stop \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-subagent-stop \"$repo\"",
             "timeout": 30,
             "type": "command"
           }
@@ -160,7 +160,7 @@
       {
         "hooks": [
           {
-            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-user-prompt-submit \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-user-prompt-submit \"$repo\"",
+            "command": "repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" codex-user-prompt-submit \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" codex-user-prompt-submit \"$repo\"",
             "timeout": 5,
             "type": "command"
           }

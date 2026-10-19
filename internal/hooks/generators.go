@@ -1,7 +1,6 @@
 package hooks
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -423,7 +422,7 @@ func generateAntigravity() (*Artifact, error) {
 }
 
 func jsonHookArtifact(artifact *Artifact, value any) (*Artifact, error) {
-	data, err := json.MarshalIndent(value, "", "  ")
+	data, err := marshalHostJSON(value)
 	if err != nil {
 		return nil, hookGeneratorError("marshal %s hook artifact: %v", artifact.Kind, err)
 	}

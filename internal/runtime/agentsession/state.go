@@ -472,8 +472,10 @@ func writeSessionStateLockedIfChanged(state SessionState, data []byte) (bool, er
 }
 
 func ensurePrivateStateDir(path string) error {
+	// A directory that validates as private needs nothing: the repair walk
+	// below only creates missing components or narrows exposed modes.
 	if err := privatefs.ValidateDirectory(path); err == nil {
-		return privatefs.RepairDirectory(path)
+		return nil
 	}
 	// A missing or incomplete project directory must not become observable
 	// between filesystem creation and Windows DACL publication. The product-wide
@@ -482,13 +484,16 @@ func ensurePrivateStateDir(path string) error {
 	projectRoot := filepath.Join(root, "projects")
 	relative, err := filepath.Rel(projectRoot, filepath.Clean(path))
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return privatefs.RepairDirectory(path)
+		return repairPrivateStateDir(path)
 	}
 	return publishPrivateStateDirectory(root, path)
 }
 
+// repairPrivateStateDir creates or narrows a private state directory.
+var repairPrivateStateDir = privatefs.RepairDirectory
+
 func publishPrivateStateDirectory(root, path string) error {
-	if err := privatefs.RepairDirectory(root); err != nil {
+	if err := repairPrivateStateDir(root); err != nil {
 		return fmt.Errorf("secure private state root: %w", err)
 	}
 	lock, err := privatefs.OpenLock(filepath.Join(root, retention.ProjectRootRetentionLockName))
@@ -502,7 +507,7 @@ func publishPrivateStateDirectory(root, path string) error {
 			wrapOperationError("close project state publication lock", lock.Close()),
 		)
 	}
-	publicationErr := privatefs.RepairDirectory(path)
+	publicationErr := repairPrivateStateDir(path)
 	unlockErr := unlock()
 	closeErr := lock.Close()
 	return errors.Join(

@@ -125,7 +125,7 @@ func planPlatformUninstall(root string, definition platformDefinition) ([]uninst
 		if generateErr != nil {
 			return nil, display, "", 0, generateErr
 		}
-		if string(data) != artifact.Content {
+		if !matchesGeneratedContent(data, artifact.Content, definition.InstallMode == InstallManagedJSON) {
 			return nil, display, "", 0, &rerrors.PolicySourceError{Message: display + " differs from the current Reconc generator; refusing to delete drifted content"}
 		}
 		mutation := uninstallMutation{path: target, display: display, before: data, mode: info.Mode().Perm(), remove: true}
@@ -255,7 +255,7 @@ func jsonUninstallMutation(target, display string, before []byte, mode os.FileMo
 	if removed == 0 {
 		return nil, display, "unchanged", 0, nil
 	}
-	after, err := json.MarshalIndent(document, "", "  ")
+	after, err := marshalHostJSON(document)
 	if err != nil {
 		return nil, display, "", 0, &rerrors.PolicySourceError{Message: "marshal preserved hook config", Cause: err}
 	}

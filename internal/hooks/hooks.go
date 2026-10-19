@@ -657,7 +657,7 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 		}
 	}
 
-	out, err := json.MarshalIndent(merged, "", "  ")
+	out, err := marshalHostJSON(merged)
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "marshal merged config", Cause: err}
 	}
@@ -840,7 +840,7 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 		}
 	}
 
-	out, err := json.MarshalIndent(merged, "", "  ")
+	out, err := marshalHostJSON(merged)
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "marshal merged Antigravity hooks", Cause: err}
 	}

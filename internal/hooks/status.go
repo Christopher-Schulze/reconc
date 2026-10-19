@@ -295,7 +295,7 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		return report
 	}
 	if managedArtifactRequiresExactMatch(platform.InstallMode) {
-		if string(data) != generated.Content {
+		if !matchesGeneratedContent(data, generated.Content, requiresJSON(platform.InstallMode)) {
 			report.State = StateDegraded
 			if managedPlatformArtifact(platform.Kind, data) {
 				report.Detail = "managed artifact differs from the current generator; reinstall the hook"

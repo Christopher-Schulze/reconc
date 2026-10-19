@@ -289,6 +289,18 @@ func runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(
 	if decision, paused := pausedPreToolDecision(root, payload); paused {
 		return decision
 	}
+	return evaluatePreToolUseParsed(root, payload, evaluator, aliasSnapshot, stopCache)
+}
+
+// evaluatePreToolUseParsed is the pre-tool policy evaluation for a payload
+// whose caller has already applied the operator pause.
+func evaluatePreToolUseParsed(
+	root string,
+	payload *HookPayload,
+	evaluator *runtime.Evaluator,
+	aliasSnapshot gitAliasSnapshot,
+	stopCache *StopDecisionCache,
+) Result {
 	if payload.IsCommandTool() {
 		var policyReports []*runtime.CheckReport
 		if strings.TrimSpace(payload.Command()) == "" {

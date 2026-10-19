@@ -403,6 +403,10 @@ func installReceiptInput(status *Status, options InstallOptions) (ReceiptInput, 
 		if provenanceState == "" {
 			provenanceState = ProvenanceEmbeddedVerified
 		}
+		provenanceState, err := verifiedInstallProvenance(provenanceState, status.TargetPath, releaseTag)
+		if err != nil {
+			return ReceiptInput{}, err
+		}
 		return directReceiptInput(status, version, channel, artifactName, releaseTag, provenanceState, options.InstalledAt)
 	default:
 		return ReceiptInput{}, fmt.Errorf("unsupported installation owner %q", manager)

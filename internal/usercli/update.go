@@ -382,6 +382,9 @@ func smokeCandidate(ctx context.Context, candidate string, version string) error
 	return nil
 }
 
+// errAttestationToolMissing reports that no attestation verifier is on PATH.
+var errAttestationToolMissing = errors.New("attestation verifier is not on PATH")
+
 func verifyAttestation(ctx context.Context, candidate string, release selectedRelease) (ProvenanceState, error) {
 	tool := strings.TrimSpace(os.Getenv("RECONC_ATTESTATION_TOOL"))
 	if tool == "" {
@@ -389,7 +392,7 @@ func verifyAttestation(ctx context.Context, candidate string, release selectedRe
 	}
 	path, err := exec.LookPath(tool)
 	if err != nil {
-		return "", fmt.Errorf("attestation verification requires %q on PATH", tool)
+		return "", fmt.Errorf("%w: attestation verification requires %q on PATH", errAttestationToolMissing, tool)
 	}
 	args := []string{
 		"attestation", "verify", candidate, "--repo", releaseRepository,
@@ -412,8 +415,48 @@ func verifyAttestation(ctx context.Context, candidate string, release selectedRe
 	if err != nil {
 		return "", fmt.Errorf("attestation verification failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
+	if !isGitHubCLI(path) {
+		// A verifier chosen through RECONC_ATTESTATION_TOOL can report success
+		// without checking anything, so it never proves GitHub provenance; the
+		// candidate keeps the checksum-verified state it already earned.
+		return ProvenanceEmbeddedVerified, nil
+	}
 	return ProvenanceGitHubVerified, nil
 }
+
+// isGitHubCLI reports whether path is the `gh` executable PATH resolves.
+func isGitHubCLI(path string) bool {
+	gh, err := exec.LookPath("gh")
+	if err != nil {
+		return false
+	}
+	verifier, verifierErr := os.Stat(path)
+	resolved, resolvedErr := os.Stat(gh)
+	return verifierErr == nil && resolvedErr == nil && os.SameFile(verifier, resolved)
+}
+
+// verifiedInstallProvenance turns a provenance claim from the installer's
+// environment into a recorded state. A GitHub claim is recorded only when the
+// installed binary verifies against its release attestation here; without a
+// verifier on PATH it keeps the checksum-verified state, and a failing
+// verification refuses the receipt.
+func verifiedInstallProvenance(claimed ProvenanceState, binaryPath, releaseTag string) (ProvenanceState, error) {
+	if claimed != ProvenanceGitHubVerified {
+		return claimed, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), installAttestationTimeout)
+	defer cancel()
+	state, err := verifyAttestation(ctx, binaryPath, selectedRelease{manifest: ReleaseManifest{Tag: releaseTag}})
+	if errors.Is(err, errAttestationToolMissing) {
+		return ProvenanceEmbeddedVerified, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("claimed GitHub provenance does not verify: %w", err)
+	}
+	return state, nil
+}
+
+const installAttestationTimeout = 2 * time.Minute
 
 func updateCommand(request UpdateRequest) string {
 	command := "reconc update"

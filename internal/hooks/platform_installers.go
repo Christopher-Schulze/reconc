@@ -67,7 +67,7 @@ func installDevinCLI(repoRoot string, force bool) (*InstallReport, error) {
 			}
 		}
 	}
-	out, err := json.MarshalIndent(mergedHooks, "", "  ")
+	out, err := marshalHostJSON(mergedHooks)
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "marshal merged Devin hooks", Cause: err}
 	}

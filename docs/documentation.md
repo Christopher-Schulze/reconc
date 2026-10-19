@@ -2863,7 +2863,8 @@ files, active-session pointers, reports, command proofs, and run state are
 byte-compared and never republished. Session
 mutations normalize once, compare the normalized result once, and skip atomic
 publication when the apparent change normalizes away; missing or non-private
-state and pointer modes are still repaired.
+state and pointer modes are still repaired, while a state directory that
+already validates as private is used without a repair walk.
 Run-decision class reports include `inspection_status` when their JSONL ring is
 projected or enforced. `complete` makes zero deletion and byte values measured
 zeroes; `unknown` means inspection failed and no after/freed/deleted projection

@@ -1009,7 +1009,9 @@ func TestAttestationVerificationFailsClosed(t *testing.T) {
 
 	lifecycleCommand = lifecycleHelperCommandWithOutput("0", "verified")
 	state, err := verifyAttestation(context.Background(), "candidate", release)
-	if err != nil || state != ProvenanceGitHubVerified {
+	// RECONC_ATTESTATION_TOOL names a verifier other than gh, so success
+	// keeps the checksum-verified state instead of claiming GitHub provenance.
+	if err != nil || state != ProvenanceEmbeddedVerified {
 		t.Fatalf("required successful attestation = %q, %v", state, err)
 	}
 

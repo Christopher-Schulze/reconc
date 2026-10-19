@@ -170,6 +170,7 @@ func parseOverviewSnapshot(root string, cfg Config, overview taskFileSnapshot, p
 		doneTargetDir: filepath.ToSlash(doneTargetDir),
 	}
 	var issues []Issue
+	board.targetGuard = pathGuard
 	switch profile {
 	case ProfileSections:
 		issues = board.parseSectionsOverview()
@@ -178,6 +179,7 @@ func parseOverviewSnapshot(root string, cfg Config, overview taskFileSnapshot, p
 	}
 	snapshots := []taskFileSnapshot{overview}
 	issues = append(issues, board.loadAndValidateDetails(&snapshots, pathGuard)...)
+	board.targetGuard = nil
 	if board.Profile == ProfileLogbook {
 		board.normalizeLogbookBuckets()
 	}
@@ -495,9 +497,12 @@ func (board *Board) loadAndValidateDetails(snapshots *[]taskFileSnapshot, pathGu
 			issues = append(issues, issue("task/detail/unsafe-path", board.Config.OverviewPath, task.OverviewLine, err.Error(), "point the row inside the configured detail or done directory"))
 			continue
 		}
-		if err := pathGuard.reject(path); err != nil {
-			issues = append(issues, issue("task/detail/unsafe-path", task.Path, 0, err.Error(), "restore a stable non-symlink TASK detail path"))
-			continue
+		// resolveTaskTarget already recorded the path in this guard.
+		if board.targetGuard != pathGuard {
+			if err := pathGuard.reject(path); err != nil {
+				issues = append(issues, issue("task/detail/unsafe-path", task.Path, 0, err.Error(), "restore a stable non-symlink TASK detail path"))
+				continue
+			}
 		}
 		if task.State == StateDone {
 			snapshot, statErr := captureTaskFileSnapshot(path, false)
@@ -631,7 +636,11 @@ func (board *Board) resolveOverviewTarget(target string) (string, error) {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("TASK target escapes the repository: %s", target)
 	}
-	if err := rejectSymlinkComponents(board.RepoRoot, abs); err != nil {
+	guard := board.targetGuard
+	if guard == nil {
+		guard = newTaskPathGuard(board.RepoRoot, 8)
+	}
+	if err := guard.reject(abs); err != nil {
 		return "", fmt.Errorf("unsafe TASK target %s: %w", target, err)
 	}
 	allowed := []string{filepath.Clean(board.Config.DetailDir), filepath.Clean(board.Config.DoneDir)}

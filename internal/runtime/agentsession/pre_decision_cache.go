@@ -115,7 +115,9 @@ func runPreDecisionResolvedWithEvaluatorAndStopCache(
 		}
 	}
 
-	decision := runPreToolUseParsedWithEvaluatorAndAliasSnapshotAndStopCache(root, payload, evaluator, evaluationInputs.aliasSnapshot, stopCache)
+	// The pause was applied above; a second read of the pause file per miss
+	// adds nothing.
+	decision := evaluatePreToolUseParsed(root, payload, evaluator, evaluationInputs.aliasSnapshot, stopCache)
 	if cacheable && decision.decisionClass.cacheable() && evaluationInputs.cacheableAt(time.Now()) {
 		if postInputs, ok := resamplePreDecisionInputsWithEvaluatorAndStopCache(root, payload, evaluationInputs, evaluator, stopCache); ok &&
 			evaluationInputs.identity.equal(postInputs.identity) && postInputs.cacheableAt(time.Now()) {

@@ -57,6 +57,11 @@ type Board struct {
 	doneIDs       map[string]bool
 	doneCount     int
 	doneTargetDir string
+	// targetGuard is the read's path guard while one overview is parsed, so
+	// row targets share observed directory identities, are probed once and
+	// are covered by the read's final revalidation. It is cleared when the
+	// parse ends.
+	targetGuard *taskPathGuard
 }
 
 // Issue is a stable, machine-addressable lifecycle validation failure.
