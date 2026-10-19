@@ -5414,7 +5414,15 @@ plus `Read|Bash|Edit|Write`). Copilot CLI also runs the repository's
 `.claude/settings.json` and `settings.local.json` hooks; every Copilot input
 carries a top-level `timestamp` that Claude Code inputs never do, so a Claude
 route defers such an invocation to the first-class Copilot hook when it is
-installed and configured, and gates it itself otherwise. Whether Copilot runs
+installed and configured and its own entry for the same native event matches
+the call's tool name, and gates it itself otherwise. The same rule governs every
+compatible duplicate that Cursor, Devin CLI, and Grok send to another host's
+route: Reconc reads the matchers of the generated first-class hooks, compares
+the native event without case (Cursor's `beforeSubmitPrompt` stands for
+`UserPromptSubmit`), and defers only when an entry has no matcher or its matcher
+fully matches the tool name, ignoring case. Copilot's `Bash|Edit|Write` guard
+therefore leaves `MultiEdit`, `PowerShell`, and `mcp__*` calls to the Claude
+route, which evaluates them. Whether Copilot runs
 Claude's exec-form `command` and `args` entries as written is live-unverified.
 Tool events from a subagent carry `agent_id`, `agent_type`, and
 `parent_agent_id`; Reconc attributes them to the root `session_id`, as it does
@@ -5438,7 +5446,10 @@ registry-driven, surface-specific outcome contract defined in
 [Host Integration Truth](#host-integration-truth). If Cursor also
 executes compatible `.claude/settings.json` hooks, Reconc detects Cursor-native
 payload markers and no-ops those non-native Claude hook invocations before they
-can duplicate Cursor session evidence. Claude routes its native prompt,
+can duplicate Cursor session evidence, but only for calls that Cursor's own
+generated hooks match under the coverage rule above; Cursor's `preToolUse`
+guard covers its write tools, so a Claude-route `Bash` or `NotebookEdit` call is
+gated on the Claude route. Claude routes its native prompt,
 permission-denied, failed-tool, Stop-failure, notification, subagent,
 pre/post-compaction, and session events. Claude Code accepts 33 hook events.
 Reconc installs the 16 that carry a policy decision or authoritative session

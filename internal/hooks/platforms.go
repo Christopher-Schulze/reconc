@@ -812,6 +812,7 @@ func validatePlatform(platform Platform) error {
 type RuntimeRoute struct {
 	PlatformKind   string
 	Event          Event
+	NativeEvent    string
 	ErrorPolicy    FailurePolicy
 	TimeoutPolicy  FailurePolicy
 	TimeoutSeconds int
@@ -841,7 +842,9 @@ func buildRuntimeRouteIndex() map[string]RuntimeRoute {
 		for _, capability := range definition.Capabilities {
 			for _, binding := range capability.Bindings {
 				if binding.RuntimeEvent != "" {
-					index[binding.RuntimeEvent] = runtimeRoute(definition.Kind, capability)
+					route := runtimeRoute(definition.Kind, capability)
+					route.NativeEvent = binding.NativeEvent
+					index[binding.RuntimeEvent] = route
 				}
 			}
 		}

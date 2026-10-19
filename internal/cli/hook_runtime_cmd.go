@@ -61,13 +61,18 @@ func devinOwnsEvent(route hooks.RuntimeRoute, payload []byte, repo string) bool 
 	return route.ErrorPolicy != hooks.FailureBlock && agentsession.PayloadLooksLikeDevin(payload, repo)
 }
 
-func dedupToFirstClassRoute(readiness *firstClassRouteReadiness, root agentsession.ResolvedRepoRoot, sourceRuntime, firstClassKind, event string, stderr io.Writer) bool {
+// dedupToFirstClassRoute defers a compatible duplicate only when the configured
+// first-class hooks evaluate the same call; any other call is gated here.
+func dedupToFirstClassRoute(readiness *firstClassRouteReadiness, root agentsession.ResolvedRepoRoot, route hooks.RuntimeRoute, payload []byte, firstClassKind, event string, stderr io.Writer) bool {
+	if !hooks.FirstClassRouteCovers(firstClassKind, route, agentsession.PayloadToolName(payload)) {
+		return false
+	}
 	report, err := readiness.platform(root.Path(), firstClassKind)
 	if err != nil || report.State != hooks.StateConfigured {
 		return false
 	}
 	fmt.Fprintf(stderr, "reconc hook runtime: %s deduplicated; first-class %s owns this event\n", event, report.TargetPath)
-	if err := agentsession.RecordHookLivenessResolved(root, sourceRuntime, event); err != nil {
+	if err := agentsession.RecordHookLivenessResolved(root, route.PlatformKind, event); err != nil {
 		fmt.Fprintf(stderr, "reconc hook liveness (warn): %s\n", err)
 	}
 	return true
@@ -218,22 +223,22 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	}
 	readiness := newFirstClassRouteReadiness()
 	if route.PlatformKind != hooks.KindCursor && agentsession.PayloadLooksLikeCursor(payload) {
-		if dedupToFirstClassRoute(readiness, root, route.PlatformKind, hooks.KindCursor, event, stderr) {
+		if dedupToFirstClassRoute(readiness, root, route, payload, hooks.KindCursor, event, stderr) {
 			return nil
 		}
 	}
 	if route.PlatformKind != hooks.KindDevinCLI && devinOwnsEvent(route, payload, repo) {
-		if dedupToFirstClassRoute(readiness, root, route.PlatformKind, hooks.KindDevinCLI, event, stderr) {
+		if dedupToFirstClassRoute(readiness, root, route, payload, hooks.KindDevinCLI, event, stderr) {
 			return nil
 		}
 	}
 	if route.PlatformKind != hooks.KindGrok && agentsession.PayloadLooksLikeGrok(payload) {
-		if dedupToFirstClassRoute(readiness, root, route.PlatformKind, hooks.KindGrok, event, stderr) {
+		if dedupToFirstClassRoute(readiness, root, route, payload, hooks.KindGrok, event, stderr) {
 			return nil
 		}
 	}
 	if route.PlatformKind != hooks.KindGitHubCopilot && agentsession.PayloadLooksLikeGitHubCopilot(payload) {
-		if dedupToFirstClassRoute(readiness, root, route.PlatformKind, hooks.KindGitHubCopilot, event, stderr) {
+		if dedupToFirstClassRoute(readiness, root, route, payload, hooks.KindGitHubCopilot, event, stderr) {
 			return nil
 		}
 	}

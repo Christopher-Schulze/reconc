@@ -464,3 +464,13 @@ func checkJSONDepth(data []byte, max int) error {
 	}
 	return nil
 }
+
+// PayloadToolName returns the tool name a host payload carries under its
+// snake_case or camelCase key, or "" when it carries none.
+func PayloadToolName(payloadBytes []byte) string {
+	var raw map[string]interface{}
+	if json.Unmarshal(payloadBytes, &raw) != nil {
+		return ""
+	}
+	return cursorFirstString(raw, "tool_name", "toolName")
+}
