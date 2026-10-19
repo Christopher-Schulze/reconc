@@ -2931,8 +2931,16 @@ the complete raw evidence into
 an immutable bounded segment before accepting the triggering event. Segments
 bind the canonical repository and session identities, policy-lock hash, index,
 and previous segment digest; every policy, claim, CI, Stop, and completion
-consumer verifies and replays the full chain plus the live segment. A session
-may seal at most 64 segments. Clean SessionEnd removes its raw segments after
+consumer verifies and replays the full chain plus the live segment. A chain
+holds at most 64 segments. When rotation reaches that ceiling, Reconc verifies
+the chain and compacts it under the session lock: the deduplicated merged
+evidence (reads, writes with their epochs, bounded command references, claims,
+and every command result in order) is written as a fresh chain after the old
+one, and the session state records the new chain start. Only that state
+publication switches chains, so an interrupted compaction leaves the old chain
+authoritative; superseded segments are removed after publication and retried
+by the next compaction. Only genuinely unique evidence that no longer fits a
+compacted chain of fewer than 64 segments ends rotation. Clean SessionEnd removes its raw segments after
 verifying the chain. Each full replay builds its string and command-result
 identity indexes once, so deduplication remains linear in total evidence across
 all sealed and live segments.
@@ -2967,7 +2975,8 @@ segment and the triggering mutation is replayed on the emptied state; a
 segment file already present at that next index belongs to no published chain
 (an interrupted rotation or an older chain) and is set aside as
 `<index>.json.orphaned-<sha256 prefix>` instead of blocking rotation. An event
-that cannot fit an empty segment, a 64-segment exhaustion, or a
+that cannot fit an empty segment, unique evidence that exceeds a compacted
+chain, or a
 missing/corrupt segment creates a project-scoped evidence taint. The taint
 records the exact field and limit cause (`item_bytes`, `item_count`,
 `byte_budget`, `serialization`, `segment_count`, `segment_storage`, or
@@ -3067,8 +3076,10 @@ Default persistent budgets are 32 session files / 8 MiB / 14 days, 32 reports
 256 KiB / 24 hours, 32 pre-decision caches / 512 KiB / 14 days, 32 evidence
 taint-resolution receipts / 512 KiB / 14 days, 32 rotated-evidence session
 directories / 64 MiB / 14 days, 16 MiB total external state, and 32 MiB / 14
-days for generated audit binaries. Rotated evidence is inspected as a complete
-contiguous chain and removed only as one session directory under its session
+days for generated audit binaries. A rotated-evidence directory may hold only
+sealed segments (`<index>.json`) and set-aside segments
+(`<index>.json.orphaned-<16 hex>`), at most two chains' worth while a compaction
+is published, and is removed only as one session directory under its session
 lock; active sessions and the session named by unresolved taint are protected.
 Full-command objects and rotated-evidence directories belong to the session
 state file that references them. While that state file exists they stay

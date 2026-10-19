@@ -56,6 +56,7 @@ type verifiedEvidenceSegment struct {
 }
 
 type verifiedEvidencePrefix struct {
+	base     uint64
 	count    uint64
 	head     string
 	bytes    int
@@ -138,7 +139,8 @@ func (loaded *stopLoadedEvidence) capture(
 	loaded.complete = complete
 	loaded.prefix = prefix
 	loaded.valid = raw.EvidenceSegmentCount == 0 ||
-		(prefix.count == raw.EvidenceSegmentCount && prefix.head == raw.EvidenceSegmentDigest && uint64(len(prefix.segments)) == prefix.count)
+		(prefix.base == evidenceSegmentStart(raw) && prefix.count == raw.EvidenceSegmentCount &&
+			prefix.head == raw.EvidenceSegmentDigest && uint64(len(prefix.segments)) == prefix.count)
 	loaded.chainLoads++
 }
 
@@ -204,6 +206,16 @@ func evidenceSegmentPath(repoRoot, sessionID string, index uint64) string {
 	return filepath.Join(evidenceSegmentsDir(repoRoot, sessionID), fmt.Sprintf("%08d.json", index))
 }
 
+// evidenceSegmentStart is the file index of the chain's first segment.
+// Compaction writes a fresh chain after the old one, so a compacted chain
+// starts beyond index 1; the zero value keeps the original layout.
+func evidenceSegmentStart(state SessionState) uint64 {
+	if state.EvidenceSegmentBase == 0 {
+		return 1
+	}
+	return state.EvidenceSegmentBase
+}
+
 func evidenceTaintPath(repoRoot string) string {
 	return filepath.Join(projectDir(repoRoot), "evidence-taint.json")
 }
@@ -228,9 +240,9 @@ func sessionHasEvidence(state SessionState) bool {
 
 func rotateSessionEvidenceLocked(repoRoot string, state SessionState) (SessionState, error) {
 	if state.EvidenceSegmentCount >= maxEvidenceSegments {
-		return state, fmt.Errorf("evidence segment count exceeds %d", maxEvidenceSegments)
+		return compactSessionEvidenceLocked(repoRoot, state)
 	}
-	index := state.EvidenceSegmentCount + 1
+	index := evidenceSegmentStart(state) + state.EvidenceSegmentCount
 	segment := evidenceSegment{
 		FormatVersion:  evidenceSegmentFormatVersion,
 		RepoRoot:       repoRoot,
@@ -259,31 +271,44 @@ func rotateSessionEvidenceLocked(repoRoot string, state SessionState) (SessionSt
 	if len(body) > maxEvidenceSegmentBytes {
 		return state, fmt.Errorf("evidence segment is %d bytes; maximum is %d", len(body), maxEvidenceSegmentBytes)
 	}
-	path := evidenceSegmentPath(repoRoot, state.SessionID, index)
+	if err := publishEvidenceSegmentLocked(evidenceSegmentPath(repoRoot, state.SessionID, index), body); err != nil {
+		return state, err
+	}
+	clearSealedEvidence(&state)
+	state.EvidenceSegmentCount++
+	state.EvidenceSegmentDigest = digest
+	return state, nil
+}
+
+// publishEvidenceSegmentLocked writes one sealed segment under the session
+// lock. The chain is defined by the state's start, count and head digest, so
+// an index after the chain is never part of it: a file there was left by a
+// rotation or compaction whose state publication failed, and it is set aside
+// instead of blocking the new segment.
+func publishEvidenceSegmentLocked(path string, body []byte) error {
 	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
-		return state, fmt.Errorf("mkdir evidence segment dir: %w", err)
+		return fmt.Errorf("mkdir evidence segment dir: %w", err)
 	}
 	existing, readErr := boundedio.ReadRegularFile(path, maxEvidenceSegmentBytes)
 	switch {
 	case readErr == nil && string(existing) == string(body):
+		return nil
 	case readErr == nil:
-		// The chain is defined by the state's count and head digest, and
-		// index count+1 is never part of it. A file there was left by a
-		// rotation whose state publication failed or by an older chain, so it
-		// is set aside under the session lock instead of blocking rotation.
 		if err := setAsideOrphanEvidenceSegment(path, existing); err != nil {
-			return state, err
-		}
-		if _, err := atomicfile.WritePrivateIfChanged(path, body, 0o600); err != nil {
-			return state, fmt.Errorf("write evidence segment: %w", err)
+			return err
 		}
 	case !errors.Is(readErr, os.ErrNotExist):
-		return state, fmt.Errorf("inspect evidence segment: %w", readErr)
-	default:
-		if _, err := atomicfile.WritePrivateIfChanged(path, body, 0o600); err != nil {
-			return state, fmt.Errorf("write evidence segment: %w", err)
-		}
+		return fmt.Errorf("inspect evidence segment: %w", readErr)
 	}
+	if _, err := atomicfile.WritePrivateIfChanged(path, body, 0o600); err != nil {
+		return fmt.Errorf("write evidence segment: %w", err)
+	}
+	return nil
+}
+
+// clearSealedEvidence empties the live evidence fields after they were sealed
+// into the chain.
+func clearSealedEvidence(state *SessionState) {
 	state.ReadPaths = []string{}
 	state.WritePaths = []string{}
 	state.WriteEpochs = map[string]uint64{}
@@ -291,12 +316,9 @@ func rotateSessionEvidenceLocked(repoRoot string, state SessionState) (SessionSt
 	state.Claims = []string{}
 	state.CommandResults = []CommandResult{}
 	state.CommandResultBytes = 0
-	state.EvidenceSegmentCount = index
-	state.EvidenceSegmentDigest = digest
 	state.EvidenceOverflow = false
 	state.EvidenceOverflowReason = ""
 	state.EvidenceOverflowLimit = ""
-	return state, nil
 }
 
 // setAsideOrphanEvidenceSegment keeps an unreferenced segment for forensics
@@ -364,12 +386,28 @@ func loadCompleteSessionEvidenceWithHooksCapture(
 	hooks evidenceSegmentLoadHooks,
 	captured *verifiedEvidencePrefix,
 ) (SessionState, error) {
+	complete, err := mergedSessionEvidence(repoRoot, state, cache, hooks, captured)
+	if err != nil {
+		return SessionState{}, err
+	}
+	return resolveObservedCommandTexts(complete, cache)
+}
+
+// mergedSessionEvidence verifies the session's sealed chain and merges it with
+// the live state. Long commands stay as their bounded references.
+func mergedSessionEvidence(
+	repoRoot string,
+	state SessionState,
+	cache *StopDecisionCache,
+	hooks evidenceSegmentLoadHooks,
+	captured *verifiedEvidencePrefix,
+) (SessionState, error) {
 	if captured != nil {
 		*captured = verifiedEvidencePrefix{}
 	}
 	if state.EvidenceSegmentCount == 0 {
 		cache.dropVerifiedEvidencePrefix(repoRoot, state.SessionID)
-		return resolveObservedCommandTexts(state, cache)
+		return state, nil
 	}
 	if state.EvidenceSegmentCount > maxEvidenceSegments {
 		return SessionState{}, evidenceLoadFailure(cache, repoRoot, state, &evidenceIntegrityError{
@@ -381,17 +419,18 @@ func loadCompleteSessionEvidenceWithHooksCapture(
 	merger := newEvidenceMerger(&complete)
 	verified := make([]verifiedEvidenceSegment, 0, state.EvidenceSegmentCount)
 	previousDigest := ""
-	startIndex := uint64(1)
-	if cached, ok := cache.verifiedEvidencePrefix(repoRoot, state.SessionID); ok &&
+	base := evidenceSegmentStart(state)
+	startIndex := base
+	if cached, ok := cache.verifiedEvidencePrefix(repoRoot, state.SessionID); ok && cached.base == base &&
 		cached.count <= state.EvidenceSegmentCount && cached.count == uint64(len(cached.segments)) &&
 		cached.head != "" && verifiedEvidencePrefixMatches(cached, repoRoot, state.SessionID, hooks) {
 		cached.snapshot.apply(&complete)
 		merger = newEvidenceMerger(&complete)
 		previousDigest = cached.head
-		startIndex = cached.count + 1
+		startIndex = base + cached.count
 		verified = append(verified, cached.segments...)
 	}
-	for index := startIndex; index <= state.EvidenceSegmentCount; index++ {
+	for index := startIndex; index < base+state.EvidenceSegmentCount; index++ {
 		path := evidenceSegmentPath(repoRoot, state.SessionID, index)
 		body, identity, err := hooks.readSnapshot(path, maxEvidenceSegmentBytes)
 		if err != nil {
@@ -424,7 +463,7 @@ func loadCompleteSessionEvidenceWithHooksCapture(
 			cause: errors.New("evidence segment chain head does not match session state"),
 		})
 	}
-	stable, cacheable := revalidateEvidenceSegments(verified, repoRoot, state.SessionID, hooks)
+	stable, cacheable := revalidateEvidenceSegments(verified, base, repoRoot, state.SessionID, hooks)
 	if !stable {
 		return SessionState{}, evidenceLoadFailure(cache, repoRoot, state,
 			errors.New("evidence segment identity changed during complete-chain load"))
@@ -432,7 +471,7 @@ func loadCompleteSessionEvidenceWithHooksCapture(
 	if cacheable {
 		prefixSnapshot := snapshotEvidence(complete)
 		prefix := verifiedEvidencePrefix{
-			count: state.EvidenceSegmentCount, head: state.EvidenceSegmentDigest,
+			base: base, count: state.EvidenceSegmentCount, head: state.EvidenceSegmentDigest,
 			bytes: max(merger.retainedBytes, 1), segments: verified, snapshot: prefixSnapshot,
 		}
 		if captured != nil {
@@ -446,7 +485,7 @@ func loadCompleteSessionEvidenceWithHooksCapture(
 		state.Commands, state.Claims, state.CommandResults); err != nil {
 		return SessionState{}, evidenceCapacityFailure(cache, repoRoot, state, err)
 	}
-	return resolveObservedCommandTexts(complete, cache)
+	return complete, nil
 }
 
 func evidenceLoadFailure(cache *StopDecisionCache, repoRoot string, state SessionState, cause error) error {
@@ -486,14 +525,18 @@ func stableEvidenceSegmentGeneration(path string, expected os.FileInfo, hooks ev
 }
 
 func verifiedEvidencePrefixMatches(prefix verifiedEvidencePrefix, repoRoot, sessionID string, hooks evidenceSegmentLoadHooks) bool {
-	stable, cacheable := revalidateEvidenceSegments(prefix.segments, repoRoot, sessionID, hooks)
+	base := prefix.base
+	if base == 0 {
+		base = 1
+	}
+	stable, cacheable := revalidateEvidenceSegments(prefix.segments, base, repoRoot, sessionID, hooks)
 	return stable && cacheable
 }
 
-func revalidateEvidenceSegments(segments []verifiedEvidenceSegment, repoRoot, sessionID string, hooks evidenceSegmentLoadHooks) (bool, bool) {
+func revalidateEvidenceSegments(segments []verifiedEvidenceSegment, base uint64, repoRoot, sessionID string, hooks evidenceSegmentLoadHooks) (bool, bool) {
 	cacheable := true
 	for index, cached := range segments {
-		path := evidenceSegmentPath(repoRoot, sessionID, uint64(index+1))
+		path := evidenceSegmentPath(repoRoot, sessionID, base+uint64(index))
 		generation, stable, reliable := stableEvidenceSegmentGeneration(path, cached.identity, hooks)
 		if !stable {
 			return false, false

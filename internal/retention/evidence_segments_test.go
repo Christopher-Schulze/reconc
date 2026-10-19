@@ -92,7 +92,8 @@ func TestEvidenceSegmentRetentionPreservesMalformedDirectory(t *testing.T) {
 	now := time.Now().UTC()
 	project := ProjectDir(stateRoot, repo)
 	path := filepath.Join(project, "evidence", "malformed")
-	writeTimed(t, filepath.Join(path, "00000002.json"), []byte("out-of-order"), now.Add(-72*time.Hour))
+	writeTimed(t, filepath.Join(path, "00000002.json"), []byte("segment"), now.Add(-72*time.Hour))
+	writeTimed(t, filepath.Join(path, "notes.txt"), []byte("foreign entry"), now.Add(-72*time.Hour))
 	policy := DefaultPolicy()
 	policy.EvidenceSegments = ClassPolicy{MaxFiles: 0, MaxBytes: 0, MaxAge: time.Nanosecond}
 	report := Run(Options{RepoRoot: repo, StateRoot: stateRoot, Policy: policy, Now: now, TempRoot: t.TempDir()})
@@ -166,5 +167,25 @@ func writeTimedTB(t testing.TB, path string, body []byte, modTime time.Time) {
 	}
 	if err := os.Chtimes(path, modTime, modTime); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEvidenceSegmentRetentionAcceptsCompactedAndSetAsideMembers(t *testing.T) {
+	repo := t.TempDir()
+	stateRoot := t.TempDir()
+	now := time.Now().UTC()
+	project := ProjectDir(stateRoot, repo)
+	path := filepath.Join(project, "evidence", "compacted")
+	for _, name := range []string{"00000003.json.orphaned-0123456789abcdef", "00000065.json", "00000066.json"} {
+		writeTimed(t, filepath.Join(path, name), []byte("segment"), now.Add(-72*time.Hour))
+	}
+	policy := DefaultPolicy()
+	policy.EvidenceSegments = ClassPolicy{MaxFiles: 0, MaxBytes: 0, MaxAge: time.Nanosecond}
+	report := Run(Options{RepoRoot: repo, StateRoot: stateRoot, Policy: policy, Now: now, TempRoot: t.TempDir()})
+	if len(report.Errors) != 0 {
+		t.Fatalf("compacted chain with a set-aside member was reported malformed: %v", report.Errors)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unreferenced compacted chain was not pruned as one directory: %v", err)
 	}
 }

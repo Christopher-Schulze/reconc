@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
@@ -140,11 +139,8 @@ func recognizedEvidenceSegmentName(name string) bool {
 	if hasOrphan && !evidenceHexIdentity(orphan, 16) {
 		return false
 	}
-	if len(base) != 13 || !strings.HasSuffix(base, ".json") {
-		return false
-	}
-	index, err := strconv.ParseUint(base[:8], 10, 64)
-	return err == nil && index > 0 && index <= maxEvidenceSegments && fmt.Sprintf("%08d.json", index) == base
+	_, ok := evidenceSegmentFileIndex(base)
+	return ok
 }
 
 func removeAbandonedEvidenceArtifact(artifact abandonedEvidenceArtifact) error {

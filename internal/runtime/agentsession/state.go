@@ -121,6 +121,7 @@ type SessionState struct {
 	RepositoryRunNudges        int      `json:"repository_run_nudges,omitempty"`
 	RepositoryRunAwaiting      bool     `json:"repository_run_awaiting,omitempty"`
 	EvidenceSegmentCount       uint64   `json:"evidence_segment_count,omitempty"`
+	EvidenceSegmentBase        uint64   `json:"evidence_segment_base,omitempty"`
 	EvidenceSegmentDigest      string   `json:"evidence_segment_digest,omitempty"`
 	EvidenceOverflow           bool     `json:"evidence_overflow,omitempty"`
 	EvidenceOverflowReason     string   `json:"evidence_overflow_reason,omitempty"`
@@ -709,6 +710,11 @@ func mutateSessionStateResolvedMode(root, sessionID string, mutate func(SessionS
 			}
 			if _, err := writeSessionStateLockedIfChanged(updated, data); err != nil {
 				return err
+			}
+			if updated.EvidenceSegmentBase != state.EvidenceSegmentBase {
+				// The compacted chain is published; the superseded one is
+				// inert, so a failed removal is retried by the next compaction.
+				_ = reclaimStaleEvidenceSegments(root, updated)
 			}
 		}
 		if updated.EvidenceOverflow {
