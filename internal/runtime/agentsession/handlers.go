@@ -965,9 +965,10 @@ func runPreCommandPolicyCheckWithEvaluator(evaluator *runtime.Evaluator, repoRoo
 }
 
 func filterRepoScopedReadPaths(repoRoot string, paths []string) []string {
+	scope := readEvidenceScope{repoRoot: repoRoot}
 	out := make([]string, 0, len(paths))
 	for _, path := range paths {
-		if isRepoScopedReadEvidence(repoRoot, path) {
+		if scope.contains(path) {
 			out = append(out, path)
 		}
 	}
@@ -975,6 +976,23 @@ func filterRepoScopedReadPaths(repoRoot string, paths []string) []string {
 }
 
 func isRepoScopedReadEvidence(repoRoot, raw string) bool {
+	scope := readEvidenceScope{repoRoot: repoRoot}
+	return scope.contains(raw)
+}
+
+// resolveReadEvidenceRoot is the repository identity seam for read evidence.
+var resolveReadEvidenceRoot = pathidentity.ResolveExisting
+
+// readEvidenceScope resolves the repository root identity at most once for a
+// batch of read paths instead of once per absolute path.
+type readEvidenceScope struct {
+	repoRoot string
+	resolved string
+	err      error
+	done     bool
+}
+
+func (scope *readEvidenceScope) contains(raw string) bool {
 	path := raw
 	if path == "" {
 		return false
@@ -983,15 +1001,18 @@ func isRepoScopedReadEvidence(repoRoot, raw string) bool {
 	if !filepath.IsAbs(path) {
 		return true
 	}
-	root, err := pathidentity.ResolveExisting(repoRoot)
-	if err != nil {
+	if !scope.done {
+		scope.resolved, scope.err = resolveReadEvidenceRoot(scope.repoRoot)
+		scope.done = true
+	}
+	if scope.err != nil {
 		return false
 	}
 	cleaned, err := pathidentity.ResolveProspective(filepath.Clean(path))
 	if err != nil {
 		return false
 	}
-	rel, err := filepath.Rel(root, cleaned)
+	rel, err := filepath.Rel(scope.resolved, cleaned)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return false
 	}

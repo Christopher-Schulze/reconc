@@ -600,6 +600,7 @@ func (board *Board) validateInvariants() []Issue {
 	if len(board.Done) > board.Config.DoneVisible && board.Profile == ProfileSections {
 		issues = append(issues, issue("task/board/done-window", board.Config.OverviewPath, 0, fmt.Sprintf("Done lists %d TASKs; configured maximum is %d", len(board.Done), board.Config.DoneVisible), "keep only the newest configured number of archived rows visible"))
 	}
+	dependencies := newDependencyIndex(board)
 	for _, task := range board.allTasks() {
 		activeSubs := 0
 		for _, sub := range task.SubTasks {
@@ -616,7 +617,7 @@ func (board *Board) validateInvariants() []Issue {
 		if task.State == StateQueued && activeSubs > 0 {
 			issues = append(issues, issue("task/detail/queued-active-subtask", task.Path, 0, "queued TASK already has an active Sub-Task", "keep queued Sub-Tasks [ ] until the TASK is claimed"))
 		}
-		if _, unknown := splitDependencies(board, task); len(unknown) > 0 {
+		if _, unknown := dependencies.split(task); len(unknown) > 0 {
 			issues = append(issues, issue("task/detail/unknown-dependency", task.Path, 0, "Depends On references no TASK on the board: "+strings.Join(unknown, ", "), "fix the dependency id or remove the stale entry; an unknown id keeps this TASK unclaimable forever"))
 		}
 	}

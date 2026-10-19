@@ -90,6 +90,9 @@ func evaluateWithWorkerLimit(repoRoot string, gates []policy.AssuranceGate, inpu
 	return findings, state.analysisStats(), err
 }
 
+// detectModuleRoots is the module-root discovery seam.
+var detectModuleRoots = stackdetect.Detect
+
 func evaluateWithState(repoRoot string, gates []policy.AssuranceGate, inputs Inputs, workerLimit int) ([]Finding, *evaluationState, error) {
 	root, err := canonicalRoot(repoRoot)
 	if err != nil {
@@ -104,12 +107,19 @@ func evaluateWithState(repoRoot string, gates []policy.AssuranceGate, inputs Inp
 	state := newEvaluationState(inputs.ChangedPaths, workerLimit)
 	state.commandEvidence = commandEvidenceForInputs(inputs)
 	state.writeEpochs = inputs.WriteEpochs
-	detection, err := stackdetect.Detect(root)
-	if err != nil {
-		return nil, state, fmt.Errorf("detect assurance module roots: %w", err)
-	}
+	// Only applicability-scoped gates consult module roots, so the repository
+	// walk runs at most once and only when such a gate is evaluated.
+	var detection stackdetect.Result
+	detected := false
 	findings := []Finding{}
 	for _, gate := range gates {
+		if len(gate.ApplicableIf) > 0 && !detected {
+			detection, err = detectModuleRoots(root)
+			if err != nil {
+				return nil, state, fmt.Errorf("detect assurance module roots: %w", err)
+			}
+			detected = true
+		}
 		scopes, moduleAware, err := selectModuleScopes(root, detection, gate, inputs.ChangedPaths)
 		if err != nil {
 			return nil, state, fmt.Errorf("assurance gate %s module scope: %w", gate.ID, err)

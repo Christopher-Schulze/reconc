@@ -332,9 +332,17 @@ func evalRequireFreshFile(ctx *evalContext, rule *policy.Rule, defaultMode polic
 	allRequired := map[string]struct{}{}
 	triggeredPaths := newStableStringCollector([]string{})
 	now := time.Now()
+	// Required files depend only on the captures, so contexts that share a
+	// capture set are checked once.
+	checkedCaptures := map[[32]byte]struct{}{}
 
 	for _, mc := range contexts {
 		triggeredPaths.add(mc.path)
+		capturesKey := scriptInvocationKey(nil, mc.captures)
+		if _, checked := checkedCaptures[capturesKey]; checked {
+			continue
+		}
+		checkedCaptures[capturesKey] = struct{}{}
 		for _, rf := range files {
 			path, err := SubstituteTemplate(rf.Path, mc.captures)
 			if err != nil {
@@ -415,9 +423,17 @@ func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy
 	failures := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
 	requiredFiles := map[string]struct{}{}
 	triggeredPaths := newStableStringCollector([]string{})
+	// Evidence assertions depend only on the captures, so contexts that share
+	// a capture set are checked once and report each failure once.
+	checkedCaptures := map[[32]byte]struct{}{}
 
 	for _, mc := range contexts {
 		triggeredPaths.add(mc.path)
+		capturesKey := scriptInvocationKey(nil, mc.captures)
+		if _, checked := checkedCaptures[capturesKey]; checked {
+			continue
+		}
+		checkedCaptures[capturesKey] = struct{}{}
 		for _, c := range checks {
 			file, err := SubstituteTemplate(c.File, mc.captures)
 			if err != nil {
@@ -641,6 +657,9 @@ func evalOwnerAwareCoupleChange(ctx *evalContext, rule *policy.Rule, defaultMode
 
 	triggered := newStableStringCollector(nil)
 	missingOwners := newStableStringCollector(nil)
+	// Every source in one owner yields the same concrete companion pattern, so
+	// its answer is computed once per rule instead of once per source path.
+	companionPresent := map[string]bool{}
 	for _, context := range contexts {
 		triggered.add(context.path)
 		ownerMatched := false
@@ -654,11 +673,16 @@ func evalOwnerAwareCoupleChange(ctx *evalContext, rule *policy.Rule, defaultMode
 				// fails closed below.
 				continue
 			}
-			matched, matchErr := matchConcreteCouplePaths(concrete, inputs.WritePaths)
-			if matchErr != nil {
-				return nil, matchErr
+			present, known := companionPresent[concrete]
+			if !known {
+				var matchErr error
+				present, matchErr = anyConcreteCouplePath(concrete, inputs.WritePaths)
+				if matchErr != nil {
+					return nil, matchErr
+				}
+				companionPresent[concrete] = present
 			}
-			if len(matched) == 0 {
+			if !present {
 				continue
 			}
 			ownerMatched = true
@@ -682,18 +706,23 @@ func evalOwnerAwareCoupleChange(ctx *evalContext, rule *policy.Rule, defaultMode
 	return violation, nil
 }
 
-func matchConcreteCouplePaths(pattern string, writes []string) ([]string, error) {
-	matched := make([]string, 0)
+// compileConcreteCouplePattern is the compile seam for owner-substituted
+// companion patterns.
+var compileConcreteCouplePattern = CompilePathMatcher
+
+// anyConcreteCouplePath compiles the concrete companion pattern once and
+// stops at the first written path it matches.
+func anyConcreteCouplePath(pattern string, writes []string) (bool, error) {
+	matcher, err := compileConcreteCouplePattern(pattern)
+	if err != nil {
+		return false, err
+	}
 	for _, write := range writes {
-		hit, err := MatchPath(pattern, write)
-		if err != nil {
-			return nil, err
-		}
-		if hit {
-			matched = append(matched, write)
+		if matcher.Match(write) {
+			return true, nil
 		}
 	}
-	return matched, nil
+	return false, nil
 }
 
 func collectCoupleSourceContexts(ctx *evalContext, patterns, companions, writes []string) ([]matchContext, error) {

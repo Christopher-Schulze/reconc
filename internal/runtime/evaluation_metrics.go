@@ -310,11 +310,7 @@ func normalizeEvaluationInputWithRootResolver(root string, inputs ExecutionInput
 	if err != nil {
 		return normalizedEvaluationInputSet{}, err
 	}
-	writes, err := normalizePathsWithResolver(inputs.WritePaths, paths.resolvedRoot, paths.prospective)
-	if err != nil {
-		return normalizedEvaluationInputSet{}, err
-	}
-	epochs, err := normalizeWriteEpochsWithResolver(inputs.WritePaths, inputs.WriteEpochs, paths.resolvedRoot, paths.prospective)
+	writes, epochs, err := normalizeWritesAndEpochsWithResolver(inputs.WritePaths, inputs.WriteEpochs, paths.resolvedRoot, paths.prospective)
 	if err != nil {
 		return normalizedEvaluationInputSet{}, err
 	}
@@ -325,6 +321,9 @@ func normalizeEvaluationInputWithRootResolver(root string, inputs ExecutionInput
 
 func finishInputNormalization(inputs ExecutionInputs, reads, writes []string, epochs map[string]uint64) normalizedEvaluationInputSet {
 	results := normalizeCommandResults(inputs.CommandResults)
+	// Different spellings of one path (absolute and repo-relative) collapse to
+	// one normalized entry, so rule evaluation never repeats work for it.
+	reads = dedupePreservingOrder(reads)
 	writes = dedupePreservingOrder(writes)
 	commands := append([]string{}, inputs.Commands...)
 	for _, result := range results {

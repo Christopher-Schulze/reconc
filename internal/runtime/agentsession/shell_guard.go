@@ -269,7 +269,28 @@ var (
 	knownGitCommandsSet  map[string]struct{}
 )
 
+// commandMayInvokeGit reports whether Git aliases can influence the command's
+// shell-guard decision. The guard consults aliases only for git invocations, so
+// other commands skip the two Git processes an alias snapshot costs. An
+// unanalyzable command is refused by the guard regardless of aliases.
+func commandMayInvokeGit(command string) bool {
+	invocations, incomplete := shellcommand.InvocationsWithReason(command, maxShellGuardDepth)
+	if incomplete != shellcommand.IncompleteNone {
+		return true
+	}
+	for _, invocation := range invocations {
+		if len(invocation.Words) > 0 && isGitToken(invocation.Words[0]) {
+			return true
+		}
+	}
+	return false
+}
+
 func knownGitCommand(name string) bool {
+	// Built-ins in the fallback list need no `git --list-cmds` process.
+	if _, found := fallbackGitCommandSet[name]; found {
+		return true
+	}
 	knownGitCommandsOnce.Do(func() {
 		knownGitCommandsSet = fallbackGitCommands()
 		output, exitCode, err := runGitInspection("", "--list-cmds=main,others,nohelpers")
@@ -283,6 +304,8 @@ func knownGitCommand(name string) bool {
 	_, found := knownGitCommandsSet[name]
 	return found
 }
+
+var fallbackGitCommandSet = fallbackGitCommands()
 
 func fallbackGitCommands() map[string]struct{} {
 	commands := []string{

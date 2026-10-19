@@ -109,7 +109,9 @@ staged-candidate fingerprint still matches the state being judged. A later
 relevant write invalidates the earlier result. A self-reported claim can be an
 input to policy, but it is not equivalent to a command receipt, Git identity,
 typed TASK state, or completion proof.
-In `reconc exec --staged`, the clean postcondition is checked before a zero-exit
+In `reconc exec --staged`, each candidate capture scans the working tree once
+between two HEAD and index identity captures, so equal captures prove the scan
+judged that exact candidate. The clean postcondition is checked before a zero-exit
 success is recorded; a command that dirties the candidate records failure and
 does not publish a success proof. Non-staged execution retains its immediate
 process-outcome recording boundary. Reconc-owned command results bind to the
@@ -2850,7 +2852,9 @@ equivalents; the complete source-repository list is in Git Ignore Policy.
 Runtime retention is product-owned rather than harness-owned. `SessionStart`
 and `SessionEnd` run a cross-process-safe due check with a six-hour interval;
 Stop never prunes. `reconc prune [repo] [--dry-run] [--json]` runs the same
-core explicitly. A successful real run from either path publishes the same
+core explicitly. A not-due check reads the atomically published marker without
+taking any lock; a due answer is confirmed again under the project retention
+lock before a pass runs. A successful real run from either path publishes the same
 monotonic durable completion marker while holding the project retention lock;
 dry runs and runs with any reported error leave it unchanged. Unchanged session
 files, active-session pointers, reports, command proofs, and run state are

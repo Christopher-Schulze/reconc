@@ -127,7 +127,11 @@ func readEvidenceSnapshot(path string, needContent bool) (evidenceFileSnapshot, 
 	return snapshot, nil
 }
 
-func statEvidencePath(path string) (os.FileInfo, string, bool, error) {
+// statEvidencePath is the identity probe seam used by snapshot reads and
+// cache revalidation.
+var statEvidencePath = statEvidenceFile
+
+func statEvidenceFile(path string) (os.FileInfo, string, bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {

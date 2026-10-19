@@ -74,7 +74,7 @@ func RunContext(ctx context.Context, options Options) Report {
 }
 
 // RunIfDue executes at most once per Policy.Interval. A not-due call reads one
-// bounded marker snapshot, takes one lock round-trip, and writes nothing.
+// bounded marker snapshot, takes no lock, and writes nothing.
 func RunIfDue(options Options) Report {
 	return RunIfDueContext(context.Background(), options)
 }
@@ -88,15 +88,17 @@ func RunIfDueContext(ctx context.Context, options Options) Report {
 	if err := ctx.Err(); err != nil {
 		return retentionContextError(options, err)
 	}
+	// The marker is published atomically and a missing or torn marker reads as
+	// due, so a not-due answer needs no lock; a due answer is re-checked under
+	// the lock before any pass runs.
+	marker := retentionMarkerPath(options)
+	if !retentionDue(marker, options.Now, options.Policy.Interval) {
+		return emptyReport(options, options.DryRun)
+	}
 	if options.DryRun {
-		marker := retentionMarkerPath(options)
-		if !retentionDue(marker, options.Now, options.Policy.Interval) {
-			return emptyReport(options, true)
-		}
 		return runLockedContext(ctx, options, false)
 	}
 	return withPruneLockContext(ctx, options, func() Report {
-		marker := retentionMarkerPath(options)
 		if !retentionDue(marker, options.Now, options.Policy.Interval) {
 			return emptyReport(options, options.DryRun)
 		}

@@ -37,12 +37,13 @@ func evalAllOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inp
 		return nil, err
 	}
 	failures := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
+	memo := compositeCheckMemo{}
 	for _, mc := range contexts {
 		for i, c := range checks {
 			if ctx.preWrite && c.Kind != policy.KindDenyWrite {
 				continue
 			}
-			ok, reason, err := evalCheck(ctx, c, mc.captures, inputs, inputs.WriteEpochs[mc.path])
+			ok, reason, err := memo.eval(ctx, i, c, mc, inputs)
 			if err != nil {
 				var evalErr *checkEvalError
 				if !errors.As(err, &evalErr) {
@@ -68,11 +69,12 @@ func evalAnyOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inp
 		return nil, err
 	}
 	contextFailures := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
+	memo := compositeCheckMemo{}
 	for _, mc := range contexts {
 		anyPassed := false
 		perCheckReasons := newViolationTextCollector(maxViolationListBytes, "; ", "sub-checks")
 		for i, c := range checks {
-			ok, reason, err := evalCheck(ctx, c, mc.captures, inputs, inputs.WriteEpochs[mc.path])
+			ok, reason, err := memo.eval(ctx, i, c, mc, inputs)
 			if err != nil {
 				var evalErr *checkEvalError
 				if !errors.As(err, &evalErr) {
@@ -108,8 +110,9 @@ func evalNot(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, input
 		}
 	}
 	failures := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
+	memo := compositeCheckMemo{}
 	for _, mc := range contexts {
-		ok, _, err := evalCheck(ctx, checks[0], mc.captures, inputs, inputs.WriteEpochs[mc.path])
+		ok, _, err := memo.eval(ctx, 0, checks[0], mc, inputs)
 		if err != nil {
 			var evalErr *checkEvalError
 			if !errors.As(err, &evalErr) {
@@ -137,9 +140,6 @@ func evalNot(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, input
 // the typed rule. Returns empty slices when when_paths doesn't match,
 // signalling "rule does not fire".
 func compositeSetup(ctx *evalContext, rule *policy.Rule, inputs ExecutionInputs) ([]matchContext, []policy.Check, error) {
-	// Sub-check script runs are shared only between the contexts of this one
-	// composite rule, whose script inputs are identical.
-	ctx.scriptChecks = nil
 	patterns := stringListField(rule, "when_paths")
 	contexts, err := ctx.collectMatchContexts(inputs.WritePaths, patterns)
 	if err != nil {
@@ -203,6 +203,53 @@ func evalCheck(ctx *evalContext, c policy.Check, captures map[string]string, inp
 	return false, "unsupported check kind: " + string(c.Kind), nil
 }
 
+// compositeCheckMemo shares one sub-check result between the contexts of a
+// single composite rule whose inputs to that check are identical, so a rule
+// over thousands of written paths does not re-run the same check per path:
+// claim, command and forbid checks once per rule, command success once per
+// write epoch, and path-bound checks once per capture set.
+type compositeCheckMemo map[compositeCheckKey]compositeCheckOutcome
+
+type compositeCheckKey struct {
+	index         int
+	discriminator string
+}
+
+type compositeCheckOutcome struct {
+	ok     bool
+	reason string
+	err    error
+}
+
+// evalCompositeCheck is the memo's evaluator; tests count its calls.
+var evalCompositeCheck = evalCheck
+
+func (memo compositeCheckMemo) eval(ctx *evalContext, index int, c policy.Check, mc matchContext, inputs ExecutionInputs) (bool, string, error) {
+	epoch := inputs.WriteEpochs[mc.path]
+	key := compositeCheckKey{index: index, discriminator: compositeCheckDiscriminator(c.Kind, mc.captures, epoch)}
+	if cached, ok := memo[key]; ok {
+		return cached.ok, cached.reason, cached.err
+	}
+	ok, reason, err := evalCompositeCheck(ctx, c, mc.captures, inputs, epoch)
+	var evalErr *checkEvalError
+	if err == nil || errors.As(err, &evalErr) {
+		memo[key] = compositeCheckOutcome{ok: ok, reason: reason, err: err}
+	}
+	return ok, reason, err
+}
+
+func compositeCheckDiscriminator(kind policy.Kind, captures map[string]string, epoch uint64) string {
+	switch kind {
+	case policy.KindRequireClaim, policy.KindRequireCommand, policy.KindForbidCommand:
+		return ""
+	case policy.KindRequireCommandSuccess:
+		return "epoch:" + strconv.FormatUint(epoch, 10)
+	default:
+		digest := scriptInvocationKey(nil, captures)
+		return "captures:" + string(digest[:])
+	}
+}
+
 // scriptCheckResult is the classified outcome of one composite
 // require_script sub-check run.
 type scriptCheckResult struct {
@@ -219,19 +266,12 @@ func evalCheckRequireScript(ctx *evalContext, c policy.Check, captures map[strin
 	if err != nil {
 		return false, "", &rerrors.RuleValidationError{Message: "script args: " + err.Error()}
 	}
-	key := scriptInvocationKey(append([]string{c.Script, strconv.Itoa(c.TimeoutSec)}, args...), captures)
-	if cached, ok := ctx.scriptChecks[key]; ok {
-		return cached.ok, cached.reason, cached.err
-	}
+	// compositeCheckMemo shares this run across contexts with the same
+	// captures; a caller cancellation is a hard error it never caches.
 	result, canceled := runCheckRequireScript(ctx, c, args, captures, inputs)
 	if canceled {
-		// A caller cancellation is never cached as a sub-check outcome.
 		return false, "", result.err
 	}
-	if ctx.scriptChecks == nil {
-		ctx.scriptChecks = make(map[[32]byte]scriptCheckResult, 1)
-	}
-	ctx.scriptChecks[key] = result
 	return result.ok, result.reason, result.err
 }
 

@@ -100,20 +100,19 @@ type proofPayload struct {
 
 // CaptureStagedClean captures HEAD and the index tree only when the working
 // tree contains no tracked or untracked changes outside the staged candidate.
-// It checks twice so a concurrent mutation cannot silently race the snapshot.
+// The single cleanliness scan runs between two identity captures, so equal
+// captures prove the scan compared the working tree with that exact
+// candidate and a concurrent mutation cannot silently race the snapshot.
 func CaptureStagedClean(repoRoot string) (Snapshot, error) {
 	root, err := canonicalRepoRoot(repoRoot)
 	if err != nil {
-		return Snapshot{}, err
-	}
-	if err := requireCleanAgainstIndex(root); err != nil {
 		return Snapshot{}, err
 	}
 	first, err := capture(root)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	if err := requireCleanAgainstIndex(root); err != nil {
+	if err := checkCleanAgainstIndex(root); err != nil {
 		return Snapshot{}, err
 	}
 	second, err := capture(root)
@@ -399,6 +398,9 @@ func canonicalRepoRoot(repoRoot string) (string, error) {
 	}
 	return resolved, nil
 }
+
+// checkCleanAgainstIndex is the working-tree cleanliness seam.
+var checkCleanAgainstIndex = requireCleanAgainstIndex
 
 func requireCleanAgainstIndex(repoRoot string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), gitCommandTimeout)

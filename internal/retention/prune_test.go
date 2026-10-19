@@ -433,6 +433,32 @@ func TestRunIfDueWritesOnceAndSkipsWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestNotDueRunTakesNoLock(t *testing.T) {
+	repo := t.TempDir()
+	stateRoot := t.TempDir()
+	options := Options{RepoRoot: repo, StateRoot: stateRoot, Policy: DefaultPolicy(), Now: time.Now().UTC(), TempRoot: t.TempDir()}
+	if first := RunIfDue(options); !first.Ran || len(first.Errors) != 0 {
+		t.Fatalf("first lifecycle pass = %+v", first)
+	}
+	lock := filepath.Join(ProjectDir(stateRoot, repo), ".retention.lock")
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	if second := RunIfDue(options); second.Ran || len(second.Errors) != 0 {
+		t.Fatalf("not-due lifecycle pass = %+v", second)
+	}
+	if _, err := os.Lstat(lock); !os.IsNotExist(err) {
+		t.Fatalf("not-due pass opened the retention lock: %v", err)
+	}
+	options.Now = options.Now.Add(DefaultPolicy().Interval + time.Minute)
+	if due := RunIfDue(options); !due.Ran || len(due.Errors) != 0 {
+		t.Fatalf("due lifecycle pass = %+v", due)
+	}
+	if _, err := os.Lstat(lock); err != nil {
+		t.Fatalf("due pass must run under the retention lock: %v", err)
+	}
+}
+
 func TestSuccessfulManualRunRecordsCompletionAndSkipsImmediateDueRun(t *testing.T) {
 	repo := t.TempDir()
 	stateRoot := t.TempDir()

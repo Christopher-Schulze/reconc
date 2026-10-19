@@ -30,11 +30,11 @@ func newViolationTextCollector(limit int, separator, noun string) *violationText
 }
 
 func (c *violationTextCollector) add(value string) {
-	value = strings.ToValidUTF8(value, "�")
 	if c.sealed {
 		c.omitted++
 		return
 	}
+	value = strings.ToValidUTF8(value, "�")
 	separatorBytes := 0
 	if len(c.items) > 0 {
 		separatorBytes = len(c.separator)

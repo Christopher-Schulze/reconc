@@ -35,7 +35,7 @@ func normalizePathsWithResolver(paths []string, resolvedRoot string, prospective
 		prospective = pathidentity.NewProspectiveResolver()
 	}
 	for _, raw := range paths {
-		posix, keep, err := normalizePathWithResolver(raw, resolvedRoot, prospective)
+		posix, keep, err := normalizeEvidencePath(raw, resolvedRoot, prospective)
 		if err != nil {
 			return nil, err
 		}
@@ -45,6 +45,9 @@ func normalizePathsWithResolver(paths []string, resolvedRoot string, prospective
 	}
 	return out, nil
 }
+
+// normalizeEvidencePath is the per-path normalization seam.
+var normalizeEvidencePath = normalizePathWithResolver
 
 func normalizePathWithResolver(raw, resolvedRoot string, prospective *pathidentity.ProspectiveResolver) (string, bool, error) {
 	candidate := raw
@@ -95,22 +98,27 @@ func normalizeWriteEpochs(paths []string, epochs map[string]uint64, root string)
 // per write path.
 func normalizeWriteEpochsWithResolvedRoot(paths []string, epochs map[string]uint64, resolvedRoot string) (map[string]uint64, error) {
 	prospective := pathidentity.NewProspectiveResolver()
-	return normalizeWriteEpochsWithResolver(paths, epochs, resolvedRoot, prospective)
+	_, normalized, err := normalizeWritesAndEpochsWithResolver(paths, epochs, resolvedRoot, prospective)
+	return normalized, err
 }
 
-func normalizeWriteEpochsWithResolver(paths []string, epochs map[string]uint64, resolvedRoot string, prospective *pathidentity.ProspectiveResolver) (map[string]uint64, error) {
+// normalizeWritesAndEpochsWithResolver normalizes every write path once and
+// returns both the kept paths and their epochs re-keyed onto that form.
+func normalizeWritesAndEpochsWithResolver(paths []string, epochs map[string]uint64, resolvedRoot string, prospective *pathidentity.ProspectiveResolver) ([]string, map[string]uint64, error) {
+	writes := make([]string, 0, len(paths))
 	out := make(map[string]uint64, len(epochs))
 	if prospective == nil {
 		prospective = pathidentity.NewProspectiveResolver()
 	}
 	for _, raw := range paths {
-		normalized, keep, err := normalizePathWithResolver(raw, resolvedRoot, prospective)
+		normalized, keep, err := normalizeEvidencePath(raw, resolvedRoot, prospective)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if !keep {
 			continue
 		}
+		writes = append(writes, normalized)
 		epoch := epochs[raw]
 		if epoch == 0 {
 			epoch = epochs[filepath.ToSlash(raw)]
@@ -119,7 +127,7 @@ func normalizeWriteEpochsWithResolver(paths []string, epochs map[string]uint64, 
 			out[normalized] = epoch
 		}
 	}
-	return out, nil
+	return writes, out, nil
 }
 
 // RelativizeEpochKeys bridges the write-epoch key formats between agent

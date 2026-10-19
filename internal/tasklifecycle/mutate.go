@@ -722,8 +722,9 @@ func selectNext(board *Board, requested string, allowBlocked bool) (*Task, error
 		}
 		return task, nil
 	}
+	dependencies := newDependencyIndex(board)
 	for _, task := range board.Queue {
-		if dependenciesDone(board, task) {
+		if dependencies.done(task) {
 			return task, nil
 		}
 	}
@@ -738,8 +739,7 @@ func blockedSuffix(allow bool) string {
 }
 
 func dependenciesDone(board *Board, task *Task) bool {
-	unfinished, unknown := splitDependencies(board, task)
-	return len(unfinished) == 0 && len(unknown) == 0
+	return newDependencyIndex(board).done(task)
 }
 
 // splitDependencies partitions a task's dependencies into ids that
@@ -751,29 +751,61 @@ func splitDependencies(board *Board, task *Task) (unfinished, unknown []string) 
 	if len(task.Dependencies) == 0 {
 		return nil, nil
 	}
-	done := make(map[string]bool, len(board.doneIDs)+len(board.Done)*2)
-	for id := range board.doneIDs {
-		done[id] = true
+	return newDependencyIndex(board).split(task)
+}
+
+// dependencyIndex classifies dependency ids against one board state. Callers
+// that check many TASKs build it once; it is built lazily so boards without
+// dependencies never index their TASKs.
+type dependencyIndex struct {
+	board    *Board
+	finished map[string]bool
+	known    map[string]bool
+}
+
+func newDependencyIndex(board *Board) *dependencyIndex {
+	return &dependencyIndex{board: board}
+}
+
+func (index *dependencyIndex) split(task *Task) (unfinished, unknown []string) {
+	if len(task.Dependencies) == 0 {
+		return nil, nil
 	}
-	for _, item := range board.Done {
-		done[item.ID] = true
-		done[item.Name] = true
-	}
-	known := map[string]bool{}
-	for _, live := range board.allTasks() {
-		known[live.ID] = true
-		known[live.Name] = true
+	if index.finished == nil {
+		index.build()
 	}
 	for _, dependency := range task.Dependencies {
 		switch {
-		case done[dependency]:
-		case known[dependency]:
+		case index.finished[dependency]:
+		case index.known[dependency]:
 			unfinished = append(unfinished, dependency)
 		default:
 			unknown = append(unknown, dependency)
 		}
 	}
 	return unfinished, unknown
+}
+
+func (index *dependencyIndex) done(task *Task) bool {
+	unfinished, unknown := index.split(task)
+	return len(unfinished) == 0 && len(unknown) == 0
+}
+
+func (index *dependencyIndex) build() {
+	board := index.board
+	index.finished = make(map[string]bool, len(board.doneIDs)+len(board.Done)*2)
+	for id := range board.doneIDs {
+		index.finished[id] = true
+	}
+	for _, item := range board.Done {
+		index.finished[item.ID] = true
+		index.finished[item.Name] = true
+	}
+	index.known = map[string]bool{}
+	for _, live := range board.allTasks() {
+		index.known[live.ID] = true
+		index.known[live.Name] = true
+	}
 }
 
 func dependencyBlockReason(board *Board, task *Task) string {

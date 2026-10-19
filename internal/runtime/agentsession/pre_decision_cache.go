@@ -379,7 +379,7 @@ func capturePreDecisionObservedIdentityWithEvaluatorAndStopCache(
 	inputs.metrics = metrics
 	inputs.identity.taint = taintIdentity
 	inputs.identity.alias = "not-applicable"
-	if payload.IsCommandTool() {
+	if payload.IsCommandTool() && commandMayInvokeGit(payload.Command()) {
 		inputs.aliasSnapshot = captureGitAliasSnapshot(root)
 		aliasIdentity, ok := inputs.aliasSnapshot.identityValue()
 		if !ok {
