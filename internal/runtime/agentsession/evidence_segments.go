@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -20,12 +21,14 @@ const (
 	evidenceSegmentFormatVersion = "raw-evidence-v1"
 	evidenceTaintFormatVersion   = "evidence-taint-v1"
 	maxEvidenceSegments          = 64
-	maxEvidenceSegmentBytes      = MaxSessionStateBytes
-	maxCompleteEvidenceBytes     = 16 << 20
-	maxEvidenceTaintBytes        = 16 * 1024
-	mergedStringOverheadBytes    = 64
-	mergedResultOverheadBytes    = 128
-	mergedEpochOverheadBytes     = 48
+	// A segment holds the evidence fields of one session state that fit the
+	// state budget, plus a few identity fields; the margin covers those.
+	maxEvidenceSegmentBytes   = MaxSessionStateBytes + 64*1024
+	maxCompleteEvidenceBytes  = 16 << 20
+	maxEvidenceTaintBytes     = 16 * 1024
+	mergedStringOverheadBytes = 64
+	mergedResultOverheadBytes = 128
+	mergedEpochOverheadBytes  = 48
 )
 
 type evidenceSegment struct {
@@ -246,11 +249,10 @@ func rotateSessionEvidenceLocked(repoRoot string, state SessionState) (SessionSt
 		return state, err
 	}
 	segment.Digest = digest
-	body, err := json.MarshalIndent(segment, "", "  ")
+	body, err := marshalWithoutHTMLEscape(segment)
 	if err != nil {
 		return state, fmt.Errorf("marshal evidence segment: %w", err)
 	}
-	body = append(body, '\n')
 	if len(body) > maxEvidenceSegmentBytes {
 		return state, fmt.Errorf("evidence segment is %d bytes; maximum is %d", len(body), maxEvidenceSegmentBytes)
 	}
@@ -258,14 +260,26 @@ func rotateSessionEvidenceLocked(repoRoot string, state SessionState) (SessionSt
 	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
 		return state, fmt.Errorf("mkdir evidence segment dir: %w", err)
 	}
-	if existing, readErr := boundedio.ReadRegularFile(path, maxEvidenceSegmentBytes); readErr == nil {
-		if string(existing) != string(body) {
-			return state, fmt.Errorf("evidence segment %d already exists with different content", index)
+	existing, readErr := boundedio.ReadRegularFile(path, maxEvidenceSegmentBytes)
+	switch {
+	case readErr == nil && string(existing) == string(body):
+	case readErr == nil:
+		// The chain is defined by the state's count and head digest, and
+		// index count+1 is never part of it. A file there was left by a
+		// rotation whose state publication failed or by an older chain, so it
+		// is set aside under the session lock instead of blocking rotation.
+		if err := setAsideOrphanEvidenceSegment(path, existing); err != nil {
+			return state, err
 		}
-	} else if !errors.Is(readErr, os.ErrNotExist) {
+		if _, err := atomicfile.WritePrivateIfChanged(path, body, 0o600); err != nil {
+			return state, fmt.Errorf("write evidence segment: %w", err)
+		}
+	case !errors.Is(readErr, os.ErrNotExist):
 		return state, fmt.Errorf("inspect evidence segment: %w", readErr)
-	} else if _, err := atomicfile.WritePrivateIfChanged(path, body, 0o600); err != nil {
-		return state, fmt.Errorf("write evidence segment: %w", err)
+	default:
+		if _, err := atomicfile.WritePrivateIfChanged(path, body, 0o600); err != nil {
+			return state, fmt.Errorf("write evidence segment: %w", err)
+		}
 	}
 	state.ReadPaths = []string{}
 	state.WritePaths = []string{}
@@ -280,6 +294,30 @@ func rotateSessionEvidenceLocked(repoRoot string, state SessionState) (SessionSt
 	state.EvidenceOverflowReason = ""
 	state.EvidenceOverflowLimit = ""
 	return state, nil
+}
+
+// setAsideOrphanEvidenceSegment keeps an unreferenced segment for forensics
+// under a content-addressed name outside the numbered chain.
+func setAsideOrphanEvidenceSegment(path string, body []byte) error {
+	sum := sha256.Sum256(body)
+	orphan := path + ".orphaned-" + hex.EncodeToString(sum[:])[:16]
+	if err := os.Rename(path, orphan); err != nil {
+		return fmt.Errorf("set aside orphaned evidence segment: %w", err)
+	}
+	return nil
+}
+
+// marshalWithoutHTMLEscape encodes private evidence compactly. Agent commands
+// are full of `&&`, `<` and `>`, which default JSON escaping inflates sixfold
+// against the byte budgets although no consumer renders these files as HTML.
+func marshalWithoutHTMLEscape(value any) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
 }
 
 func loadCompleteSessionEvidence(repoRoot string, state SessionState) (SessionState, error) {

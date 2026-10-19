@@ -2890,7 +2890,15 @@ A command longer than 32 KiB is ordinary agent work, not an overflow: the
 command and command-result evidence store a UTF-8-safe prefix followed by
 ` ...[truncated sha256=<hex> bytes=<n>]`, which binds the record to the exact
 full text, keeps equal long commands deduplicated, and never taints the
-session. An event that cannot fit an empty segment, a 64-segment exhaustion, or a
+session. Session state and sealed segments are written as compact JSON
+without HTML escaping, so shell operators such as `&&`, `<`, and `>` count
+once against the byte budgets. When a field budget or the 1 MiB serialized
+state budget is reached, the evidence gathered so far is sealed into the next
+segment and the triggering mutation is replayed on the emptied state; a
+segment file already present at that next index belongs to no published chain
+(an interrupted rotation or an older chain) and is set aside as
+`<index>.json.orphaned-<sha256 prefix>` instead of blocking rotation. An event
+that cannot fit an empty segment, a 64-segment exhaustion, or a
 missing/corrupt segment creates a project-scoped evidence taint. The taint
 records the exact field and limit cause (`item_bytes`, `item_count`,
 `byte_budget`, `serialization`, `segment_count`, `segment_storage`, or

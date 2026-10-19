@@ -628,8 +628,27 @@ func mutateSessionStateResolvedMode(root, sessionID string, mutate func(SessionS
 		}
 		if stateChanged {
 			data, marshalErr := marshalNormalizedStateDeterministic(updated)
+			var sizeErr *sessionStateSizeError
+			if errors.As(marshalErr, &sizeErr) && !state.EvidenceOverflow && sessionHasEvidence(state) {
+				// The serialized state outgrew its budget. Seal the evidence
+				// gathered so far into a segment and replay the mutation on the
+				// emptied state before falling back to a taint.
+				if rotated, rotateErr := rotateSessionEvidenceLocked(root, state); rotateErr == nil {
+					replayed := mutate(cloneSessionState(rotated))
+					replayed.RepoRoot = root
+					replayed.SessionID = sessionID
+					if replayed.ReportPath == "" {
+						replayed.ReportPath = sessionReportPath(root, sessionID)
+					}
+					if !sessionStateIsNormalized(replayed) {
+						replayed = normalizeSessionState(replayed)
+					}
+					if replayedData, replayErr := marshalNormalizedStateDeterministic(replayed); replayErr == nil {
+						updated, data, marshalErr = replayed, replayedData, nil
+					}
+				}
+			}
 			if marshalErr != nil {
-				var sizeErr *sessionStateSizeError
 				if !errors.As(marshalErr, &sizeErr) {
 					return fmt.Errorf("marshal session state: %w", marshalErr)
 				}
@@ -685,11 +704,10 @@ func marshalStateDeterministic(state SessionState) ([]byte, error) {
 }
 
 func marshalNormalizedStateDeterministic(state SessionState) ([]byte, error) {
-	body, err := json.Marshal(state)
+	body, err := marshalWithoutHTMLEscape(state)
 	if err != nil {
 		return nil, err
 	}
-	body = append(body, '\n')
 	if len(body) > MaxSessionStateBytes {
 		return nil, &sessionStateSizeError{actual: len(body), limit: MaxSessionStateBytes}
 	}
