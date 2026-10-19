@@ -199,8 +199,9 @@ func scriptInvocationKey(args []string, captures map[string]string) [32]byte {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	values := make([]string, 0, 1+len(args)+2*len(keys))
-	values = append(values, strconv.Itoa(len(args)))
+	// append sizes the slice; a computed capacity could overflow for
+	// attacker-sized argument or capture lists.
+	values := []string{strconv.Itoa(len(args))}
 	values = append(values, args...)
 	for _, key := range keys {
 		values = append(values, key, captures[key])
