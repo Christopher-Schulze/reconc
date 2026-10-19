@@ -5634,10 +5634,17 @@ runtimes still keep git pre-commit as the repository backstop.
 Candidates are grouped by their immutable runner and timeout key before scope
 and template-context preparation; singleton or ineligible candidates pay only
 the normal per-rule path, while genuine batches retain rule order and per-rule
-attribution. A rule whose `when_paths` contains template variables is always
+attribution, so rules meant to share one runner process should share one
+`timeout_sec`. A rule whose `when_paths` contains template variables is always
 evaluated per match context, because its normal script input exposes those
 captures. Capture-free batches receive the same complete normalized write-path
-set and an explicitly empty capture map as their per-context execution.
+set and an explicitly empty capture map as their per-context execution. The
+per-rule path runs the script once per distinct substituted-argument and
+capture set: matched paths that share them reuse that run, the violation still
+lists every triggering path, and a failure is attributed as
+`[first-path +N more paths]`. Composite `require_script` sub-checks reuse one
+run the same way across the contexts of their composite rule; caller
+cancellation is never reused.
 The runtime keeps the old read-safe fast path as defense in depth if a host tool
 still sends a read-only PreToolUse event; write tools still resolve the repo and
 fail closed before policy evaluation. Payload parsing stays allocation-light by decoding

@@ -3,6 +3,7 @@ package runtime
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	rerrors "reconc.dev/reconc/internal/errors"
@@ -135,6 +136,9 @@ func evalNot(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, input
 // the typed rule. Returns empty slices when when_paths doesn't match,
 // signalling "rule does not fire".
 func compositeSetup(ctx *evalContext, rule *policy.Rule, inputs ExecutionInputs) ([]matchContext, []policy.Check, error) {
+	// Sub-check script runs are shared only between the contexts of this one
+	// composite rule, whose script inputs are identical.
+	ctx.scriptChecks = nil
 	patterns := stringListField(rule, "when_paths")
 	contexts, err := ctx.collectMatchContexts(inputs.WritePaths, patterns)
 	if err != nil {
@@ -198,6 +202,14 @@ func evalCheck(ctx *evalContext, c policy.Check, captures map[string]string, inp
 	return false, "unsupported check kind: " + string(c.Kind), nil
 }
 
+// scriptCheckResult is the classified outcome of one composite
+// require_script sub-check run.
+type scriptCheckResult struct {
+	ok     bool
+	reason string
+	err    error
+}
+
 func evalCheckRequireScript(ctx *evalContext, c policy.Check, captures map[string]string, inputs ExecutionInputs) (bool, string, error) {
 	if c.Script == "" {
 		return false, "", &checkEvalError{reason: "missing script field in sub-check"}
@@ -206,6 +218,23 @@ func evalCheckRequireScript(ctx *evalContext, c policy.Check, captures map[strin
 	if err != nil {
 		return false, "", &rerrors.RuleValidationError{Message: "script args: " + err.Error()}
 	}
+	key := scriptInvocationKey(append([]string{c.Script, strconv.Itoa(c.TimeoutSec)}, args...), captures)
+	if cached, ok := ctx.scriptChecks[key]; ok {
+		return cached.ok, cached.reason, cached.err
+	}
+	result, canceled := runCheckRequireScript(ctx, c, args, captures, inputs)
+	if canceled {
+		// A caller cancellation is never cached as a sub-check outcome.
+		return false, "", result.err
+	}
+	if ctx.scriptChecks == nil {
+		ctx.scriptChecks = make(map[[32]byte]scriptCheckResult, 1)
+	}
+	ctx.scriptChecks[key] = result
+	return result.ok, result.reason, result.err
+}
+
+func runCheckRequireScript(ctx *evalContext, c policy.Check, args []string, captures map[string]string, inputs ExecutionInputs) (scriptCheckResult, bool) {
 	input := ScriptInput{
 		RuleID:         "<composite-subcheck>",
 		RepoRoot:       ctx.repoRoot,
@@ -218,19 +247,19 @@ func evalCheckRequireScript(ctx *evalContext, c policy.Check, captures map[strin
 	}
 	outcome, err := RunScriptContext(ctx.lifecycleContext(), ctx.repoRoot, c.Script, args, input, c.TimeoutSec, 0)
 	if outcome.Canceled {
-		return false, "", err
+		return scriptCheckResult{err: err}, true
 	}
 	evaluation := classifyScriptOutcome(outcome, err, c.TimeoutSec)
 	switch evaluation.disposition {
 	case scriptOutcomePass:
-		return true, "", nil
+		return scriptCheckResult{ok: true}, false
 	case scriptOutcomeBlock:
-		return false, fmt.Sprintf("script %s blocked: %s", c.Script, evaluation.detail), nil
+		return scriptCheckResult{reason: fmt.Sprintf("script %s blocked: %s", c.Script, evaluation.detail)}, false
 	case scriptOutcomeError:
 		ctx.operationalFailure = true
-		return false, "", &checkEvalError{reason: fmt.Sprintf("script %s error: %s", c.Script, evaluation.detail)}
+		return scriptCheckResult{err: &checkEvalError{reason: fmt.Sprintf("script %s error: %s", c.Script, evaluation.detail)}}, false
 	}
-	return false, "", &checkEvalError{reason: fmt.Sprintf("script %s returned an unclassified outcome", c.Script)}
+	return scriptCheckResult{err: &checkEvalError{reason: fmt.Sprintf("script %s returned an unclassified outcome", c.Script)}}, false
 }
 
 func evalCheckRequireFreshFile(ctx *evalContext, c policy.Check, captures map[string]string) (bool, string, error) {

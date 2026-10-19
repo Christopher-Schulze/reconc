@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -174,8 +175,42 @@ func assuranceFindingDetail(finding assurance.Finding) string {
 	return prefix + " " + finding.Message
 }
 
-// evalRequireScript runs an external script for each match context.
-// Each context that produces a "block" or "error" outcome contributes
+// scriptInvocation is one distinct script execution of a require_script
+// rule: the substituted arguments and captures are the only per-context
+// script inputs, so every matched path that shares them is answered by the
+// same process run.
+type scriptInvocation struct {
+	args       []string
+	captures   map[string]string
+	firstPath  string
+	extraPaths int
+}
+
+func (invocation scriptInvocation) label() string {
+	if invocation.extraPaths == 0 {
+		return invocation.firstPath
+	}
+	return fmt.Sprintf("%s +%d more paths", invocation.firstPath, invocation.extraPaths)
+}
+
+func scriptInvocationKey(args []string, captures map[string]string) [32]byte {
+	keys := make([]string, 0, len(captures))
+	for key := range captures {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	values := make([]string, 0, 1+len(args)+2*len(keys))
+	values = append(values, strconv.Itoa(len(args)))
+	values = append(values, args...)
+	for _, key := range keys {
+		values = append(values, key, captures[key])
+	}
+	return digestStrings(values)
+}
+
+// evalRequireScript runs an external script once for each distinct
+// argument/capture context; matched paths that share one context reuse
+// its run. Each run that produces a "block" or "error" outcome contributes
 // to the violation. A "pass" exit (0) clears that context.
 func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	whenPatterns := stringListField(rule, "when_paths")
@@ -197,6 +232,8 @@ func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 
 	failures := newViolationTextCollector(maxViolationAggregateBytes, "; ", "failures")
 	triggeredPaths := newStableStringCollector([]string{})
+	invocations := make([]scriptInvocation, 0, 1)
+	invocationIndex := make(map[[32]byte]int, 1)
 	for _, mc := range contexts {
 		triggeredPaths.add(mc.path)
 		// Substitute captures into args.
@@ -208,10 +245,20 @@ func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 		if captures == nil {
 			captures = map[string]string{}
 		}
+		key := scriptInvocationKey(substArgs, captures)
+		if index, seen := invocationIndex[key]; seen {
+			invocations[index].extraPaths++
+			continue
+		}
+		invocationIndex[key] = len(invocations)
+		invocations = append(invocations, scriptInvocation{args: substArgs, captures: captures, firstPath: mc.path})
+	}
+	for _, invocation := range invocations {
+		substArgs := invocation.args
 		input := ScriptInput{
 			RuleID:         ruleIDOf(rule),
 			RepoRoot:       ctx.repoRoot,
-			Captures:       captures,
+			Captures:       invocation.captures,
 			WritePaths:     inputs.WritePaths,
 			ReadPaths:      inputs.ReadPaths,
 			Commands:       inputs.Commands,
@@ -238,10 +285,10 @@ func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 		case scriptOutcomePass:
 			continue
 		case scriptOutcomeBlock:
-			failures.add(fmt.Sprintf("[%s] script %s blocked: %s", mc.path, scriptPath, evaluation.detail))
+			failures.add(fmt.Sprintf("[%s] script %s blocked: %s", invocation.label(), scriptPath, evaluation.detail))
 		case scriptOutcomeError:
 			ctx.operationalFailure = true
-			failures.add(fmt.Sprintf("[%s] script %s error: %s", mc.path, scriptPath, evaluation.detail))
+			failures.add(fmt.Sprintf("[%s] script %s error: %s", invocation.label(), scriptPath, evaluation.detail))
 		}
 	}
 	if failures.count() == 0 {

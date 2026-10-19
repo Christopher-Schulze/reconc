@@ -16,20 +16,24 @@ import (
 // evalContext owns the root-bound path state and evaluation-local matcher,
 // command, and evidence caches shared across one policy evaluation.
 type evalContext struct {
-	lifecycle          context.Context
-	repoRoot           string
-	paths              *evaluationPathState
-	rawCommands        []string
-	currentCommands    []string
-	preCommand         bool
-	preWrite           bool
-	matchers           *runtimePathMatchers
-	templateMatchers   *runtimeTemplateMatchers
-	commandCache       *commandInvocationCache
-	commandEvidence    *commandEvidenceIndex
-	evidenceCache      *evidenceSnapshotCache
-	evidenceMemo       *evidenceMatchMemo
-	contextMemo        *matchContextMemo
+	lifecycle        context.Context
+	repoRoot         string
+	paths            *evaluationPathState
+	rawCommands      []string
+	currentCommands  []string
+	preCommand       bool
+	preWrite         bool
+	matchers         *runtimePathMatchers
+	templateMatchers *runtimeTemplateMatchers
+	commandCache     *commandInvocationCache
+	commandEvidence  *commandEvidenceIndex
+	evidenceCache    *evidenceSnapshotCache
+	evidenceMemo     *evidenceMatchMemo
+	contextMemo      *matchContextMemo
+	// scriptChecks reuses one composite require_script sub-check run for
+	// every context of the composite rule being evaluated that shares its
+	// script inputs; compositeSetup resets it per rule.
+	scriptChecks       map[[32]byte]scriptCheckResult
 	operationalFailure bool
 }
 
