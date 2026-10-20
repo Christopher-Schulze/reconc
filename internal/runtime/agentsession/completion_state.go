@@ -115,10 +115,14 @@ func CaptureCompletionState(repoRoot string) (CompletionStateSnapshot, error) {
 	if sessionID != "" {
 		if _, statErr := os.Stat(state.ReportPath); statErr == nil {
 			_, reportHash, err = readLatestReport(root, sessionID)
-			if err != nil {
+			switch {
+			case errors.Is(err, errCorruptSessionReport):
+				reportHash, reportTrusted = "", false
+			case err != nil:
 				return CompletionStateSnapshot{}, fmt.Errorf("read active session report: %w", err)
+			default:
+				reportTrusted = state.StopPolicyReportHash != "" && state.StopPolicyReportHash == reportHash
 			}
-			reportTrusted = state.StopPolicyReportHash != "" && state.StopPolicyReportHash == reportHash
 		} else if errors.Is(statErr, os.ErrNotExist) {
 			reportTrusted = state.StopPolicyReportHash == ""
 		} else {
@@ -279,6 +283,10 @@ func gitWorktreeMatchesIndex(status string) bool {
 	return true
 }
 
+// errCorruptSessionReport marks a saved report whose bytes do not decode; it
+// is untrusted evidence, not an unreadable state.
+var errCorruptSessionReport = errors.New("corrupt session report")
+
 func readLatestReport(repoRoot, sessionID string) (*runtime.CheckReport, string, error) {
 	path := sessionReportPath(repoRoot, sessionID)
 	body, err := boundedio.ReadRegularFile(path, maxStopReportBytes)
@@ -287,7 +295,7 @@ func readLatestReport(repoRoot, sessionID string) (*runtime.CheckReport, string,
 	}
 	var report runtime.CheckReport
 	if err := json.Unmarshal(body, &report); err != nil {
-		return nil, "", fmt.Errorf("unmarshal report %s: %w", path, err)
+		return nil, "", fmt.Errorf("%w: unmarshal report %s: %w", errCorruptSessionReport, path, err)
 	}
 	reportHash, err := hashCheckReport(&report)
 	if err != nil {

@@ -787,6 +787,34 @@ func TestCaptureCompletionStateRejectsUnboundSessionReport(t *testing.T) {
 	}
 }
 
+// A corrupt saved report is an untrusted report that the completion gate
+// reports with its integrity check, not a failure to capture the state.
+func TestCaptureCompletionStateDistrustsCorruptSessionReport(t *testing.T) {
+	counterPath := filepath.Join(t.TempDir(), "counter")
+	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
+	state, err := InitializeSessionState(repo, "completion-corrupt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runStopPolicyCheck(repo, state); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sessionReportPath(root, "completion-corrupt"), []byte("{torn"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatalf("corrupt session report failed the completion capture: %v", err)
+	}
+	if snapshot.SessionReportTrusted || snapshot.SessionReportHash != "" {
+		t.Fatalf("corrupt session report was trusted: %#v", snapshot)
+	}
+}
+
 func TestCaptureCompletionStateBindsDirtySubmoduleContent(t *testing.T) {
 	if testing.Short() {
 		t.Skip("creates a local Git submodule fixture")
