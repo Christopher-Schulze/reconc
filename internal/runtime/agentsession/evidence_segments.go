@@ -300,7 +300,7 @@ func publishEvidenceSegmentLocked(path string, body []byte) error {
 	case !errors.Is(readErr, os.ErrNotExist):
 		return fmt.Errorf("inspect evidence segment: %w", readErr)
 	}
-	if _, err := atomicfile.WritePrivateIfChanged(path, body, 0o600); err != nil {
+	if _, err := atomicfile.WritePrivateOrderedIfChanged(path, body, 0o600); err != nil {
 		return fmt.Errorf("write evidence segment: %w", err)
 	}
 	return nil

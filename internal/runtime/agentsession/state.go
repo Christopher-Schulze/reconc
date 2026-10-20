@@ -539,7 +539,7 @@ func writeSessionStateLockedIfChanged(state SessionState, data []byte) (bool, er
 	if err := publishCommandTexts(state); err != nil {
 		return false, err
 	}
-	result, err := atomicfile.WritePrivateIfChanged(path, data, 0o600)
+	result, err := atomicfile.WritePrivateOrderedIfChanged(path, data, 0o600)
 	if err != nil {
 		return false, fmt.Errorf("write session state: %w", err)
 	}

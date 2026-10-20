@@ -28,13 +28,24 @@ type ExpectedCurrent struct {
 // WriteIfChanged atomically replaces path with data only when its current
 // bytes differ and reports the exact publication boundary reached.
 func WriteIfChanged(path string, data []byte, mode os.FileMode) (PublicationResult, error) {
-	return writeIfChanged(path, data, mode, PublicParentMode, nil, true)
+	return writeIfChanged(path, data, mode, PublicParentMode, nil, durabilityFull)
 }
 
 // WritePrivateIfChanged is WriteIfChanged with private permissions for every
 // parent directory that must be created.
 func WritePrivateIfChanged(path string, data []byte, mode os.FileMode) (PublicationResult, error) {
-	return writeIfChanged(path, data, mode, PrivateParentMode, nil, true)
+	return writeIfChanged(path, data, mode, PrivateParentMode, nil, durabilityFull)
+}
+
+// WritePrivateOrderedIfChanged is WritePrivateIfChanged for state that must
+// stay consistent across power loss but may lose its newest version: on macOS
+// the file and directory syncs issue F_BARRIERFSYNC, which keeps write order
+// without flushing the whole device cache, and elsewhere they sync fully. A
+// power failure therefore never keeps this publication while losing a write
+// issued before it, such as a file it names. It never reports a durable
+// publication.
+func WritePrivateOrderedIfChanged(path string, data []byte, mode os.FileMode) (PublicationResult, error) {
+	return writeIfChanged(path, data, mode, PrivateParentMode, nil, durabilityOrdered)
 }
 
 // WritePrivateCacheIfChanged is WritePrivateIfChanged for a disposable cache
@@ -44,7 +55,7 @@ func WritePrivateIfChanged(path string, data []byte, mode os.FileMode) (Publicat
 // empty, or malformed file as a cache miss. It never reports a durable
 // publication.
 func WritePrivateCacheIfChanged(path string, data []byte, mode os.FileMode) (PublicationResult, error) {
-	return writeIfChanged(path, data, mode, PrivateParentMode, nil, false)
+	return writeIfChanged(path, data, mode, PrivateParentMode, nil, durabilityNone)
 }
 
 // WritePreparedIfChanged is WriteIfChanged with a caller-owned preparation
@@ -61,7 +72,7 @@ func WritePreparedIfChanged(
 	if prepare == nil {
 		return PublicationResult{}, errors.New("publication preparation callback is required")
 	}
-	return writeIfChanged(path, data, mode, PublicParentMode, prepare, true)
+	return writeIfChanged(path, data, mode, PublicParentMode, prepare, durabilityFull)
 }
 
 // WriteIfCurrent publishes data only while path still has the exact bytes,
@@ -219,7 +230,7 @@ func writeIfChanged(
 	data []byte,
 	mode, parentMode os.FileMode,
 	prepare func(string) error,
-	durable bool,
+	durability publicationDurability,
 ) (result PublicationResult, err error) {
 	parent, name, err := bindParent(path, parentMode)
 	if err != nil {
@@ -259,7 +270,7 @@ func writeIfChanged(
 			if err := errors.Join(modeErr, validationErr, parentErr, closeErr); err != nil {
 				return result, fmt.Errorf("reconcile mode for current %s: %w", path, err)
 			}
-			if modeChanged && durable {
+			if modeChanged && durability == durabilityFull {
 				result.markDurable()
 			}
 			return result, nil
@@ -300,10 +311,8 @@ func writeIfChanged(
 	if _, err := tmpFile.Write(data); err != nil {
 		return PublicationResult{}, errors.Join(fmt.Errorf("write temp for %s: %w", path, err), cleanup())
 	}
-	if durable {
-		if err := tmpFile.Sync(); err != nil {
-			return PublicationResult{}, errors.Join(fmt.Errorf("sync temp for %s: %w", path, err), cleanup())
-		}
+	if err := syncTemporary(tmpFile, durability); err != nil {
+		return PublicationResult{}, errors.Join(fmt.Errorf("sync temp for %s: %w", path, err), cleanup())
 	}
 	if err := tmpFile.Close(); err != nil {
 		closed = true
@@ -327,17 +336,34 @@ func writeIfChanged(
 	if err := parent.validate(); err != nil {
 		return result, fmt.Errorf("validate parent after publishing %s: %w", path, err)
 	}
-	if !durable {
+	if durability == durabilityNone {
 		return result, nil
 	}
-	if err := syncParentDir(directory); err != nil {
+	syncDirectory := syncParentDir
+	if durability == durabilityOrdered {
+		syncDirectory = syncParentDirOrdered
+	}
+	if err := syncDirectory(directory); err != nil {
 		return result, fmt.Errorf("sync parent for %s: %w", path, err)
 	}
 	if err := parent.validate(); err != nil {
 		return result, fmt.Errorf("validate parent after syncing %s: %w", path, err)
 	}
-	result.markDurable()
+	if durability == durabilityFull {
+		result.markDurable()
+	}
 	return result, nil
+}
+
+func syncTemporary(file *os.File, durability publicationDurability) error {
+	switch durability {
+	case durabilityFull:
+		return file.Sync()
+	case durabilityOrdered:
+		return syncFileOrdered(file)
+	default:
+		return nil
+	}
 }
 
 func validatePreparedFile(directory *os.Root, name string, file *os.File, expected os.FileInfo) (os.FileInfo, error) {

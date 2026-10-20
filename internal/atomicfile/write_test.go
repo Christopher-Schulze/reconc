@@ -728,3 +728,42 @@ func TestWritePrivateCacheIfChangedPublishesWithoutSyncing(t *testing.T) {
 		t.Fatalf("durable write = %+v, %v after %d directory syncs", written, err, directorySyncs)
 	}
 }
+
+func TestWritePrivateOrderedIfChangedUsesOrderedSyncs(t *testing.T) {
+	previousFull, previousOrdered := syncParentDir, syncParentDirOrdered
+	t.Cleanup(func() { syncParentDir, syncParentDirOrdered = previousFull, previousOrdered })
+	fullSyncs, orderedSyncs := 0, 0
+	syncParentDir = func(directory *os.Root) error {
+		fullSyncs++
+		return previousFull(directory)
+	}
+	syncParentDirOrdered = func(directory *os.Root) error {
+		orderedSyncs++
+		return previousOrdered(directory)
+	}
+	// An existing parent isolates the publication: creating a missing parent
+	// directory still issues a full sync.
+	path := filepath.Join(t.TempDir(), "state.json")
+	written, err := WritePrivateOrderedIfChanged(path, []byte("ordered\n"), 0o600)
+	if err != nil || !written.Changed || written.Outcome != PublicationPublishedUncertain || fullSyncs != 0 || orderedSyncs != 1 {
+		t.Fatalf("ordered write = %+v, %v after %d full and %d ordered directory syncs; want one ordered, non-durable publication", written, err, fullSyncs, orderedSyncs)
+	}
+	if body, err := os.ReadFile(path); err != nil || string(body) != "ordered\n" {
+		t.Fatalf("ordered contents = %q, %v", body, err)
+	}
+	if info, err := os.Stat(path); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
+		t.Fatalf("ordered mode = %v, %v", info, err)
+	}
+	written, err = WritePrivateOrderedIfChanged(path, []byte("ordered\n"), 0o600)
+	if err != nil || written.Changed || written.Outcome != PublicationNotPublished || orderedSyncs != 1 {
+		t.Fatalf("unchanged ordered write = %+v, %v after %d ordered directory syncs", written, err, orderedSyncs)
+	}
+	syncParentDirOrdered = func(*os.Root) error { return errors.New("injected ordered sync failure") }
+	written, err = WritePrivateOrderedIfChanged(path, []byte("next\n"), 0o600)
+	if err == nil || !written.Changed || written.Outcome != PublicationPublishedUncertain {
+		t.Fatalf("failed ordered sync = %+v, %v; want a published, uncertain outcome with its error", written, err)
+	}
+	if body, err := os.ReadFile(path); err != nil || string(body) != "next\n" || fullSyncs != 0 {
+		t.Fatalf("contents after failed ordered sync = %q, %v after %d full syncs", body, err, fullSyncs)
+	}
+}

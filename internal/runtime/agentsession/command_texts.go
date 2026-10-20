@@ -100,7 +100,7 @@ func publishCommandTextObjects(state SessionState) error {
 		if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("inspect complete command text: %w", err)
 		}
-		if _, err := atomicfile.WritePrivateIfChanged(path, []byte(command), 0o600); err != nil {
+		if _, err := atomicfile.WritePrivateOrderedIfChanged(path, []byte(command), 0o600); err != nil {
 			return fmt.Errorf("publish complete command text: %w", err)
 		}
 	}

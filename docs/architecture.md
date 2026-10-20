@@ -1331,6 +1331,14 @@ relative to the same open directory handle. This preserves parent identity
 without reconstructing an absolute path; the legacy rooted rename information
 class remains the fail-closed compatibility fallback.
 
+Session state, evidence segments, complete command texts, and Stop reports use
+ordered publication: on macOS their file and directory syncs issue
+`F_BARRIERFSYNC`, which keeps write order without flushing the device cache,
+so a power failure can lose the newest version but never keeps a state whose
+segments or command texts were lost. Other platforms sync them fully.
+Disposable caches skip both syncs and are read as misses when missing or
+malformed.
+
 Bootstrap create-only publication adds an ordered entry protocol around this
 boundary. It syncs the staged payload and parent, publishes by hard link or
 exclusive copy, syncs the target parent, removes the reserved stage, and syncs
