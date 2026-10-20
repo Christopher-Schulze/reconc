@@ -335,8 +335,12 @@ retains both identities. Builds use `-trimpath` except for the historical CLI
 transport workload, which resolves its module through `runtime.Caller` and
 builds its child CLI during benchmark setup. That package's identity includes
 source paths. After the closing CPU sentinel, a separate pass executes each
-benchmark alone, in its own process, with `-test.benchtime=64x` and the same
-internal repetitions.
+benchmark alone with `-test.benchtime=64x`, once per internal repetition and
+each time in a fresh process; the sample keeps the lowest of those process
+peaks, because a garbage-collection spike in one process is not a property of
+the workload while an allocation every process makes is. One spiking sample
+of five, at identical bytes per operation, failed the gate on unchanged code
+(28 to 32 MiB typical, 60 and 162 MiB single spikes).
 RSS comes only from these fixed-work processes; time and per-operation allocation
 metrics remain from the timed pass. Every workload sample records
 `peak_rss_iterations=64`, distinct from its timed `iterations`. The Go benchmark
@@ -344,9 +348,11 @@ runner also performs its standard warmup. RSS describes the full process lifetim
 and platform-accounted child usage, rather than the outer Go driver, so one
 benchmark's allocation is never charged to the others of its package; it is
 not a per-operation or retained-cache measurement. The gate compares the
-maximum of all per-sample process peaks with the configured tolerance. A
-single excessive peak remains a regression; measurement noise requires
-investigation rather than replacing the peak contract with a median.
+maximum of all per-sample peaks with the configured tolerance. A sample whose
+every process exceeds it remains a regression; measurement noise requires
+investigation rather than replacing the peak contract with a median. On Linux
+a child's peak starts at its parent's high-water mark, so the measuring
+process must stay small.
 Unsupported platform RSS remains zero.
 Compilation and sampling share bounded package deadlines; output is limited
 to 16 MiB per stream, binary size is limited to 512 MiB for streamed hashing,

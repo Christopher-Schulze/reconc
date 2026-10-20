@@ -112,7 +112,9 @@ func TestMemoryContractRejectsWrongMethod(t *testing.T) {
 
 // A process peak covers every benchmark the process ran, so each benchmark's
 // fixed-work peak comes from its own process: a small benchmark next to a
-// large one keeps its own small peak.
+// large one keeps its own small peak. On Linux a child's peak starts at its
+// parent's high-water mark, so the allocations dwarf the race-instrumented
+// test process.
 func TestFixedMemorySamplesMeasureEachBenchmarkInItsOwnProcess(t *testing.T) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("peak RSS is reported on Linux and macOS")
@@ -124,7 +126,7 @@ func TestFixedMemorySamplesMeasureEachBenchmarkInItsOwnProcess(t *testing.T) {
 import ("crypto/sha256"; "testing")
 var digest [32]byte
 func BenchmarkLarge(b *testing.B) {
- data := make([]byte, 96<<20)
+ data := make([]byte, 512<<20)
  for index := range data { data[index] = byte(index) }
  for index := 0; index < b.N; index++ { digest = sha256.Sum256(data[:64]) }
 }
@@ -150,7 +152,69 @@ func BenchmarkSmall(b *testing.B) {
 		t.Fatal(err)
 	}
 	large, small := timed["BenchmarkLarge"][0].PeakRSSBytes, timed["BenchmarkSmall"][0].PeakRSSBytes
-	if large < 96<<20 || small >= 64<<20 {
+	if large < 512<<20 || small >= 256<<20 {
 		t.Fatalf("benchmarks share a process peak: large=%d small=%d", large, small)
+	}
+}
+
+// A garbage-collection spike in one process is not a property of the
+// workload: each sample keeps the lowest peak of its repeated fixed-work
+// processes, so one spiking process is not charged, while an allocation every
+// process makes still is.
+func TestFixedMemorySamplesKeepTheLowestPeakOfRepeatedProcesses(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("peak RSS is reported on Linux and macOS")
+	}
+	root := t.TempDir()
+	for name, body := range map[string]string{
+		"go.mod": "module memory.example/fixture\n\ngo 1.26\n",
+		"memory_test.go": `package fixture
+import ("crypto/sha256"; "os"; "testing")
+var digest [32]byte
+func allocate(size int) {
+ data := make([]byte, size)
+ for index := range data { data[index] = byte(index) }
+ digest = sha256.Sum256(data[:64])
+}
+func BenchmarkSteady(b *testing.B) {
+ allocate(512 << 20)
+ for index := 0; index < b.N; index++ { digest = sha256.Sum256(digest[:]) }
+}
+func BenchmarkTransient(b *testing.B) {
+ marker := os.Getenv("RECONC_TRANSIENT_MARKER")
+ if _, err := os.Stat(marker); err != nil {
+  if err := os.WriteFile(marker, nil, 0o600); err != nil { b.Fatal(err) }
+  allocate(512 << 20)
+ }
+ for index := 0; index < b.N; index++ { digest = sha256.Sum256(digest[:]) }
+}
+`,
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	binary, err := buildBenchmarkBinary(context.Background(), root, "go", ".", filepath.Join(t.TempDir(), "memory.test.exe"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "spiked")
+	t.Setenv("RECONC_TRANSIENT_MARKER", marker)
+	parameters := Parameters{Count: 1, Benchtime: "1x", CPU: 1, Repetitions: 3}
+	timed, err := runBenchmarkSample(context.Background(), binary, ".", "^(BenchmarkSteady|BenchmarkTransient)$", parameters, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The timed pass spiked once; the fixed-work pass spikes in its first
+	// process only.
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyMemorySamples(context.Background(), binary, ".", parameters, timed, 0); err != nil {
+		t.Fatal(err)
+	}
+	steady, transient := timed["BenchmarkSteady"][0].PeakRSSBytes, timed["BenchmarkTransient"][0].PeakRSSBytes
+	if steady < 512<<20 || transient >= 256<<20 {
+		t.Fatalf("fixed-work peaks: steady=%d transient=%d", steady, transient)
 	}
 }

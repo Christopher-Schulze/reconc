@@ -216,21 +216,36 @@ func runCompiledPackageSamples(parent context.Context, binary, sentinel benchmar
 }
 
 // applyMemorySamples measures each benchmark's fixed-work peak RSS in its
-// own process: a process peak covers every benchmark the process ran, so a
-// shared run would charge one benchmark's allocation to all of them.
+// own processes: a process peak covers every benchmark the process ran, so a
+// shared run would charge one benchmark's allocation to all of them. The
+// fixed work runs once per internal repetition, each in a fresh process, and
+// the sample keeps the lowest of those peaks: a garbage-collection spike in
+// one process is not a property of the workload, while an allocation every
+// process makes still is. The gate then compares the maximum over samples.
 func applyMemorySamples(ctx context.Context, binary benchmarkBinary, packageName string, parameters Parameters, timed map[string][]MetricSample, sampleIndex int) error {
 	parameters.Benchtime = strconv.Itoa(memoryBenchmarkIterations) + "x"
+	repetitions := max(parameters.Repetitions, 1)
+	parameters.Repetitions = 1
 	for _, name := range sortedBenchmarkNames(timed) {
-		memory, err := runBenchmarkSample(ctx, binary, packageName, benchmarkPatterns([]string{name})[0], parameters, sampleIndex)
-		if err != nil {
-			return fmt.Errorf("fixed-work RSS: %w", err)
-		}
-		values := memory[name]
-		if len(memory) != 1 || len(values) != 1 || len(timed[name]) != 1 || values[0].Iterations != memoryBenchmarkIterations {
+		if len(timed[name]) != 1 {
 			return fmt.Errorf("fixed-work RSS benchmark %s has duplicate, unmatched, or invalid measurements", name)
 		}
-		timed[name][0].PeakRSSBytes = values[0].PeakRSSBytes
-		timed[name][0].PeakRSSIterations = values[0].Iterations
+		var peak uint64
+		for repetition := range repetitions {
+			memory, err := runBenchmarkSample(ctx, binary, packageName, benchmarkPatterns([]string{name})[0], parameters, sampleIndex)
+			if err != nil {
+				return fmt.Errorf("fixed-work RSS: %w", err)
+			}
+			values := memory[name]
+			if len(memory) != 1 || len(values) != 1 || values[0].Iterations != memoryBenchmarkIterations {
+				return fmt.Errorf("fixed-work RSS benchmark %s has duplicate, unmatched, or invalid measurements", name)
+			}
+			if repetition == 0 || values[0].PeakRSSBytes < peak {
+				peak = values[0].PeakRSSBytes
+			}
+		}
+		timed[name][0].PeakRSSBytes = peak
+		timed[name][0].PeakRSSIterations = memoryBenchmarkIterations
 	}
 	return nil
 }
