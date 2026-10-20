@@ -378,3 +378,24 @@ func BenchmarkOneShotClaudeSessionStop(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkOneShotReplayablePreHookMiss judges a new tool call on a host whose
+// call ids can repeat, so every call misses and publishes a decision cache.
+func BenchmarkOneShotReplayablePreHookMiss(b *testing.B) {
+	repo := setupStopBenchmarkRepo(b)
+	root, err := ResolveRepoRootRef(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	if _, err := InitializeSessionState(repo, "replayable-miss"); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for index := range b.N {
+		payload := []byte(fmt.Sprintf(`{"session_id":"replayable-miss","tool_use_id":"call-%d","tool_name":"Write","tool_input":{"file_path":"src/a.go"}}`, index))
+		if result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload); result.ExitCode != 0 {
+			b.Fatalf("replayable pre-hook failed: %+v", result)
+		}
+	}
+}

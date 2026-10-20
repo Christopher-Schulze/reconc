@@ -926,6 +926,7 @@ func writePreDecisionCacheForPayload(root string, payload *HookPayload, key stri
 	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
 		return err
 	}
-	_, err = atomicfile.WritePrivateIfChanged(path, body, 0o600)
+	// The cache only saves a re-evaluation; a lost or torn entry is a miss.
+	_, err = atomicfile.WritePrivateCacheIfChanged(path, body, 0o600)
 	return err
 }

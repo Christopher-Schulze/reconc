@@ -701,3 +701,30 @@ func TestReplacementFailureRemovesPreparedTemporary(t *testing.T) {
 		t.Fatalf("failed replacement left temporary: %v", err)
 	}
 }
+
+func TestWritePrivateCacheIfChangedPublishesWithoutSyncing(t *testing.T) {
+	previous := syncParentDir
+	t.Cleanup(func() { syncParentDir = previous })
+	directorySyncs := 0
+	syncParentDir = func(directory *os.Root) error {
+		directorySyncs++
+		return previous(directory)
+	}
+	// An existing parent isolates the publication: creating a missing parent
+	// directory still syncs once, as for durable writes.
+	path := filepath.Join(t.TempDir(), "entry.json")
+	written, err := WritePrivateCacheIfChanged(path, []byte("cached\n"), 0o600)
+	if err != nil || !written.Changed || written.Outcome != PublicationPublishedUncertain || directorySyncs != 0 {
+		t.Fatalf("cache write = %+v, %v after %d directory syncs; want a published, non-durable write without syncs", written, err, directorySyncs)
+	}
+	if body, err := os.ReadFile(path); err != nil || string(body) != "cached\n" {
+		t.Fatalf("cache contents = %q, %v", body, err)
+	}
+	if info, err := os.Stat(path); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
+		t.Fatalf("cache mode = %v, %v", info, err)
+	}
+	written, err = WritePrivateIfChanged(path, []byte("durable\n"), 0o600)
+	if err != nil || written.Outcome != PublicationDurablyPublished || directorySyncs != 1 {
+		t.Fatalf("durable write = %+v, %v after %d directory syncs", written, err, directorySyncs)
+	}
+}
