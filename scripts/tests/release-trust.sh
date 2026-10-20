@@ -394,7 +394,7 @@ fi
 # shellcheck disable=SC2016 # Match the workflow shell expression literally.
 require_text "$ci_workflow" './scripts/tests/go-test-shard.sh "$SHARD" 3 -p="$TEST_PARALLELISM" -race -count=1'
 # shellcheck disable=SC2016 # Match the workflow shell expression literally.
-require_text "$ci_workflow" './scripts/tests/go-test-shard.sh "$SHARD" 2 -p="$TEST_PARALLELISM" -count=1'
+require_text "$ci_workflow" './scripts/tests/go-test-shard.sh 1 1 -p="$TEST_PARALLELISM" -count=1'
 root_go_version=$(sed -n 's/^go //p' "$root/go.mod")
 template_go_version=$(sed -n 's/^go //p' "$root/harness/template/go.mod")
 [ "$root_go_version" = "1.27" ] \

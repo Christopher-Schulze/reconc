@@ -6276,7 +6276,9 @@ GitHub workflows:
 CI checks:
 
 - root-module and `harness/template` race tests on Ubuntu 24.04 in three
-  parallel shards and normal tests on macOS 15 in two;
+  parallel shards and normal tests on macOS 15 in one job, because hosted
+  macOS runners are scarce and a second runner request usually waits longer
+  than the job runs;
   `scripts/tests/go-test-shard.sh` deals every package to exactly one shard,
   with the slowest packages leading their own shards. The publication audit,
   formatting, tidy, vet, pinned Govulncheck v1.7.0, and pinned Staticcheck
