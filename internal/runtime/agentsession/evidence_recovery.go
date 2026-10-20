@@ -21,7 +21,7 @@ import (
 const maxEvidenceResolutionBytes = 32 * 1024
 
 func withEvidenceTaintLock(root string, fn func() error) error {
-	deadline := time.NewTimer(agentSessionLockTimeout)
+	deadline := time.NewTimer(boundedWait(agentSessionLockTimeout))
 	defer deadline.Stop()
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()

@@ -35,6 +35,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"reconc.dev/reconc/internal/atomicfile"
@@ -51,6 +52,37 @@ import (
 const StateRootEnv = "RECONC_CLAUDE_STATE_DIR"
 
 const agentSessionLockTimeout = 30 * time.Second
+
+// oneShotHookDeadline bounds every lock and Git wait of a one-shot hook
+// process by its host's route budget, in Unix nanoseconds. Only that process
+// sets it, once, before its single request; the hook worker and in-process
+// callers keep zero and the per-wait defaults.
+var oneShotHookDeadline atomic.Int64
+
+// SetOneShotHookDeadline sets the wait deadline of this one-shot hook
+// process; the zero time removes it.
+func SetOneShotHookDeadline(deadline time.Time) {
+	if deadline.IsZero() {
+		oneShotHookDeadline.Store(0)
+		return
+	}
+	oneShotHookDeadline.Store(deadline.UnixNano())
+}
+
+// boundedWait shortens one lock or Git wait to the remaining one-shot budget.
+func boundedWait(timeout time.Duration) time.Duration {
+	deadline := oneShotHookDeadline.Load()
+	if deadline == 0 {
+		return timeout
+	}
+	return max(min(timeout, time.Until(time.Unix(0, deadline))), time.Millisecond)
+}
+
+// oneShotHookBudgetElapsed reports whether this one-shot hook's budget ran out.
+func oneShotHookBudgetElapsed() bool {
+	deadline := oneShotHookDeadline.Load()
+	return deadline != 0 && !time.Now().Before(time.Unix(0, deadline))
+}
 
 // CommandResult mirrors the evaluator's runtime.CommandResult but we
 // keep our own copy in the session state so we can replay / inspect
@@ -586,7 +618,7 @@ func withProjectStatePublicationLock(root string, publish func() error) error {
 	if err != nil {
 		return fmt.Errorf("open project state publication lock: %w", err)
 	}
-	unlock, err := filelock.LockContext(context.Background(), lock, agentSessionLockTimeout)
+	unlock, err := filelock.LockContext(context.Background(), lock, boundedWait(agentSessionLockTimeout))
 	if err != nil {
 		return errors.Join(
 			fmt.Errorf("lock project state publication: %w", err),
@@ -633,7 +665,7 @@ func withStateLock(lockPath, subject string, fn func() error) error {
 	if err != nil {
 		return fmt.Errorf("open %s lock: %w", subject, err)
 	}
-	unlock, err := filelock.LockContext(context.Background(), file, agentSessionLockTimeout)
+	unlock, err := filelock.LockContext(context.Background(), file, boundedWait(agentSessionLockTimeout))
 	if err != nil {
 		closeErr := file.Close()
 		return errors.Join(fmt.Errorf("lock %s state: %w", subject, err), wrapOperationError("close "+subject+" lock", closeErr))

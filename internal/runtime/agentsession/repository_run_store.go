@@ -65,7 +65,7 @@ func readRepositoryRunSnapshot(path string) (repositoryRunSnapshot, error) {
 }
 
 func readRepositoryRunSnapshotShared(file *os.File) (repositoryRunSnapshot, error) {
-	unlock, err := filelock.RLockContext(context.Background(), file, agentSessionLockTimeout)
+	unlock, err := filelock.RLockContext(context.Background(), file, boundedWait(agentSessionLockTimeout))
 	if err != nil {
 		return repositoryRunSnapshot{}, fmt.Errorf("lock repository run state for read: %w", err)
 	}

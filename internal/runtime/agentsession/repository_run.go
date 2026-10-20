@@ -300,7 +300,7 @@ func withRepositoryRunFileResolved(root string, fn func(*os.File) error) error {
 	if err != nil {
 		return fmt.Errorf("open repository run state: %w", err)
 	}
-	unlock, err := filelock.LockContext(context.Background(), file, agentSessionLockTimeout)
+	unlock, err := filelock.LockContext(context.Background(), file, boundedWait(agentSessionLockTimeout))
 	if err != nil {
 		return errors.Join(
 			fmt.Errorf("lock repository run state: %w", err),
@@ -331,7 +331,7 @@ func mutateRepositoryRunStateOpenFile(root string, file *os.File, fn func(reposi
 	if file == nil {
 		return repositoryRunState{}, repositoryRunState{}, fmt.Errorf("repository run state file is unavailable")
 	}
-	unlock, err := filelock.LockContext(context.Background(), file, agentSessionLockTimeout)
+	unlock, err := filelock.LockContext(context.Background(), file, boundedWait(agentSessionLockTimeout))
 	if err != nil {
 		return repositoryRunState{}, repositoryRunState{}, fmt.Errorf("lock repository run state: %w", err)
 	}

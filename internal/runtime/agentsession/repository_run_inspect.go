@@ -240,7 +240,7 @@ func withRunDecisionLogLock(path string, use func() error) error {
 		}
 		return err
 	}
-	unlock, err := filelock.LockContext(context.Background(), lock, agentSessionLockTimeout)
+	unlock, err := filelock.LockContext(context.Background(), lock, boundedWait(agentSessionLockTimeout))
 	if err != nil {
 		return errors.Join(err, lock.Close())
 	}

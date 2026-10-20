@@ -61,6 +61,22 @@ func RunHookRequestWithEvaluatorAndStopCache(
 	evaluator *runtime.Evaluator,
 	stopCache *StopDecisionCache,
 ) Result {
+	result := dispatchHookRequest(root, handler, runtimeEvent, payload, evaluator, stopCache)
+	if result.ExitCode != 0 && oneShotHookBudgetElapsed() {
+		result.Stderr = joinStderr(result.Stderr, "Reconc stopped waiting when this hook's host time budget ran out: "+
+			"another Reconc process held a session lock or Git did not answer in time. Retry the action.")
+	}
+	return result
+}
+
+func dispatchHookRequest(
+	root ResolvedRepoRoot,
+	handler HookHandler,
+	runtimeEvent string,
+	payload []byte,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+) Result {
 	if evaluator == nil {
 		evaluator = runtime.NewEvaluator()
 	}

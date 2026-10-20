@@ -15,3 +15,12 @@ release.
   name in that directory needs no inspection of its own. A pre-tool call in a
   Claude Code session with 1,000 recorded reads took 9.3 ms instead of
   13.8 ms and allocated 3.2 MB instead of 3.9 MB.
+- A one-shot hook stops waiting for a held session lock or a slow Git call
+  when its host's route budget runs out, minus a reporting margin, and returns
+  its own diagnostic instead of being killed: a post-tool call behind a held
+  session lock ended after 4.5 s with a lock diagnostic instead of waiting
+  30 s past the host's 5 s budget.
+- A corrupt saved session report fails the `session/report-integrity`
+  completion check instead of stopping `reconc done` with an error.
+- A case-only rename of a directory or file resolves to its new spelling
+  within the same request.

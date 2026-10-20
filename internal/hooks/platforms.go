@@ -1,6 +1,9 @@
 package hooks
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // Event is Reconc's platform-neutral hook lifecycle.
 type Event string
@@ -692,6 +695,23 @@ func BootstrapKinds() []string {
 		}
 	}
 	return kinds
+}
+
+// RuntimeEventTimeout returns the host timeout of the route that delivers a
+// Reconc runtime event, the shortest one when several hosts share the event.
+func RuntimeEventTimeout(event string) (time.Duration, bool) {
+	shortest := 0
+	for _, platform := range Platforms() {
+		for _, capability := range platform.Capabilities {
+			for _, binding := range capability.Bindings {
+				if binding.RuntimeEvent == event && capability.TimeoutSeconds > 0 &&
+					(shortest == 0 || capability.TimeoutSeconds < shortest) {
+					shortest = capability.TimeoutSeconds
+				}
+			}
+		}
+	}
+	return time.Duration(shortest) * time.Second, shortest > 0
 }
 
 func PlatformForKind(kind string) (Platform, bool) {

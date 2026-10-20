@@ -94,7 +94,7 @@ func recordMCPAuditResolved(root string, envelope *MCPPayload, effect policy.MCP
 	if err != nil {
 		return fmt.Errorf("open MCP audit lock: %w", err)
 	}
-	unlock, err := filelock.LockContext(context.Background(), lockFile, agentSessionLockTimeout)
+	unlock, err := filelock.LockContext(context.Background(), lockFile, boundedWait(agentSessionLockTimeout))
 	if err != nil {
 		closeErr := lockFile.Close()
 		return errors.Join(fmt.Errorf("lock MCP audit: %w", err), closeErr)

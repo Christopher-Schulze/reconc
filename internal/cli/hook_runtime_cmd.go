@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"reconc.dev/reconc/internal/grokacp"
 	"reconc.dev/reconc/internal/hooks"
@@ -121,7 +122,21 @@ func runKimiCodeRuntime(args []string, stdout, stderr io.Writer) error {
 // fail-open per event, max payload size, depth limits, timeout).
 // runHookRuntime is the single enforcement point for those contracts.
 func runHookRuntime(args []string, stdout, stderr io.Writer) error {
+	// This process serves exactly one request, so its lock and Git waits end
+	// with the host's budget for the route, before the host kills the hook.
+	if len(args) > 0 {
+		if budget, ok := hooks.RuntimeEventTimeout(args[0]); ok {
+			agentsession.SetOneShotHookDeadline(time.Now().Add(hookWaitBudget(budget)))
+			defer agentsession.SetOneShotHookDeadline(time.Time{})
+		}
+	}
 	return runHookRuntimeWithInput(args, os.Stdin, stdout, stderr)
+}
+
+// hookWaitBudget keeps a tenth of the host budget, at least half a second, for
+// Reconc to report an exhausted wait before the host kills the hook.
+func hookWaitBudget(budget time.Duration) time.Duration {
+	return budget - max(budget/10, 500*time.Millisecond)
 }
 
 func runHookRuntimeWithInput(args []string, input io.Reader, stdout, stderr io.Writer) error {

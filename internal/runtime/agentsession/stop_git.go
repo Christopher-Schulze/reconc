@@ -29,7 +29,7 @@ import (
 // successful command that still wrote diagnostics reports them as an error,
 // so callers treat the observation as unverified instead of complete.
 func gitCommandOutput(repoRoot string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), boundedWait(30*time.Second))
 	defer cancel()
 	cmd := gitexec.CommandContext(ctx, repoRoot, nil, args...)
 	stderr, err := boundedexec.NewBuffer(maxStopGitOutputBytes)

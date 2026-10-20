@@ -315,7 +315,7 @@ func fallbackGitCommands() map[string]struct{} {
 }
 
 func runGitInspection(repoRoot string, args ...string) ([]byte, int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitInspectionTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), boundedWait(gitInspectionTimeout))
 	defer cancel()
 	command := gitexec.CommandContext(ctx, repoRoot, nil, args...)
 	stdout, err := command.StdoutPipe()

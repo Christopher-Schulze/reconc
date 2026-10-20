@@ -126,7 +126,7 @@ func expectedClaudeProjectKeysWithCommonDir(repoRoot string, commonDirFor func(s
 }
 
 func resolveGitCommonDir(repoRoot string) (string, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), boundedWait(2*time.Second))
 	defer cancel()
 	command := gitexec.CommandContext(ctx, repoRoot, nil, "rev-parse", "--git-common-dir")
 	output, err := boundedexec.Output(command, maxGitControlFileBytes)

@@ -5342,7 +5342,14 @@ blanket timeout. Claude, Codex, GitHub Copilot, Cursor, Devin, Antigravity, Grok
 and ZCode generators emit those host timeouts; OpenCode, Kilo Code, OMP, and Pi
 enforce them inside their adapters. OMP uses a 29-second internal Stop budget
 so its fail-closed response is returned before the host's 30-second
-extension-handler deadline.
+extension-handler deadline. A one-shot `reconc hook runtime` process bounds
+every session, Stop-report, run-state, evidence-taint, and MCP-audit lock
+wait and every Git call of the session runtime by the
+same route budget, keeping a tenth of it, at least half a second, to report:
+when another Reconc process holds a lock or Git does not answer in time, the
+hook returns its own diagnostic, and a blocking route blocks, before the host
+kills it. The persistent hook worker keeps the per-wait defaults because its
+adapters enforce the budget.
 Each runtime route caps combined process output at 8 KiB, including the one-byte
 terminal newline emitted for each non-empty stdout or stderr stream. Exact-limit
 decision JSON therefore reaches worker and one-shot capture intact; an envelope
