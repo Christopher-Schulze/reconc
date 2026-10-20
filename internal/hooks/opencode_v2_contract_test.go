@@ -35,6 +35,9 @@ func TestGeneratedOpenCodePluginServesTheV2HostAPI(t *testing.T) {
 	wrapper := `#!/bin/sh
 set -eu
 event="$1"
+# The fixture speaks no worker protocol: decline the persistent worker at
+# once instead of letting it wait for the startup timeout.
+[ "$event" != "__worker_v1__" ] || exit 1
 payload="$(cat)"
 printf '%s\t%s\n' "$event" "$payload" >> "$RECONC_TEST_LOG"
 case "$event" in
@@ -120,7 +123,9 @@ const compaction = { sessionID, system: [] }
 await registrations.get("session.compaction")(compaction)
 if (compaction.system.length !== 1 || compaction.system[0].text !== "recovery-packet") throw new Error("2.x compaction context drift: " + JSON.stringify(compaction.system))
 startEvents()
-const drainedInTime = await Promise.race([drained.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 10000))])
+let drainTimer
+const drainedInTime = await Promise.race([drained.then(() => true), new Promise((resolve) => { drainTimer = setTimeout(() => resolve(false), 10000) })])
+clearTimeout(drainTimer)
 if (!drainedInTime) throw new Error("lifecycle handling stopped before the event stream drained")
 await cleanup()
 if (!poisoned) throw new Error("the unreadable event was never delivered")

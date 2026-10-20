@@ -58,6 +58,9 @@ func TestGeneratedBunPluginsPreserveHostContracts(t *testing.T) {
 			wrapper := `#!/bin/sh
 set -eu
 event="$1"
+# The fixture speaks no worker protocol: decline the persistent worker at
+# once instead of letting it wait for the startup timeout.
+[ "$event" != "__worker_v1__" ] || exit 1
 payload="$(cat)"
 printf '%s\t%s\n' "$event" "$payload" >> "$RECONC_TEST_LOG"
 case "$event" in
@@ -389,7 +392,7 @@ func TestGeneratedBunPluginsUseBoundedAsyncIdleContinuation(t *testing.T) {
 			if !strings.Contains(content, windowsShellCommand) {
 				t.Fatalf("%s Windows wrapper command missing", kind)
 			}
-			content = strings.Replace(content, stopBudget, kind+`-stop":{"timeoutMilliseconds":5000`, 1)
+			content = strings.Replace(content, stopBudget, kind+`-stop":{"timeoutMilliseconds":2000`, 1)
 			content = strings.Replace(content, "const maxContinuationSessions = 1024", "const maxContinuationSessions = 4", 1)
 			content = strings.Replace(content, windowsShellCommand,
 				`if (process.platform === "win32") return [process.execPath, wrapper, event, repo]`, 1)
@@ -410,6 +413,9 @@ func TestGeneratedBunPluginsUseBoundedAsyncIdleContinuation(t *testing.T) {
 import { appendFile } from "node:fs/promises"
 
 const event = Bun.argv[2]
+// The fixture speaks no worker protocol: decline the persistent worker at
+// once instead of letting it wait for the startup timeout.
+if (event === "__worker_v1__") process.exit(1)
 const payload = (await Bun.stdin.text()).replace(/[\r\n]+$/, "")
 await appendFile(process.env.RECONC_TEST_LOG, event + "\t" + payload + "\n")
 let mode = ""

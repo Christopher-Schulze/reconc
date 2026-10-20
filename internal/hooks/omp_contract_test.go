@@ -34,6 +34,9 @@ func TestGeneratedOMPExtensionPreservesNativeContracts(t *testing.T) {
 	wrapper := `#!/bin/sh
 set -eu
 event="$1"
+# The fixture speaks no worker protocol: decline the persistent worker at
+# once instead of letting it wait for the startup timeout.
+[ "$event" != "__worker_v1__" ] || exit 1
 payload="$(cat)"
 printf '%s\t%s\n' "$event" "$payload" >> "$RECONC_TEST_LOG"
 case "$event" in
