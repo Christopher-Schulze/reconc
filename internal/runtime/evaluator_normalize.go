@@ -29,6 +29,29 @@ func normalizePathsWithResolver(paths []string, resolvedRoot string, prospective
 	return out, nil
 }
 
+// normalizeRepoReadPathsWithResolver normalizes read evidence like
+// normalizePathsWithResolver, but drops an absolute path that cannot be
+// resolved or resolves outside the repository instead of failing on it.
+func normalizeRepoReadPathsWithResolver(paths []string, resolvedRoot string, prospective *pathidentity.ProspectiveResolver) ([]string, error) {
+	out := []string{}
+	if prospective == nil {
+		prospective = pathidentity.NewProspectiveResolver()
+	}
+	for _, raw := range paths {
+		posix, keep, err := normalizeEvidencePath(raw, resolvedRoot, prospective)
+		if err != nil {
+			if raw != "" && filepath.IsAbs(filepath.FromSlash(raw)) {
+				continue
+			}
+			return nil, err
+		}
+		if keep {
+			out = append(out, posix)
+		}
+	}
+	return out, nil
+}
+
 // normalizeEvidencePath is the per-path normalization seam.
 var normalizeEvidencePath = normalizePathWithResolver
 

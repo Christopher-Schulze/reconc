@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -13,10 +14,16 @@ import (
 	"reconc.dev/reconc/internal/runtime"
 )
 
-var secretKey = regexp.MustCompile(`(?i)(?:api[_-]?key|access[_-]?key|secret|token|password|passwd|authorization|cookie|credential|private[_-]?key)`)
-var secretPrefix = regexp.MustCompile(`(?i)(?:sk-[a-z0-9_-]{8,}|gh[pousr]_[a-z0-9]{8,}|glpat-[a-z0-9_-]{8,}|xox[baprs]-[a-z0-9_-]{8,}|npm_[a-z0-9_-]{8,}|pypi-[a-z0-9_-]{8,}|(?:AKIA|ASIA)[A-Z0-9]{12,}|eyJ[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\.[a-z0-9_-]{8,})`)
-var secretURL = regexp.MustCompile(`(?i)(://)[^/@[:space:]]+:[^/@[:space:]]+@`)
-var secretQuery = regexp.MustCompile(`(?i)([?&](?:[^=&#]*(?:api[_-]?key|access[_-]?key|secret|token|password|passwd|authorization|cookie|credential|private[_-]?key)[^=&#]*)=)[^&#[:space:]]+`)
+var secretKey = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(?:api[_-]?key|access[_-]?key|secret|token|password|passwd|authorization|cookie|credential|private[_-]?key)`)
+})
+var secretPrefix = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(?:sk-[a-z0-9_-]{8,}|gh[pousr]_[a-z0-9]{8,}|glpat-[a-z0-9_-]{8,}|xox[baprs]-[a-z0-9_-]{8,}|npm_[a-z0-9_-]{8,}|pypi-[a-z0-9_-]{8,}|(?:AKIA|ASIA)[A-Z0-9]{12,}|eyJ[a-z0-9_-]{8,}\.[a-z0-9_-]{8,}\.[a-z0-9_-]{8,})`)
+})
+var secretURL = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)(://)[^/@[:space:]]+:[^/@[:space:]]+@`) })
+var secretQuery = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)([?&](?:[^=&#]*(?:api[_-]?key|access[_-]?key|secret|token|password|passwd|authorization|cookie|credential|private[_-]?key)[^=&#]*)=)[^&#[:space:]]+`)
+})
 
 func sanitizeCase(repoRoot string, scanner *actioninspect.TextScanner, replayCase Case) (Case, error) {
 	if !validCaseID(replayCase.ID) {
@@ -120,9 +127,9 @@ func sanitizeSensitiveText(value string) (string, int) {
 				redactions++
 				continue
 			}
-			replaced := secretPrefix.ReplaceAllString(token, "<redacted>")
-			replaced = secretURL.ReplaceAllString(replaced, "$1<redacted>@")
-			replaced = secretQuery.ReplaceAllString(replaced, "$1<redacted>")
+			replaced := secretPrefix().ReplaceAllString(token, "<redacted>")
+			replaced = secretURL().ReplaceAllString(replaced, "$1<redacted>@")
+			replaced = secretQuery().ReplaceAllString(replaced, "$1<redacted>")
 			if strings.EqualFold(trimmed, "bearer") && index+1 < len(tokens) && tokens[index+1] != "<redacted>" {
 				tokens[index+1] = "<redacted>"
 				redactions++
@@ -200,7 +207,7 @@ func quotedBearerValue(value string) bool {
 
 func sensitiveAssignment(value string) bool {
 	separator := strings.IndexAny(value, "=:")
-	return separator > 0 && separator < len(value)-1 && secretKey.MatchString(strings.TrimLeft(value[:separator], "-"))
+	return separator > 0 && separator < len(value)-1 && secretKey().MatchString(strings.TrimLeft(value[:separator], "-"))
 }
 
 func sensitiveFlag(value string) bool {
@@ -210,7 +217,7 @@ func sensitiveFlag(value string) bool {
 		return false
 	}
 	key = strings.TrimSuffix(key, ":")
-	return key != "" && secretKey.MatchString(key)
+	return key != "" && secretKey().MatchString(key)
 }
 
 func sanitizeActions(repoRoot string, actions []string) ([]string, int) {

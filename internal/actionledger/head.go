@@ -35,7 +35,7 @@ func (h chainHead) validate() error {
 		!action.ValidKeyedIdentity(h.RepositoryIdentity) || h.FirstSequence == 0 ||
 		h.LastSequence < h.FirstSequence || h.EntryCount == 0 ||
 		h.LastSequence-h.FirstSequence+1 != h.EntryCount ||
-		!lowerDigestPattern.MatchString(h.FirstDigest) || !lowerDigestPattern.MatchString(h.LastDigest) {
+		!lowerDigestPattern().MatchString(h.FirstDigest) || !lowerDigestPattern().MatchString(h.LastDigest) {
 		return fmt.Errorf("action ledger detached head is invalid")
 	}
 	if _, err := canonicalTimestamp(h.UpdatedAt); err != nil {

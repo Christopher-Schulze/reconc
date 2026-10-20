@@ -28,6 +28,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/adopt"
@@ -63,7 +64,7 @@ func Extract(content string) []adopt.Suggestion {
 		// The regex has two alternatives with distinct capture groups:
 		// group 1 for the "don't edit" form, group 2 for "X is read-only".
 		// Whichever matched wins; the other is empty.
-		if m := patternReadOnly.FindStringSubmatch(trimmed); m != nil {
+		if m := patternReadOnly().FindStringSubmatch(trimmed); m != nil {
 			target := m[1]
 			if target == "" {
 				target = m[2]
@@ -84,7 +85,7 @@ func Extract(content string) []adopt.Suggestion {
 		}
 
 		// --- pattern 2: "X is generated" / "autogen" -----------------
-		if m := patternGenerated.FindStringSubmatch(trimmed); m != nil {
+		if m := patternGenerated().FindStringSubmatch(trimmed); m != nil {
 			target := strings.Trim(m[1], "`'\"")
 			if isPlausiblePath(target) {
 				id := suggestionID("extract-generated", "deny_write", target)
@@ -101,7 +102,7 @@ func Extract(content string) []adopt.Suggestion {
 		}
 
 		// --- pattern 3: "run X before committing" --------------------
-		if m := patternRunBeforeCommit.FindStringSubmatch(trimmed); m != nil {
+		if m := patternRunBeforeCommit().FindStringSubmatch(trimmed); m != nil {
 			cmd := strings.Trim(m[1], "`'\".,;")
 			if isPlausibleCommand(cmd) {
 				id := suggestionID("extract-run", "require_command", cmd)
@@ -119,7 +120,7 @@ func Extract(content string) []adopt.Suggestion {
 		}
 
 		// --- pattern 4: .env / secrets mention -----------------------
-		if patternSecrets.MatchString(lower) {
+		if patternSecrets().MatchString(lower) {
 			id := "extract-no-secrets"
 			add(adopt.Suggestion{
 				ID:       id,
@@ -133,7 +134,7 @@ func Extract(content string) []adopt.Suggestion {
 		}
 
 		// --- pattern 5: "ci must be green" / "ci-green claim" --------
-		if patternCIGreen.MatchString(lower) {
+		if patternCIGreen().MatchString(lower) {
 			id := "extract-ci-green"
 			add(adopt.Suggestion{
 				ID:        id,
@@ -154,27 +155,37 @@ func Extract(content string) []adopt.Suggestion {
 
 var (
 	// "don't edit X" / "do not modify X" / "X is read-only"
-	patternReadOnly = regexp.MustCompile(
-		`(?i)\b(?:don['’]t|do not|never)\s+(?:edit|modify|write\s+to|touch)\s+([^,.;\n]+)|([^\s,.;]+)\s+is\s+read-only\b`)
+	patternReadOnly = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(
+			`(?i)\b(?:don['’]t|do not|never)\s+(?:edit|modify|write\s+to|touch)\s+([^,.;\n]+)|([^\s,.;]+)\s+is\s+read-only\b`)
+	})
 
 	// "X is generated" / "X is auto-generated" / "X is autogen"
-	patternGenerated = regexp.MustCompile(
-		`(?i)\b([^\s,.;]+?)\s+is\s+(?:auto-?)?generated\b`)
+	patternGenerated = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(
+			`(?i)\b([^\s,.;]+?)\s+is\s+(?:auto-?)?generated\b`)
+	})
 
 	// "run X before committing" / "run X before commit"
-	patternRunBeforeCommit = regexp.MustCompile(
-		`(?i)\brun\s+` + "`?([^`\\n]+?)`?" + `\s+before\s+(?:commit(?:ting)?|merging|pushing)\b`)
+	patternRunBeforeCommit = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(
+			`(?i)\brun\s+` + "`?([^`\\n]+?)`?" + `\s+before\s+(?:commit(?:ting)?|merging|pushing)\b`)
+	})
 
 	// Any mention of secrets-adjacent keywords. Note that \b before
 	// "." does not create a boundary (both are non-word), so for the
 	// .env token we match on a leading non-alpha or start-of-string
 	// context instead.
-	patternSecrets = regexp.MustCompile(
-		`(?i)(?:^|[^a-z])\.env\b|\bsecret(?:s)?\b|\bapi[-_\s]?key(?:s)?\b`)
+	patternSecrets = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(
+			`(?i)(?:^|[^a-z])\.env\b|\bsecret(?:s)?\b|\bapi[-_\s]?key(?:s)?\b`)
+	})
 
 	// "ci must be green" / "ci-green" / "green ci"
-	patternCIGreen = regexp.MustCompile(
-		`(?i)\b(ci[-\s]green|green[-\s]ci|ci\s+must\s+be\s+green|wait\s+for\s+ci)\b`)
+	patternCIGreen = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(
+			`(?i)\b(ci[-\s]green|green[-\s]ci|ci\s+must\s+be\s+green|wait\s+for\s+ci)\b`)
+	})
 )
 
 // isPlausiblePath returns true for strings that look like repo paths

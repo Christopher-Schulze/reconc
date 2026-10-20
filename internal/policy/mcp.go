@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // MCPUnclassifiedMode controls calls that a host identifies as MCP but that
@@ -59,7 +60,7 @@ type MCPPolicy struct {
 	Tools        []MCPToolPolicy     `json:"tools" yaml:"tools"`
 }
 
-var mcpFingerprintPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+var mcpFingerprintPattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^sha256:[0-9a-f]{64}$`) })
 
 // Valid reports whether the mode is part of the public contract.
 func (m MCPUnclassifiedMode) Valid() bool {
@@ -145,7 +146,7 @@ func (t MCPToolPolicy) Validate() error {
 	if t.Tool == "" || strings.TrimSpace(t.Tool) != t.Tool {
 		return fmt.Errorf("tool must be an exact non-empty identity without surrounding whitespace")
 	}
-	if t.ServerFingerprint != "" && !mcpFingerprintPattern.MatchString(t.ServerFingerprint) {
+	if t.ServerFingerprint != "" && !mcpFingerprintPattern().MatchString(t.ServerFingerprint) {
 		return fmt.Errorf("server_fingerprint must be sha256: followed by 64 lowercase hexadecimal characters")
 	}
 	if !t.Effect.Valid() {

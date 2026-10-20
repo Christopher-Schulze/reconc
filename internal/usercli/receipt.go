@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"reconc.dev/reconc/buildprovenance"
@@ -59,11 +60,11 @@ const (
 )
 
 var (
-	buildVersionPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]*$`)
-	targetNamePattern   = regexp.MustCompile(`^[a-z0-9]+$`)
-	sha256Pattern       = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	artifactNamePattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._+-]*$`)
-	skillFilePattern    = regexp.MustCompile(`^(SKILL\.md|references/[a-z0-9-]+\.md)$`)
+	buildVersionPattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]*$`) })
+	targetNamePattern   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-z0-9]+$`) })
+	sha256Pattern       = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-f]{64}$`) })
+	artifactNamePattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._+-]*$`) })
+	skillFilePattern    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(SKILL\.md|references/[a-z0-9-]+\.md)$`) })
 )
 
 type SkillFileReceipt struct {
@@ -454,7 +455,7 @@ func validateReceipt(receipt *Receipt) error {
 		receipt.Manager != ManagerSource && receipt.Channel == ChannelSource {
 		return errors.New("source manager and source channel must be used together")
 	}
-	if !buildVersionPattern.MatchString(receipt.Version) {
+	if !buildVersionPattern().MatchString(receipt.Version) {
 		return fmt.Errorf("invalid installation version %q", receipt.Version)
 	}
 	if receipt.SourceRepository != "Christopher-Schulze/reconc" && receipt.SourceRepository != "local-source" {
@@ -472,20 +473,20 @@ func validateReceipt(receipt *Receipt) error {
 			return errors.New("release installation tag does not match version")
 		}
 	}
-	if !artifactNamePattern.MatchString(receipt.ArtifactName) ||
+	if !artifactNamePattern().MatchString(receipt.ArtifactName) ||
 		filepath.Base(receipt.ArtifactName) != receipt.ArtifactName {
 		return fmt.Errorf("invalid installation artifact name %q", receipt.ArtifactName)
 	}
-	if !sha256Pattern.MatchString(receipt.ArtifactSHA256) {
+	if !sha256Pattern().MatchString(receipt.ArtifactSHA256) {
 		return errors.New("invalid installation artifact SHA-256")
 	}
 	if !filepath.IsAbs(receipt.BinaryPath) || filepath.Clean(receipt.BinaryPath) != receipt.BinaryPath {
 		return errors.New("installation binary path must be a clean absolute path")
 	}
-	if !targetNamePattern.MatchString(receipt.GOOS) || !targetNamePattern.MatchString(receipt.GOARCH) {
+	if !targetNamePattern().MatchString(receipt.GOOS) || !targetNamePattern().MatchString(receipt.GOARCH) {
 		return errors.New("invalid installation build target")
 	}
-	if receipt.SourceDigest != unavailableSourceDigest && !sha256Pattern.MatchString(receipt.SourceDigest) {
+	if receipt.SourceDigest != unavailableSourceDigest && !sha256Pattern().MatchString(receipt.SourceDigest) {
 		return errors.New("invalid installation source digest")
 	}
 	if receipt.SourceDigest == unavailableSourceDigest && receipt.ProvenanceState != ProvenanceSourceLocal {
@@ -507,7 +508,7 @@ func validateReceipt(receipt *Receipt) error {
 		installedAt.UTC().Format(time.RFC3339) != receipt.InstalledAt {
 		return errors.New("installation time must be canonical UTC RFC3339")
 	}
-	if !sha256Pattern.MatchString(receipt.ReceiptDigest) {
+	if !sha256Pattern().MatchString(receipt.ReceiptDigest) {
 		return errors.New("invalid installation receipt digest")
 	}
 	expected, err := computeReceiptDigest(receipt)
@@ -522,7 +523,7 @@ func validateReceipt(receipt *Receipt) error {
 
 func validateSkillReceipt(skill *SkillReceipt) error {
 	if skill == nil || !filepath.IsAbs(skill.Path) || filepath.Clean(skill.Path) != skill.Path ||
-		filepath.Base(skill.Path) != "reconc" || !sha256Pattern.MatchString(skill.ManifestDigest) {
+		filepath.Base(skill.Path) != "reconc" || !sha256Pattern().MatchString(skill.ManifestDigest) {
 		return errors.New("invalid installed skill path or manifest digest")
 	}
 	if len(skill.Files) == 0 || len(skill.Files) > 32 {
@@ -531,8 +532,8 @@ func validateSkillReceipt(skill *SkillReceipt) error {
 	previous := ""
 	manifestFiles := make([]skillbundle.File, 0, len(skill.Files))
 	for _, file := range skill.Files {
-		if !skillFilePattern.MatchString(file.Path) || file.Path <= previous ||
-			file.Size <= 0 || file.Size > 64<<10 || !sha256Pattern.MatchString(file.SHA256) {
+		if !skillFilePattern().MatchString(file.Path) || file.Path <= previous ||
+			file.Size <= 0 || file.Size > 64<<10 || !sha256Pattern().MatchString(file.SHA256) {
 			return fmt.Errorf("invalid installed skill file receipt %q", file.Path)
 		}
 		previous = file.Path

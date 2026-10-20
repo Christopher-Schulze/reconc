@@ -7,6 +7,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"sync"
 
 	"reconc.dev/reconc/internal/policy"
 )
@@ -169,7 +170,7 @@ func ValidateRequiredRuleFields(tmpl *Template, merged map[string]interface{}, c
 	return nil
 }
 
-var immutableRecipeIdentity = regexp.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
+var immutableRecipeIdentity = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`) })
 
 // ValidateRecipeInvocation enforces the identity-bearing argument contract of
 // each built-in evidence recipe. The project-owned script still performs the
@@ -188,7 +189,7 @@ func ValidateRecipeInvocation(contract policy.RecipeContract, args []string, con
 	}
 	requireIdentity := func(flag string) error {
 		value, ok := values[flag]
-		if !ok || !immutableRecipeIdentity.MatchString(value) {
+		if !ok || !immutableRecipeIdentity().MatchString(value) {
 			return fmt.Errorf("template %s recipe contract requires %s to be a full immutable Git identity", contextPath, flag)
 		}
 		return nil

@@ -484,7 +484,7 @@ func sdkToolsFromContracts(contracts []ToolContract) ([]*mcp.Tool, error) {
 }
 
 func encodeGatewayCatalogCursor(name string) (string, error) {
-	if name == "" || !gatewayToolName.MatchString(name) {
+	if name == "" || !gatewayToolName().MatchString(name) {
 		return "", fmt.Errorf("invalid gateway catalog cursor name")
 	}
 	return base64.RawURLEncoding.EncodeToString([]byte(name)), nil
@@ -498,7 +498,7 @@ func decodeGatewayCatalogCursor(value string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(body) == 0 || len(body) > 128 || !gatewayToolName.MatchString(string(body)) {
+	if len(body) == 0 || len(body) > 128 || !gatewayToolName().MatchString(string(body)) {
 		return "", fmt.Errorf("invalid gateway catalog cursor name")
 	}
 	return string(body), nil

@@ -984,9 +984,8 @@ func runCheckAndSaveWithEvaluator(
 	cmdResults []CommandResult,
 	claims []string,
 ) (*runtime.CheckReport, error) {
-	paths := pathidentity.NewProspectiveResolver()
-	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, readPaths, paths), writePaths, writeEpochs, commands, cmdResults, claims)
-	report, err := evaluator.CheckRepoPolicyContext(runtime.WithProspectiveResolver(context.Background(), paths), repoRoot, inputs)
+	inputs := executionInputs(readPaths, writePaths, writeEpochs, commands, cmdResults, claims)
+	report, err := evaluator.CheckRepoPolicyContext(hookEvaluationContext(nil), repoRoot, inputs)
 	if err != nil {
 		return nil, err
 	}
@@ -1008,21 +1007,25 @@ func runPreWritePolicyCheckWithEvaluator(
 	cmdResults []CommandResult,
 	claims []string,
 ) (*runtime.CheckReport, error) {
-	if paths == nil {
-		paths = pathidentity.NewProspectiveResolver()
-	}
-	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, readPaths, paths), writePaths, writeEpochs, commands, cmdResults, claims)
-	return evaluator.CheckRepoPolicyForPreWriteContext(runtime.WithProspectiveResolver(context.Background(), paths), repoRoot, inputs)
+	inputs := executionInputs(readPaths, writePaths, writeEpochs, commands, cmdResults, claims)
+	return evaluator.CheckRepoPolicyForPreWriteContext(hookEvaluationContext(paths), repoRoot, inputs)
 }
 
 // runPreCommandPolicyCheckWithEvaluator judges a command. paths is the
 // request's shared prospective resolver; nil gives the check its own.
 func runPreCommandPolicyCheckWithEvaluator(evaluator *runtime.Evaluator, paths *pathidentity.ProspectiveResolver, repoRoot string, state SessionState, command string) (*runtime.CheckReport, error) {
+	inputs := executionInputs(state.ReadPaths, state.WritePaths, state.WriteEpochs, []string{command}, state.CommandResults, state.Claims)
+	return evaluator.CheckRepoPolicyForPreCommandContext(hookEvaluationContext(paths), repoRoot, inputs)
+}
+
+// hookEvaluationContext shares paths (nil gives the check its own resolver)
+// and has the evaluator drop absolute read evidence outside the repository,
+// which the hooks record for reads anywhere on disk.
+func hookEvaluationContext(paths *pathidentity.ProspectiveResolver) context.Context {
 	if paths == nil {
 		paths = pathidentity.NewProspectiveResolver()
 	}
-	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, state.ReadPaths, paths), state.WritePaths, state.WriteEpochs, []string{command}, state.CommandResults, state.Claims)
-	return evaluator.CheckRepoPolicyForPreCommandContext(runtime.WithProspectiveResolver(context.Background(), paths), repoRoot, inputs)
+	return runtime.WithForeignReadPathsDropped(runtime.WithProspectiveResolver(context.Background(), paths))
 }
 
 // filterRepoScopedReadPaths keeps relative read paths and the absolute ones

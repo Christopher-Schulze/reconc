@@ -125,7 +125,7 @@ func validateStatsReport(report StatsReport) error {
 }
 
 func validateCallStatus(status CallStatus, verification VerificationReport) error {
-	if !callIDPattern.MatchString(status.CallID) || !action.SafeLabel(status.Principal) ||
+	if !callIDPattern().MatchString(status.CallID) || !action.SafeLabel(status.Principal) ||
 		status.Tool.validate() != nil || status.FirstSequence == 0 ||
 		status.LastSequence < status.FirstSequence || status.Dispatch != DispatchNotDispatched &&
 		status.Dispatch != DispatchDispatched && status.Dispatch != DispatchSucceeded &&

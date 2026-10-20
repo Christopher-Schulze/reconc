@@ -52,7 +52,7 @@ func NewEvaluator(compiled *CompiledPlan) (*Evaluator, error) {
 	if compiled == nil {
 		return nil, fmt.Errorf("action plan is required")
 	}
-	if !compiled.validated || !sha256IdentityPattern.MatchString(compiled.identity) {
+	if !compiled.validated || !sha256IdentityPattern().MatchString(compiled.identity) {
 		return nil, fmt.Errorf("action plan was not produced by CompilePlan")
 	}
 	if compiled.toolByID == nil || compiled.toolByExact == nil || compiled.rules == nil ||
@@ -540,7 +540,7 @@ func (e *Evaluator) normalizeEvaluationInput(input EvaluationInput) (EvaluationI
 	}
 	input.CredentialLabels = credentials
 	if input.Request.Transport == TransportMCPStdio {
-		if !sha256IdentityPattern.MatchString(input.ExecutableDigest) {
+		if !sha256IdentityPattern().MatchString(input.ExecutableDigest) {
 			return EvaluationInput{}, &RequestError{Code: ReasonIdentityUnavailable, Message: "executable identity is unavailable"}
 		}
 	} else if input.ExecutableDigest == "" {
@@ -586,14 +586,14 @@ func normalizeIdentitySnapshot(snapshot IdentitySnapshot) (IdentitySnapshot, boo
 	if err != nil {
 		return IdentitySnapshot{}, false
 	}
-	valid := sha256IdentityPattern.MatchString(snapshot.PlanIdentity) &&
+	valid := sha256IdentityPattern().MatchString(snapshot.PlanIdentity) &&
 		lowerHex64(snapshot.SourceIdentity) &&
 		lowerHex64(snapshot.PolicyDigest) &&
 		lowerHex64(snapshot.LockDigest) &&
 		snapshot.AuthorityMode.Valid() &&
 		(snapshot.ServerLabel == "" || SafeLabel(snapshot.ServerLabel)) &&
 		ValidIdentity(snapshot.ServerFingerprint) &&
-		sha256IdentityPattern.MatchString(snapshot.ToolContractDigest) &&
+		sha256IdentityPattern().MatchString(snapshot.ToolContractDigest) &&
 		validExecutableSnapshot(snapshot.ExecutableDigest) &&
 		ValidIdentity(snapshot.RepositoryIdentity) &&
 		validOpaqueIdentity(snapshot.ContextIdentity) &&
@@ -697,7 +697,7 @@ func equalStrings(left, right []string) bool {
 }
 
 func validExecutableSnapshot(value string) bool {
-	return value == "absent" || sha256IdentityPattern.MatchString(value)
+	return value == "absent" || sha256IdentityPattern().MatchString(value)
 }
 
 func (e *Evaluator) selectTool(request Request) (*Tool, string) {

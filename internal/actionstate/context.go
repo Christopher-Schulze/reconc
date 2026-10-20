@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"sync"
 
 	"reconc.dev/reconc/internal/action"
 )
 
 const MaxRunSessionIDBytes = 128
 
-var runSessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
+var runSessionIDPattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`) })
 
 type AuthorityOwner string
 
@@ -178,7 +179,7 @@ func contextIdentity(
 }
 
 func ValidRunSessionID(value string) bool {
-	return len(value) <= MaxRunSessionIDBytes && runSessionIDPattern.MatchString(value)
+	return len(value) <= MaxRunSessionIDBytes && runSessionIDPattern().MatchString(value)
 }
 
 type PolicyAuthority struct {

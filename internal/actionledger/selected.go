@@ -27,7 +27,7 @@ func (s *Store) SelectedField(input SelectedFieldInput) (SelectedFieldEvidence, 
 	if s == nil {
 		return evidence, fmt.Errorf("action ledger store is unavailable")
 	}
-	if !lowerDigestPattern.MatchString(input.PolicyDigest) || !lowerDigestPattern.MatchString(input.LockDigest) ||
+	if !lowerDigestPattern().MatchString(input.PolicyDigest) || !lowerDigestPattern().MatchString(input.LockDigest) ||
 		!action.ValidSHA256Identity(input.ToolContractDigest) ||
 		input.DeclarationIndex >= MaxSelectedFields ||
 		input.Source != action.SourceArguments && input.Source != action.SourceResult {

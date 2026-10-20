@@ -7,11 +7,14 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"reconc.dev/reconc/internal/policy"
 )
 
-var exactVersion = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
+var exactVersion = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
+})
 
 func evaluateRepositoryLayout(root string, gate policy.AssuranceGate, state *evaluationState) ([]Finding, error) {
 	entries, err := readDirectoryEntries(root, maxScannedFiles)
@@ -160,7 +163,7 @@ func evaluateDependencyPins(root string, gate policy.AssuranceGate, state *evalu
 			names := sortedMapKeys(dependencies)
 			for _, name := range names {
 				version := strings.TrimSpace(dependencies[name])
-				if exactVersion.MatchString(version) || hasAllowedPrefix(version, gate.AllowedVersionPrefixes) {
+				if exactVersion().MatchString(version) || hasAllowedPrefix(version, gate.AllowedVersionPrefixes) {
 					continue
 				}
 				findings = append(findings, Finding{

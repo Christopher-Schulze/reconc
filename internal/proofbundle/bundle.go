@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -39,11 +40,19 @@ const (
 )
 
 var (
-	secretAssignment = regexp.MustCompile(`(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd|authorization)\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;,)\]}]+)`)
-	bearerSecret     = regexp.MustCompile(`(?i)\bbearer\s+(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;,)\]}]+)`)
-	knownToken       = regexp.MustCompile(`(?i)\b(?:github_pat_|gh[pousr]_|glpat-|xox[baprs]-|xapp-|sk-(?:live_|test_|proj_)?|AIza|npm_|pypi-)[A-Za-z0-9_.-]{8,}\b`)
-	jwtToken         = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`)
-	awsAccessKey     = regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`)
+	secretAssignment = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd|authorization)\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;,)\]}]+)`)
+	})
+	bearerSecret = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\bbearer\s+(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;,)\]}]+)`)
+	})
+	knownToken = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:github_pat_|gh[pousr]_|glpat-|xox[baprs]-|xapp-|sk-(?:live_|test_|proj_)?|AIza|npm_|pypi-)[A-Za-z0-9_.-]{8,}\b`)
+	})
+	jwtToken = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`)
+	})
+	awsAccessKey = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`) })
 )
 
 type Build struct {
@@ -518,11 +527,11 @@ func sanitizeText(root, value string) string {
 		redactedIdentity = identity
 		value = replaceBoundaryTokenFold(value, identity, "<user>")
 	}
-	value = secretAssignment.ReplaceAllString(value, "$1=<redacted>")
-	value = bearerSecret.ReplaceAllString(value, "Bearer <redacted>")
-	value = knownToken.ReplaceAllString(value, "<redacted>")
-	value = jwtToken.ReplaceAllString(value, "<redacted>")
-	value = awsAccessKey.ReplaceAllString(value, "<redacted>")
+	value = secretAssignment().ReplaceAllString(value, "$1=<redacted>")
+	value = bearerSecret().ReplaceAllString(value, "Bearer <redacted>")
+	value = knownToken().ReplaceAllString(value, "<redacted>")
+	value = jwtToken().ReplaceAllString(value, "<redacted>")
+	value = awsAccessKey().ReplaceAllString(value, "<redacted>")
 	value = redactAbsolutePathSpans(value)
 	return boundText(value)
 }

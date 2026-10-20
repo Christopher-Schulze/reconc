@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -14,8 +15,8 @@ import (
 )
 
 var (
-	callIDPattern      = regexp.MustCompile(`^act_[a-z2-7]{26}$`)
-	lowerDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	callIDPattern      = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^act_[a-z2-7]{26}$`) })
+	lowerDigestPattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-f]{64}$`) })
 )
 
 const maxLatencyMicros = uint64((10 * time.Minute) / time.Microsecond)
@@ -43,10 +44,10 @@ func (r Record) validateEnvelope() error {
 	if r.Sequence == 0 || !r.Event.Valid() {
 		return fmt.Errorf("ledger sequence or event is invalid")
 	}
-	if r.Sequence == 1 && r.PreviousDigest != "" || r.Sequence > 1 && !lowerDigestPattern.MatchString(r.PreviousDigest) {
+	if r.Sequence == 1 && r.PreviousDigest != "" || r.Sequence > 1 && !lowerDigestPattern().MatchString(r.PreviousDigest) {
 		return fmt.Errorf("ledger previous digest does not match the sequence")
 	}
-	if r.Digest != "" && !lowerDigestPattern.MatchString(r.Digest) {
+	if r.Digest != "" && !lowerDigestPattern().MatchString(r.Digest) {
 		return fmt.Errorf("ledger digest is invalid")
 	}
 	if r.LatencyMicros > maxLatencyMicros {
@@ -60,8 +61,8 @@ func (r Record) validateEnvelope() error {
 }
 
 func (c CallBinding) validate() error {
-	if !callIDPattern.MatchString(c.CallID) || !action.ValidKeyedIdentity(c.RepositoryIdentity) ||
-		!lowerDigestPattern.MatchString(c.PolicyDigest) || !lowerDigestPattern.MatchString(c.LockDigest) ||
+	if !callIDPattern().MatchString(c.CallID) || !action.ValidKeyedIdentity(c.RepositoryIdentity) ||
+		!lowerDigestPattern().MatchString(c.PolicyDigest) || !lowerDigestPattern().MatchString(c.LockDigest) ||
 		!action.SafeLabel(c.ServerLabel) || !action.ValidKeyedIdentity(c.ServerFingerprint) ||
 		!action.ValidSHA256Identity(c.ToolContractDigest) || !action.SafeLabel(c.Principal) ||
 		!action.ValidKeyedIdentity(c.ContextIdentity) || c.ContextProvenance != action.ProvenanceOperatorBound {

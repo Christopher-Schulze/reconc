@@ -298,15 +298,19 @@ type normalizedEvaluationInputSet struct {
 }
 
 func normalizeEvaluationInput(root string, inputs ExecutionInputs) (normalizedEvaluationInputSet, error) {
-	return normalizeEvaluationInputWithRootResolver(root, inputs, pathidentity.ResolveExisting, nil)
+	return normalizeEvaluationInputWithRootResolver(root, inputs, pathidentity.ResolveExisting, nil, false)
 }
 
-func normalizeEvaluationInputWithRootResolver(root string, inputs ExecutionInputs, resolveRoot func(string) (string, error), prospective *pathidentity.ProspectiveResolver) (normalizedEvaluationInputSet, error) {
+func normalizeEvaluationInputWithRootResolver(root string, inputs ExecutionInputs, resolveRoot func(string) (string, error), prospective *pathidentity.ProspectiveResolver, dropForeignReads bool) (normalizedEvaluationInputSet, error) {
 	paths, err := newEvaluationPathStateWithRootResolver(root, resolveRoot, prospective)
 	if err != nil {
 		return normalizedEvaluationInputSet{}, err
 	}
-	reads, err := normalizePathsWithResolver(inputs.ReadPaths, paths.resolvedRoot, paths.prospective)
+	normalizeReads := normalizePathsWithResolver
+	if dropForeignReads {
+		normalizeReads = normalizeRepoReadPathsWithResolver
+	}
+	reads, err := normalizeReads(inputs.ReadPaths, paths.resolvedRoot, paths.prospective)
 	if err != nil {
 		return normalizedEvaluationInputSet{}, err
 	}

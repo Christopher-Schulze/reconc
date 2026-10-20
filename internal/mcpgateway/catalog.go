@@ -15,14 +15,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/actioninspect"
 )
 
-var gatewayToolName = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
-var gatewayIconSize = regexp.MustCompile(`^([1-9][0-9]{0,4})x([1-9][0-9]{0,4})$`)
+var gatewayToolName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`) })
+var gatewayIconSize = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^([1-9][0-9]{0,4})x([1-9][0-9]{0,4})$`) })
 
 const (
 	maxIconDimension = 2048
@@ -121,7 +122,7 @@ func validateToolContractWithCache(
 		return ToolContract{}, fmt.Errorf("tool name is required")
 	}
 	name, ok := nameValue.Text()
-	if !ok || !gatewayToolName.MatchString(name) || len(name) > action.MaxGatewayToolNameBytes {
+	if !ok || !gatewayToolName().MatchString(name) || len(name) > action.MaxGatewayToolNameBytes {
 		return ToolContract{}, fmt.Errorf("tool name is outside the gateway contract")
 	}
 	inputValue, ok := value.Lookup("inputSchema")
@@ -443,7 +444,7 @@ func validateIconSizes(value action.Value) error {
 	seen := make(map[string]struct{}, len(items))
 	for _, item := range items {
 		size, ok := item.Text()
-		matches := gatewayIconSize.FindStringSubmatch(size)
+		matches := gatewayIconSize().FindStringSubmatch(size)
 		if !ok || matches == nil {
 			return fmt.Errorf("tool icon size is invalid")
 		}

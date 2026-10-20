@@ -253,7 +253,7 @@ func privateActionValueCategory(
 	if textValue && text == redactedActionValue {
 		return "", false
 	}
-	if secretKey.MatchString(fieldName) {
+	if secretKey().MatchString(fieldName) {
 		return "credential", true
 	}
 	if textValue && len(text) > maxValueBytes {
@@ -424,8 +424,8 @@ func canonicalOversizedActionSurrogate(raw ActionPayload) bool {
 
 func sensitiveMalformedActionJSON(scanner *actioninspect.TextScanner, raw json.RawMessage) bool {
 	text := string(raw)
-	if secretKey.MatchString(text) || secretPrefix.MatchString(text) ||
-		secretURL.MatchString(text) || secretQuery.MatchString(text) || physicalPathString(text) ||
+	if secretKey().MatchString(text) || secretPrefix().MatchString(text) ||
+		secretURL().MatchString(text) || secretQuery().MatchString(text) || physicalPathString(text) ||
 		privateTextCategory(scanner, text) {
 		return true
 	}
@@ -437,7 +437,7 @@ func sensitiveMalformedActionJSON(scanner *actioninspect.TextScanner, raw json.R
 			return false
 		}
 		value, ok := token.(string)
-		if ok && (secretKey.MatchString(value) || sensitiveTextWithoutOversize(value) ||
+		if ok && (secretKey().MatchString(value) || sensitiveTextWithoutOversize(value) ||
 			physicalPathString(value) || privateTextCategory(scanner, value)) {
 			return true
 		}
@@ -445,7 +445,7 @@ func sensitiveMalformedActionJSON(scanner *actioninspect.TextScanner, raw json.R
 }
 
 func actionValueContainsPrivate(scanner *actioninspect.TextScanner, value action.Value, fieldName string) bool {
-	if secretKey.MatchString(fieldName) {
+	if secretKey().MatchString(fieldName) {
 		text, redacted := value.Text()
 		if !redacted || text != redactedActionValue {
 			return true

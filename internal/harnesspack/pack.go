@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"reconc.dev/reconc/internal/schema"
 	"reconc.dev/reconc/internal/semver"
@@ -30,7 +31,7 @@ const (
 	MaxArchiveBytes  = 32 << 20
 )
 
-var identifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+var identifierPattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`) })
 
 type Compatibility struct {
 	Minimum          string `json:"minimum"`
@@ -104,7 +105,7 @@ func ValidateManifest(manifest *Manifest) error {
 	if !schema.AcceptsFormat(schema.HarnessPackManifest, manifest.Schema, manifest.FormatVersion) {
 		return fmt.Errorf("unsupported harness pack schema or format")
 	}
-	if manifest.Kind != "harness-pack" || !identifierPattern.MatchString(manifest.Name) {
+	if manifest.Kind != "harness-pack" || !identifierPattern().MatchString(manifest.Name) {
 		return fmt.Errorf("invalid harness pack identity")
 	}
 	if _, err := parseVersion(manifest.Version); err != nil {
@@ -415,7 +416,7 @@ func validateSortedIdentifiers(values []string, field string) error {
 		return fmt.Errorf("harness pack %s must not be empty", field)
 	}
 	for index, value := range values {
-		if !identifierPattern.MatchString(value) {
+		if !identifierPattern().MatchString(value) {
 			return fmt.Errorf("invalid harness pack %s value %q", field, value)
 		}
 		if index > 0 && values[index-1] >= value {

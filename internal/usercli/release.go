@@ -459,8 +459,8 @@ func ValidateReleaseManifest(manifest ReleaseManifest) error {
 	seen := map[string]bool{}
 	previousName := ""
 	for _, asset := range manifest.Assets {
-		if filepath.Base(asset.Name) != asset.Name || !artifactNamePattern.MatchString(asset.Name) ||
-			!sha256Pattern.MatchString(asset.SHA256) || asset.Size <= 0 {
+		if filepath.Base(asset.Name) != asset.Name || !artifactNamePattern().MatchString(asset.Name) ||
+			!sha256Pattern().MatchString(asset.SHA256) || asset.Size <= 0 {
 			return fmt.Errorf("invalid release asset %q", asset.Name)
 		}
 		if seen[asset.Name] {
@@ -545,8 +545,8 @@ func parseChecksumManifest(body []byte) (map[string]string, error) {
 		}
 		digest := strings.ToLower(fields[0])
 		name := strings.TrimPrefix(fields[1], "*")
-		if filepath.Base(name) != name || !artifactNamePattern.MatchString(name) ||
-			!sha256Pattern.MatchString(digest) {
+		if filepath.Base(name) != name || !artifactNamePattern().MatchString(name) ||
+			!sha256Pattern().MatchString(digest) {
 			return nil, fmt.Errorf("invalid SHA256SUMS entry for %q", name)
 		}
 		if _, exists := out[name]; exists {
@@ -723,7 +723,7 @@ func checksumForAsset(manifest []byte, assetName string) (string, error) {
 		if name != assetName {
 			continue
 		}
-		if !sha256Pattern.MatchString(strings.ToLower(fields[0])) {
+		if !sha256Pattern().MatchString(strings.ToLower(fields[0])) {
 			return "", fmt.Errorf("invalid checksum for %s", assetName)
 		}
 		digest = strings.ToLower(fields[0])

@@ -4,18 +4,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 )
 
 var (
-	safeLabelPattern       = regexpMustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`)
-	customPlatformPattern  = regexpMustCompile(`^custom:[a-z0-9][a-z0-9_-]{0,47}$`)
-	sha256IdentityPattern  = regexpMustCompile(`^sha256:[0-9a-f]{64}$`)
-	hmacIdentityPattern    = regexpMustCompile(`^hmac-sha256:v1:[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?:[0-9a-f]{64}$`)
-	gatewayToolNamePattern = regexpMustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
+	safeLabelPattern      = sync.OnceValue(func() *regexp.Regexp { return regexpMustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`) })
+	customPlatformPattern = sync.OnceValue(func() *regexp.Regexp { return regexpMustCompile(`^custom:[a-z0-9][a-z0-9_-]{0,47}$`) })
+	sha256IdentityPattern = sync.OnceValue(func() *regexp.Regexp { return regexpMustCompile(`^sha256:[0-9a-f]{64}$`) })
+	hmacIdentityPattern   = sync.OnceValue(func() *regexp.Regexp {
+		return regexpMustCompile(`^hmac-sha256:v1:[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?:[0-9a-f]{64}$`)
+	})
+	gatewayToolNamePattern = sync.OnceValue(func() *regexp.Regexp { return regexpMustCompile(`^[A-Za-z0-9_.-]{1,128}$`) })
 )
 
 // CompilePlan normalizes, validates, and precompiles one canonical action
@@ -242,7 +246,7 @@ func normalizeTool(tool *Tool) error {
 		if tool.ServerLabel != "" {
 			return fmt.Errorf("server_label is forbidden for host_mcp")
 		}
-		if tool.ServerFingerprint != "" && !sha256IdentityPattern.MatchString(tool.ServerFingerprint) {
+		if tool.ServerFingerprint != "" && !sha256IdentityPattern().MatchString(tool.ServerFingerprint) {
 			return fmt.Errorf("host_mcp server_fingerprint must be sha256:<64-lowercase-hex>")
 		}
 	case TransportMCPStdio:
@@ -252,7 +256,7 @@ func normalizeTool(tool *Tool) error {
 		if !SafeLabel(tool.ServerLabel) {
 			return fmt.Errorf("server_label is required and must be a safe label for mcp_stdio")
 		}
-		if tool.ServerFingerprint != "" && !hmacIdentityPattern.MatchString(tool.ServerFingerprint) {
+		if tool.ServerFingerprint != "" && !hmacIdentityPattern().MatchString(tool.ServerFingerprint) {
 			return fmt.Errorf("mcp_stdio server_fingerprint must be a keyed HMAC identity")
 		}
 	}
@@ -564,7 +568,7 @@ func normalizeSelector(selector *Selector, toolByID map[string]int) error {
 	if err := normalizeStringList(&selector.Tools, "selector.tools", func(value string) bool { return validateToolName(value, false) == nil }); err != nil {
 		return err
 	}
-	if err := normalizeStringList(&selector.ToolContractDigests, "selector.tool_contract_digests", sha256IdentityPattern.MatchString); err != nil {
+	if err := normalizeStringList(&selector.ToolContractDigests, "selector.tool_contract_digests", sha256IdentityPattern().MatchString); err != nil {
 		return err
 	}
 	if err := normalizePhases(&selector.Phases); err != nil {
@@ -669,7 +673,7 @@ func selectedPhases(phases []Phase) []Phase {
 }
 
 func SafeLabel(value string) bool {
-	return len(value) <= MaxSafeLabelBytes && safeLabelPattern.MatchString(value)
+	return len(value) <= MaxSafeLabelBytes && safeLabelPattern().MatchString(value)
 }
 
 func ValidPlatform(value Platform) bool {
@@ -678,15 +682,15 @@ func ValidPlatform(value Platform) bool {
 			return true
 		}
 	}
-	return customPlatformPattern.MatchString(string(value))
+	return customPlatformPattern().MatchString(string(value))
 }
 
 func ValidIdentity(value string) bool {
-	return sha256IdentityPattern.MatchString(value) || hmacIdentityPattern.MatchString(value)
+	return sha256IdentityPattern().MatchString(value) || hmacIdentityPattern().MatchString(value)
 }
 
 func ValidKeyedIdentity(value string) bool {
-	return hmacIdentityPattern.MatchString(value)
+	return hmacIdentityPattern().MatchString(value)
 }
 
 func KeyedIdentityKeyID(value string) (string, bool) {
@@ -703,7 +707,7 @@ func KeyedIdentityKeyID(value string) (string, bool) {
 }
 
 func ValidSHA256Identity(value string) bool {
-	return sha256IdentityPattern.MatchString(value)
+	return sha256IdentityPattern().MatchString(value)
 }
 
 func validateToolName(value string, gateway bool) error {
@@ -715,7 +719,7 @@ func validateToolName(value string, gateway bool) error {
 			return fmt.Errorf("tool contains a NUL or control character")
 		}
 	}
-	if gateway && !gatewayToolNamePattern.MatchString(value) {
+	if gateway && !gatewayToolNamePattern().MatchString(value) {
 		return fmt.Errorf("mcp_stdio tool must match [A-Za-z0-9_.-]{1,%d}", MaxGatewayToolNameBytes)
 	}
 	return nil

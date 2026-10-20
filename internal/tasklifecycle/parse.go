@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"reconc.dev/reconc/internal/boundedio"
@@ -19,13 +20,17 @@ import (
 )
 
 var (
-	sectionsRowRE = regexp.MustCompile(`^- \[([ ~!x])\] ([0-9]{3}) (.+) -> (.+\.md)$`)
-	logbookRowRE  = regexp.MustCompile(`^- \[([ x])\] (TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*) - (.+) -> (.+\.md)$`)
-	logbookNameRE = regexp.MustCompile(`^TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$`)
-	logbookCurRE  = regexp.MustCompile(`^Current: (TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*) -> (.+\.md)$`)
-	logbookNoneRE = regexp.MustCompile(`^Current: none$`)
-	subTaskRE     = regexp.MustCompile(`^- \[([ ~x])\] (.+)$`)
-	bulletFieldRE = regexp.MustCompile(`^(?:- )?([A-Za-z][A-Za-z0-9 _-]*):\s*(.*)$`)
+	sectionsRowRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^- \[([ ~!x])\] ([0-9]{3}) (.+) -> (.+\.md)$`) })
+	logbookRowRE  = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`^- \[([ x])\] (TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*) - (.+) -> (.+\.md)$`)
+	})
+	logbookNameRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$`) })
+	logbookCurRE  = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`^Current: (TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*) -> (.+\.md)$`)
+	})
+	logbookNoneRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^Current: none$`) })
+	subTaskRE     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^- \[([ ~x])\] (.+)$`) })
+	bulletFieldRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(?:- )?([A-Za-z][A-Za-z0-9 _-]*):\s*(.*)$`) })
 )
 
 var sectionsForProfile = map[Profile][]string{
@@ -335,7 +340,7 @@ func detectProfile(configured Profile, content string) (Profile, error) {
 	anchored := "\n" + content
 	hasSections := strings.Contains(anchored, "\n## Active\n") && strings.Contains(anchored, "\n## Queue\n")
 	currentLine := firstMatchingLine(content, "Current:")
-	hasLogbook := logbookCurRE.MatchString(currentLine) || logbookNoneRE.MatchString(currentLine)
+	hasLogbook := logbookCurRE().MatchString(currentLine) || logbookNoneRE().MatchString(currentLine)
 	switch {
 	case hasSections && hasLogbook:
 		return "", &ValidationError{Issues: []Issue{{
@@ -377,7 +382,7 @@ func (board *Board) parseSectionsOverview() []Issue {
 		if !strings.HasPrefix(line, "- [") {
 			continue
 		}
-		match := sectionsRowRE.FindStringSubmatch(line)
+		match := sectionsRowRE().FindStringSubmatch(line)
 		if match == nil || current == "" {
 			issues = append(issues, issue("task/overview/invalid-row", board.Config.OverviewPath, lineNo, "invalid sectioned TASK row", "use `- [icon] NNN Title -> tasks/NNN-slug.md` under a lifecycle section"))
 			continue
@@ -446,11 +451,11 @@ func (board *Board) scanLogbookOverview() logbookOverviewScan {
 				continue
 			}
 			scan.currentSeen = true
-			if logbookNoneRE.MatchString(line) {
+			if logbookNoneRE().MatchString(line) {
 				scan.currentLine = lineNo
 				continue
 			}
-			match := logbookCurRE.FindStringSubmatch(line)
+			match := logbookCurRE().FindStringSubmatch(line)
 			if match == nil {
 				scan.issues = append(scan.issues, issue("task/overview/invalid-current", board.Config.OverviewPath, lineNo, "invalid Current line", "use `Current: TASK-NNNN-Name -> tasks/TASK-NNNN-Name.md` or `Current: none`"))
 				continue
@@ -472,7 +477,7 @@ func (board *Board) scanLogbookOverview() logbookOverviewScan {
 			scan.issues = append(scan.issues, board.appendArchivedIdentity(id, name, target, lineNo)...)
 			continue
 		}
-		match := logbookRowRE.FindStringSubmatch(line)
+		match := logbookRowRE().FindStringSubmatch(line)
 		if match == nil {
 			scan.issues = append(scan.issues, issue("task/overview/invalid-row", board.Config.OverviewPath, lineNo, "invalid logbook TASK row", "use the exact TASK-NNNN logbook row grammar"))
 			continue
@@ -795,7 +800,7 @@ func parseSubTasks(path string, lines []string, sectionLine int, issues []Issue)
 		if !strings.HasPrefix(strings.TrimSpace(line), "- [") {
 			continue
 		}
-		match := subTaskRE.FindStringSubmatch(strings.TrimSpace(line))
+		match := subTaskRE().FindStringSubmatch(strings.TrimSpace(line))
 		if match == nil {
 			issues = append(issues, issue("task/detail/invalid-subtask", path, sectionLine+index+2, "invalid Sub-Task row", "use - [ ], - [~], or - [x]"))
 			continue
@@ -866,7 +871,7 @@ func parseDependencies(lines []string) []string {
 func parseFields(lines []string) map[string]string {
 	out := map[string]string{}
 	for _, line := range lines {
-		match := bulletFieldRE.FindStringSubmatch(strings.TrimSpace(line))
+		match := bulletFieldRE().FindStringSubmatch(strings.TrimSpace(line))
 		if match == nil {
 			continue
 		}
@@ -904,7 +909,7 @@ func parseArchivedLogbookRow(line string) (string, string, string, error) {
 	}
 	name := rest[:nameEnd]
 	target := filepath.ToSlash(strings.TrimSpace(rest[targetStart+4:]))
-	if !logbookNameRE.MatchString(name) || !strings.HasSuffix(target, ".md") {
+	if !logbookNameRE().MatchString(name) || !strings.HasSuffix(target, ".md") {
 		return "", "", "", fmt.Errorf("invalid archived logbook TASK identifier or target")
 	}
 	return taskNumber(name), name, target, nil

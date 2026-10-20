@@ -35,6 +35,22 @@ func prospectiveResolverFrom(ctx context.Context) *pathidentity.ProspectiveResol
 	return resolver
 }
 
+type foreignReadPathsDroppedKey struct{}
+
+// WithForeignReadPathsDropped returns a context whose evaluations drop an
+// absolute read path that cannot be resolved or resolves outside the
+// repository instead of failing on it. Hook evidence records reads anywhere
+// on disk, and only the repository's own reads can satisfy policy; relative
+// read paths keep their boundary check.
+func WithForeignReadPathsDropped(ctx context.Context) context.Context {
+	return context.WithValue(ctx, foreignReadPathsDroppedKey{}, true)
+}
+
+func foreignReadPathsDropped(ctx context.Context) bool {
+	dropped, _ := ctx.Value(foreignReadPathsDroppedKey{}).(bool)
+	return dropped
+}
+
 func newEvaluationPathState(repoRoot string) (*evaluationPathState, error) {
 	return newEvaluationPathStateWithRootResolver(repoRoot, pathidentity.ResolveExisting, nil)
 }

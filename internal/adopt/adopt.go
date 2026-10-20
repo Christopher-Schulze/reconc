@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/bootstrap"
@@ -549,7 +550,7 @@ func applyLocked(repoRoot string, r Report) (added []string, err error) {
 }
 
 // topLevelKeyRegex matches a YAML top-level mapping key at column 0.
-var topLevelKeyRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*:`)
+var topLevelKeyRegex = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*:`) })
 
 // renderConfigWithRules inserts rendered rule items into the config's
 // rules block. It converts an inline empty `rules: []` (the `reconc
@@ -586,7 +587,7 @@ func renderConfigWithRules(existing, items string) (string, error) {
 	}
 	insertAt := len(lines)
 	for i := rulesIdx + 1; i < len(lines); i++ {
-		if topLevelKeyRegex.MatchString(lines[i]) {
+		if topLevelKeyRegex().MatchString(lines[i]) {
 			insertAt = i
 			break
 		}

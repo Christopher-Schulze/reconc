@@ -18,7 +18,7 @@ func isDetailHeading(line, name string) bool {
 // detailField reports the parser's field name for a Status line; the parser
 // accepts an optional "- " bullet and any State capitalization.
 func detailField(line string) (string, bool) {
-	match := bulletFieldRE.FindStringSubmatch(strings.TrimSpace(line))
+	match := bulletFieldRE().FindStringSubmatch(strings.TrimSpace(line))
 	if match == nil {
 		return "", false
 	}
@@ -469,7 +469,7 @@ func replaceLogbookRow(lines []string, change overviewStateChange) error {
 		icon = "x"
 	}
 	for index, line := range lines {
-		match := logbookRowRE.FindStringSubmatch(line)
+		match := logbookRowRE().FindStringSubmatch(line)
 		if match == nil || match[2] != change.Task.Name {
 			continue
 		}
@@ -490,7 +490,7 @@ func moveSectionedRow(lines []string, id, title, path string, state State) ([]st
 	found := false
 	filtered := make([]string, 0, len(lines))
 	for _, line := range lines {
-		match := sectionsRowRE.FindStringSubmatch(line)
+		match := sectionsRowRE().FindStringSubmatch(line)
 		if match != nil && match[2] == id {
 			found = true
 			continue
@@ -531,7 +531,7 @@ func trimDoneRows(lines []string, limit int) []string {
 			insideDone = isDetailHeading(line, "Done")
 		}
 		if insideDone {
-			match := sectionsRowRE.FindStringSubmatch(line)
+			match := sectionsRowRE().FindStringSubmatch(line)
 			if match != nil && match[1] == "x" {
 				seen++
 				if seen > limit {
@@ -595,7 +595,7 @@ func activateDetail(profile Profile, body []byte) ([]byte, error) {
 		if !insideSubTasks {
 			continue
 		}
-		match := subTaskRE.FindStringSubmatch(strings.TrimSpace(line))
+		match := subTaskRE().FindStringSubmatch(strings.TrimSpace(line))
 		if match == nil {
 			continue
 		}

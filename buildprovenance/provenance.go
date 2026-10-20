@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"reconc.dev/reconc/internal/boundedio"
 )
@@ -35,12 +36,13 @@ const (
 )
 
 var (
-	versionPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]*$`)
-	targetPattern  = regexp.MustCompile(`^[a-z0-9]+$`)
-	digestPattern  = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	markerPattern  = regexp.MustCompile(
-		`reconc-build-provenance-v1\|version=([0-9A-Za-z][0-9A-Za-z.+-]*)\|goos=([a-z0-9]+)\|goarch=([a-z0-9]+)\|source=([0-9a-f]{64})\|end`,
-	)
+	versionPattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]*$`) })
+	targetPattern  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-z0-9]+$`) })
+	digestPattern  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-f]{64}$`) })
+	markerPattern  = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(
+			`reconc-build-provenance-v1\|version=([0-9A-Za-z][0-9A-Za-z.+-]*)\|goos=([a-z0-9]+)\|goarch=([a-z0-9]+)\|source=([0-9a-f]{64})\|end`)
+	})
 )
 
 // BuildMarker is replaced through -ldflags -X for release and host builds.
@@ -57,7 +59,7 @@ type Provenance struct {
 // ComputeSourceDigest hashes the exact local production inputs selected for
 // cmd/reconc on the requested CGO-disabled target.
 func ComputeSourceDigest(moduleRoot string, goos string, goarch string) (string, error) {
-	if !targetPattern.MatchString(goos) || !targetPattern.MatchString(goarch) {
+	if !targetPattern().MatchString(goos) || !targetPattern().MatchString(goarch) {
 		return "", fmt.Errorf("invalid build target %q/%q", goos, goarch)
 	}
 	root, err := filepath.Abs(moduleRoot)
@@ -77,13 +79,13 @@ func ComputeSourceDigest(moduleRoot string, goos string, goarch string) (string,
 
 // FormatMarker validates and serializes provenance for linker injection.
 func FormatMarker(provenance Provenance) (string, error) {
-	if !versionPattern.MatchString(provenance.Version) {
+	if !versionPattern().MatchString(provenance.Version) {
 		return "", fmt.Errorf("invalid version %q", provenance.Version)
 	}
-	if !targetPattern.MatchString(provenance.GOOS) || !targetPattern.MatchString(provenance.GOARCH) {
+	if !targetPattern().MatchString(provenance.GOOS) || !targetPattern().MatchString(provenance.GOARCH) {
 		return "", fmt.Errorf("invalid build target %q/%q", provenance.GOOS, provenance.GOARCH)
 	}
-	if !digestPattern.MatchString(provenance.SourceDigest) {
+	if !digestPattern().MatchString(provenance.SourceDigest) {
 		return "", fmt.Errorf("invalid source digest %q", provenance.SourceDigest)
 	}
 	marker := fmt.Sprintf(
@@ -105,7 +107,7 @@ func ParseMarker(marker string) (Provenance, error) {
 	if len(marker) > maxBuildMarkerBytes {
 		return Provenance{}, fmt.Errorf("build provenance marker exceeds %d bytes", maxBuildMarkerBytes)
 	}
-	match := markerPattern.FindStringSubmatch(marker)
+	match := markerPattern().FindStringSubmatch(marker)
 	if len(match) != 5 || match[0] != marker {
 		return Provenance{}, fmt.Errorf("missing or malformed Reconc build provenance")
 	}
@@ -197,7 +199,7 @@ func scanBinaryMarker(file *os.File) (string, error) {
 			window = append(window, tail...)
 			window = append(window, chunk[:n]...)
 			base := consumed - int64(len(tail))
-			for _, match := range markerPattern.FindAllIndex(window, -1) {
+			for _, match := range markerPattern().FindAllIndex(window, -1) {
 				position := base + int64(match[0])
 				if seen[position] {
 					continue

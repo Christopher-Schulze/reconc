@@ -6,9 +6,12 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
-var versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$`)
+var versionPattern = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$`)
+})
 
 // Version is a parsed Semantic Versioning value.
 type Version struct {
@@ -25,7 +28,7 @@ type Version struct {
 // with the repository's existing version inputs.
 func Parse(value string) (Version, error) {
 	clean := strings.TrimSpace(value)
-	match := versionPattern.FindStringSubmatch(clean)
+	match := versionPattern().FindStringSubmatch(clean)
 	if len(match) != 6 {
 		return Version{}, fmt.Errorf("version %q is not supported semantic versioning", value)
 	}

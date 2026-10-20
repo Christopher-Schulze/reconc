@@ -237,16 +237,16 @@ func validateRequestMetadata(request Request) error {
 	switch request.Transport {
 	case TransportHostMCP:
 		if !ValidPlatform(request.Platform) || request.ServerLabel != "" ||
-			!sha256IdentityPattern.MatchString(request.ServerFingerprint) {
+			!sha256IdentityPattern().MatchString(request.ServerFingerprint) {
 			return &RequestError{Code: ReasonIdentityUnavailable, Message: "host transport identity is unavailable"}
 		}
 	case TransportMCPStdio:
 		if request.Platform != "" || !SafeLabel(request.ServerLabel) ||
-			!hmacIdentityPattern.MatchString(request.ServerFingerprint) {
+			!hmacIdentityPattern().MatchString(request.ServerFingerprint) {
 			return &RequestError{Code: ReasonIdentityUnavailable, Message: "stdio transport identity is unavailable"}
 		}
 	}
-	if !sha256IdentityPattern.MatchString(request.ToolContractDigest) ||
+	if !sha256IdentityPattern().MatchString(request.ToolContractDigest) ||
 		!ValidIdentity(request.RepositoryIdentity) ||
 		!lowerHex64(request.PolicyDigest) ||
 		!lowerHex64(request.LockDigest) ||

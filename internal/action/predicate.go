@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -404,7 +405,7 @@ func normalizeURLConstraint(value Value) (*URLConstraint, Value, error) {
 		return nil, Value{}, err
 	}
 	for index := range schemes {
-		if schemes[index] != strings.ToLower(schemes[index]) || !urlSchemePattern.MatchString(schemes[index]) {
+		if schemes[index] != strings.ToLower(schemes[index]) || !urlSchemePattern().MatchString(schemes[index]) {
 			return nil, Value{}, fmt.Errorf("url scheme %q is not canonical lowercase ASCII", schemes[index])
 		}
 	}
@@ -669,7 +670,7 @@ func normalizeConstraintHost(host string) (string, error) {
 		}
 		host = trimmed
 	}
-	if host == "" || len(host) > 253 || !asciiHostPattern.MatchString(host) {
+	if host == "" || len(host) > 253 || !asciiHostPattern().MatchString(host) {
 		return "", fmt.Errorf("must be non-empty canonical ASCII")
 	}
 	if address, err := netip.ParseAddr(host); err == nil {
@@ -749,7 +750,7 @@ func normalizeWindowsPathBase(raw string) (string, error) {
 		}
 		return "//" + strings.Join(parts, "/"), nil
 	}
-	if !windowsDrivePattern.MatchString(normalized) || strings.Contains(normalized[2:], ":") {
+	if !windowsDrivePattern().MatchString(normalized) || strings.Contains(normalized[2:], ":") {
 		return "", fmt.Errorf("windows path base must be an absolute drive or UNC path without alternate streams")
 	}
 	if err := validateCanonicalPathSegments(normalized[3:], true); err != nil {
@@ -789,9 +790,9 @@ func onlyDigitsAndDots(value string) bool {
 }
 
 var (
-	urlSchemePattern    = regexpMustCompile(`^[a-z][a-z0-9+.-]*$`)
-	asciiHostPattern    = regexpMustCompile(`^[a-z0-9.:-]+$`)
-	windowsDrivePattern = regexpMustCompile(`^[A-Za-z]:/`)
+	urlSchemePattern    = sync.OnceValue(func() *regexp.Regexp { return regexpMustCompile(`^[a-z][a-z0-9+.-]*$`) })
+	asciiHostPattern    = sync.OnceValue(func() *regexp.Regexp { return regexpMustCompile(`^[a-z0-9.:-]+$`) })
+	windowsDrivePattern = sync.OnceValue(func() *regexp.Regexp { return regexpMustCompile(`^[A-Za-z]:/`) })
 )
 
 func regexpCompile(pattern string) (*regexp.Regexp, error) {
