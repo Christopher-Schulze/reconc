@@ -2,8 +2,9 @@
 
 Reconc 0.11.0 closes the fail-open paths found since 0.10.3, keeps long and
 concurrent sessions from locking the repository, retains complete command
-evidence, makes the hook hot path faster, upgrades existing hook installs
-without false drift, and corrects the 0.10.3 guarantees.
+evidence, makes the hook hot path and Stop faster, upgrades existing hook
+installs without false drift, shows the progress of `reconc update`, and
+corrects the 0.10.3 guarantees.
 
 ## Enforcement fixes
 
@@ -47,6 +48,8 @@ without false drift, and corrects the 0.10.3 guarantees.
   longer lock the repository; concurrent session evidence survives retention.
 - CRLF and large TASK boards, concurrent writes during a board read, and
   transient board races are retried or parsed instead of blocking Stop.
+- A Stop blocked because the repository changed during evaluation names the
+  changed paths, so a check that writes into the repository can be found.
 - A JSON `null` host configuration no longer breaks hook installation, and a
   failed JSONL append no longer leaves a torn record.
 
@@ -57,21 +60,72 @@ without false drift, and corrects the 0.10.3 guarantees.
   before matching.
 - Staged evidence is bound to the candidate it was captured for.
 
+## MCP gateway and assurance
+
+- A client that sends an empty or `null` `_meta` with `tools/call` is no
+  longer blocked as `protocol_error`.
+- A downstream catalog refresh that changes no tool contract keeps the
+  published generation, so in-flight calls, pending approvals, and progress
+  streams stay valid.
+- Drift found immediately before dispatch reports `policy_stale`,
+  `tool_contract_stale`, `identity_unavailable`, or the cancellation instead of
+  `state_unavailable`.
+- Post-dispatch progress no longer re-hashes the downstream executable for
+  every event; dispatch still verifies it.
+- `applicable_if` globs skip `.git`, `.reconc`, and `node_modules` unless a
+  pattern names them, so dependencies neither activate a gate nor exhaust the
+  walk budget.
+
 ## Performance
 
 - A `require_script` rule runs once per distinct argument and capture set;
   Stop observes Git status only at evaluation barriers; repeated evaluation,
   path normalization, and state work is removed.
+- A hook request resolves each recorded path once and only revalidates it
+  afterwards: the read-path filter and every policy check share one path
+  resolver, confirmed-missing directories are not walked again, existing files
+  take their identity from their revalidated directory, and macOS reads a
+  directory listing instead of opening each file for its stored spelling. A
+  pre-tool call in a Claude Code session with 1,000 recorded reads, 200 writes,
+  and 200 commands took 18 ms instead of 85 ms on an Apple M1.
 - A pre-tool call of a host whose later events cannot repeat its call id skips
   the decision cache, and a one-shot hook verifies the evidence chain once:
-  a Claude Code pre-tool call over 16 maximal evidence segments took 394 ms
-  instead of 752 ms on an Apple M1.
+  a Claude Code pre-tool call over 16 maximal evidence segments took 259 ms
+  instead of 752 ms.
+- A pre-tool call no longer rewrites an unchanged session state or takes the
+  active-session lock when the pointer is current, post-tool handlers decode
+  the hook payload once, and size-checked files are read with one exact
+  allocation.
+- Stop builds its cache fingerprint (Git index entries, dirty-file hashes,
+  evidence serialization) only for a plan it can cache and looks a cached
+  entry up before hashing the evidence: a Stop under a `require_script`
+  without `cache_inputs` and 64 dirty files took 31 ms instead of 70 ms.
 - Project state lookup no longer lists every ancestor directory on macOS and
   Windows, which cost about 13 ms per hook under a large temporary directory.
 - Native assurance keeps a separate scan budget per rule while sharing file
   facts, so a rule's outcome no longer depends on rule order.
+- Action-ledger chain verification takes one identity lease for the whole
+  chain, so a cold checkpoint load over 256 calls allocated 15 MB instead of
+  38 MB, and an action-state transition derives its digest once.
 
 ## Installation and upgrade
+
+- `reconc update` shows each phase (installation, release, skill, download,
+  provenance, smoke test, publish) as it completes. On a terminal the running
+  phase animates in place with its elapsed time and the download shows a byte
+  progress bar; piped output stays plain. The summary states the version
+  change, owner, and skill state, and lists only checks that need attention.
+- `reconc update` downloads, attests, and smoke-tests the candidate before it
+  takes the installation lock, so `doctor --global`, installs, and hooks that
+  read the receipt are not blocked meanwhile; publication rechecks the receipt
+  under the lock. A binary download ends only with the command or after one
+  minute without data instead of failing after two minutes on a slow link.
+- `reconc doctor --global` no longer emits the unconditional
+  `skill-discovery` warning, names the repair when the owned skill was
+  modified or removed, and update reports no longer repeat the pre-update
+  comparison of the skill with the running binary.
+- A skill-only update no longer copies the whole binary into a backup it never
+  uses, so it also works with a read-only binary directory.
 
 - Hook install and uninstall recognize the exact generator output of every
   published release since 0.7.0, so an upgrade replaces it without reporting
