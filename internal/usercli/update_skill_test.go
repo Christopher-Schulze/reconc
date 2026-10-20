@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -697,4 +698,33 @@ func readTestFile(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return body
+}
+
+func TestSkillOnlyUpdateNeedsNoWritableBinaryDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("POSIX directory permissions require an unprivileged account")
+	}
+	root := repositoryRoot(t)
+	binary := buildReleaseBinary(t, root, "1.0.0")
+	installDir := t.TempDir()
+	installedBinary := filepath.Join(installDir, executableName())
+	copyFileForTest(t, binary, installedBinary, 0o755)
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv("RECONC_INSTALL_DIR", installDir)
+	t.Setenv("PATH", installDir)
+	skillDir := filepath.Join(t.TempDir(), "reconc")
+	writeDirectTestReceipt(t, installedBinary, "1.0.0")
+	installOldOwnedSkillForUpdate(t, skillDir)
+	releaseDir := t.TempDir()
+	writeLocalReleaseWithSkill(t, releaseDir, binary, "1.0.0")
+	// The skill-only path replaces no binary, so it must not stage a binary
+	// copy beside it.
+	if err := os.Chmod(installDir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(installDir, 0o755) })
+	report, err := ApplyUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDir})
+	if err != nil || report.Status != LifecycleUpdated || report.Skill == nil || report.Skill.State != SkillCurrent {
+		t.Fatalf("skill-only update with a read-only binary directory = %+v, %v", report, err)
+	}
 }

@@ -170,6 +170,7 @@ func diagnoseGlobalUnlocked(version string, paths receiptPaths) (*GlobalDiagnost
 	}
 
 	receipt, loadErr := loadReceiptFile(paths.receipt)
+	skillRepair := ""
 	switch {
 	case loadErr == nil:
 		report.ReceiptValid = true
@@ -183,7 +184,7 @@ func diagnoseGlobalUnlocked(version string, paths receiptPaths) (*GlobalDiagnost
 			Detail: fmt.Sprintf("%s owner=%s digest=%s", paths.receipt, receipt.Manager, receipt.ReceiptDigest),
 		})
 		evaluateReceiptIdentity(report, receipt, status)
-		appendSkillDiagnostic(report, receipt.Skill)
+		skillRepair = appendSkillDiagnostic(report, receipt.Skill)
 	case errors.Is(loadErr, os.ErrNotExist):
 		report.promoteStatus(DiagnosticUnowned)
 		report.Checks = append(report.Checks, DiagnosticCheck{
@@ -211,13 +212,23 @@ func diagnoseGlobalUnlocked(version string, paths receiptPaths) (*GlobalDiagnost
 		report.promoteStatus(DiagnosticAmbiguous)
 	}
 	report.NextAction, report.Actions = diagnosticRemediation(report)
+	if skillRepair != "" && report.Status == DiagnosticHealthy {
+		// The binary is healthy; the owned skill is the one thing to repair.
+		report.NextAction = skillRepair
+		report.Actions = []DiagnosticAction{{
+			Kind: "repair-skill", Command: "reconc install-cli --skill-only",
+			Detail: "The receipt-owned portable skill is absent or modified.",
+		}}
+	}
 	sort.SliceStable(report.Checks, func(left, right int) bool {
 		return report.Checks[left].Name < report.Checks[right].Name
 	})
 	return report, nil
 }
 
-func appendSkillDiagnostic(report *GlobalDiagnostic, installed *SkillReceipt) {
+// appendSkillDiagnostic records the skill checks and returns the next action
+// that repairs a failed receipt-owned skill, or "".
+func appendSkillDiagnostic(report *GlobalDiagnostic, installed *SkillReceipt) string {
 	if installed == nil {
 		detail := "no receipt-owned portable skill; run the explicit `reconc install-cli` command to install it"
 		if defaultPath, err := resolveSkillDirectory(""); err == nil {
@@ -226,13 +237,16 @@ func appendSkillDiagnostic(report *GlobalDiagnostic, installed *SkillReceipt) {
 			}
 		}
 		report.Checks = append(report.Checks, DiagnosticCheck{Name: "skill-installation", Status: "warn", Detail: detail})
-		return
+		return ""
 	}
 	if err := verifySkillTree(installed.Path, installed.Files); err != nil {
 		report.Checks = append(report.Checks, DiagnosticCheck{
 			Name: "skill-installation", Status: "fail", Detail: "receipt-owned skill is absent or modified: " + err.Error(),
 		})
-		return
+		if _, statErr := os.Lstat(installed.Path); errors.Is(statErr, os.ErrNotExist) {
+			return "Run `reconc install-cli --skill-only` to restore the owned skill at " + installed.Path + "."
+		}
+		return "Move the modified skill at " + installed.Path + " aside to keep its edits, then run `reconc install-cli --skill-only` to restore it."
 	}
 	report.Checks = append(report.Checks, DiagnosticCheck{
 		Name: "skill-installation", Status: "pass", Detail: installed.Path + " matches its receipt file digests",
@@ -251,10 +265,17 @@ func appendSkillDiagnostic(report *GlobalDiagnostic, installed *SkillReceipt) {
 			Name: "skill-currentness", Status: "warn", Detail: "installed payload differs from the running binary's embedded skill",
 		})
 	}
+	return ""
 }
 
 func evaluateReceiptIdentity(report *GlobalDiagnostic, receipt *Receipt, status *Status) {
-	digest, err := fileSHA256(receipt.BinaryPath)
+	// The receipt normally owns the inspected install target, which this
+	// diagnosis has already hashed.
+	digest := status.targetDigest
+	var err error
+	if digest == "" || !samePath(receipt.BinaryPath, status.TargetPath) {
+		digest, err = fileSHA256(receipt.BinaryPath)
+	}
 	if err != nil {
 		report.promoteStatus(DiagnosticStale)
 		report.Checks = append(report.Checks, DiagnosticCheck{

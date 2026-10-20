@@ -471,3 +471,37 @@ func TestSkillReceiptRejectsManifestDigestContradictingFiles(t *testing.T) {
 		t.Fatalf("contradictory skill manifest digest was accepted: %v", err)
 	}
 }
+
+func TestGlobalDoctorNamesSkillRepairWhenOwnedSkillFails(t *testing.T) {
+	for _, damage := range []string{"modified", "removed"} {
+		t.Run(damage, func(t *testing.T) {
+			installDir := t.TempDir()
+			skillDir := filepath.Join(t.TempDir(), "reconc")
+			t.Setenv("RECONC_HOME", t.TempDir())
+			t.Setenv("RECONC_INSTALL_DIR", installDir)
+			t.Setenv("PATH", installDir)
+			if _, err := InstallCurrentWithReceipt("", InstallOptions{
+				Version: "test", SkillMode: SkillInstall, SkillDir: skillDir,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			if damage == "modified" {
+				err = os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("edited\n"), 0o644)
+			} else {
+				err = os.RemoveAll(skillDir)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			diagnostic, err := DiagnoseGlobal("test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diagnostic.Status != DiagnosticHealthy || !strings.Contains(diagnostic.NextAction, "reconc install-cli --skill-only") ||
+				len(diagnostic.Actions) != 1 || diagnostic.Actions[0].Command != "reconc install-cli --skill-only" {
+				t.Fatalf("doctor with a %s owned skill: status=%s next=%q actions=%+v", damage, diagnostic.Status, diagnostic.NextAction, diagnostic.Actions)
+			}
+		})
+	}
+}

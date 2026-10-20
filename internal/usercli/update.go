@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"reconc.dev/reconc/buildprovenance"
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedexec"
 	skillbundle "reconc.dev/reconc/skills/reconc"
@@ -183,184 +182,202 @@ func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release sel
 	provenanceState := ProvenanceEmbeddedVerified
 	mutationCommitted := false
 	rollbackFailed := false
-	err = withReceiptLock(paths, func() (resultErr error) {
-		observe.start(UpdatePhaseDownload)
-		receiptSnapshot, err := loadReceiptSnapshot(paths.receipt)
+	err = func() error {
+		prepared, err := loadReceiptFile(paths.receipt)
 		if err != nil {
 			return err
 		}
-		receipt := receiptSnapshot.receipt
-		if receipt.Manager != ManagerDirect {
+		if prepared.Manager != ManagerDirect {
 			return errors.New("direct installation ownership changed before update")
 		}
-		var skill *skillInstallation
-		if targetSkill != nil {
-			if receipt.Skill == nil || !samePath(receipt.Skill.Path, targetSkill.Path) {
-				return errors.New("owned skill changed before direct update")
-			}
-			if report.Skill.State == SkillStaleOwned {
+		targetPath = prepared.BinaryPath
+		// The candidate is downloaded, attested, and smoke-tested before the
+		// exclusive installation lock, so doctor, install, and hook commands
+		// that read the receipt are not blocked for the network and
+		// verification time. Every check that guards publication runs again
+		// under the lock against the installation this candidate was prepared
+		// for.
+		return withPrivateTemporaryBinary(filepath.Dir(targetPath), ".reconc-update-*.candidate", func(candidatePath string) error {
+			observe.start(UpdatePhaseDownload)
+			var skillFiles []skillbundle.File
+			if targetSkill != nil && report.Skill.State == SkillStaleOwned {
 				files, err := loadSelectedSkillFiles(ctx, release, targetSkill, skillArchive)
 				if err != nil {
 					return err
 				}
-				skill, err = prepareSkillInstallationPayload(targetSkill.Path, receipt, targetSkill, files)
-				if skill != nil {
-					defer func() { resultErr = errors.Join(resultErr, skill.cleanup()) }()
-				}
-				if err != nil {
-					return err
-				}
-			} else if err := verifySkillTree(receipt.Skill.Path, receipt.Skill.Files); err != nil {
-				return fmt.Errorf("owned skill changed before direct update: %w", err)
+				skillFiles = files
 			}
-		}
-		backup, err := captureBinaryBackup(receipt.BinaryPath)
-		if err != nil {
-			return err
-		}
-		return withCapturedBinaryBackup(backup, func(backup *binaryBackup) error {
-			binaryPublished := false
-			var publishedIdentity os.FileInfo
-			rollback := func(cause error) error {
-				if skill != nil {
-					cause = skill.rollback(cause)
-					if err := verifySkillTree(skill.target, skill.previous.Files); err != nil {
-						rollbackFailed = true
-					}
-				}
-				if !binaryPublished {
-					return cause
-				}
-				if publishedIdentity == nil {
-					backup.retain = true
-					rollbackFailed = true
-					return errors.Join(cause, fmt.Errorf("published binary identity unavailable; retain previous binary at %s", backup.path))
-				}
-				expected := &binaryBackup{exists: true, identity: publishedIdentity, digest: release.asset.SHA256}
-				if _, err := publishBinaryFromFileIfCurrent(receipt.BinaryPath, backup.path, backup.mode, expected); err != nil {
-					backup.retain = true
-					rollbackFailed = true
-					return errors.Join(cause, fmt.Errorf("restore previous binary from %s: %w", backup.path, err))
-				}
-				if digest, err := fileSHA256(receipt.BinaryPath); err != nil || digest != backup.digest {
-					backup.retain = true
-					rollbackFailed = true
-					return errors.Join(cause, fmt.Errorf("verify restored binary from %s: %w", backup.path, err))
-				}
-				return cause
-			}
-			if !backup.exists || backup.digest != receipt.ArtifactSHA256 {
-				return errors.New("direct installation changed before update")
-			}
-			if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
+			if err := beforeDirectUpdatePhase("materialize"); err != nil {
 				return err
 			}
-			targetPath = receipt.BinaryPath
-			parent := filepath.Dir(targetPath)
-			return withPrivateTemporaryBinary(parent, ".reconc-update-*.candidate", func(candidatePath string) error {
-				if err := beforeDirectUpdatePhase("materialize"); err != nil {
+			candidateProvenance, err := materializeCandidate(ctx, release, candidatePath, observe)
+			if err != nil {
+				return err
+			}
+			observe.passBytes(UpdatePhaseDownload, "SHA-256 verified", release.asset.Size)
+			if err := beforeDirectUpdatePhase("attestation"); err != nil {
+				return err
+			}
+			observe.start(UpdatePhaseProvenance)
+			state, err := verifyAttestation(ctx, candidatePath, release)
+			if err != nil {
+				return err
+			}
+			provenanceState = state
+			observe.pass(UpdatePhaseProvenance, provenancePhaseDetail(state))
+			if err := beforeDirectUpdatePhase("smoke"); err != nil {
+				return err
+			}
+			observe.start(UpdatePhaseSmokeTest)
+			if err := smokeCandidate(ctx, candidatePath, release.manifest.Version); err != nil {
+				return err
+			}
+			if targetSkill != nil {
+				if err := verifyCandidateSkillManifest(ctx, candidatePath, targetSkill); err != nil {
 					return err
 				}
-				if err := materializeCandidate(ctx, release, candidatePath, observe); err != nil {
-					return err
-				}
-				observe.passBytes(UpdatePhaseDownload, "SHA-256 verified", release.asset.Size)
-				if err := beforeDirectUpdatePhase("attestation"); err != nil {
-					return err
-				}
-				observe.start(UpdatePhaseProvenance)
-				state, err := verifyAttestation(ctx, candidatePath, release)
+			}
+			observe.pass(UpdatePhaseSmokeTest, "reconc "+release.manifest.Version+" runs")
+			return withReceiptLock(paths, func() (resultErr error) {
+				receiptSnapshot, err := loadReceiptSnapshot(paths.receipt)
 				if err != nil {
 					return err
 				}
-				provenanceState = state
-				observe.pass(UpdatePhaseProvenance, provenancePhaseDetail(state))
-				if err := beforeDirectUpdatePhase("smoke"); err != nil {
-					return err
+				receipt := receiptSnapshot.receipt
+				if receipt.Manager != ManagerDirect {
+					return errors.New("direct installation ownership changed before update")
 				}
-				observe.start(UpdatePhaseSmokeTest)
-				if err := smokeCandidate(ctx, candidatePath, release.manifest.Version); err != nil {
-					return err
+				if receipt.ReceiptDigest != prepared.ReceiptDigest || !samePath(receipt.BinaryPath, targetPath) {
+					return errors.New("direct installation changed while the update was prepared; rerun the update")
 				}
+				var skill *skillInstallation
 				if targetSkill != nil {
-					if err := verifyCandidateSkillManifest(ctx, candidatePath, targetSkill); err != nil {
-						return err
+					if receipt.Skill == nil || !samePath(receipt.Skill.Path, targetSkill.Path) {
+						return errors.New("owned skill changed before direct update")
+					}
+					if report.Skill.State == SkillStaleOwned {
+						skill, err = prepareSkillInstallationPayload(targetSkill.Path, receipt, targetSkill, skillFiles)
+						if skill != nil {
+							defer func() { resultErr = errors.Join(resultErr, skill.cleanup()) }()
+						}
+						if err != nil {
+							return err
+						}
+					} else if err := verifySkillTree(receipt.Skill.Path, receipt.Skill.Files); err != nil {
+						return fmt.Errorf("owned skill changed before direct update: %w", err)
 					}
 				}
-				observe.pass(UpdatePhaseSmokeTest, "reconc "+release.manifest.Version+" runs")
-				if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
+				backup, err := captureBinaryBackup(receipt.BinaryPath)
+				if err != nil {
 					return err
 				}
-				if err := beforeDirectUpdatePhase("publication"); err != nil {
-					return err
-				}
-				observe.start(UpdatePhasePublish)
-				publication, err := publishBinaryFromFileIfCurrent(targetPath, candidatePath, 0o755, backup)
-				if err != nil {
-					if errors.Is(err, atomicfile.ErrCurrentChanged) {
+				return withCapturedBinaryBackup(backup, func(backup *binaryBackup) error {
+					binaryPublished := false
+					var publishedIdentity os.FileInfo
+					rollback := func(cause error) error {
+						if skill != nil {
+							cause = skill.rollback(cause)
+							if err := verifySkillTree(skill.target, skill.previous.Files); err != nil {
+								rollbackFailed = true
+							}
+						}
+						if !binaryPublished {
+							return cause
+						}
+						if publishedIdentity == nil {
+							backup.retain = true
+							rollbackFailed = true
+							return errors.Join(cause, fmt.Errorf("published binary identity unavailable; retain previous binary at %s", backup.path))
+						}
+						expected := &binaryBackup{exists: true, identity: publishedIdentity, digest: release.asset.SHA256}
+						if _, err := publishBinaryFromFileIfCurrent(receipt.BinaryPath, backup.path, backup.mode, expected); err != nil {
+							backup.retain = true
+							rollbackFailed = true
+							return errors.Join(cause, fmt.Errorf("restore previous binary from %s: %w", backup.path, err))
+						}
+						if digest, err := fileSHA256(receipt.BinaryPath); err != nil || digest != backup.digest {
+							backup.retain = true
+							rollbackFailed = true
+							return errors.Join(cause, fmt.Errorf("verify restored binary from %s: %w", backup.path, err))
+						}
+						return cause
+					}
+					if !backup.exists || backup.digest != receipt.ArtifactSHA256 {
+						return errors.New("direct installation changed before update")
+					}
+					if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
 						return err
 					}
-					if publication.Outcome != atomicfile.PublicationNotPublished {
-						binaryPublished = true
+					if err := beforeDirectUpdatePhase("publication"); err != nil {
+						return err
 					}
-					return rollback(fmt.Errorf("publish update: %w", err))
-				}
-				binaryPublished = true
-				publishedIdentity, err = os.Lstat(targetPath)
-				if err != nil || !publishedIdentity.Mode().IsRegular() || publishedIdentity.Mode()&os.ModeSymlink != 0 {
-					return rollback(errors.Join(errors.New("published binary identity unavailable"), err))
-				}
-				updatedDigest, err := fileSHA256(targetPath)
-				if err != nil || updatedDigest != release.asset.SHA256 {
-					return rollback(errors.New("published update checksum verification failed"))
-				}
-				provenance, err := buildprovenance.InspectBinary(targetPath)
-				if err != nil {
-					return rollback(err)
-				}
-				input := ReceiptInput{
-					Manager: ManagerDirect, Channel: channelForRelease(release),
-					Version: release.manifest.Version, SourceRepository: releaseRepository,
-					ReleaseTag: &release.manifest.Tag, ArtifactName: release.asset.Name,
-					ArtifactSHA256: release.asset.SHA256, BinaryPath: receipt.BinaryPath,
-					GOOS: provenance.GOOS, GOARCH: provenance.GOARCH,
-					SourceDigest: provenance.SourceDigest, ProvenanceState: provenanceState,
-					InstalledAt: time.Now().UTC(),
-				}
-				input.Skill = targetSkill
-				updatedReceipt, err := NewReceipt(input)
-				if err != nil {
-					return rollback(err)
-				}
-				if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
-					return rollback(err)
-				}
-				if skill != nil {
-					if err := skill.publish(); err != nil {
+					observe.start(UpdatePhasePublish)
+					publication, err := publishBinaryFromFileIfCurrent(targetPath, candidatePath, 0o755, backup)
+					if err != nil {
+						if errors.Is(err, atomicfile.ErrCurrentChanged) {
+							return err
+						}
+						if publication.Outcome != atomicfile.PublicationNotPublished {
+							binaryPublished = true
+						}
+						return rollback(fmt.Errorf("publish update: %w", err))
+					}
+					binaryPublished = true
+					publishedIdentity, err = os.Lstat(targetPath)
+					if err != nil || !publishedIdentity.Mode().IsRegular() || publishedIdentity.Mode()&os.ModeSymlink != 0 {
+						return rollback(errors.Join(errors.New("published binary identity unavailable"), err))
+					}
+					updatedDigest, err := fileSHA256(targetPath)
+					if err != nil || updatedDigest != release.asset.SHA256 {
+						return rollback(errors.New("published update checksum verification failed"))
+					}
+					// The published bytes match the release digest, so they carry
+					// the provenance already verified on the candidate.
+					provenance := candidateProvenance
+					input := ReceiptInput{
+						Manager: ManagerDirect, Channel: channelForRelease(release),
+						Version: release.manifest.Version, SourceRepository: releaseRepository,
+						ReleaseTag: &release.manifest.Tag, ArtifactName: release.asset.Name,
+						ArtifactSHA256: release.asset.SHA256, BinaryPath: receipt.BinaryPath,
+						GOOS: provenance.GOOS, GOARCH: provenance.GOARCH,
+						SourceDigest: provenance.SourceDigest, ProvenanceState: provenanceState,
+						InstalledAt: time.Now().UTC(),
+					}
+					input.Skill = targetSkill
+					updatedReceipt, err := NewReceipt(input)
+					if err != nil {
 						return rollback(err)
 					}
-					if err := beforeSkillReceiptPublish(paths.receipt); err != nil {
+					if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
 						return rollback(err)
 					}
-				} else if targetSkill != nil {
-					if err := verifySkillTree(targetSkill.Path, targetSkill.Files); err != nil {
+					if skill != nil {
+						if err := skill.publish(); err != nil {
+							return rollback(err)
+						}
+						if err := beforeSkillReceiptPublish(paths.receipt); err != nil {
+							return rollback(err)
+						}
+					} else if targetSkill != nil {
+						if err := verifySkillTree(targetSkill.Path, targetSkill.Files); err != nil {
+							return rollback(err)
+						}
+					}
+					if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
 						return rollback(err)
 					}
-				}
-				if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
-					return rollback(err)
-				}
-				if _, err := writeReceiptUnlocked(paths.receipt, updatedReceipt); err != nil {
-					return rollback(err)
-				}
-				if skill != nil {
-					skill.committed = true
-				}
-				mutationCommitted = true
-				return nil
+					if _, err := writeReceiptUnlocked(paths.receipt, updatedReceipt); err != nil {
+						return rollback(err)
+					}
+					if skill != nil {
+						skill.committed = true
+					}
+					mutationCommitted = true
+					return nil
+				})
 			})
 		})
-	})
+	}()
 	if err != nil {
 		report.Status = LifecycleFailed
 		report.Changed = mutationCommitted || rollbackFailed

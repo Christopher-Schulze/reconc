@@ -37,8 +37,11 @@ const (
 )
 
 var (
+	// lifecycleHTTPClient has no total timeout: it would also cap reading a
+	// binary body, failing every update on a slow link. Metadata requests
+	// carry releaseMetadataTimeout, and binary downloads end only when the
+	// command context does or no byte arrives for releaseDownloadIdleTimeout.
 	lifecycleHTTPClient = &http.Client{
-		Timeout: 2 * time.Minute,
 		CheckRedirect: func(request *http.Request, via []*http.Request) error {
 			if len(via) > 5 {
 				return errors.New("release download exceeded five redirects")
@@ -49,6 +52,11 @@ var (
 			return nil
 		},
 	}
+)
+
+var (
+	releaseMetadataTimeout     = 2 * time.Minute
+	releaseDownloadIdleTimeout = time.Minute
 )
 
 type ReleaseAsset struct {
@@ -230,6 +238,8 @@ func downloadBounded(ctx context.Context, endpoint string, limit int64) ([]byte,
 	if err != nil || parsed.Scheme != "https" {
 		return nil, fmt.Errorf("release URL must be valid HTTPS: %q", endpoint)
 	}
+	ctx, cancel := context.WithTimeout(ctx, releaseMetadataTimeout)
+	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -550,19 +560,21 @@ func parseChecksumManifest(body []byte) (map[string]string, error) {
 	return out, nil
 }
 
-func materializeCandidate(ctx context.Context, release selectedRelease, destination string, observe updateObserver) error {
+// materializeCandidate streams the selected release binary into destination
+// and returns the embedded provenance it verified.
+func materializeCandidate(ctx context.Context, release selectedRelease, destination string, observe updateObserver) (buildprovenance.Provenance, error) {
 	before, err := os.Lstat(destination)
 	if err != nil || before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() || before.Size() != 0 {
-		return fmt.Errorf("update candidate must be a new empty regular file: %s", destination)
+		return buildprovenance.Provenance{}, fmt.Errorf("update candidate must be a new empty regular file: %s", destination)
 	}
 	file, err := os.OpenFile(destination, os.O_WRONLY, 0)
 	if err != nil {
-		return fmt.Errorf("open update candidate: %w", err)
+		return buildprovenance.Provenance{}, fmt.Errorf("open update candidate: %w", err)
 	}
 	opened, statErr := file.Stat()
 	afterOpen, pathErr := os.Lstat(destination)
 	if statErr != nil || pathErr != nil || !os.SameFile(before, opened) || !os.SameFile(opened, afterOpen) {
-		return errors.Join(errors.New("update candidate changed identity while opening"), statErr, pathErr, file.Close())
+		return buildprovenance.Provenance{}, errors.Join(errors.New("update candidate changed identity while opening"), statErr, pathErr, file.Close())
 	}
 	closed := false
 	closeWith := func(primary error) error {
@@ -573,7 +585,7 @@ func materializeCandidate(ctx context.Context, release selectedRelease, destinat
 		return errors.Join(primary, file.Close())
 	}
 	if err := file.Chmod(0o700); err != nil {
-		return closeWith(fmt.Errorf("make release candidate executable: %w", err))
+		return buildprovenance.Provenance{}, closeWith(fmt.Errorf("make release candidate executable: %w", err))
 	}
 	write := func(source io.Reader) error {
 		return copyReleaseCandidate(ctx, file, observe.progressReader(UpdatePhaseDownload, source, release.asset.Size), release.asset)
@@ -587,30 +599,30 @@ func materializeCandidate(ctx context.Context, release selectedRelease, destinat
 		err = streamDownload(ctx, release.asset.URL, write)
 	}
 	if err != nil {
-		return closeWith(err)
+		return buildprovenance.Provenance{}, closeWith(err)
 	}
 	if err := file.Sync(); err != nil {
-		return closeWith(fmt.Errorf("sync release candidate: %w", err))
+		return buildprovenance.Provenance{}, closeWith(fmt.Errorf("sync release candidate: %w", err))
 	}
 	if err := file.Close(); err != nil {
 		closed = true
-		return fmt.Errorf("close release candidate: %w", err)
+		return buildprovenance.Provenance{}, fmt.Errorf("close release candidate: %w", err)
 	}
 	closed = true
 	after, err := os.Lstat(destination)
 	modeMatches, modeErr := releaseCandidateModeMatches(destination, after, 0o700)
 	if err != nil || modeErr != nil || !os.SameFile(before, after) || after.Size() != release.asset.Size || !modeMatches {
-		return errors.Join(errors.New("release candidate changed identity, size, or mode after streaming"), err, modeErr)
+		return buildprovenance.Provenance{}, errors.Join(errors.New("release candidate changed identity, size, or mode after streaming"), err, modeErr)
 	}
 	provenance, err := buildprovenance.InspectBinary(destination)
 	if err != nil {
-		return err
+		return buildprovenance.Provenance{}, err
 	}
 	if provenance.Version != release.manifest.Version ||
 		provenance.GOOS != runtime.GOOS || provenance.GOARCH != runtime.GOARCH {
-		return errors.New("release candidate embedded identity does not match target")
+		return buildprovenance.Provenance{}, errors.New("release candidate embedded identity does not match target")
 	}
-	return nil
+	return provenance, nil
 }
 
 func copyReleaseCandidate(ctx context.Context, destination io.Writer, source io.Reader, asset ReleaseAsset) error {
@@ -649,11 +661,22 @@ func (reader *contextReader) Read(buffer []byte) (int, error) {
 	}
 }
 
-func streamDownload(ctx context.Context, endpoint string, use func(io.Reader) error) (resultErr error) {
+func streamDownload(parent context.Context, endpoint string, use func(io.Reader) error) (resultErr error) {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Scheme != "https" {
 		return fmt.Errorf("release URL must be valid HTTPS: %q", endpoint)
 	}
+	// The idle timer covers the wait for response headers and every gap
+	// between body reads; progress resets it.
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	idle := time.AfterFunc(releaseDownloadIdleTimeout, cancel)
+	defer idle.Stop()
+	defer func() {
+		if resultErr != nil && parent.Err() == nil && ctx.Err() != nil {
+			resultErr = fmt.Errorf("release download stalled: no data for %s: %w", releaseDownloadIdleTimeout, resultErr)
+		}
+	}()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return err
@@ -668,7 +691,22 @@ func streamDownload(ctx context.Context, endpoint string, use func(io.Reader) er
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		return fmt.Errorf("release endpoint returned HTTP %d", response.StatusCode)
 	}
-	return use(response.Body)
+	idle.Reset(releaseDownloadIdleTimeout)
+	return use(&idleResetReader{reader: response.Body, timer: idle})
+}
+
+// idleResetReader restarts the download's idle timer whenever bytes arrive.
+type idleResetReader struct {
+	reader io.Reader
+	timer  *time.Timer
+}
+
+func (reader *idleResetReader) Read(buffer []byte) (int, error) {
+	count, err := reader.reader.Read(buffer)
+	if count > 0 {
+		reader.timer.Reset(releaseDownloadIdleTimeout)
+	}
+	return count, err
 }
 
 func checksumForAsset(manifest []byte, assetName string) (string, error) {

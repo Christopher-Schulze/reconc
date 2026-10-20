@@ -36,6 +36,9 @@ type Status struct {
 	Ready          bool              `json:"ready"`
 	NextAction     string            `json:"next_action"`
 	Diagnostics    []DiagnosticCheck `json:"diagnostics"`
+	// targetDigest is the SHA-256 of TargetPath observed by this inspection,
+	// so one diagnosis need not hash the same installed binary again.
+	targetDigest string
 }
 
 // BareStatus reports whether the command resolved by bare `reconc` has the
@@ -165,6 +168,7 @@ func inspectCurrentWithOperations(
 				Name: "target-checksum", Status: "fail", Detail: inspectErr.Error(),
 			})
 		} else {
+			status.targetDigest = targetSnapshot.digest
 			status.Current = targetSnapshot.digest == expected
 			status.Ready = targetSnapshot.sameResolved && status.Current
 			if targetSnapshot.resolvedErr != nil {

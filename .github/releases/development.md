@@ -15,6 +15,17 @@ release.
 - `reconc doctor --global` no longer emits the unconditional
   `skill-discovery` warning, and update reports no longer repeat the
   pre-update comparison of the skill with the running binary.
+- `reconc update` downloads, attests, and smoke-tests the candidate before it
+  takes the installation lock, so `doctor --global`, installs, and hooks that
+  read the receipt are not blocked meanwhile; publication rechecks the receipt
+  under the lock.
+- A binary download no longer fails after two minutes on a slow link: it ends
+  only with the command or after one minute without data.
+- `reconc doctor --global` names the repair when the owned skill was modified
+  or removed instead of reporting a healthy next action.
+- A skill-only update no longer copies the whole binary into a backup it never
+  uses, so it also works with a read-only binary directory, and doctor and
+  update hash and scan the installed binary once less.
 
 ## MCP gateway and assurance
 

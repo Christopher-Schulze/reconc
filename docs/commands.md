@@ -500,8 +500,13 @@ that reinstall exits non-zero with the PATH remediation and leaves the binary
 and its receipt unchanged, so the receipt never describes bytes that are gone.
 
 ### `reconc update [--channel stable|preview | --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]`
-Runs the complete ownership-aware update transaction under the global
-installation lock. Stable is the default; preview and exact version selection
+Runs the ownership-aware update transaction. The candidate is downloaded,
+attested, and smoke-tested before the global installation lock is taken, so
+concurrent doctor, install, and hook commands keep reading the installation;
+publication then runs under the lock and refuses if the receipt changed while
+the candidate was prepared. Metadata requests time out after two minutes; a
+binary download has no total limit beyond the command's and fails only when no
+data arrives for one minute. Stable is the default; preview and exact version selection
 are explicit and mutually exclusive. An exact-version receipt records that one
 installation choice but does not pin future updates: a later bare
 `reconc update` selects stable. Leaving a recorded preview channel still

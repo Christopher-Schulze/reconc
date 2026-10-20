@@ -1285,3 +1285,94 @@ func copyFileForTest(t *testing.T, source string, destination string, mode os.Fi
 func schemaURLForTest() string {
 	return schema.GlobalLifecycleURL
 }
+
+// stallingBody returns its prefix once, then blocks until the request ends,
+// like a release download whose connection stops delivering bytes.
+type stallingBody struct {
+	ctx    context.Context
+	prefix []byte
+}
+
+func (body *stallingBody) Read(buffer []byte) (int, error) {
+	if len(body.prefix) > 0 {
+		count := copy(buffer, body.prefix)
+		body.prefix = body.prefix[count:]
+		return count, nil
+	}
+	<-body.ctx.Done()
+	return 0, body.ctx.Err()
+}
+
+func (*stallingBody) Close() error { return nil }
+
+func stallingLifecycleClient() *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: make(http.Header),
+			Body: &stallingBody{ctx: request.Context(), prefix: []byte("partial")},
+		}, nil
+	})}
+}
+
+func TestReleaseDownloadsStopOnStallAndMetadataOnDeadline(t *testing.T) {
+	previousClient, previousIdle, previousMetadata := lifecycleHTTPClient, releaseDownloadIdleTimeout, releaseMetadataTimeout
+	t.Cleanup(func() {
+		lifecycleHTTPClient, releaseDownloadIdleTimeout, releaseMetadataTimeout = previousClient, previousIdle, previousMetadata
+	})
+	lifecycleHTTPClient = stallingLifecycleClient()
+	releaseDownloadIdleTimeout = 100 * time.Millisecond
+	releaseMetadataTimeout = 100 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	started := time.Now()
+	err := streamDownload(ctx, "https://example.test/candidate", func(source io.Reader) error {
+		_, copyErr := io.Copy(io.Discard, source)
+		return copyErr
+	})
+	if err == nil || !strings.Contains(err.Error(), "stalled") || time.Since(started) > 2*time.Second {
+		t.Fatalf("stalled binary download = %v after %s, want a prompt stall error", err, time.Since(started))
+	}
+	started = time.Now()
+	if _, err := downloadBounded(ctx, "https://example.test/manifest", 1024); err == nil || time.Since(started) > 2*time.Second {
+		t.Fatalf("stalled metadata download = %v after %s, want its own deadline", err, time.Since(started))
+	}
+}
+
+func TestDirectUpdateLeavesTheInstallationReadableWhileVerifyingTheCandidate(t *testing.T) {
+	if !supportedDirectTarget() {
+		t.Skip("unsupported direct release target")
+	}
+	root := repositoryRoot(t)
+	currentBinary := buildReleaseBinary(t, root, "1.0.0")
+	updateBinary := buildReleaseBinary(t, root, "1.1.0")
+	installDirectory := t.TempDir()
+	target := filepath.Join(installDirectory, executableName())
+	copyFileForTest(t, currentBinary, target, 0o755)
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv("RECONC_INSTALL_DIR", installDirectory)
+	t.Setenv("PATH", installDirectory)
+	writeDirectTestReceipt(t, target, "1.0.0")
+	releaseDirectory := t.TempDir()
+	manifest := writeLocalRelease(t, releaseDirectory, updateBinary, "1.1.0")
+	enableSuccessfulOfflineAttestation(t, releaseDirectory, manifest.Assets[0].Name)
+	previousPhase := beforeDirectUpdatePhase
+	t.Cleanup(func() { beforeDirectUpdatePhase = previousPhase })
+	var readErr error
+	var readDuration time.Duration
+	beforeDirectUpdatePhase = func(phase string) error {
+		if phase == "attestation" {
+			started := time.Now()
+			_, readErr = DiagnoseGlobal("1.0.0")
+			readDuration = time.Since(started)
+		}
+		return nil
+	}
+	report, err := ApplyUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDirectory})
+	if err != nil || report.Status != LifecycleUpdated {
+		t.Fatalf("update = %+v, %v", report, err)
+	}
+	if readErr != nil || readDuration > 5*time.Second {
+		t.Fatalf("doctor during candidate verification = %v after %s; the receipt lock must not be held", readErr, readDuration)
+	}
+}

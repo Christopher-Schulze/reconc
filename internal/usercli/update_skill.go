@@ -235,11 +235,12 @@ func applyOwnedSkillUpdate(ctx context.Context, report *LifecycleReport, release
 			previous.Skill.ManifestDigest != *report.Skill.InstalledManifestDigest {
 			return errors.New("direct binary or owned skill changed before skill-only update")
 		}
-		backup, err := captureBinaryBackup(previous.BinaryPath)
+		// The binary is never replaced here, so its identity and digest
+		// suffice; no restorable copy is staged beside it.
+		backup, err := captureBinarySnapshot(previous.BinaryPath)
 		if err != nil {
 			return err
 		}
-		defer func() { resultErr = errors.Join(resultErr, backup.cleanup()) }()
 		if !backup.exists || backup.digest != previous.ArtifactSHA256 {
 			return errors.New("direct binary changed before skill-only update")
 		}

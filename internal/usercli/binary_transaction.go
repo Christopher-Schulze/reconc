@@ -132,6 +132,34 @@ func captureBinaryBackup(path string) (binaryBackup, error) {
 	return backup, nil
 }
 
+// captureBinarySnapshot records the identity, mode, size, and digest of an
+// owned binary without copying it, for operations that never restore it.
+func captureBinarySnapshot(path string) (binaryBackup, error) {
+	snapshot := binaryBackup{exists: true}
+	hash := sha256.New()
+	err := boundedio.WithRegularFileSnapshot(path, maxBinaryBytes, func(file *os.File, info os.FileInfo) error {
+		snapshot.identity = info
+		snapshot.mode = info.Mode().Perm()
+		written, copyErr := io.CopyBuffer(hash, file, make([]byte, binaryCopyBufferBytes))
+		if copyErr != nil {
+			return copyErr
+		}
+		if written != info.Size() {
+			return fmt.Errorf("hashed %d of %d bytes", written, info.Size())
+		}
+		snapshot.size = written
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return binaryBackup{}, nil
+	}
+	if err != nil {
+		return binaryBackup{}, fmt.Errorf("snapshot owned binary: %w", err)
+	}
+	snapshot.digest = hex.EncodeToString(hash.Sum(nil))
+	return snapshot, nil
+}
+
 func validateBinaryBackupSnapshot(path string, expected *binaryBackup) error {
 	if expected == nil || !expected.exists || expected.identity == nil {
 		return errors.New("owned binary snapshot is unavailable")
@@ -154,7 +182,7 @@ func validateBinaryBackupSnapshot(path string, expected *binaryBackup) error {
 	}
 	if !os.SameFile(expected.identity, current) || expected.mode != current.Mode().Perm() ||
 		expected.size != current.Size() || expected.digest != hex.EncodeToString(hash.Sum(nil)) {
-		return errors.New("owned binary changed during uninstall")
+		return errors.New("owned binary changed during the operation")
 	}
 	return nil
 }
