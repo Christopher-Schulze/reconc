@@ -728,9 +728,9 @@
         {
           "id": "session-events",
           "url": "https://raw.githubusercontent.com/anomalyco/opencode/HEAD/packages/schema/src/session-event.ts",
-          "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/c7ddff776c59426e7dd63fe5a0d2a348864592ba/packages/schema/src/session-event.ts",
+          "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/acdcdb8dd9f6dcb6f80f268325d9cae2684a67fd/packages/schema/src/session-event.ts",
           "normalization": "source",
-          "sha256": "605cf8f95436686efd5a068e806fa2402692852dfbd954cb116098cbb1f40237",
+          "sha256": "205c27664f7cf22bbab16d7e014da05e01699843a3755f43a831e7957d7ffaa2",
           "required_markers": [
             "\"session.execution.succeeded\"",
             "\"session.execution.failed\"",
