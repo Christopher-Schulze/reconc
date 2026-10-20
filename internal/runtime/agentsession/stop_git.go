@@ -229,7 +229,7 @@ func gitDirtyFiles(repoRoot string, status string) []gitDirtyFile {
 
 func gitDirtyFilesWithScan(repoRoot string, status string, scanCache *stopPolicyScanCache) []gitDirtyFile {
 	paths := dirtyPathsFromStatus(status)
-	indexEntries := gitIndexEntries(repoRoot, paths)
+	indexEntries := gitIndexEntries(repoRoot, indexedDirtyPaths(paths, status))
 	files := make([]gitDirtyFile, 0, len(paths))
 	for _, path := range paths {
 		indexEntry := indexEntries[path]
@@ -305,6 +305,35 @@ func dirtyPathsFromStatus(status string) []string {
 	}
 	sort.Strings(paths)
 	return paths
+}
+
+// indexedDirtyPaths drops the paths status reports as untracked: Git's index
+// has no entry for them, so listing them would only cost a Git process.
+func indexedDirtyPaths(paths []string, status string) []string {
+	untracked := map[string]struct{}{}
+	records := strings.Split(status, "\x00")
+	for i := 0; i < len(records); i++ {
+		record := records[i]
+		if len(record) < 4 || record[2] != ' ' {
+			continue
+		}
+		if record[0] == '?' && record[1] == '?' {
+			untracked[filepath.ToSlash(record[3:])] = struct{}{}
+		} else if isRenameOrCopyStatus(record[0], record[1]) {
+			// The origin path follows as its own field without a status.
+			i++
+		}
+	}
+	if len(untracked) == 0 {
+		return paths
+	}
+	indexed := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if _, ok := untracked[path]; !ok {
+			indexed = append(indexed, path)
+		}
+	}
+	return indexed
 }
 
 func isRenameOrCopyStatus(x, y byte) bool {

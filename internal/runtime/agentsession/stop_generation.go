@@ -228,7 +228,7 @@ func captureStopRepositoryGenerationWithIdentityAndScan(
 		return stopGenerationCapture{}, false
 	}
 	paths := dirtyPathsFromStatus(gitSnapshot.Status)
-	indexEntries := gitIndexEntries(root, paths)
+	indexEntries := gitIndexEntries(root, indexedDirtyPaths(paths, gitSnapshot.Status))
 	dirty := make([]stopDirtyPathGeneration, 0, len(paths))
 	for _, path := range paths {
 		indexEntry := indexEntries[path]
