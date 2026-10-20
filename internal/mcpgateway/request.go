@@ -397,27 +397,49 @@ func (g *Gateway) resampleCallBoundary(
 	generation uint64,
 	repositoryPaths []RepositoryPathBinding,
 ) error {
-	fresh, err := g.freshSnapshot(ctx)
-	if err != nil || !samePolicy(snapshot, fresh) {
-		return fmt.Errorf("action policy changed before dispatch")
+	return g.resampleBoundary(ctx, snapshot, contract, generation, repositoryPaths, true)
+}
+
+// resampleBoundary re-observes the downstream executable only before a
+// dispatch: a dispatched call keeps running the process it started, so
+// post-dispatch progress needs no full executable hash per event.
+func (g *Gateway) resampleBoundary(
+	ctx context.Context,
+	snapshot PolicySnapshot,
+	contract ToolContract,
+	generation uint64,
+	repositoryPaths []RepositoryPathBinding,
+	observeServer bool,
+) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("resample call boundary: %w", err)
 	}
-	server, err := actionstate.ObserveServer(
-		g.lease.Key,
-		g.server.ExecutablePath,
-		g.config.Arguments,
-		g.server.WorkingDirectory,
-		g.bindings,
-	)
-	if err != nil || !reflect.DeepEqual(server, g.server) {
-		return fmt.Errorf("downstream server identity changed before dispatch")
+	fresh, err := g.freshSnapshot(ctx)
+	if ctxErr := ctx.Err(); err != nil && ctxErr != nil {
+		return fmt.Errorf("resample action policy: %w", ctxErr)
+	}
+	if err != nil || !samePolicy(snapshot, fresh) {
+		return &action.RequestError{Code: action.ReasonPolicyStale, Message: "action policy changed before dispatch"}
+	}
+	if observeServer {
+		server, err := actionstate.ObserveServer(
+			g.lease.Key,
+			g.server.ExecutablePath,
+			g.config.Arguments,
+			g.server.WorkingDirectory,
+			g.bindings,
+		)
+		if err != nil || !reflect.DeepEqual(server, g.server) {
+			return &action.RequestError{Code: action.ReasonIdentityUnavailable, Message: "downstream server identity changed before dispatch"}
+		}
 	}
 	if !g.generationCurrent(generation, contract) {
-		return fmt.Errorf("downstream tool contract changed before dispatch")
+		return &action.RequestError{Code: action.ReasonToolContractStale, Message: "downstream tool contract changed before dispatch"}
 	}
 	for _, binding := range repositoryPaths {
 		resolved, err := pathidentity.ResolveProspective(binding.Lexical)
 		if err != nil || resolved != binding.Identity {
-			return fmt.Errorf("repository path identity changed before dispatch")
+			return &action.RequestError{Code: action.ReasonIdentityUnavailable, Message: "repository path identity changed before dispatch"}
 		}
 	}
 	return nil

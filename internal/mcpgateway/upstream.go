@@ -248,11 +248,14 @@ func (o *upstreamObserver) take(params *mcp.CallToolParamsRaw) (upstreamWireCall
 	if err != nil {
 		return upstreamWireCall{}, fmt.Errorf("encode SDK upstream params: %w", err)
 	}
-	got, err := canonicalParamsKey(body)
+	// The gateway reads request metadata only from the strict wire params, so
+	// the comparison excludes `_meta`: the SDK drops an empty or null `_meta`
+	// and decodes its numbers as float64, which must not reject the call.
+	got, err := correlationParamsKey(body)
 	if err != nil {
 		return upstreamWireCall{}, err
 	}
-	want, err := canonicalParamsKey(call.params)
+	want, err := correlationParamsKey(call.params)
 	if err != nil {
 		return upstreamWireCall{}, err
 	}
@@ -260,18 +263,6 @@ func (o *upstreamObserver) take(params *mcp.CallToolParamsRaw) (upstreamWireCall
 		return upstreamWireCall{}, fmt.Errorf("strict upstream request does not match SDK params")
 	}
 	return call, nil
-}
-
-func canonicalParamsKey(raw []byte) (string, error) {
-	value, err := action.ParseObjectJSON(raw)
-	if err != nil {
-		return "", fmt.Errorf("decode strict upstream params: %s", action.JSONErrorKindOf(err))
-	}
-	canonical, err := value.MarshalJSON()
-	if err != nil {
-		return "", fmt.Errorf("canonicalize upstream params: %w", err)
-	}
-	return string(canonical), nil
 }
 
 type readCloser struct{ io.Reader }

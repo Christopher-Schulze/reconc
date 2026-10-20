@@ -246,6 +246,7 @@ func gateApplies(root string, patterns []string) (bool, error) {
 			return false, doublestar.ErrBadPattern
 		}
 	}
+	skipped := applicabilitySkippedDirectories(patterns)
 	visited := 0
 	found := false
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -254,6 +255,9 @@ func gateApplies(root string, patterns []string) (bool, error) {
 		}
 		if path == root {
 			return nil
+		}
+		if entry.IsDir() && skipped[entry.Name()] {
+			return fs.SkipDir
 		}
 		visited++
 		if visited > maxWalkEntries {
@@ -270,6 +274,28 @@ func gateApplies(root string, patterns []string) (bool, error) {
 		return nil
 	})
 	return found, err
+}
+
+// applicabilityIgnoredDirectories never hold repository-authored sources.
+// Walking Git internals and installed dependencies made glob gates apply
+// because of a dependency's file and exhausted the walk budget in ordinary
+// JavaScript repositories.
+var applicabilityIgnoredDirectories = []string{".git", ".reconc", "node_modules"}
+
+// applicabilitySkippedDirectories returns the ignored directory names that no
+// pattern names explicitly as a path component.
+func applicabilitySkippedDirectories(patterns []string) map[string]bool {
+	skipped := make(map[string]bool, len(applicabilityIgnoredDirectories))
+	for _, name := range applicabilityIgnoredDirectories {
+		skipped[name] = true
+		for _, pattern := range patterns {
+			if strings.Contains("/"+filepath.ToSlash(pattern)+"/", "/"+name+"/") {
+				delete(skipped, name)
+				break
+			}
+		}
+	}
+	return skipped
 }
 
 func canonicalRoot(root string) (string, error) {

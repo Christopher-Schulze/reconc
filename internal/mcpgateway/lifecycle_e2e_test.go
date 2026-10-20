@@ -1314,3 +1314,70 @@ func testGatewayPendingApprovalPlan(t *testing.T) (*action.CompiledPlan, *action
 	}
 	return compiled, evaluator
 }
+
+func TestGatewayResampleReportsTypedDriftReasons(t *testing.T) {
+	markerDirectory := t.TempDir()
+	t.Setenv(fakeProcessEnvironment, "1")
+	t.Setenv(fakeMarkerEnvironment, filepath.Join(markerDirectory, "invoked"))
+	t.Setenv(fakeModeEnvironment, "normal")
+	t.Setenv(fakeCancellationMarkerEnvironment, filepath.Join(markerDirectory, "cancelled"))
+	plan, evaluator := testGatewayPlan(t, action.DecisionAllow)
+	harness := newGatewayLifecycleHarness(t, plan, evaluator, "", "", nil, 5*time.Second)
+	contract, generation, exists := harness.gateway.tool("echo")
+	if !exists {
+		t.Fatal("echo tool contract is unavailable")
+	}
+	reason := func(ctx context.Context, generation uint64) action.ReasonCode {
+		t.Helper()
+		err := harness.gateway.resampleCallBoundary(ctx, harness.gateway.snapshot, contract, generation, nil)
+		if err == nil {
+			t.Fatal("drifted call boundary resampled cleanly")
+		}
+		return gatewayReason(err, action.ReasonStateUnavailable)
+	}
+	if got := reason(context.Background(), generation+1); got != action.ReasonToolContractStale {
+		t.Fatalf("stale tool generation reason = %s, want %s", got, action.ReasonToolContractStale)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := reason(cancelled, generation); got != action.ReasonCancelled {
+		t.Fatalf("cancelled resample reason = %s, want %s", got, action.ReasonCancelled)
+	}
+	drifted := harness.gateway.snapshot
+	drifted.SourceDigest = strings.Repeat("c", 64)
+	harness.gateway.config.PolicyLoader = staticPolicyLoader{snapshot: drifted}
+	if got := reason(context.Background(), generation); got != action.ReasonPolicyStale {
+		t.Fatalf("policy drift reason = %s, want %s", got, action.ReasonPolicyStale)
+	}
+}
+
+func TestGatewayProgressResampleSkipsTheDispatchedServerIdentity(t *testing.T) {
+	markerDirectory := t.TempDir()
+	t.Setenv(fakeProcessEnvironment, "1")
+	t.Setenv(fakeMarkerEnvironment, filepath.Join(markerDirectory, "invoked"))
+	t.Setenv(fakeModeEnvironment, "normal")
+	t.Setenv(fakeCancellationMarkerEnvironment, filepath.Join(markerDirectory, "cancelled"))
+	plan, evaluator := testGatewayPlan(t, action.DecisionAllow)
+	harness := newGatewayLifecycleHarness(t, plan, evaluator, "", "", nil, 5*time.Second)
+	contract, generation, exists := harness.gateway.tool("echo")
+	if !exists {
+		t.Fatal("echo tool contract is unavailable")
+	}
+	// A dispatched call keeps running the process it started; only the next
+	// dispatch must observe the executable on disk again.
+	harness.gateway.server.ExecutableDigest = "sha256:" + strings.Repeat("0", 64)
+	if err := harness.gateway.resampleCallBoundary(
+		context.Background(), harness.gateway.snapshot, contract, generation, nil,
+	); gatewayReason(err, action.ReasonStateUnavailable) != action.ReasonIdentityUnavailable {
+		t.Fatalf("dispatch resample with drifted server identity = %v", err)
+	}
+	call := &gatewayCall{
+		callID: "progress-call", contract: contract, generation: generation,
+		snapshot: harness.gateway.snapshot, stateVersion: "state-version",
+	}
+	if _, err := harness.gateway.progressRequest(
+		context.Background(), call, json.RawMessage(`{"progress":1}`),
+	); err != nil && gatewayReason(err, action.ReasonStateUnavailable) == action.ReasonIdentityUnavailable {
+		t.Fatalf("progress resample re-observed the dispatched server: %v", err)
+	}
+}

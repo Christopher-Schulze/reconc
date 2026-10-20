@@ -3707,6 +3707,9 @@ an `id`, `type`, and optional `applicable_if`. Fields that do not belong to the
 selected gate type are rejected instead of being silently ignored. Reconc
 validates the complete `applicable_if` pattern set before checking whether any
 one pattern matches, so an earlier match cannot hide a malformed later pattern.
+The glob search skips `.git`, `.reconc`, and `node_modules` unless a pattern
+names that directory explicitly, so Git internals and installed dependencies
+neither activate a gate nor consume the walk budget.
 For Go, Rust, and Python gates, when an applicable manifest is detected below
 the repository root, assurance selects the nearest changed module root for
 that stack and evaluates the gate against that module's canonical root.

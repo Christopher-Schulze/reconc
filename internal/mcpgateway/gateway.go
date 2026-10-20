@@ -532,6 +532,11 @@ func (g *Gateway) refreshTools(ctx context.Context) error {
 		return err
 	}
 	tools := toolMap(contracts)
+	if g.publishedContractsEqual(tools) {
+		// A new generation would expire in-flight calls, pending approvals,
+		// and progress streams although no tool contract changed.
+		return nil
+	}
 	catalogTools, err := sdkToolsFromContracts(contracts)
 	if err != nil {
 		return wrapBoundaryError("prepare validated downstream tool catalog", err)
@@ -542,6 +547,21 @@ func (g *Gateway) refreshTools(ctx context.Context) error {
 	}
 	g.publishToolGeneration(tools, catalogTools)
 	return nil
+}
+
+func (g *Gateway) publishedContractsEqual(contracts map[string]ToolContract) bool {
+	g.toolsMu.RLock()
+	defer g.toolsMu.RUnlock()
+	if g.published == nil || len(g.published.contracts) != len(contracts) {
+		return false
+	}
+	for name, contract := range contracts {
+		published, ok := g.published.contracts[name]
+		if !ok || published.ContractDigest != contract.ContractDigest {
+			return false
+		}
+	}
+	return true
 }
 
 func (g *Gateway) publishToolGeneration(contracts map[string]ToolContract, tools []*mcp.Tool) {

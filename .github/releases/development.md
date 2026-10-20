@@ -15,3 +15,19 @@ release.
 - `reconc doctor --global` no longer emits the unconditional
   `skill-discovery` warning, and update reports no longer repeat the
   pre-update comparison of the skill with the running binary.
+
+## MCP gateway and assurance
+
+- A client that sends an empty or `null` `_meta` with `tools/call` is no
+  longer blocked as `protocol_error`.
+- A downstream catalog refresh that changes no tool contract keeps the
+  published generation, so in-flight calls, pending approvals, and progress
+  streams stay valid.
+- Drift found immediately before dispatch reports `policy_stale`,
+  `tool_contract_stale`, `identity_unavailable`, or the cancellation instead of
+  `state_unavailable`.
+- Post-dispatch progress no longer re-hashes the downstream executable for
+  every event; dispatch still verifies it.
+- `applicable_if` globs skip `.git`, `.reconc`, and `node_modules` unless a
+  pattern names them, so dependencies neither activate a gate nor exhaust the
+  walk budget.

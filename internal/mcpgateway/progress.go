@@ -327,8 +327,8 @@ func (g *Gateway) progressRequest(
 	call *gatewayCall,
 	payload json.RawMessage,
 ) (action.Request, error) {
-	if err := g.resampleCallBoundary(
-		ctx, call.snapshot, call.contract, call.generation, call.repositoryPaths,
+	if err := g.resampleBoundary(
+		ctx, call.snapshot, call.contract, call.generation, call.repositoryPaths, false,
 	); err != nil {
 		return action.Request{}, err
 	}

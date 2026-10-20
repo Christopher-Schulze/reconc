@@ -357,6 +357,33 @@ func TestGatewayRefreshNotificationFailureKeepsPublishedGeneration(t *testing.T)
 	}
 }
 
+func TestGatewayUnchangedRefreshKeepsGenerationAndSkipsNotification(t *testing.T) {
+	first, err := validateToolContract(context.Background(), []byte(`{"name":"first","inputSchema":{"type":"object"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, err := sdkToolsFromContracts([]ToolContract{first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	notifications := 0
+	gateway := &Gateway{
+		downstream: &catalogDownstream{pages: map[string]ToolPage{
+			"": {Tools: []json.RawMessage{first.Canonical}},
+		}},
+		notifyCatalog: func() error { notifications++; return nil },
+	}
+	gateway.publishToolGeneration(toolMap([]ToolContract{first}), tools)
+	previous := gateway.published
+	if err := gateway.refreshTools(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if gateway.published != previous || notifications != 0 {
+		t.Fatalf("unchanged refresh replaced generation %d with %d and sent %d notifications",
+			previous.generation, gateway.published.generation, notifications)
+	}
+}
+
 func TestGatewayReplacementConversionFailureKeepsSDKCatalog(t *testing.T) {
 	first, err := validateToolContract(context.Background(), []byte(`{"name":"first","inputSchema":{"type":"object"}}`))
 	if err != nil {

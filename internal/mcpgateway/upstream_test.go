@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"reconc.dev/reconc/internal/action"
 )
 
 func TestGatewayLifecycleEndPrefersOwnedCancellation(t *testing.T) {
@@ -200,6 +202,18 @@ func instrumentedToolParams(
 	return &params
 }
 
+func canonicalParamsKey(raw []byte) (string, error) {
+	value, err := action.ParseObjectJSON(raw)
+	if err != nil {
+		return "", fmt.Errorf("decode strict upstream params: %s", action.JSONErrorKindOf(err))
+	}
+	canonical, err := value.MarshalJSON()
+	if err != nil {
+		return "", fmt.Errorf("canonicalize upstream params: %w", err)
+	}
+	return string(canonical), nil
+}
+
 func (o *upstreamObserver) instrumentInbound(frame []byte) ([]byte, error) {
 	parsed, err := parseFrameJSON(frame)
 	if err != nil {
@@ -267,4 +281,17 @@ func upstreamNamesOf(g *Gateway) map[string]struct{} {
 	names, _ := testUpstreamNames.Load(g)
 	published, _ := names.(map[string]struct{})
 	return published
+}
+
+func TestUpstreamObserverAcceptsEmptyOrNullClientMetadata(t *testing.T) {
+	for _, meta := range []string{`{}`, `null`} {
+		t.Run(meta, func(t *testing.T) {
+			observer := newUpstreamObserver()
+			request := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"_meta":` + meta + `,"name":"echo","arguments":{"value":"x"}}}`)
+			params := instrumentedToolParams(t, observer, request)
+			if _, err := observer.take(params); err != nil {
+				t.Fatalf("take() rejected a call with _meta %s: %v", meta, err)
+			}
+		})
+	}
 }

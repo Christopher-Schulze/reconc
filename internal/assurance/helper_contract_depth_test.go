@@ -82,6 +82,25 @@ func TestEscapedQuoteRecognition(t *testing.T) {
 	}
 }
 
+func TestGateAppliesIgnoresGitInternalsAndInstalledDependencies(t *testing.T) {
+	root := t.TempDir()
+	for _, relative := range []string{".git/hooks/update.sh", "node_modules/tool/bin/run.sh", ".reconc/cache/run.sh"} {
+		path := filepath.Join(root, filepath.FromSlash(relative))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := gateApplies(root, []string{"**/*.sh"}); err != nil || got {
+		t.Fatalf("gateApplies over Git internals and dependencies = %v, %v; want false", got, err)
+	}
+	if got, err := gateApplies(root, []string{"node_modules/**/*.sh"}); err != nil || !got {
+		t.Fatalf("explicit dependency pattern = %v, %v; want true", got, err)
+	}
+}
+
 func TestGateAppliesContracts(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "internal", "service.go")
