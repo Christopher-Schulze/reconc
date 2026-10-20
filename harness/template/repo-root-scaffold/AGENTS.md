@@ -89,9 +89,10 @@ fail-open. DeepSeek Harness requires the explicit `.dsh/reconc.patch.yml`
 profile overlay, binds tool calls through a final native guard, and allows one
 advisory Stop continuation per turn. Start it from the repository root; its
 status is `installed` until the patch is loaded and independently probed.
-Pi uses inferred fail-open `agent_settled` continuation with no
-delivery acknowledgement; its native tool and user-shell boundaries remain
-blocking after project trust. ZCode uses native pre-tool, permission, and Stop
+Pi 1.x continues natively at the awaited `agent_before_settle` boundary;
+older Pi uses inferred fail-open `agent_settled` continuation with no delivery
+acknowledgement. Its native tool and user-shell boundaries remain blocking
+after project trust. ZCode uses native pre-tool, permission, and Stop
 gates through `.zcode/config.json`; restart its session after hook changes, and
 never treat host-timeout fail-open behavior as enforcement. Grok's native
 PreToolUse gate is hard. Reconc emits Stop blocks

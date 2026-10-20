@@ -648,8 +648,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/AGENTS.md",
       "mode": 420,
-      "size": 44849,
-      "sha256": "453807c1a822127de4fc55857130b4082dd4e5ca5f08d6acb7b65ae15185ddfe",
+      "size": 44928,
+      "sha256": "8f41cf7f9698d451bd004e93386cc17c7cacd954ea97e4ce093c4ff09710c06d",
       "ownership": "pack-file"
     },
     {
@@ -870,6 +870,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 911886,
-  "digest": "46c6cf8a970cd1f232f4aec5f8499214214def24c6d05dd9a2570bdd0a288425"
+  "total_bytes": 911965,
+  "digest": "a6e2910e45460928e19b153130eddec8262824a7d100658be623736890b0b6f8"
 }

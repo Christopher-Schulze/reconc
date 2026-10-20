@@ -40,8 +40,8 @@ make publication-audit
 ```
 
 Bun `1.3.14` is a test-only dependency for executing the generated OpenCode,
-Kilo Code, Oh My Pi, and Pi adapter contracts; the shipped Reconc binary does not
-require Bun. `github.com/dlclark/regexp2` supplies ECMAScript matching to
+Kilo Code, Oh My Pi, DeepSeek Harness, and Pi adapter contracts; the shipped
+Reconc binary does not require Bun. `github.com/dlclark/regexp2` supplies ECMAScript matching to
 offline policy-authoring schema validation and the independent schema-pattern
 test oracle. Production schema validation uses
 `github.com/santhosh-tekuri/jsonschema/v6` entirely offline.
