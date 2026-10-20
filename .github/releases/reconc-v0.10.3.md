@@ -12,9 +12,8 @@ session; the bounded command prefix dropped trailing command text from the
 evidence that policy matched; `hook evidence-resolve` resets the resolved
 session's evidence window; and the pre-tool guard refuses only recognized
 operator-only invocations, so scripts, aliases, or copied binaries could still
-run them. This release also shipped fail-open paths. The corrected behavior is
-described in the [development notes](https://github.com/Christopher-Schulze/reconc/blob/main/.github/releases/development.md)
-and ships with the next release.
+run them. This release also shipped fail-open paths. The corrected behavior
+ships in [reconc v0.11.0](https://github.com/Christopher-Schulze/reconc/releases/tag/reconc-v0.11.0).
 
 ## Fixes
 
