@@ -122,17 +122,48 @@ func compareSource(ctx context.Context, client *http.Client, host string, source
 	row := comparison{Host: host, Surface: source.ID, Kind: "upstream", URL: source.URL,
 		BaselineURL: source.BaselineURL, ExpectedSHA256: source.SHA256}
 	body, err := fetchSource(ctx, client, source)
-	completeComparison(&row, body, err)
 	if err != nil {
+		completeComparison(&row, nil, err)
 		return row
 	}
+	contract, missing := contractSections(body, source.Sections)
+	completeComparison(&row, contract, nil)
 	for _, marker := range source.RequiredMarkers {
-		if !bytes.Contains(body, []byte(marker)) {
-			row.MissingMarkers = append(row.MissingMarkers, marker)
+		if !bytes.Contains(contract, []byte(marker)) {
+			missing = append(missing, marker)
 		}
 	}
-	if len(row.MissingMarkers) > 0 {
+	if len(missing) > 0 {
+		row.MissingMarkers = missing
 		row.Status = "changed"
 	}
 	return row
+}
+
+// contractSections extracts the configured sections in order, separated by
+// one line feed, and names every start or end marker it could not find.
+func contractSections(body []byte, sections []sourceSection) ([]byte, []string) {
+	var contract bytes.Buffer
+	missing := []string{}
+	for index, section := range sections {
+		start := bytes.Index(body, []byte(section.Start))
+		if start < 0 {
+			missing = append(missing, section.Start)
+			continue
+		}
+		text := body[start:]
+		if section.End != "" {
+			end := bytes.Index(text[len(section.Start):], []byte(section.End))
+			if end < 0 {
+				missing = append(missing, section.End)
+				continue
+			}
+			text = text[:len(section.Start)+end]
+		}
+		if index > 0 {
+			contract.WriteByte('\n')
+		}
+		contract.Write(text)
+	}
+	return contract.Bytes(), missing
 }

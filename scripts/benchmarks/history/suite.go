@@ -202,7 +202,7 @@ func runCompiledPackageSamples(parent context.Context, binary, sentinel benchmar
 		if len(sample) != len(names) {
 			return nil, nil, fmt.Errorf("benchmark package %s sample %d emitted %v, want %v", packageName, sampleIndex+1, sortedBenchmarkNames(sample), names)
 		}
-		if err := applyMemorySamples(ctx, binary, packageName, patterns, parameters, sample, sampleIndex); err != nil {
+		if err := applyMemorySamples(ctx, binary, packageName, parameters, sample, sampleIndex); err != nil {
 			return nil, nil, err
 		}
 		for _, name := range names {
@@ -215,25 +215,22 @@ func runCompiledPackageSamples(parent context.Context, binary, sentinel benchmar
 	return all, cpuSamples, nil
 }
 
-func applyMemorySamples(ctx context.Context, binary benchmarkBinary, packageName string, patterns []string, parameters Parameters, timed map[string][]MetricSample, sampleIndex int) error {
+// applyMemorySamples measures each benchmark's fixed-work peak RSS in its
+// own process: a process peak covers every benchmark the process ran, so a
+// shared run would charge one benchmark's allocation to all of them.
+func applyMemorySamples(ctx context.Context, binary benchmarkBinary, packageName string, parameters Parameters, timed map[string][]MetricSample, sampleIndex int) error {
 	parameters.Benchtime = strconv.Itoa(memoryBenchmarkIterations) + "x"
-	seen := make(map[string]bool, len(timed))
-	for _, pattern := range patterns {
-		memory, err := runBenchmarkSample(ctx, binary, packageName, pattern, parameters, sampleIndex)
+	for _, name := range sortedBenchmarkNames(timed) {
+		memory, err := runBenchmarkSample(ctx, binary, packageName, benchmarkPatterns([]string{name})[0], parameters, sampleIndex)
 		if err != nil {
 			return fmt.Errorf("fixed-work RSS: %w", err)
 		}
-		for name, values := range memory {
-			if seen[name] || len(values) != 1 || len(timed[name]) != 1 || values[0].Iterations != memoryBenchmarkIterations {
-				return fmt.Errorf("fixed-work RSS benchmark %s has duplicate, unmatched, or invalid measurements", name)
-			}
-			seen[name] = true
-			timed[name][0].PeakRSSBytes = values[0].PeakRSSBytes
-			timed[name][0].PeakRSSIterations = values[0].Iterations
+		values := memory[name]
+		if len(memory) != 1 || len(values) != 1 || len(timed[name]) != 1 || values[0].Iterations != memoryBenchmarkIterations {
+			return fmt.Errorf("fixed-work RSS benchmark %s has duplicate, unmatched, or invalid measurements", name)
 		}
-	}
-	if len(seen) != len(timed) {
-		return errors.New("fixed-work RSS is missing timed benchmarks")
+		timed[name][0].PeakRSSBytes = values[0].PeakRSSBytes
+		timed[name][0].PeakRSSIterations = values[0].Iterations
 	}
 	return nil
 }

@@ -734,6 +734,30 @@ func TestHookRuntimeAntigravityPreToolUseBlocksDenyWrite(t *testing.T) {
 	}
 }
 
+// run_command names its working directory in Cwd; a literal shell write
+// target resolves there, so a relative target inside a protected directory
+// is denied before the command runs.
+func TestHookRuntimeAntigravityResolvesShellWritesAgainstCwd(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	generated := filepath.Join(repo, "generated")
+	if err := os.MkdirAll(generated, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(map[string]interface{}{
+		"conversationId": "ag-cwd", "stepIdx": 1,
+		"toolCall": map[string]interface{}{"name": "run_command", "args": map[string]interface{}{
+			"CommandLine": "echo x > evil.go", "Cwd": generated, "WaitMsBeforeAsync": 0,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := runWithStdin(t, string(payload), "hook", "runtime", "antigravity-pre-tool-use", repo)
+	if code != 0 || !strings.Contains(stdout, `"decision":"deny"`) || !strings.Contains(stdout, "deny-gen") {
+		t.Fatalf("a literal write in Cwd was not denied before execution: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
 func TestHookRuntimeAntigravityPostToolUseRecordsPendingEvidence(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	_, stderr, code := runWithStdin(t,

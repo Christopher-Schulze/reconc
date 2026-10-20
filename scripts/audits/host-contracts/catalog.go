@@ -47,6 +47,16 @@ type sourceProbe struct {
 	// TrackedRef names the release branch an open-source probe follows when
 	// the shipped contract does not live on the default branch.
 	TrackedRef string `json:"tracked_ref,omitempty"`
+	// Sections are the contract text the digest covers, so an unrelated edit
+	// elsewhere in the source stays green.
+	Sections []sourceSection `json:"sections"`
+}
+
+// sourceSection runs from the first occurrence of Start to the next
+// occurrence of End after it, or to the end of the source when End is empty.
+type sourceSection struct {
+	Start string `json:"start"`
+	End   string `json:"end,omitempty"`
 }
 
 var digestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -80,7 +90,7 @@ func loadCatalog(root string) (sourceCatalog, error) {
 }
 
 func validateCatalog(root string, catalog sourceCatalog) error {
-	if catalog.Schema != "reconc-host-contract-sources" || catalog.FormatVersion != 1 {
+	if catalog.Schema != "reconc-host-contract-sources" || catalog.FormatVersion != 2 {
 		return errors.New("unsupported source catalog contract")
 	}
 	if _, err := time.Parse("2006-01-02", catalog.ReviewedAt); err != nil {
@@ -163,6 +173,14 @@ func validateProbe(source sourceProbe) error {
 	for _, marker := range source.RequiredMarkers {
 		if marker == "" || len(marker) > 256 {
 			return errors.New("invalid contract marker")
+		}
+	}
+	if len(source.Sections) == 0 || len(source.Sections) > 16 {
+		return errors.New("source requires 1-16 contract sections")
+	}
+	for _, section := range source.Sections {
+		if section.Start == "" || len(section.Start) > 256 || len(section.End) > 256 || section.Start == section.End {
+			return errors.New("invalid contract section")
 		}
 	}
 	return nil

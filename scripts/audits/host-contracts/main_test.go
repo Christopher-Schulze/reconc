@@ -70,6 +70,12 @@ func TestCatalogRejectsInvalidCoverageAndProvenance(t *testing.T) {
 		{"unofficial URL", func(c *sourceCatalog) { c.Hosts[0].Sources[0].URL = "https://example.com/hooks" }},
 		{"missing markers", func(c *sourceCatalog) { c.Hosts[0].Sources[0].RequiredMarkers = nil }},
 		{"invalid mode", func(c *sourceCatalog) { c.Hosts[0].Sources[0].Normalization = "execute" }},
+		{"missing sections", func(c *sourceCatalog) { c.Hosts[0].Sources[0].Sections = nil }},
+		{"empty section start", func(c *sourceCatalog) { c.Hosts[0].Sources[0].Sections[0].Start = "" }},
+		{"section ends at its start", func(c *sourceCatalog) {
+			c.Hosts[0].Sources[0].Sections[0].End = c.Hosts[0].Sources[0].Sections[0].Start
+		}},
+		{"previous catalog format", func(c *sourceCatalog) { c.FormatVersion = 1 }},
 		{"undeclared branch", func(c *sourceCatalog) {
 			for h := range c.Hosts {
 				for s := range c.Hosts[h].Sources {
@@ -185,7 +191,8 @@ func TestSourceHTTPBoundary(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			probe := sourceProbe{ID: "hooks", URL: server.URL, Normalization: "markdown", SHA256: expected, RequiredMarkers: []string{"PreToolUse", "SessionStart"}}
+			probe := sourceProbe{ID: "hooks", URL: server.URL, Normalization: "markdown", SHA256: expected,
+				RequiredMarkers: []string{"PreToolUse", "SessionStart"}, Sections: []sourceSection{{Start: "PreToolUse"}}}
 			if test.missing {
 				probe.SHA256 = digest([]byte(strings.TrimSpace(test.body)))
 			}
@@ -271,5 +278,47 @@ func TestReportDistinguishesIncompleteAndChanged(t *testing.T) {
 	}
 	if decoded.Schema != "reconc-host-contract-report" || decoded.FormatVersion != 1 {
 		t.Fatalf("invalid report identity: %+v", decoded)
+	}
+}
+
+// The digest covers only the contract sections: an edit elsewhere on the page
+// stays green, an edit inside a section or a lost section boundary turns red.
+func TestSectionDigestIgnoresUnrelatedEdits(t *testing.T) {
+	page := func(intro, decision, footer string) string {
+		return intro + " ## Events PreToolUse runs before a tool; SessionStart runs once. The decision field accepts " +
+			decision + ". ## Footer " + footer
+	}
+	original := page("Hooks let you automate work.", `"allow" or "deny"`, "About us. Privacy.")
+	sections := []sourceSection{{Start: "## Events", End: "## Footer"}}
+	contract, missing := contractSections([]byte(strings.Join(strings.Fields(original), " ")), sections)
+	if len(missing) != 0 {
+		t.Fatalf("missing sections: %v", missing)
+	}
+	expected := digest(contract)
+	for _, test := range []struct {
+		name, body, want string
+		missing          []string
+	}{
+		{"unchanged", original, "unchanged", nil},
+		{"unrelated edit", page("Hooks automate repetitive work in many teams.", `"allow" or "deny"`, "Careers. Terms. Status."), "unchanged", nil},
+		{"contract edit", page("Hooks let you automate work.", `"allow", "deny" or "defer"`, "About us. Privacy."), "changed", nil},
+		// A lost boundary drops its section, and with it the markers inside.
+		{"lost section end", strings.ReplaceAll(original, "## Footer", "## Legal"), "changed", []string{"## Footer", "PreToolUse", "SessionStart"}},
+		{"marker left the section", strings.Replace(original, "SessionStart", "Start", 1), "changed", []string{"SessionStart"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if _, err := io.WriteString(w, test.body); err != nil {
+					t.Error(err)
+				}
+			}))
+			defer server.Close()
+			probe := sourceProbe{ID: "hooks", URL: server.URL, Normalization: "markdown", SHA256: expected,
+				RequiredMarkers: []string{"PreToolUse", "SessionStart"}, Sections: sections}
+			result := compareSource(context.Background(), sourceClient(), "test-host", probe)
+			if result.Status != test.want || strings.Join(result.MissingMarkers, ",") != strings.Join(test.missing, ",") {
+				t.Fatalf("comparison: %+v", result)
+			}
+		})
 	}
 }

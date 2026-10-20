@@ -333,18 +333,20 @@ Result/baseline v6 retain the package executable SHA-256, and comparison v8
 retains both identities. Builds use `-trimpath` except for the historical CLI
 transport workload, which resolves its module through `runtime.Caller` and
 builds its child CLI during benchmark setup. That package's identity includes
-source paths. After the closing CPU sentinel, a separate pass executes the same
-package patterns with `-test.benchtime=64x` and the same internal repetitions.
+source paths. After the closing CPU sentinel, a separate pass executes each
+benchmark alone, in its own process, with `-test.benchtime=64x` and the same
+internal repetitions.
 RSS comes only from these fixed-work processes; time and per-operation allocation
 metrics remain from the timed pass. Every workload sample records
 `peak_rss_iterations=64`, distinct from its timed `iterations`. The Go benchmark
 runner also performs its standard warmup. RSS describes the full process lifetime, including setup
-and platform-accounted child usage, rather than the outer Go driver. It is
-shared by benchmarks executed in the same process, not a per-operation or
-retained-cache measurement. The gate compares the maximum of all per-sample
-process peaks with the configured tolerance. A single excessive peak remains
-a regression; measurement noise requires investigation rather than replacing
-the peak contract with a median. Unsupported platform RSS remains zero.
+and platform-accounted child usage, rather than the outer Go driver, so one
+benchmark's allocation is never charged to the others of its package; it is
+not a per-operation or retained-cache measurement. The gate compares the
+maximum of all per-sample process peaks with the configured tolerance. A
+single excessive peak remains a regression; measurement noise requires
+investigation rather than replacing the peak contract with a median.
+Unsupported platform RSS remains zero.
 Compilation and sampling share bounded package deadlines; output is limited
 to 16 MiB per stream, binary size is limited to 512 MiB for streamed hashing,
 and private build directories are removed after recording. Binary identity never bypasses a
@@ -2404,14 +2406,23 @@ at the release branch named by `tracked_ref` when the shipped contract lives
 off the default branch: the OpenCode 1.x plugin types follow `v1`, while the
 OpenCode 2.x plugin, permission, session, tool, and session-event sources
 follow `HEAD`.
-Documentation probes record the reviewed URL, date, normalized content digest,
-and required contract markers. This source-review baseline is separate from
-the host-version qualification recorded in adapter fixtures.
+Documentation probes record the reviewed URL, date, contract sections,
+contract digest, and required contract markers. Catalog format 2 gives every
+source one or more sections, each from a start marker to the next end marker
+(or to the end of the source); the digest covers only the normalized text of
+those sections, in order, so an edit elsewhere on a page or in a source file
+stays green. Code sources bound their sections at the declarations that carry
+the contract markers. Every required marker must lie inside a section. This
+source-review baseline is separate from the host-version qualification
+recorded in adapter fixtures.
 
 From the source root, `go run ./scripts/audits/host-contracts` checks registry
 coverage, catalog provenance, and exact local fixture digests without network
 access. `go run ./scripts/audits/host-contracts --check-upstream` additionally
-fetches the listed official sources. It never installs or executes a host,
+fetches the listed official sources, and `--show-contract HOST/SOURCE` fetches
+one source and prints the contract text its digest covers, with that digest,
+as the evidence a reviewer reads before re-pinning it. It never installs or
+executes a host,
 model, upstream program, or dependency lifecycle. Both commands accept
 `--root PATH`. Normal tests exercise local fixtures and real loopback HTTP
 boundaries only; Reconc product commands do not call this maintenance tool.
@@ -2419,14 +2430,15 @@ boundaries only; Reconc product commands do not call this maintenance tool.
 The JSON report uses `schema=reconc-host-contract-report`, `format_version=1`,
 and stable host/surface ordering. Each row is `unchanged`, `changed`, or
 `unavailable`, with expected/actual SHA-256 digests and source URLs where
-applicable. Missing required markers also mean `changed`, even if a saved
-digest matches. `complete=false` distinguishes retrieval/read failures;
-`review_required=true` records observed drift independently. Reports retain
-no fetched source bodies. The compiled checker exits 0 for unchanged complete
-evidence, 2 for complete evidence requiring review, and 1 for incomplete
-evidence or command errors. `go run` maps a nonzero program exit to its own
-failure status; use JSON fields to distinguish outcomes or build the checker
-when exact exit codes are needed.
+applicable. A missing section boundary or a required marker outside the
+sections also means `changed`, even if a saved digest matches, and the row
+names each missing marker. `complete=false` distinguishes retrieval/read
+failures; `review_required=true` records observed drift independently.
+Reports retain no fetched source bodies. The compiled checker exits 0 for
+unchanged complete evidence, 2 for complete evidence requiring review, and 1
+for incomplete evidence or command errors. `go run` maps a nonzero program
+exit to its own failure status; use JSON fields to distinguish outcomes or
+build the checker when exact exit codes are needed.
 
 Requests are sequential, allowlisted HTTPS GETs with a 15-second deadline,
 at most two followed redirects, a 2 MiB decoded body limit, and a three-minute
@@ -2434,8 +2446,9 @@ overall comparison deadline. API normalization preserves interior source
 whitespace while normalizing CRLF and trailing line whitespace. Markdown
 normalization collapses whitespace; HTML normalization removes scripts,
 styles, comments and tags, prefers the main element, decodes entities, then
-collapses whitespace. Navigation or editorial changes can still trigger
-review. A digest change is a review signal, not proof of a breaking API change.
+collapses whitespace. Editorial changes inside a contract section can still
+trigger review. A digest change is a review signal, not proof of a breaking
+API change.
 Unmonitored implementation changes cannot be inferred from these probes.
 
 The separate **Host contract source watch** GitHub workflow runs daily at
@@ -5654,6 +5667,8 @@ IDE use is unverified. The App and IDE can switch a
 hook off under Settings > Customizations > Hooks, a setting Reconc cannot read,
 so `reconc hook status` cannot report it. `SessionStart` stays unbound because
 `PreInvocation` already starts the Reconc session before every model call.
+A `run_command` call's `Cwd` is its working directory, so literal shell write
+targets in its `CommandLine` are judged relative to it before the command runs.
 `manage_task` with `send_input` types into a running `run_command` process
 outside the reviewed command line, so Reconc denies it, as it denies Devin's
 `write_to_process`; `list`, `status`, and `kill` pass. Reconc stores Antigravity PreTool

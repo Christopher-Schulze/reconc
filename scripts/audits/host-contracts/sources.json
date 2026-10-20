@@ -1,7 +1,7 @@
 {
   "schema": "reconc-host-contract-sources",
-  "format_version": 1,
-  "reviewed_at": "2026-10-19",
+  "format_version": 2,
+  "reviewed_at": "2026-10-20",
   "hosts": [
     {
       "host": "antigravity",
@@ -17,11 +17,17 @@
           "url": "https://antigravity.google/docs/hooks",
           "baseline_url": "https://antigravity.google/docs/hooks",
           "normalization": "html",
-          "sha256": "d3f3b4246dc6b27b91b19d3b88fcc8e9849067cfbcc42c228d6a3b63429b6123",
+          "sha256": "24e221224b1685c47a3c30093e9c56e4d07394334e488f989adc556d59638cb9",
           "required_markers": [
             "PreToolUse",
             "PostToolUse",
             "SessionStart"
+          ],
+          "sections": [
+            {
+              "start": "Schema and file format",
+              "end": "Previous Custom subagents"
+            }
           ]
         }
       ]
@@ -40,12 +46,50 @@
           "url": "https://code.claude.com/docs/en/hooks.md",
           "baseline_url": "https://code.claude.com/docs/en/hooks.md",
           "normalization": "markdown",
-          "sha256": "e96b7a8fb2e0e6d60a38995e84f0d0cdd98711b428cc2d298f02f8f27c71ea0c",
+          "sha256": "6c10154290bab0ac7597b6be3007ca1f33874f6efb702b10606933b52631a9f8",
           "required_markers": [
             "PreToolUse",
             "SessionStart",
             "onFailure",
             "PowerShell"
+          ],
+          "sections": [
+            {
+              "start": "## Hook lifecycle",
+              "end": "### How a hook resolves"
+            },
+            {
+              "start": "### Matcher patterns",
+              "end": "### Common fields"
+            },
+            {
+              "start": "### Disable or remove hooks",
+              "end": "## Hook input and output"
+            },
+            {
+              "start": "### Common input fields",
+              "end": "### Exit code output"
+            },
+            {
+              "start": "### Block the action when a hook fails",
+              "end": "### JSON output"
+            },
+            {
+              "start": "### PreToolUse decision control",
+              "end": "### PermissionRequest input"
+            },
+            {
+              "start": "### PermissionRequest decision control",
+              "end": "### PostToolUse input"
+            },
+            {
+              "start": "### Stop decision control",
+              "end": "### StopFailure"
+            },
+            {
+              "start": "## Windows PowerShell tool",
+              "end": "## Debug hooks"
+            }
           ]
         }
       ]
@@ -64,10 +108,20 @@
           "url": "https://raw.githubusercontent.com/openai/codex/HEAD/codex-rs/hooks/src/registry.rs",
           "baseline_url": "https://raw.githubusercontent.com/openai/codex/7c073196a1673a0b248b2e5edfb7548d2c2290ac/codex-rs/hooks/src/registry.rs",
           "normalization": "source",
-          "sha256": "fd3ccdc04e6a215eb86a616a68e0647bb4d7fc7cb1f6a6dcb4a68b9170ccec12",
+          "sha256": "3aefbfde1e5a59f8427e93744c5a55ddb68a43d245df922a2355f2a0542b6d58",
           "required_markers": [
             "PreToolUseRequest",
             "run_pre_tool_use"
+          ],
+          "sections": [
+            {
+              "start": "use crate::engine::ClaudeHooksEngine;",
+              "end": "pub struct HooksConfig {"
+            },
+            {
+              "start": "impl Hooks {",
+              "end": "pub fn list_hooks(config: HooksConfig) -> HookListOutcome {"
+            }
           ]
         },
         {
@@ -75,12 +129,30 @@
           "url": "https://learn.chatgpt.com/docs/hooks.md",
           "baseline_url": "https://learn.chatgpt.com/docs/hooks.md",
           "normalization": "markdown",
-          "sha256": "f03274141fd5f756454acf631479939d788972ebb3cac961a8c57127b2086095",
+          "sha256": "fb42945030ecdbf72cbec2f673e84ba59aca82ff19df1e215ecb3a763a72d27d",
           "required_markers": [
             "PreToolUse",
             "SessionStart",
             "hookEventName",
             "codex_hooks"
+          ],
+          "sections": [
+            {
+              "start": "## Config shape",
+              "end": "## MCP tool hooks"
+            },
+            {
+              "start": "## Turn hooks off",
+              "end": "## Managed hooks from"
+            },
+            {
+              "start": "## Matcher patterns",
+              "end": "## Run hooks in the background"
+            },
+            {
+              "start": "## Hooks",
+              "end": "## Schemas"
+            }
           ]
         },
         {
@@ -88,10 +160,19 @@
           "url": "https://raw.githubusercontent.com/openai/codex/HEAD/codex-rs/hooks/src/types.rs",
           "baseline_url": "https://raw.githubusercontent.com/openai/codex/7c073196a1673a0b248b2e5edfb7548d2c2290ac/codex-rs/hooks/src/types.rs",
           "normalization": "source",
-          "sha256": "eff1ee766776a729975c9873a9ae09e9e1ba33592524509e94cfd4686e42a169",
+          "sha256": "93740169e666a1b198c8b8775d030bda3ab6f99f8d78959555b7040007d07314",
           "required_markers": [
             "pub struct HookPayload",
             "pub enum HookEvent"
+          ],
+          "sections": [
+            {
+              "start": "pub struct HookPayload {",
+              "end": "pub struct HookEventAfterAgent {"
+            },
+            {
+              "start": "pub enum HookEvent {"
+            }
           ]
         }
       ]
@@ -114,11 +195,21 @@
           "url": "https://cursor.com/docs/hooks",
           "baseline_url": "https://cursor.com/docs/hooks",
           "normalization": "markdown",
-          "sha256": "adae3c087e3ec587f77b8986a377648d16c45596299ed35b29a3e403eff9f7aa",
+          "sha256": "f4eb37e1fd3622f7e65ffb28c8455d412df1039813983f85de1bf21b35502b0c",
           "required_markers": [
             "preToolUse",
             "sessionStart",
             "followup_message"
+          ],
+          "sections": [
+            {
+              "start": "## Configuration",
+              "end": "## Team Distribution"
+            },
+            {
+              "start": "## Reference",
+              "end": "## Environment Variables"
+            }
           ]
         }
       ]
@@ -137,10 +228,16 @@
           "url": "https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md",
           "baseline_url": "https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md",
           "normalization": "markdown",
-          "sha256": "46110d82f875512262403c2cc46becca7da7a9e03eb4a1207297efba1e2a056f",
+          "sha256": "b9f684683d1dae3b95a568660998c5172c7ea6f4321ae07edc940eb1896b0e54",
           "required_markers": [
             "PreToolUse",
             "SessionStart"
+          ],
+          "sections": [
+            {
+              "start": "## PreToolUse",
+              "end": "### Tool names you can match"
+            }
           ]
         },
         {
@@ -148,10 +245,16 @@
           "url": "https://docs.devin.ai/cli/extensibility/hooks/overview.md",
           "baseline_url": "https://docs.devin.ai/cli/extensibility/hooks/overview.md",
           "normalization": "markdown",
-          "sha256": "323d03d19ad740123a5d7ed35eb86945389d49001efc75aebff66754e7487422",
+          "sha256": "1374cdc07233429e82ec4b9364acb81428bc100dd520ad2d5a606b3a7d6ee6ba",
           "required_markers": [
             ".devin/hooks.v1.json",
             "PreToolUse"
+          ],
+          "sections": [
+            {
+              "start": "## Hook Events",
+              "end": "## Verifying Hooks"
+            }
           ]
         }
       ]
@@ -170,10 +273,15 @@
           "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/packages/core/agent/src/runtime-types.ts",
           "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent/src/runtime-types.ts",
           "normalization": "source",
-          "sha256": "48cac94820dc58ec2399917300bbbc9a6ec0ee1659d24c98b3b06f23f4394c5f",
+          "sha256": "bc582a340bf85e5b66fa59678ff76a2eb1a282a24b1118c55fc6ea97986fd412",
           "required_markers": [
             "'agent/pre-step'",
             "'agent/turn-stopping'"
+          ],
+          "sections": [
+            {
+              "start": "declare module '@deepseek-ai/cordis' {"
+            }
           ]
         },
         {
@@ -181,11 +289,21 @@
           "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/packages/llm/llm/src/message.ts",
           "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/687f282e8625c6b8d11ff58211a90524be2e4317/packages/llm/llm/src/message.ts",
           "normalization": "source",
-          "sha256": "47a5ed4ca3bfe7cec85643b8fdfb9d82ae9a9018c1401593d92b89dee25f6dfa",
+          "sha256": "245bfe95187b4e4c8a62b0283fff4b31a36013632ad1459c3486c094eaa8eed7",
           "required_markers": [
             "readonly form: 'notice'",
             "readonly summary: string",
             "export interface MessageSourceMap"
+          ],
+          "sections": [
+            {
+              "start": "export type ContextFormed =",
+              "end": "export interface MessageSourceMap {"
+            },
+            {
+              "start": "export interface MessageSourceMap {",
+              "end": "export const CONTEXT_SUMMARY_MAX_CHARS = 120"
+            }
           ]
         },
         {
@@ -193,10 +311,20 @@
           "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/packages/core/session/src/types.ts",
           "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/session/src/types.ts",
           "normalization": "source",
-          "sha256": "f700f981f310142fb11065ba625d9c477af3c1b7796ae15e15c05819e5e57cd2",
+          "sha256": "87457e69c05487a0969215be883658862aec5c8d0e400d6d7bb2d952aaa27c4b",
           "required_markers": [
             "export interface SessionHeader",
             "readonly meta: SessionHeader"
+          ],
+          "sections": [
+            {
+              "start": "export interface SessionHeader {",
+              "end": "export interface CreateSessionOptions {"
+            },
+            {
+              "start": "export interface RestoredSessionOptions {",
+              "end": "export type PrepareSessionOptions ="
+            }
           ]
         },
         {
@@ -204,10 +332,15 @@
           "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/docs/subsystems/system-prompt.md",
           "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/687f282e8625c6b8d11ff58211a90524be2e4317/docs/subsystems/system-prompt.md",
           "normalization": "markdown",
-          "sha256": "215420b0be638b3e1c819e3508e971f3b0373b0b3a8e88ecf77e94c6ee5dfb2d",
+          "sha256": "92b54a07955eb535f1e40e0444284d18d57e8729f87bfa7f1dec116d30886cd6",
           "required_markers": [
             "interface PromptContext",
             "context(context: PromptContext)"
+          ],
+          "sections": [
+            {
+              "start": "## Dynamic prompt context"
+            }
           ]
         },
         {
@@ -215,11 +348,21 @@
           "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/packages/core/tools/src/index.ts",
           "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/src/index.ts",
           "normalization": "source",
-          "sha256": "57b8ed8b933ef16e9d0726fd569a991ed2862518f0094ed7ba71debc91be386b",
+          "sha256": "da6db0ae764fef9a65f5bdf628422f631c1123d418f916a024d110971cf7e47a",
           "required_markers": [
             "'tools/pre-execute'",
             "'tools/result'",
             "workingDirectory"
+          ],
+          "sections": [
+            {
+              "start": "declare module '@deepseek-ai/cordis' {",
+              "end": "export interface ToolOutputDefinition {"
+            },
+            {
+              "start": "  private requirePtcTransport(): ToolDefinition {",
+              "end": "  presentAs(mode: ToolPresentationMode): () => void {"
+            }
           ]
         },
         {
@@ -227,10 +370,20 @@
           "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/packages/session/working-directory/src/index.ts",
           "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/687f282e8625c6b8d11ff58211a90524be2e4317/packages/session/working-directory/src/index.ts",
           "normalization": "source",
-          "sha256": "297c95438beb741761520ba13a66387a251260ee651526fa609c6f6ea04ed309",
+          "sha256": "cb218d61e1d5046c07e7deba88f2f6e97c4cc69979a39d3d99451119ad17db7b",
           "required_markers": [
             "WorkingDirectoryService",
             "super(ctx, 'workingDirectory')"
+          ],
+          "sections": [
+            {
+              "start": "declare module '@deepseek-ai/cordis' {",
+              "end": "declare module '@deepseek-ai/dsh-llm' {"
+            },
+            {
+              "start": "export class WorkingDirectoryService extends Service {",
+              "end": "export default WorkingDirectoryService"
+            }
           ]
         }
       ]
@@ -249,10 +402,16 @@
           "url": "https://git-scm.com/docs/githooks",
           "baseline_url": "https://git-scm.com/docs/githooks",
           "normalization": "html",
-          "sha256": "af76956265b446cd42f1ed6b6bc477ebd080f0453e32de0fbf7949d14988fcdb",
+          "sha256": "5609dee73334aed4e1714a0d41e7df5c89421746aec07a600cb7926245e53045",
           "required_markers": [
             "pre-commit",
             "GIT_DIR"
+          ],
+          "sections": [
+            {
+              "start": "DESCRIPTION Hooks are",
+              "end": "pre-merge-commit"
+            }
           ]
         }
       ]
@@ -271,11 +430,25 @@
           "url": "https://docs.github.com/en/copilot/reference/hooks-reference",
           "baseline_url": "https://docs.github.com/en/copilot/reference/hooks-reference",
           "normalization": "markdown",
-          "sha256": "ff5d8cf190a045b0fbf24f8cbe663731d8489f83ad812a14589d22127be60549",
+          "sha256": "9fb5528da44ba4c35a18bf93077bcc723b1f5b986ee5baf49e3b2dea88451c32",
           "required_markers": [
             "preToolUse",
             "sessionStart",
             "disableAllHooks"
+          ],
+          "sections": [
+            {
+              "start": "## Hooks locations",
+              "end": "## Cloud agent execution environment"
+            },
+            {
+              "start": "## Hook configuration format",
+              "end": "### HTTP hooks"
+            },
+            {
+              "start": "## Hook events",
+              "end": "## Further reading"
+            }
           ]
         }
       ]
@@ -294,10 +467,15 @@
           "url": "https://docs.x.ai/build/features/hooks",
           "baseline_url": "https://docs.x.ai/build/features/hooks",
           "normalization": "markdown",
-          "sha256": "5f11371347a24ae80648d8551b083e2ca92a93ff75e23f6ca67b096a1d64de42",
+          "sha256": "5e87af6a90372b0b56b05eda2e491f27b3812fcfaaf9afa0ae4f15cfcf9b7506",
           "required_markers": [
             "PreToolUse",
             "SessionStart"
+          ],
+          "sections": [
+            {
+              "start": "## Configuration"
+            }
           ]
         }
       ]
@@ -320,10 +498,15 @@
           "url": "https://raw.githubusercontent.com/Kilo-Org/kilocode/HEAD/packages/plugin/src/index.ts",
           "baseline_url": "https://raw.githubusercontent.com/Kilo-Org/kilocode/e1841b3c7b02cc58504bc25311ffe52c6077b75b/packages/plugin/src/index.ts",
           "normalization": "source",
-          "sha256": "f1674803fddd837718334d2ed89867f39b9574194664efe0824c8f13d3d01190",
+          "sha256": "ad1149686db587530fe73a33a31e035131b13cdea5ae6b19803a199e8961fd02",
           "required_markers": [
             "tool.execute.before",
             "tool.execute.after"
+          ],
+          "sections": [
+            {
+              "start": "export interface Hooks {"
+            }
           ]
         }
       ]
@@ -342,10 +525,16 @@
           "url": "https://moonshotai.github.io/kimi-code/en/customization/hooks",
           "baseline_url": "https://moonshotai.github.io/kimi-code/en/customization/hooks",
           "normalization": "html",
-          "sha256": "d011ab1d3db86e4df7a3743e306a126345a7f440c61398042c5e026729e502a9",
+          "sha256": "ba69499d8a5691a32bf081dfb59ba9800a8b08349551fe6c0a1e6d3429624961",
           "required_markers": [
             "PreToolUse",
             "SessionStart"
+          ],
+          "sections": [
+            {
+              "start": "All hook rules are written in the [[hooks]] array",
+              "end": "Example: Blocking Dangerous Shell Commands"
+            }
           ]
         }
       ]
@@ -368,10 +557,20 @@
           "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/HEAD/packages/coding-agent/src/extensibility/extensions/runner.ts",
           "baseline_url": "https://raw.githubusercontent.com/can1357/oh-my-pi/61bc6d217efcfd6b4dd05717c20ecb3ad9fd3303/packages/coding-agent/src/extensibility/extensions/runner.ts",
           "normalization": "source",
-          "sha256": "dff97d91aee0bbeb92163c314e6e4118745d8c62f470bd432ed7aa6dd8023420",
+          "sha256": "321bbfe0666b63bcabfe222d4ce4c8a3019b64715b26e2a9a91bb19a86d7bfed",
           "required_markers": [
             "emitToolCall",
             "session_stop"
+          ],
+          "sections": [
+            {
+              "start": "\tasync emitToolCall(",
+              "end": "\tasync emitUserBash(event: UserBashEvent): Promise<UserBashEventResult | undefined> {"
+            },
+            {
+              "start": "type RunnerEmitResult<TEvent extends RunnerEmitEvent> = TEvent extends { type: \"session_before_switch\" }",
+              "end": "export type { BranchHandler, NavigateTreeHandler, NewSessionHandler };"
+            }
           ]
         },
         {
@@ -379,10 +578,16 @@
           "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/HEAD/packages/coding-agent/src/extensibility/extensions/types.ts",
           "baseline_url": "https://raw.githubusercontent.com/can1357/oh-my-pi/61bc6d217efcfd6b4dd05717c20ecb3ad9fd3303/packages/coding-agent/src/extensibility/extensions/types.ts",
           "normalization": "source",
-          "sha256": "531fa56a80df939ad71d08795a16bf6c5b69836abe2df91ab8584be28b417fe1",
+          "sha256": "8e144274861494368106a1f5752e7788daf7c5109ca3a58144089bba1ec7bb36",
           "required_markers": [
             "ToolCallEvent",
             "SessionStopEvent"
+          ],
+          "sections": [
+            {
+              "start": "export type { ComposerShapeDefinition } from \"@oh-my-pi/pi-tui/overlays/composer-shape-registry\";",
+              "end": "export type { OverlayHandle, OverlayOptions } from \"@oh-my-pi/pi-tui\";"
+            }
           ]
         },
         {
@@ -390,12 +595,30 @@
           "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/HEAD/packages/coding-agent/src/extensibility/shared-events.ts",
           "baseline_url": "https://raw.githubusercontent.com/can1357/oh-my-pi/61bc6d217efcfd6b4dd05717c20ecb3ad9fd3303/packages/coding-agent/src/extensibility/shared-events.ts",
           "normalization": "source",
-          "sha256": "c5a9de4caefdd3648259b3859dd7ede042fb73abc00d7224a046f69a60d64159",
+          "sha256": "6f42ad93e12993406ccfb2b9bca700ee791210c2ad9744adfc478630dbfcf2be",
           "required_markers": [
             "type: \"session_stop\"",
             "type: \"session_start\"",
             "type: \"session_before_compact\"",
             "type: \"session_shutdown\""
+          ],
+          "sections": [
+            {
+              "start": "export interface SessionStopEvent {",
+              "end": "export interface TreePreparation {"
+            },
+            {
+              "start": "export interface SessionStartEvent {",
+              "end": "export interface SessionBeforeSwitchEvent {"
+            },
+            {
+              "start": "export interface SessionBeforeCompactEvent {",
+              "end": "export interface SessionCompactingEvent {"
+            },
+            {
+              "start": "export interface SessionShutdownEvent {",
+              "end": "export interface SessionStopEvent {"
+            }
           ]
         }
       ]
@@ -418,11 +641,20 @@
           "url": "https://raw.githubusercontent.com/anomalyco/opencode/HEAD/packages/core/src/plugin/module.ts",
           "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/c7ddff776c59426e7dd63fe5a0d2a348864592ba/packages/core/src/plugin/module.ts",
           "normalization": "source",
-          "sha256": "c0ee2f0e51dfd765c898bd0167c22332941a97b6461a7064cd89e90de1daab45",
+          "sha256": "27cb0f547b33fb973e0c5e72c60ee100b4e29a23e91d7e4ccaaf4465d86c9dc9",
           "required_markers": [
             "id: Schema.String",
             "setup: Schema.declare",
             "Plugin must export a default definition"
+          ],
+          "sections": [
+            {
+              "start": "const Module = Schema.Struct({",
+              "end": "export class LoadError extends Schema.TaggedError<LoadError>()(\"PluginModule.LoadError\", {"
+            },
+            {
+              "start": "const load = Effect.fn(\"PluginModule.load\")(function* ("
+            }
           ]
         },
         {
@@ -430,10 +662,16 @@
           "url": "https://raw.githubusercontent.com/anomalyco/opencode/HEAD/packages/plugin/src/promise/permission.ts",
           "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/c7ddff776c59426e7dd63fe5a0d2a348864592ba/packages/plugin/src/promise/permission.ts",
           "normalization": "source",
-          "sha256": "22c1c220bf82d7a88ecb0b2607e8bf17be150599e4188b72e71ce98b917c6d44",
+          "sha256": "c15f2c2d0d6c25729e21e64056b1855381e35be2af8e202b8ec6e7984e233c2d",
           "required_markers": [
             "export interface PermissionEvaluation",
             "effect: Permission.Effect"
+          ],
+          "sections": [
+            {
+              "start": "export interface PermissionEvaluation {",
+              "end": "export interface PermissionHooks {"
+            }
           ]
         },
         {
@@ -441,10 +679,16 @@
           "url": "https://raw.githubusercontent.com/anomalyco/opencode/HEAD/packages/plugin/src/promise/session.ts",
           "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/c7ddff776c59426e7dd63fe5a0d2a348864592ba/packages/plugin/src/promise/session.ts",
           "normalization": "source",
-          "sha256": "d5c85af85476caabfc30f38791e68c106387a5b98dbf2dc14ea0e00f6bac2243",
+          "sha256": "9cc5dbaf50fbb15e212be99f2cc6de66a08012dca8bc33dfd0a2244ee042ce9c",
           "required_markers": [
             "export interface SessionPrompt",
             "delivery: SessionInbox.Delivery"
+          ],
+          "sections": [
+            {
+              "start": "export interface SessionPrompt {",
+              "end": "export type SessionRequestOptions = Types.DeepMutable<GenerationOptionsFields> & Record<string, unknown>"
+            }
           ]
         },
         {
@@ -452,10 +696,16 @@
           "url": "https://raw.githubusercontent.com/anomalyco/opencode/HEAD/packages/plugin/src/promise/tool.ts",
           "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/c7ddff776c59426e7dd63fe5a0d2a348864592ba/packages/plugin/src/promise/tool.ts",
           "normalization": "source",
-          "sha256": "2525ee7ee00f4b227a46241a01e414167ea0560ffe7686842ed02293cadef014",
+          "sha256": "152f0a1b2838595be3e15307b1ecb15782beb5ab4899391963370ca0e8c1b0b9",
           "required_markers": [
             "readonly \"execute.before\"",
             "readonly \"execute.after\""
+          ],
+          "sections": [
+            {
+              "start": "interface ToolHooks {",
+              "end": "export interface ToolDomain {"
+            }
           ]
         },
         {
@@ -463,25 +713,48 @@
           "url": "https://raw.githubusercontent.com/anomalyco/opencode/v1/packages/plugin/src/index.ts",
           "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/a1f604bbe0285c1e43f00a2568c8aa19f0fb02ff/packages/plugin/src/index.ts",
           "normalization": "source",
-          "sha256": "acb2f99579e8ff56c97fa4343c2096c0102f87ee3872069ee7002d65d47d1c51",
+          "sha256": "ad1149686db587530fe73a33a31e035131b13cdea5ae6b19803a199e8961fd02",
           "required_markers": [
             "tool.execute.before",
             "tool.execute.after"
           ],
-          "tracked_ref": "v1"
+          "tracked_ref": "v1",
+          "sections": [
+            {
+              "start": "export interface Hooks {"
+            }
+          ]
         },
         {
           "id": "session-events",
           "url": "https://raw.githubusercontent.com/anomalyco/opencode/HEAD/packages/schema/src/session-event.ts",
           "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/c7ddff776c59426e7dd63fe5a0d2a348864592ba/packages/schema/src/session-event.ts",
           "normalization": "source",
-          "sha256": "2a9e726b530ec32c2a3bd5350046d4ddee7fe1420fefb3cb97306cc00a58c2e1",
+          "sha256": "605cf8f95436686efd5a068e806fa2402692852dfbd954cb116098cbb1f40237",
           "required_markers": [
             "\"session.execution.succeeded\"",
             "\"session.execution.failed\"",
             "\"session.compaction.ended\"",
             "\"session.created\"",
             "\"session.deleted\""
+          ],
+          "sections": [
+            {
+              "start": "export namespace Execution {",
+              "end": "export const InstructionsUpdated = Event.durable({"
+            },
+            {
+              "start": "export namespace Compaction {",
+              "end": "export namespace RevertEvent {"
+            },
+            {
+              "start": "export const Created = Event.durable({",
+              "end": "export type Created = typeof Created.Type"
+            },
+            {
+              "start": "export const Deleted = Event.durable({",
+              "end": "export type Deleted = typeof Deleted.Type"
+            }
           ]
         }
       ]
@@ -504,11 +777,25 @@
           "url": "https://raw.githubusercontent.com/earendil-works/pi/HEAD/packages/coding-agent/src/core/extensions/runner.ts",
           "baseline_url": "https://raw.githubusercontent.com/earendil-works/pi/d2e7d8b7c1d31d3661f769d5caef7ba8d50c3e03/packages/coding-agent/src/core/extensions/runner.ts",
           "normalization": "source",
-          "sha256": "449aaff77f78b565fce7482829420e6214eb69421a34f9df3cd35cfff3253c39",
+          "sha256": "0cf4fec299b654aaf608ffc32dd000d64e80393ea577587675c59920161f24c7",
           "required_markers": [
             "emitBoundary",
             "emitToolCall",
             "emitUserBash"
+          ],
+          "sections": [
+            {
+              "start": "\tasync emitBoundary(",
+              "end": "\tprivate isSessionBeforeEvent(event: RunnerEmitEvent): event is SessionBeforeEvent {"
+            },
+            {
+              "start": "\tasync emitToolCall(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {",
+              "end": "\tasync emitUserBash(event: UserBashEvent): Promise<UserBashEventResult | undefined> {"
+            },
+            {
+              "start": "\tasync emitUserBash(event: UserBashEvent): Promise<UserBashEventResult | undefined> {",
+              "end": "\tasync emitContext(messages: AgentMessage[]): Promise<AgentMessage[]> {"
+            }
           ]
         },
         {
@@ -516,12 +803,30 @@
           "url": "https://raw.githubusercontent.com/earendil-works/pi/HEAD/packages/coding-agent/src/core/extensions/types.ts",
           "baseline_url": "https://raw.githubusercontent.com/earendil-works/pi/d2e7d8b7c1d31d3661f769d5caef7ba8d50c3e03/packages/coding-agent/src/core/extensions/types.ts",
           "normalization": "source",
-          "sha256": "51046ab7b19aaa1ef76edbfc995a6b5f385c01fa64e0d3c4c19394146ac3888f",
+          "sha256": "e553d807adb05a8ae54070380f069d5f995b2c114a87e4662dc6760c662b466b",
           "required_markers": [
             "ToolCallEventResult",
             "agent_settled",
             "agent_before_settle",
             "CustomMessageEntryDraft"
+          ],
+          "sections": [
+            {
+              "start": "export interface ToolCallEventResult {",
+              "end": "export type UserBashEventResult ="
+            },
+            {
+              "start": "export interface AgentSettledEvent {",
+              "end": "export type UIPromptKind = \"select\" | \"confirm\" | \"input\" | \"editor\" | \"custom\";"
+            },
+            {
+              "start": "export interface AgentBeforeSettleEvent extends BoundaryState {",
+              "end": "export interface AgentSettledEvent {"
+            },
+            {
+              "start": "export interface CustomMessageEntryDraft {",
+              "end": "export interface ContextEditEntryDraft {"
+            }
           ]
         }
       ]
@@ -544,10 +849,15 @@
           "url": "https://zcode.z.ai/en/docs/hooks",
           "baseline_url": "https://zcode.z.ai/en/docs/hooks",
           "normalization": "html",
-          "sha256": "e18641b53c1887e67b20213e4cff6726f1414f48dc03e51ab88f8d251bb739bf",
+          "sha256": "c6da5d335d83f10805bfd4d376e0ccca48476f8b26082635e8286b82904b5368",
           "required_markers": [
             "PreToolUse",
             "SessionStart"
+          ],
+          "sections": [
+            {
+              "start": "Execution Order And Events"
+            }
           ]
         }
       ]

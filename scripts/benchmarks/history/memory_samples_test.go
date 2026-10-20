@@ -46,18 +46,17 @@ func BenchmarkMemory(b *testing.B) {
 				t.Fatal(err)
 			}
 			before := timed["BenchmarkMemory"][0]
-			patterns := []string{"^BenchmarkMemory$"}
 			switch name {
 			case "missing":
-				patterns[0] = "^BenchmarkAbsent$"
+				timed["BenchmarkAbsent"] = timed["BenchmarkMemory"]
 			case "unexpected":
-				delete(timed, "BenchmarkMemory")
+				timed["BenchmarkMemory"] = append(timed["BenchmarkMemory"], before)
 			case "duplicate":
-				patterns = append(patterns, patterns[0])
+				timed["BenchmarkMemory/sub"] = timed["BenchmarkMemory"]
 			case "canceled":
 				cancel()
 			}
-			err = applyMemorySamples(ctx, binary, ".", patterns, parameters, timed, 0)
+			err = applyMemorySamples(ctx, binary, ".", parameters, timed, 0)
 			if name != "valid" {
 				if err == nil || (name == "canceled" && !errors.Is(err, context.Canceled)) {
 					t.Fatalf("%s memory execution = %v", name, err)
@@ -108,5 +107,50 @@ func TestMemoryContractRejectsWrongMethod(t *testing.T) {
 				t.Fatal("incorrect memory method accepted")
 			}
 		})
+	}
+}
+
+// A process peak covers every benchmark the process ran, so each benchmark's
+// fixed-work peak comes from its own process: a small benchmark next to a
+// large one keeps its own small peak.
+func TestFixedMemorySamplesMeasureEachBenchmarkInItsOwnProcess(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("peak RSS is reported on Linux and macOS")
+	}
+	root := t.TempDir()
+	for name, body := range map[string]string{
+		"go.mod": "module memory.example/fixture\n\ngo 1.26\n",
+		"memory_test.go": `package fixture
+import ("crypto/sha256"; "testing")
+var digest [32]byte
+func BenchmarkLarge(b *testing.B) {
+ data := make([]byte, 96<<20)
+ for index := range data { data[index] = byte(index) }
+ for index := 0; index < b.N; index++ { digest = sha256.Sum256(data[:64]) }
+}
+func BenchmarkSmall(b *testing.B) {
+ for index := 0; index < b.N; index++ { digest = sha256.Sum256(digest[:]) }
+}
+`,
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	binary, err := buildBenchmarkBinary(context.Background(), root, "go", ".", filepath.Join(t.TempDir(), "memory.test.exe"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parameters := Parameters{Count: 1, Benchtime: "1x", CPU: 1, Repetitions: 1}
+	timed, err := runBenchmarkSample(context.Background(), binary, ".", "^(BenchmarkLarge|BenchmarkSmall)$", parameters, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyMemorySamples(context.Background(), binary, ".", parameters, timed, 0); err != nil {
+		t.Fatal(err)
+	}
+	large, small := timed["BenchmarkLarge"][0].PeakRSSBytes, timed["BenchmarkSmall"][0].PeakRSSBytes
+	if large < 96<<20 || small >= 64<<20 {
+		t.Fatalf("benchmarks share a process peak: large=%d small=%d", large, small)
 	}
 }

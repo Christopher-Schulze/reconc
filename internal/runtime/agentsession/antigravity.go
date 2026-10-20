@@ -416,6 +416,10 @@ func normalizeAntigravityTool(name string, args map[string]interface{}) (string,
 		if command := antigravityString(args, "CommandLine", "command", "cmd"); command != "" {
 			input["command"] = command
 		}
+		// Literal write targets resolve against the command's directory.
+		if directory := antigravityString(args, "Cwd"); directory != "" {
+			input["cwd"] = directory
+		}
 		return "Bash", input
 	default:
 		return strings.TrimSpace(name), input

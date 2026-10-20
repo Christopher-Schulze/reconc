@@ -51,17 +51,21 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	root := flags.String("root", ".", "Reconc source root")
 	upstream := flags.Bool("check-upstream", false, "fetch official sources without executing them")
+	show := flags.String("show-contract", "", "fetch HOST/SOURCE and print the contract text its digest covers")
 	if err := flags.Parse(args); err != nil {
 		return 1
 	}
 	if flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: host-contracts [--root PATH] [--check-upstream]")
+		fmt.Fprintln(stderr, "usage: host-contracts [--root PATH] [--check-upstream | --show-contract HOST/SOURCE]")
 		return 1
 	}
 	catalog, err := loadCatalog(*root)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	if *show != "" {
+		return showContract(ctx, catalog, *show, stdout, stderr)
 	}
 	result := compareCatalog(ctx, *root, catalog, *upstream)
 	encoder := json.NewEncoder(stdout)
@@ -102,6 +106,32 @@ func compareCatalog(ctx context.Context, root string, catalog sourceCatalog, ups
 		}
 	}
 	return result
+}
+
+// showContract prints one source's extracted contract text and its digest,
+// the evidence a reviewer reads before re-pinning that source.
+func showContract(ctx context.Context, catalog sourceCatalog, name string, stdout, stderr io.Writer) int {
+	for _, host := range catalog.Hosts {
+		for _, source := range host.Sources {
+			if host.Host+"/"+source.ID != name {
+				continue
+			}
+			body, err := fetchSource(ctx, sourceClient(), source)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+			contract, missing := contractSections(body, source.Sections)
+			if len(missing) > 0 {
+				fmt.Fprintf(stderr, "missing contract markers: %q\n", missing)
+				return 2
+			}
+			fmt.Fprintf(stdout, "%s\nsha256 %s\n", contract, digest(contract))
+			return 0
+		}
+	}
+	fmt.Fprintf(stderr, "unknown source %q\n", name)
+	return 1
 }
 
 func (r *report) add(row comparison) {
