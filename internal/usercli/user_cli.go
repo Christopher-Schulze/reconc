@@ -74,9 +74,13 @@ type InstallOptions struct {
 	ArtifactName    string
 	ReleaseTag      string
 	ProvenanceState ProvenanceState
-	InstalledAt     time.Time
-	SkillMode       SkillInstallMode
-	SkillDir        string
+	// AttestedSHA256 is the digest of the artifact the caller already
+	// verified for ProvenanceGitHubVerified; a binary with that digest is not
+	// verified again.
+	AttestedSHA256 string
+	InstalledAt    time.Time
+	SkillMode      SkillInstallMode
+	SkillDir       string
 }
 
 func InspectRunningOnPATH() (*BareStatus, error) {
@@ -411,7 +415,7 @@ func installReceiptInput(status *Status, options InstallOptions) (ReceiptInput, 
 		if provenanceState == "" {
 			provenanceState = ProvenanceEmbeddedVerified
 		}
-		provenanceState, err := verifiedInstallProvenance(provenanceState, status.TargetPath, releaseTag)
+		provenanceState, err := verifiedInstallProvenanceFor(provenanceState, status.TargetPath, releaseTag, options.AttestedSHA256)
 		if err != nil {
 			return ReceiptInput{}, err
 		}

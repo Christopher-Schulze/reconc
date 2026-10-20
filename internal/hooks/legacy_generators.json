@@ -1,0 +1,467 @@
+{
+  "description": "SHA-256 digests of hook artifacts written by published Reconc releases; regenerate with scripts/build/legacy-hook-generators.",
+  "releases": [
+    "0.7.0",
+    "0.7.1",
+    "0.7.2",
+    "0.7.3",
+    "0.8.1",
+    "0.8.2",
+    "0.8.5",
+    "0.8.6",
+    "0.8.7",
+    "0.8.8",
+    "0.9.0",
+    "0.9.1",
+    "0.9.2",
+    "0.9.3",
+    "0.9.4",
+    "0.9.5",
+    "0.9.6",
+    "0.9.7",
+    "0.9.8",
+    "0.10.0",
+    "0.10.1",
+    "0.10.2",
+    "0.10.3"
+  ],
+  "artifacts": {
+    "antigravity": [
+      "6f2bd32c6adce2924e6d12ac3535c71c63622dafea921505217b0b47a9feef3d",
+      "7524276a0024565f4067a598f0a2f067a6064b3506b471c95772cdcaa940c107"
+    ],
+    "claude-code": [
+      "107f996ce2de081e6c6aa5c0cd32ca41a5669dabdb25ad12a259bf94626260ee",
+      "9a116384c39c480ffef0b2e7200ef43bb1e8ef04d33564782ff5b05362dc1a86",
+      "bff064e1cc45270d4bca7553a8013fa8f937e77a407befd98332e5aff49a36ae",
+      "d0d04058b7a0b451a9913a3c9d406dc47c1cb6aaba2852628507d27c83411cac"
+    ],
+    "codex": [
+      "646d5e1aacfeaf8dafad619f284f3bda45f9f81cb36e1187d2f318f882463cd2",
+      "7a07fa4a3b128b46ba5e882b735b0a5ef4eca771976ad2b7f9f1e54b96a77d86",
+      "8aa57a365747e63efcf470738397158d5d95fdd87b41b5b59c4bd5fef3c349f2",
+      "f42a108e4c9704a44a95af1fcb49f3bf38ab107be6b2a894bcc09ef9c56b3626"
+    ],
+    "cursor": [
+      "61d2a76dcf6242a75628bae002234b504c116941fc621b074b9ae4bb099f8bc5",
+      "6ed20218522086994d54d89389deb40c3a05ef46163c1d38114713fcfdecaeac",
+      "b5f742a1f167b57016f64ce077f51e307eaded7846b77fe5bdb647fb75d7fcc0",
+      "c36c60f1ce6a7774203c2acce6e84b429bf5bee801fcb113bfa51c7b0d774f15",
+      "ee635662b64d0142847dfe0e879ce853a93020aa25d72263a457f0a3f9272dca"
+    ],
+    "devin-cli": [
+      "3253f2f03d422fb9ee1a523d7a0c60de557fca7b97fb4c424cb03132fdb417e2",
+      "52a188ecd1cd84b6ee0f67910171d7a339c788dd4638f1738fee612871a36565",
+      "f0e5edb8d0b2df6fdbcbddbd9038f66ab3da09e991d7b07d3ea90b03253755ed"
+    ],
+    "dsh": [
+      "38c3ec277d220b79ada0bb22343ea61aa8b25552fbe7a4ed07e69b04153a3f81"
+    ],
+    "git-pre-commit": [
+      "1e1fc0c8d3bb21d184c235c0010f684b52fcc399f8e0c6f489063c35df0ad8dc",
+      "36afe19bc62c3cf6f8af3393c77bfa41f195a7592a54e6944451b21bc0a92f1d",
+      "3ad2c5182121699891bce34c3e51306c2b0ce78c678abbeb6f3a6cb782b3e191",
+      "cacbb844bb1aebf973a9b9d7b0899d952cce84f0b0f0816786eada9f99d2d3b7"
+    ],
+    "github-copilot": [
+      "554519bea24ff1dff08508590d066a08eb8cf0f9958a69312aebbb8813d903ee",
+      "80d69faf382b27596882e7dab5c7fcb1acfd0adebaba3ba77f3d2b63d4aa872d",
+      "a9f5b7d5d9afa5e15e18eba4b15a8e36b21fac0dbcc6daf2db46672d299356be"
+    ],
+    "grok": [
+      "3c897a52f5b212691c5c302ce18ce23aea3120f996e43f0f6a7b49b0d7ff6970",
+      "7a6fd9871cb43571f2c61b1e727a572a239cc6d8b7ee6dbe204f66d948316832"
+    ],
+    "kilo": [
+      "4c89ca7233759bbce8d3b241d44d73243e69dc28ef169a99b05705bd157db343",
+      "6b6623b67261e1efcc733a030e18470cec0d818427d06cb5212610cbbb34697d",
+      "6c6259c28fcc42219560df2957234ea28fc30903beb27da735f1bebdb91623ba",
+      "908cc399bb898221eccfc46d7f4fa7f91e9e887b58abb6378cc77a5bc671f509",
+      "a4b3373fb0d93423d434218331ca6bbafbc9fd7df044b55895d4080fbbbba18f",
+      "c3d2f1515eff3f449fbb875e4401d67efd4085be87b53113c41ff44392d67627",
+      "f67a54c09ac034ee6fe8e1e07eb22f6680eb7991918ef745210d3890ec1f8cd4"
+    ],
+    "kimi-code": [
+      "3a74ccf26aa7617dc1eaa7518572de0218e4f15b08a7d0d1267143cfd288429b",
+      "8d8e847ca8b1804e6985c4b435883a1738735df3a129da33e9fc5930ed97f77d"
+    ],
+    "omp": [
+      "1dfc2a99c4aabf03bc59a341b0652a69064508077e0a1ca27eb87c69a3543fc6",
+      "479a2923e808da119f1018fccea24d567f382eaa5eefe931f2dafa32579ed010",
+      "949afd8e464ef35e477366ab8ba6ab8177ee14328b44681e560b8f736f46f202",
+      "94c899dae4167492dcff01c2e50e409f593bed6767881a759b4cd0be470e6fba",
+      "9f781e57cf50787159b2579fd1fe8b96a4e12cab62ac4033048a1a471cb4d55b",
+      "c18e29d1deb70e0fa989ff0421636b5fb3d5f6791086d0fda28becea4d473ea1"
+    ],
+    "opencode": [
+      "0c7d584e251661dfd81177c01b94de0313141f727de8b2487d03727fd3ca7833",
+      "5c3d06ab42656ca93066160b3d81d55a9664a952066a391475dc613cd54af32c",
+      "6286e512ef62a141d3c51b6ee0371a811fa291e41b47d45263e4c4cde8da75db",
+      "7bc380cf2ce6b38a790aa46e3a8d3b6fb35ee832654d45d6558c6d50ed1e4112",
+      "d09a3b95b58369a10e1e5ebfa7a073cc058fb8ffcfd0193a7b13dc984b16a4dd",
+      "dc47d86219a85c4b6b00e963112361140c5c2b0088dfb634db8747cfa8cb100b",
+      "f3bad000e1aad398973ce35c4e8bb73a105d03670e663769012c28dafeedd712"
+    ],
+    "pi": [
+      "055eac17de1c18d892ba2c3ffd477bc18d2d402cfc80bb9daddb897d94e9307e",
+      "5c8eec4b83b42e3c524b56c194eb1ed8234bf2d76f2e1d59e43a482183a5ff0c",
+      "95e71cf3ecf69873679b9240ead0c5cf2d0c246e40d863be46eafcc7add0ffa0",
+      "f15b793068989cc450af805872bfde0c734773cb978785e86e579a1cffa26549"
+    ],
+    "zcode": [
+      "1d5e7bc78739fd63b240f9cf3ebf885e2f4beacc83855073bdd4dee554bc7ed5"
+    ]
+  },
+  "values": {
+    "antigravity": {
+      "": [
+        "1d288c8c3af2137394e155c8ff180f7ee1eb99bfd552c4e9f3f5aedd5c817f0a",
+        "7aa22f44625bcc0306663e60372f77698492c2467c294c7f445f71e98cd89eff"
+      ],
+      "reconc": [
+        "0733c84e2a6cafdfeea1713e8ab3df6d21c3ec78a70300b7eab077c8df227787",
+        "6f9578352c4bd6102ddcbb7e6cb56206978fe158f1584c6c28634b18240bf786"
+      ]
+    },
+    "claude-code": {
+      "": [
+        "29883116f5e3edf5ba464fb455746076967a430cbff0a4ce30ab1b0479468a08",
+        "52d999dab92220afe9caf2a194c3eb9cda469ae283c649134708b4d92e772506",
+        "bc59d2c74694698b92fcccfbbde77b93a4ae3e640fbcac50af20e55ccf55f68b",
+        "de52ff31cd118d6c48ec68fd31e1fef4ba296244260761dd16e65f958b02d215"
+      ],
+      "Notification": [
+        "f83203d5bbfda0ef796d96c659943b7b2375e4ac7f89c2ea1b7c167776ace201"
+      ],
+      "PermissionDenied": [
+        "87cb7ff93cff85f33ed94325dd4023deb578f0f3737507a5ce38067fea238944"
+      ],
+      "PermissionRequest": [
+        "deb71450d60377925c8e0d0f918ba2f3de47e3c396c876fd0e93082127d4c185",
+        "fcc9c850c9b5cb5be547934401639414b4164ff4cb6b37cbaa30c4147b9c377e"
+      ],
+      "PostCompact": [
+        "6d3047132b003b6d0fc60d460dcb429e77385e0830ac6ee59c2a2f85c902406b"
+      ],
+      "PostToolUse": [
+        "427783fcd6d3b93deb1bbc62f916ebb9d1e2318831cef8e52df1aea43fd89662",
+        "54b526c1a16ee12788ae467e69ad78c6c4ef7e43449a2df70e666b7abc6e3b52",
+        "55560059c9612c2107eba86cd35739ea9f379c78523357408555be1c3239daee"
+      ],
+      "PostToolUseFailure": [
+        "54b526c1a16ee12788ae467e69ad78c6c4ef7e43449a2df70e666b7abc6e3b52",
+        "9785522c4fb797e502b2e92d5c91f1e97c52914ca92818668f599d3f3d687085",
+        "d520b60399a90119903cf188e58b86832a721f4e174c426ee548ed1fdf7ec9b9"
+      ],
+      "PreCompact": [
+        "87ac4205376bf08591e730954257b5237cf70f38ea603e03b4bcc91d59fce1a0"
+      ],
+      "PreToolUse": [
+        "0537673962807f3a0b3a45c575670a16352a206fdc904dc719afd82ac726014e",
+        "0f45e3cf15ba048d4fc638d9a2a7dfffdbc8b7028a882c4a7a121028bf27c6ed",
+        "83cf8bbd49d0099e173f04deb4fb20a5a1e0009b39d792fc2187b7e9a657c6a3"
+      ],
+      "SessionEnd": [
+        "e30760995d3c50b4e91458555926390d136e7b889c91845388b877a50f37a175"
+      ],
+      "SessionStart": [
+        "1e405ae912f02a6a95f79b30264a716af0cdad8222a585788868288cc5c716dd",
+        "3066eb06c7ad33415c85a7485345ef640cdab4db25fcdb6ea95447e21ed16f99",
+        "8151cbdc56541ad2737f818fbf6452c315f13b83b535d76a0b19e74df531fc33"
+      ],
+      "Stop": [
+        "b2d7a7fcca2a212938eb2ad767fc2aba312bab9fef75a765b002290d14c14c4f"
+      ],
+      "StopFailure": [
+        "22901a855219b9352640815ef3f48796d27add3d045f177729ded5b31bd8e836"
+      ],
+      "SubagentStart": [
+        "27c7cb52d494ad5395e56d684d1f3ec0a6566846ab590101a0714b748b138606"
+      ],
+      "SubagentStop": [
+        "bf4960f8f67c45fc69c8a93435207d1300bfc003926f4cbaf09c17f274ffc5d1"
+      ],
+      "UserPromptSubmit": [
+        "96f27fc932c4a454500f586a31643cee14f692316ee66cbcd035b95236dfa936"
+      ]
+    },
+    "codex": {
+      "": [
+        "025da454bc91cb34a5cc79326a8f19a433714e06fd972f4f6fd788eb20e7779b",
+        "21bbcc17cad0a28891582603b119448c95fadcf7f42cf2b47ba2f97268716fef",
+        "32de2d01032706f6e9ef75655227317c917be253c2251373a29b71b6c7ce6037",
+        "5123fbad832ff319a382f53b5a3965c06ffd9d9e62fc37f00858fc547d263651"
+      ],
+      "Interrupt": [
+        "7b72f2d7ba970b250a32f30964d2a3e12421c05fc6215b6079a3c00cc81a81ad"
+      ],
+      "PermissionRequest": [
+        "3ddaffcaff40127bd2cd5fb637af55ad13cea8a00a8aed1d6f16f59bf8bb87f2",
+        "abbfb5228530555549d26d1ea7121de8f8c25d9a82b75235dd3f2998f285a899"
+      ],
+      "PostCompact": [
+        "654dff47691663386418938d53a6daebe5da05e80d2f200cc9a45b85b0488de7"
+      ],
+      "PostToolUse": [
+        "358b550d6189ce689b9953f5580acf20903fbca4d993392e51cc9dcca69dd5af",
+        "4b262fed3b5bace69ea3dddf92e0ebd7548b43d224862976d5baa983831e49bd",
+        "54520c07f691934f57f0706e541661ef67a9555a19457a5df9c4f2ae0b3bdde0",
+        "74fce05394d472c4f6d83e6ad177671fa92c39758e3b5932c67897af250e3541"
+      ],
+      "PostToolUseFailure": [
+        "ea6659a2828df572ebbf67b4dddf4bf3a61e2b1a1ff565bfe4fd0782654349ca"
+      ],
+      "PreCompact": [
+        "7063b289d6953a6c93e04c31c63651aab0a2bcdbea9ba5f8a846b736f5978248"
+      ],
+      "PreToolUse": [
+        "1b6f0278d632003f6d4f2568dc0193170149f620cfc45378d111ed48e6025f82",
+        "3592119960455e501cafd57135f041d7959d51760fa5d3d53d58920cfbe726c2",
+        "37d500254b59fb1c0b33bbcee2ea729f844f32a2bb04451498a5e74b65ef4ec0",
+        "b9ebc7f93ff956207b506ab472368efcc7280692f59c4f39217ac0fae875b764"
+      ],
+      "SessionEnd": [
+        "233eb32d82bd39d11f4d183b54283ce85e627f4a0c1cfbffc77fa64e9f19245b"
+      ],
+      "SessionStart": [
+        "636fa1dd0dab96da13f7aef1f9eb922389e19a14ed1e6226262c410c09961f7e",
+        "b7c4509797030bbf3b49fa78ee03ac02839fb130fb31ef43ec67dd0b67baff0e",
+        "be25850d7031b7faea3f21c00b5ad57220bb92103a9b6bbd3ccbaa6080829f9d"
+      ],
+      "Stop": [
+        "890f3fdd9a81f3f56efaa9968ca7ff31e53473eb1ad3c084548e59b92cc47214"
+      ],
+      "SubagentStart": [
+        "3aea1b8d2b02bb8b9918b67d34e085d15f1d5448fc343198f5f33a06b310d614"
+      ],
+      "SubagentStop": [
+        "0bc0d8034425ab7efee2bf090acc5ab9749b87ed55133abe87d2eb88cee03b95",
+        "620f5dbc1b36ff09bb233f0bf9c37c200609bcfec5b4e73f8ec9efcf0ca010e8"
+      ],
+      "UserPromptSubmit": [
+        "175c552de16b24b2cbac6dadb82ebe19cfa557f55a14f89926cf559f5333d9c3"
+      ]
+    },
+    "cursor": {
+      "": [
+        "5d77555d340792e45201fbd1d2c709b59aba5fc19b61504a4dedd908967ac25e",
+        "ba2653ec069c4324377227f74fc2bcd329d0c3e81382eaa02b3d46e61daff06a",
+        "c625df9f57a3f9e49c0ed24a16a6937f7fe99c1bc36f337d741b1086f4c09254",
+        "e89b1b1cd2443dbcf6b872275401a1beaa5292c72b0720d86a9bb839ceeed863",
+        "f95c91758b5a729cd10ad545347c35410bb65d520a17ee8f89b72457822f1e27"
+      ],
+      "afterFileEdit": [
+        "2a96dc75f9f8d4e1f6221d21eec9438b9cec82b2b6b64ea12c9ede9363a8d11f",
+        "435a1c217b698b049a2c06b62e0dc7ebccb5ea796012943b3163838feefbc9a1",
+        "46f46b0515b09b05cf04ae73433c252abca28e9f6cb33613fed19f20b77d1072"
+      ],
+      "afterMCPExecution": [
+        "112b626aaa04ba0866a6f1de54768886350b02748a8cc0d436d297d3db8c1a94",
+        "b207dbe70dc7bb419397149cc411ce486307cc8196d6340dcb7a4a856263d0d4"
+      ],
+      "afterShellExecution": [
+        "3652c1e0a9b1cbf2ee06be453db06164d032488cafc409b363b6a8b57c87e19d",
+        "a8821596fc069f6badfffb89656442dbed5e352066e05ea638fdfce1d2ca59c5",
+        "b82a167db0668c93a5551f1db4a938aeeb869d50220f5868b453911eed02e750"
+      ],
+      "afterTabFileEdit": [
+        "657e533ccb41d7da432a4a86fe7f1c7127f40838ad78d7e8dc0e2223d18517e4",
+        "b7880970609c13f88f432e11b9d9d625425079f3a31d9f9551182879b70491bd",
+        "be665f72b732454447fc6e968c4ad3a6fa75f581eb7fabdada57d145a8c0a650"
+      ],
+      "beforeMCPExecution": [
+        "0729420656495b33561b40cfebdf1ccfe0607b1d26dc3700545ca7cbad262355",
+        "7546f40df190da3c0fba5955881564ef2960af0ac858d658dea3344e9765edc6"
+      ],
+      "beforeShellExecution": [
+        "2113c35db854afbc5634406ccc0c4d5ba7b3b808f0467175c66747594891a8d3",
+        "3cf87b45bf22b34f3da8facdfd504df9d3a63a7d4a2333f6f260f32bb8a32e63",
+        "e88032279841ef07072fca74ae90d0f8c19db2c2e439ae174cc9ee0af5168cbe"
+      ],
+      "beforeSubmitPrompt": [
+        "6c0a3eeeebf060a1c9fc53b33f1a6e4cf9d4b1af8eb4c6a45e7caff16e67ed9b",
+        "75decccb973d08b922529135403da0885c5274fdd859cd71d1e026712cb3a683",
+        "c749b749b5071f747510237c6f576a807460fea39d6d9f5f6e46c012c2209a08"
+      ],
+      "postToolUse": [
+        "48f85e361d44bb86e4be29fba68e4016c7fdc92e6864dcd41b5666801198854c",
+        "4ec9be1ea284ef5561b60ecad48b6bb8a6d1f0967b62fef692ea7595e103b331",
+        "f46721aa1a1b7e88499cb938c35fa34d2a92a19f88adea6a213fc2d6f0ab0dab"
+      ],
+      "postToolUseFailure": [
+        "dc1ac37d8071dace139b7cf0c0c452a46e24783051cfc55fedb6be7de3c472b5",
+        "f897d5a279b251011374307d52e129418cac5f628963d73f2a2f9a02a852ff92"
+      ],
+      "preCompact": [
+        "4331c4309a117a3f890a3b89af862533e40ee2650a785f5b76436befa1b08e65",
+        "aa165b91aa41df9f2443ff47246e95922b2523b2532293c01aaec95fcc27a8ed"
+      ],
+      "preToolUse": [
+        "1a2486791f1d0086a46aca5b333ca83fee7d4bf56933f867c13bda5d3206e3a5",
+        "bff3089813160f762b9f3fd25e5f0744314e29b120165d8718c30e10d6146134",
+        "c8b72cd8b65bb921ea8acfdd99d6950e8e5299ea96fed59ecbb9923bccbdd569"
+      ],
+      "sessionEnd": [
+        "3e8598342eac7024bd3a6c7b21408808ac9fdf73349cff57b36397dac2088066",
+        "9626fce5ec2e9ffd0c47d6a786b3071b86f68465be4d73211acb0ab420ae7301",
+        "c258997948fc5021fce52a3fc93bf18bf429a0f84fe83375abdc34ea1da6e1f5"
+      ],
+      "sessionStart": [
+        "163e560d4bf5353209a0202f45f0890f3f31f72934457886556c7a3608353b57",
+        "2b71db7a1e13d94050ce6282872e45278d1730164ee1720103ec2113b8811bd1",
+        "e4c04bbe61a2ca4f29849d7bf05850d28a7276998d5de8441e3f52f04d711ee7"
+      ],
+      "stop": [
+        "4ca87f079736807dc0cb5fec7e20ed8bf34b4c1438fb2682b026eb6aabedcdd7",
+        "684e2c111b817e21fc29ffa7c5e359ba4dbbc32b3f3b19d4f82297481acc311f",
+        "c7609db33865579cb058def6f82939a58ae7aaae19209227f7fbdfb6c8d48bac"
+      ],
+      "subagentStart": [
+        "38583c91a8656c5a9050a4ee684670f0e30da19020aca0e706da9e94acf6ceb0",
+        "d45c08e1aa371ed771ae6ad24318047ccfec3c9008cf164491cde23ab43e5a62"
+      ],
+      "subagentStop": [
+        "4048bfb7d90ed25719306a48f4d2fc95c8ad4bed5cbc9b39dc212b5394ea2677",
+        "5cd0e7724e1b6626a78f8025071dcdbcfab545247b8e0a9d1c3794c7522dbdd5"
+      ],
+      "workspaceOpen": [
+        "3de61f2135f4940c4e93d559a5210209f0a02ea0ba1334ccbd1925e287465462",
+        "c136a008da351c71b5cd69b36511a995fea5c3749ebc4612d91167a038c22e24"
+      ]
+    },
+    "devin-cli": {
+      "": [
+        "300eba07c8f1618aaeb7ebeea4a12ebf8a6a5a293ad61e1c19335b71f3992f66",
+        "4f9c042a2840bc0d17a3e654e13a38c25e8602151f8282af26c6887b81433f91",
+        "e34e9082b435f88eb1a577b52408b9c57e8a55f7996822ecc3cb657767611b98"
+      ]
+    },
+    "github-copilot": {
+      "": [
+        "347d89499b828146f9f3822c4c3fc6389c842618c60311ec072415b980ff7648",
+        "8b5109ef8e3dd53006a50abfca51e24d0de650176d8a151b573aa3f33ae7f524",
+        "acc0b9f9f8c5d1531395294f1bb2431369c9bad217a15cd731ae098a50a8c383"
+      ],
+      "Notification": [
+        "41ebc6735bf57dcd710db6b6b95f55819b59e6b725387d2746b28400ec6a528c"
+      ],
+      "PermissionRequest": [
+        "263e3433f0bc9ef95f40cbbc534b9b07ea1a696bf612789e573c912e31c45de4",
+        "820aafdaac68df73d63f5b42a985c64bfd2ab98ca6d279bc662702e5feefadf4",
+        "f8cf5f403ad54c5798a03623e735875e9c75c289958128624087a80596468d1e"
+      ],
+      "PostToolUse": [
+        "1aa49d862297cada6775474a6270ba586deaca123dbaa76133f78fb2f403164e",
+        "32e2ae548690912fbe39437a1237de22eac2e43b36bd5edc17c91860a5123174"
+      ],
+      "PostToolUseFailure": [
+        "004ccfb6246bc45cb3264ac686fd9ecddcb02d9d49b44636300577ee5b12e298",
+        "dac64801df50d0b03cb8efb90297c2d89453c305298323ab891292494437e662"
+      ],
+      "PreCompact": [
+        "04389bbcdfb1503a87380a4eb044e55e8335db57ef40c829c5ed84966490c448"
+      ],
+      "PreToolUse": [
+        "6fad5cfaf37a113b473a83cb4217f02646cf6aedc24a0f34ccefc428209daf85",
+        "d0aee160e4f11e131d7a04bb4c736d0d5631d5364c876c974bfa04610dc17b8c",
+        "fe2a1e8750fc23e14c8ad39dad055e704e3d31444ac16c2eeb538969d01d7e12"
+      ],
+      "SessionEnd": [
+        "ea2d2323704221ab1ef558890e0b24b2ac4f4f02fbd0fc924c43863f2f4038ca",
+        "f8031e74be432d370723ab033b09d27ffaffad44d35d27e077fe3de3b6167f24"
+      ],
+      "SessionStart": [
+        "43c1041b044a8c8064eb3a5cc5afc1937ecdd8391c21efcfd3d93aef08964aec",
+        "eced4da0e838310c670884a8fb8a85cfb522b043b8a3cced028e2c02caf52823"
+      ],
+      "Stop": [
+        "4e239e40c99d97474bf99cad84a2f7d0f2f1d1303c4c51f4f98df99115b6151a",
+        "9558abc4e16ee1452b3574bcc30f2252d57aeb529be280c1778726eaa51e3064"
+      ],
+      "SubagentStop": [
+        "b705c0509c2d055eaa30607a789fbd77228734cb3d60b37415aa05353036b1c2"
+      ],
+      "UserPromptSubmit": [
+        "90f1da7d2a14f0a878da152ac08fed06eb2ded98438c2a4ad47c2e3980eca74c"
+      ],
+      "subagentStart": [
+        "bcae94db7519a8ddbc649790dd79a04936fd86d2cbcda9b415eae8d603c117d2"
+      ]
+    },
+    "grok": {
+      "": [
+        "902d38b89feb9655b3335ab35f8d9a55ccaaa08a187a06d4e9924ee8af054148",
+        "a384afd44738e3cb90cb836526d5df178d7fb42f3ee3eda1958a05bc16c3fd46"
+      ],
+      "Notification": [
+        "f9c1f39b96fc963f9664d0b119e1849e44cf6ec9c56c14ddf1ed6e2217154093"
+      ],
+      "PermissionDenied": [
+        "0b344229f500c342022c0154d253b583041be60d297e6102cf4e803e785a7c82"
+      ],
+      "PostCompact": [
+        "ad1495c9c2b2f79b7802180d1092211c945c7b5bc3f9d3823ccbd80c1f2446d6"
+      ],
+      "PostToolUse": [
+        "2b1406b7bfaefa1c168ed973e12d32b00d96bd91dc1edae9b7cc3d28c6aa59d9"
+      ],
+      "PostToolUseFailure": [
+        "8d98c66eea13d43a227d3f85889f8d3368cee2792134aab1d97b60477d8f29f2"
+      ],
+      "PreCompact": [
+        "fc4d5f87f25ec323ef276ee4679a7686ea30ec0f342248a3d2a9a038f81eb56f"
+      ],
+      "PreToolUse": [
+        "12ce5fe3684f033b31f507830c501f7a88ed6756d88d85f3bf2fc822c4809a56"
+      ],
+      "SessionEnd": [
+        "e7b560537b356d14af5878b04b9d0fbea530627bb7e2d46b2c51fa09758407b8"
+      ],
+      "SessionStart": [
+        "52b525e09c745204ddfa5f05da8d8a40f8669143040803adf0d716769e98559d"
+      ],
+      "Stop": [
+        "1f51cd6a2b7562cfb12d4e8593ac3ae772ec05747060dea67e9fedb86549a444",
+        "cb9519808bb4a3af93eb6f3eaac640a7801a4435e9975eaea97415257eeae997"
+      ],
+      "StopFailure": [
+        "fb10ad5c8a71b4580c5a6c7a3be0f98bc0b02e5c0513951358cab4d0c9058457"
+      ],
+      "SubagentStart": [
+        "45463573afa319b4f7d598d14bf967c0d862342a0534ba8c9cee3ce2c9c80f18"
+      ],
+      "SubagentStop": [
+        "07bab54e4ed09bbc279815ffa7945e7b3dbb12dae451d7ad409a6517f99cc5a8"
+      ],
+      "UserPromptSubmit": [
+        "a41963531a3f4a353e8f736097dab153d88e18c427d959f9d662c560ca519097"
+      ]
+    },
+    "zcode": {
+      "": [
+        "d70faa642a89aa26e9daca5a57e417a4d4b9ac71863ce45fc9602be39e489fb3"
+      ],
+      "PermissionRequest": [
+        "173f9e830d6ffcca03f38bc9660e463c3e86067876566faf643804674e2778f0"
+      ],
+      "PostToolUse": [
+        "a5f975a3258108b7d67b09163595d1aac1e429c9edd06edb4cf5e8c0f0e614fa"
+      ],
+      "PostToolUseFailure": [
+        "3aef2ffc00118c265a98f20973b48b336f25893191ecec0859a54dccb2db21f4"
+      ],
+      "PreToolUse": [
+        "b7e00036bc5088ed59c515f49d18cedb2e173901d7c7c7b2effd352e7555dcab"
+      ],
+      "SessionStart": [
+        "afa8af982deba6e7027b5003789d7db402bb2696130c7739388d6cd04592b048"
+      ],
+      "Stop": [
+        "531d557f769604d1b8dccfaf3b03d5d36be47506d53947dbb036e7b1952fef0e"
+      ],
+      "UserPromptSubmit": [
+        "54f5ce2c0c138e0691c6869da035e7487eb4574e1494dccb11fbce669a318f07"
+      ]
+    }
+  }
+}

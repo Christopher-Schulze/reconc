@@ -599,7 +599,9 @@ release. Exact downgrades fail unless the caller explicitly opts in, and
 that reads the format 2 installation receipt the update leaves behind.
 `reconc init` and `bootstrap apply` keep an intact receipt-owned CLI that PATH
 resolves even when it is a different build than the running one; they install
-the running build only when no callable owned CLI exists. A custom
+the running build only when no callable owned CLI exists, and never in place of
+a valid direct release install, whose receipt owner that would rewrite: they
+stop and name `reconc update` or the release installer instead. A custom
 release base requires an exact version and cannot be mixed with channel
 discovery. POSIX defaults to `~/.local/bin`; Windows defaults to the
 user-writable `%LOCALAPPDATA%\Programs\Reconc\bin`. Both report the exact PATH
@@ -6193,6 +6195,19 @@ public history was erased.
 
 ## GitHub And Release
 
+Every published release's hook generator output is recorded in
+`internal/hooks/legacy_generators.json` as SHA-256 digests per host kind:
+whole artifacts and, for JSON hosts, each generated hook entry per event and
+the owned top-level `reconc` value. Install and uninstall treat exactly that
+output as Reconc's own, so upgrading from a recorded release reports no user
+edits and uninstall removes it; an edited release entry is still reported or
+left in place. `go run ./scripts/build/legacy-hook-generators` regenerates the
+registry from every stable release tag in HEAD's history from 0.7.0 on, the
+first release whose generators it can run: it exports each tag's source, runs
+that release's own generators, and files renamed host kinds (0.7's `copilot`)
+under their current name. Regenerate it before each release; the release
+workflow runs it with `--check` and fails when the committed registry differs.
+
 GitHub workflows:
 
 - `.github/workflows/reconc-ci.yml`
@@ -6278,8 +6293,9 @@ Release:
   job provisions the same pinned
   GitHub-owned Node.js runtime and exact verified Bun runtime and runs formatting,
   tidy, vet, pinned
-  Govulncheck, pinned Staticcheck, race, publication, trust, and clean-repository
-  self-hosting checks before building.
+  Govulncheck, pinned Staticcheck, race, publication, trust, legacy hook
+  generator registry, and clean-repository self-hosting checks before
+  building.
 - `make release RELEASE_TAG=reconc-vX.Y.Z` builds the exact flat release inventory from the selected existing tag.
 - `release-manifest.json` binds the exact repository, tag, version, prerelease
   class, asset names, sizes, SHA-256 digests, and format version consumed by

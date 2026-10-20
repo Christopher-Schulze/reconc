@@ -102,6 +102,9 @@ func ensureCurrentUserCLI(command string, version string) error {
 	if diagnostic.Status == usercli.DiagnosticHealthy || callableReceiptOwnedCLI(diagnostic) {
 		return nil
 	}
+	if reason := directInstallReplacementRefusal(diagnostic); reason != "" {
+		return userCLICommandError(command, reason)
+	}
 	report, err := usercli.InstallCurrentWithReceipt("", usercli.InstallOptions{Version: version, SkillMode: usercli.SkillSkip})
 	if err != nil {
 		return userCLICommandError(command, "install user CLI: "+err.Error())
@@ -125,6 +128,16 @@ func callableReceiptOwnedCLI(diagnostic *usercli.GlobalDiagnostic) bool {
 		return false
 	}
 	return filepath.Clean(*diagnostic.BinaryPath) == filepath.Clean(*diagnostic.ResolvedPath)
+}
+
+// directInstallReplacementRefusal explains why a valid direct release install
+// is not replaced implicitly: installing the running build would rewrite its
+// receipt owner as source. Only explicit update or install-cli changes it.
+func directInstallReplacementRefusal(diagnostic *usercli.GlobalDiagnostic) string {
+	if diagnostic == nil || !diagnostic.ReceiptValid || diagnostic.Owner == nil || *diagnostic.Owner != usercli.ManagerDirect {
+		return ""
+	}
+	return "the global Reconc CLI is a direct release install (" + string(diagnostic.Status) + "); replacing it with the running build would rewrite its owner. Run `reconc update` or rerun the release installer, or `reconc doctor --global` for the cause, then retry"
 }
 
 func userCLICommandError(command, message string) error {
@@ -157,6 +170,10 @@ func installCLIOptions(version string) (usercli.InstallOptions, error) {
 	options.ArtifactName = strings.TrimSpace(os.Getenv("RECONC_INSTALL_ARTIFACT"))
 	options.ReleaseTag = strings.TrimSpace(os.Getenv("RECONC_INSTALL_RELEASE_TAG"))
 	options.ProvenanceState = usercli.ProvenanceState(strings.TrimSpace(os.Getenv("RECONC_INSTALL_PROVENANCE")))
+	options.AttestedSHA256 = strings.TrimSpace(os.Getenv("RECONC_INSTALL_ATTESTED_SHA256"))
+	if options.AttestedSHA256 != "" && (len(options.AttestedSHA256) != 64 || strings.Trim(options.AttestedSHA256, "0123456789abcdef") != "") {
+		return usercli.InstallOptions{}, fmt.Errorf("RECONC_INSTALL_ATTESTED_SHA256 must be a lowercase SHA-256 digest")
+	}
 	if options.ProvenanceState == "" {
 		options.ProvenanceState = usercli.ProvenanceEmbeddedVerified
 	}

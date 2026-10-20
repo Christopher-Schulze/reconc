@@ -196,6 +196,7 @@ jobs:
           go test -race -count=1 ./...
           (cd harness/template && go test -race -count=1 ./...)
           ./scripts/tests/release-trust.sh
+          go run ./scripts/build/legacy-hook-generators --check
           make self-host
 
       - name: Build artifacts

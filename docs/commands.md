@@ -231,13 +231,17 @@ Installers and `reconc install-cli`:
   `gh` that PATH resolves records `github-verified`; a success reported by any
   other verifier keeps the checksum-verified `embedded-verified` state
 - `RECONC_INSTALL_MANAGER`, `RECONC_INSTALL_CHANNEL`,
-  `RECONC_INSTALL_ARTIFACT`, `RECONC_INSTALL_RELEASE_TAG`, and
-  `RECONC_INSTALL_PROVENANCE` -- installer-to-binary transaction metadata;
-  reserved for shipped native installers, not user configuration.
-  `install-cli` rejects unsupported ownership claims through this surface. A
-  `github-verified` claim is recorded only after the installed binary verifies
-  against its release attestation with `gh`; without `gh` the receipt records
-  `embedded-verified`, and a failing verification refuses the receipt
+  `RECONC_INSTALL_ARTIFACT`, `RECONC_INSTALL_RELEASE_TAG`,
+  `RECONC_INSTALL_PROVENANCE`, and `RECONC_INSTALL_ATTESTED_SHA256` --
+  installer-to-binary transaction metadata; reserved for shipped native
+  installers, not user configuration. `install-cli` rejects unsupported
+  ownership claims through this surface. A `github-verified` claim is recorded
+  only after the installed binary verifies against its release attestation
+  with `gh`; the installers verify the artifact before running it and pass its
+  SHA-256, and `install-cli` reuses that verification when the installed
+  binary has exactly that digest instead of calling `gh` again. Without `gh`
+  the receipt records `embedded-verified`, and a failing verification refuses
+  the receipt
 
 Variables prefixed `RECONC_HOOK_` other than the timing pair (for example
 `RECONC_HOOK_REPO_RESOLVED`, `RECONC_HOOK_RUNTIME`) are internal wrapper
@@ -1338,8 +1342,11 @@ change, relocation, or binary replacement fails with `doctor --global` and
 
 ### `reconc hook uninstall <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|dsh|pi|zcode|kimi-code> [repo] [--json] [--output PATH]`
 Remove only generator-exact dedicated artifacts or canonical Reconc-owned JSON
-entries while preserving unrelated hooks and configuration. Modified or
-ambiguous Reconc-looking entries fail closed. Codex removes only its managed
+entries while preserving unrelated hooks and configuration. Generator-exact
+includes the exact output of every published release recorded in the legacy
+generator registry, so an install from an earlier release is removed after an
+upgrade, and `hook install` replaces such output without reporting user edits.
+Modified or ambiguous Reconc-looking entries fail closed. Codex removes only its managed
 activation block and restores a force-replaced explicit `hooks = false` line
 or inline-table expression byte-for-byte. The shared repo-local wrapper is
 deliberately preserved because

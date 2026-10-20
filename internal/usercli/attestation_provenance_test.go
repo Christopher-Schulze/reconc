@@ -62,3 +62,27 @@ func TestEnvironmentGitHubProvenanceClaimIsVerified(t *testing.T) {
 		t.Fatalf("an embedded claim passes through: %q, %v", state, err)
 	}
 }
+
+// The installer verifies the release artifact before it runs install-cli;
+// that verification of the same bytes is reused instead of repeated.
+func TestInstallerAttestationOfTheSameDigestIsReused(t *testing.T) {
+	previousCommand := lifecycleCommand
+	t.Cleanup(func() { lifecycleCommand = previousCommand })
+	t.Setenv("RECONC_ATTESTATION_TOOL", "")
+	fakeGitHubCLI(t)
+	lifecycleCommand = lifecycleHelperCommandWithOutput("1", "network unavailable")
+	binary := filepath.Join(t.TempDir(), "reconc")
+	if err := os.WriteFile(binary, []byte("release bytes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := fileSHA256(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state, err := verifiedInstallProvenanceFor(ProvenanceGitHubVerified, binary, "reconc-v1.0.0", digest); err != nil || state != ProvenanceGitHubVerified {
+		t.Fatalf("the installer's verification of these bytes was not reused: %q, %v", state, err)
+	}
+	if _, err := verifiedInstallProvenanceFor(ProvenanceGitHubVerified, binary, "reconc-v1.0.0", strings.Repeat("0", 64)); err == nil {
+		t.Fatal("a verification of other bytes certified this binary")
+	}
+}

@@ -441,8 +441,21 @@ func isGitHubCLI(path string) bool {
 // verifier on PATH it keeps the checksum-verified state, and a failing
 // verification refuses the receipt.
 func verifiedInstallProvenance(claimed ProvenanceState, binaryPath, releaseTag string) (ProvenanceState, error) {
+	return verifiedInstallProvenanceFor(claimed, binaryPath, releaseTag, "")
+}
+
+// verifiedInstallProvenanceFor verifies a claimed GitHub provenance unless the
+// caller already verified exactly these bytes: the release installer checks
+// the attestation of the artifact it then runs, and repeating that network
+// check would hold the receipt lock and fail on a transient outage.
+func verifiedInstallProvenanceFor(claimed ProvenanceState, binaryPath, releaseTag, attestedSHA256 string) (ProvenanceState, error) {
 	if claimed != ProvenanceGitHubVerified {
 		return claimed, nil
+	}
+	if attestedSHA256 != "" {
+		if digest, err := fileSHA256(binaryPath); err == nil && digest == attestedSHA256 {
+			return ProvenanceGitHubVerified, nil
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), installAttestationTimeout)
 	defer cancel()

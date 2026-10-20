@@ -125,7 +125,7 @@ func planPlatformUninstall(root string, definition platformDefinition) ([]uninst
 		if generateErr != nil {
 			return nil, display, "", 0, generateErr
 		}
-		if !matchesGeneratedContent(data, artifact.Content, definition.InstallMode == InstallManagedJSON) {
+		if !matchesGeneratedContent(data, artifact.Content, definition.InstallMode == InstallManagedJSON) && !legacyGeneratedArtifact(definition.Kind, data) {
 			return nil, display, "", 0, &rerrors.PolicySourceError{Message: display + " differs from the current Reconc generator; refusing to delete drifted content"}
 		}
 		mutation := uninstallMutation{path: target, display: display, before: data, mode: info.Mode().Perm(), remove: true}
@@ -174,7 +174,7 @@ func planNestedJSONUninstall(target, display string, data []byte, mode os.FileMo
 	if err != nil {
 		return nil, display, "", 0, err
 	}
-	removed, err := removeCanonicalReconcHooks(document, generated)
+	removed, err := removeCanonicalReconcHooks(document, generated, kind)
 	if err != nil {
 		return nil, display, "", 0, &rerrors.PolicySourceError{Message: display + ": " + err.Error()}
 	}
@@ -190,7 +190,7 @@ func planNestedEventsJSONUninstall(target, display string, data []byte, mode os.
 	if err != nil {
 		return nil, display, "", 0, err
 	}
-	removed, err := removeCanonicalReconcNestedEventHooks(document, generated)
+	removed, err := removeCanonicalReconcNestedEventHooks(document, generated, kind)
 	if err != nil {
 		return nil, display, "", 0, &rerrors.PolicySourceError{Message: display + ": " + err.Error()}
 	}
@@ -208,7 +208,7 @@ func planFlatJSONUninstall(target, display string, data []byte, mode os.FileMode
 	}
 	document := map[string]interface{}{"hooks": hooksDocument}
 	generated := map[string]interface{}{"hooks": generatedHooks}
-	removed, err := removeCanonicalReconcHooks(document, generated)
+	removed, err := removeCanonicalReconcHooks(document, generated, kind)
 	if err != nil {
 		return nil, display, "", 0, &rerrors.PolicySourceError{Message: display + ": " + err.Error()}
 	}
@@ -232,7 +232,7 @@ func planOwnedJSONUninstall(target, display string, data []byte, mode os.FileMod
 	if err != nil {
 		return nil, display, "", 0, err
 	}
-	if !reflect.DeepEqual(value, generated["reconc"]) {
+	if !reflect.DeepEqual(value, generated["reconc"]) && !legacyGeneratedValue(kind, "reconc", value) {
 		return nil, display, "", 0, &rerrors.PolicySourceError{Message: display + " has a modified or foreign top-level reconc entry; refusing removal"}
 	}
 	delete(document, "reconc")

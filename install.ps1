@@ -451,12 +451,15 @@ function Install-ReconcVerifiedArtifact {
     $savedArtifact = [Environment]::GetEnvironmentVariable("RECONC_INSTALL_ARTIFACT", "Process")
     $savedTag = [Environment]::GetEnvironmentVariable("RECONC_INSTALL_RELEASE_TAG", "Process")
     $savedProvenance = [Environment]::GetEnvironmentVariable("RECONC_INSTALL_PROVENANCE", "Process")
+    $savedAttestedDigest = [Environment]::GetEnvironmentVariable("RECONC_INSTALL_ATTESTED_SHA256", "Process")
     try {
         $env:RECONC_INSTALL_MANAGER = "direct"
         $env:RECONC_INSTALL_CHANNEL = $InstallChannel
         $env:RECONC_INSTALL_ARTIFACT = $AssetName
         $env:RECONC_INSTALL_RELEASE_TAG = "reconc-v$ReleaseVersion"
         $env:RECONC_INSTALL_PROVENANCE = $ProvenanceState
+        # install-cli reuses the attestation verified above for these bytes.
+        $env:RECONC_INSTALL_ATTESTED_SHA256 = (Get-ReconcFileSha256 -Path $ArtifactPath).ToLowerInvariant()
         $installArguments = @("install-cli", "--install-dir", $resolvedInstallDirectory, "--json")
         if ($SkipSkill) {
             $installArguments += "--no-skill"
@@ -470,6 +473,7 @@ function Install-ReconcVerifiedArtifact {
         $env:RECONC_INSTALL_ARTIFACT = $savedArtifact
         $env:RECONC_INSTALL_RELEASE_TAG = $savedTag
         $env:RECONC_INSTALL_PROVENANCE = $savedProvenance
+        $env:RECONC_INSTALL_ATTESTED_SHA256 = $savedAttestedDigest
     }
     if ($installExitCode -ne 0) {
         $detail = ($installOutput | Out-String).Trim()

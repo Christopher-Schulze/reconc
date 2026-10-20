@@ -56,7 +56,7 @@ func installDevinCLI(repoRoot string, force bool) (*InstallReport, error) {
 		} else {
 			wrappedDest := map[string]interface{}{"hooks": existingHooks}
 			wrappedGenerated := map[string]interface{}{"hooks": generatedHooks}
-			mergeDiff = mergeReconcHooks(wrappedDest, wrappedGenerated, MergeOptions{Force: force})
+			mergeDiff = mergeReconcHooks(wrappedDest, wrappedGenerated, MergeOptions{Force: force, Kind: KindDevinCLI})
 			if len(mergeDiff.Blocked) != 0 {
 				return nil, &rerrors.PolicySourceError{
 					Message: target + " has incompatible hook values: " + strings.Join(mergeDiff.Blocked, "; ") + "; pass --force to replace only those values",
@@ -194,13 +194,16 @@ func installManagedPlatformFile(kind, repoRoot string, force bool, managed func(
 		action = writeAction
 	}
 	report := &InstallReport{Kind: kind, RepoRoot: root, TargetPath: artifact.TargetPath, Action: action, Executable: artifact.Executable, NextAction: nextAction}
-	if snapshot.exists && action == "updated" && managed(snapshot.body) {
+	if snapshot.exists && action == "updated" && managed(snapshot.body) && !legacyGeneratedArtifact(kind, snapshot.body) {
 		report.DroppedUserEdits = []string{artifact.TargetPath + ": managed content replaced; review local customizations"}
 	}
 	return report, nil
 }
 
 func isManagedGitHubCopilotConfig(data []byte) bool {
+	if legacyGeneratedArtifact(KindGitHubCopilot, data) {
+		return true
+	}
 	var topLevel map[string]json.RawMessage
 	if json.Unmarshal(data, &topLevel) != nil || len(topLevel) != 2 {
 		return false

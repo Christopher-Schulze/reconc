@@ -30,6 +30,9 @@ type MergeOptions struct {
 	// Without it, the merge reports Blocked conflicts and leaves those values
 	// untouched so the installer can fail before publication.
 	Force bool
+	// Kind names the host whose published-release entries are replaced as
+	// generator output rather than reported as user edits.
+	Kind string
 }
 
 // MergeDiff describes what mergeReconcHooks did per event. Used by
@@ -294,7 +297,7 @@ func mergeReconcHookMaps(destHooks, reconcHooks map[string]interface{}, opts Mer
 
 		filtered := make([]interface{}, 0, len(existingEntries))
 		for _, e := range existingEntries {
-			if containsExactHookEntry(newEntries, e) {
+			if containsExactHookEntry(newEntries, e) || legacyGeneratedValue(opts.Kind, event, e) {
 				continue
 			}
 			preserved, removed, kept := filterReconcEntry(e, canonical, newEntries, opts.KeepUserEdits)
@@ -321,6 +324,9 @@ func mergeReconcHookMaps(destHooks, reconcHooks map[string]interface{}, opts Mer
 		}
 		filtered := make([]interface{}, 0, len(existingEntries))
 		for _, e := range existingEntries {
+			if legacyGeneratedValue(opts.Kind, event, e) {
+				continue
+			}
 			preserved, removed, kept := filterReconcProcesses(e, nil, opts.KeepUserEdits)
 			for _, command := range removed {
 				diff.Removed = append(diff.Removed, event+": "+command)
@@ -354,7 +360,7 @@ func finalizeMergeDiff(diff MergeDiff) MergeDiff {
 // removeCanonicalReconcHooks strips only entries that exactly match the
 // current generator. Reconc-looking but modified entries are ambiguous and
 // fail closed before any caller writes the resulting document.
-func removeCanonicalReconcHooks(dest, reconcPart map[string]interface{}) (int, error) {
+func removeCanonicalReconcHooks(dest, reconcPart map[string]interface{}, kind string) (int, error) {
 	reconcHooks, ok := reconcPart["hooks"].(map[string]interface{})
 	if !ok {
 		return 0, fmt.Errorf("generated hook map is missing")
@@ -363,7 +369,7 @@ func removeCanonicalReconcHooks(dest, reconcPart map[string]interface{}) (int, e
 	if !ok {
 		return 0, nil
 	}
-	removed, err := removeCanonicalReconcHookMaps(destHooks, reconcHooks)
+	removed, err := removeCanonicalReconcHookMaps(destHooks, reconcHooks, kind)
 	if err != nil {
 		return 0, err
 	}
@@ -373,7 +379,7 @@ func removeCanonicalReconcHooks(dest, reconcPart map[string]interface{}) (int, e
 	return removed, nil
 }
 
-func removeCanonicalReconcNestedEventHooks(dest, reconcPart map[string]interface{}) (int, error) {
+func removeCanonicalReconcNestedEventHooks(dest, reconcPart map[string]interface{}, kind string) (int, error) {
 	reconcHooks, ok := reconcPart["hooks"].(map[string]interface{})
 	if !ok {
 		return 0, fmt.Errorf("generated hook settings are missing")
@@ -390,7 +396,7 @@ func removeCanonicalReconcNestedEventHooks(dest, reconcPart map[string]interface
 	if !ok {
 		return 0, nil
 	}
-	removed, err := removeCanonicalReconcHookMaps(destEvents, reconcEvents)
+	removed, err := removeCanonicalReconcHookMaps(destEvents, reconcEvents, kind)
 	if err != nil {
 		return 0, err
 	}
@@ -403,7 +409,7 @@ func removeCanonicalReconcNestedEventHooks(dest, reconcPart map[string]interface
 	return removed, nil
 }
 
-func removeCanonicalReconcHookMaps(destHooks, reconcHooks map[string]interface{}) (int, error) {
+func removeCanonicalReconcHookMaps(destHooks, reconcHooks map[string]interface{}, kind string) (int, error) {
 	removed := 0
 	for event, existingRaw := range destHooks {
 		existingEntries, ok := existingRaw.([]interface{})
@@ -418,6 +424,10 @@ func removeCanonicalReconcHookMaps(destHooks, reconcHooks map[string]interface{}
 		}
 		filtered := make([]interface{}, 0, len(existingEntries))
 		for _, entry := range existingEntries {
+			if legacyGeneratedValue(kind, event, entry) {
+				removed++
+				continue
+			}
 			switch classifyHookEntry(entry, canonical) {
 			case NonReconc:
 				filtered = append(filtered, entry)

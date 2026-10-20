@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"os"
+	"strings"
 	"testing"
 
 	"reconc.dev/reconc/internal/usercli"
@@ -38,5 +39,31 @@ func TestEnsureCurrentUserCLIKeepsAnIntactReceiptOwnedInstall(t *testing.T) {
 	}
 	if !bytes.Equal(before, after) {
 		t.Fatalf("bootstrap rewrote the receipt of an intact install:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+// A direct release install keeps its owner: bootstrap never replaces it with
+// the running build implicitly and names the explicit commands instead.
+func TestImplicitReplacementOfADirectInstallIsRefused(t *testing.T) {
+	direct, source := usercli.ManagerDirect, usercli.ManagerSource
+	for _, test := range []struct {
+		name       string
+		diagnostic usercli.GlobalDiagnostic
+		refused    bool
+	}{
+		{name: "direct receipt", diagnostic: usercli.GlobalDiagnostic{Owner: &direct, ReceiptValid: true, Status: usercli.DiagnosticStale}, refused: true},
+		{name: "source receipt", diagnostic: usercli.GlobalDiagnostic{Owner: &source, ReceiptValid: true, Status: usercli.DiagnosticStale}},
+		{name: "no receipt", diagnostic: usercli.GlobalDiagnostic{Status: usercli.DiagnosticStale}},
+		{name: "invalid direct receipt", diagnostic: usercli.GlobalDiagnostic{Owner: &direct, Status: usercli.DiagnosticStale}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reason := directInstallReplacementRefusal(&test.diagnostic)
+			if (reason != "") != test.refused {
+				t.Fatalf("refusal = %q, want refused=%t", reason, test.refused)
+			}
+			if test.refused && (!strings.Contains(reason, "direct") || !strings.Contains(reason, "reconc update")) {
+				t.Fatalf("refusal names no explicit remediation: %q", reason)
+			}
+		})
 	}
 }

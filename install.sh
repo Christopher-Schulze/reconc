@@ -348,6 +348,7 @@ if install_output=$(
     RECONC_INSTALL_ARTIFACT="$asset" \
     RECONC_INSTALL_RELEASE_TAG="$release_tag" \
     RECONC_INSTALL_PROVENANCE="$attestation_state" \
+    RECONC_INSTALL_ATTESTED_SHA256="$actual" \
     "$@" 2>&1
 ); then
   install_status=0

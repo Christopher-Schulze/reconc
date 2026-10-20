@@ -1,0 +1,117 @@
+{
+  "hooks": {
+    "Notification": [
+      {
+        "bash": "tools/reconc/bin/hook copilot-notification .",
+        "cwd": ".",
+        "powershell": "\u0026 sh \"tools/reconc/bin/hook\" \"copilot-notification\" \".\"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+        "timeoutSec": 5,
+        "type": "command"
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "bash": "tools/reconc/bin/hook copilot-permission-request . || printf '%s\\n' '{\"behavior\":\"deny\",\"message\":\"Reconc could not evaluate this GitHub Copilot permission request. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'",
+        "cwd": ".",
+        "matcher": "Bash|Edit|Write",
+        "powershell": "if (Get-Command sh -ErrorAction SilentlyContinue) { \u0026 sh \"tools/reconc/bin/hook\" \"copilot-permission-request\" \".\"; if ($LASTEXITCODE -ne 0) { Write-Output '{\"behavior\":\"deny\",\"message\":\"Reconc could not evaluate this GitHub Copilot permission request. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'; exit 0 } } else { Write-Output '{\"behavior\":\"deny\",\"message\":\"Reconc could not evaluate this GitHub Copilot permission request. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'; exit 0 }",
+        "timeoutSec": 10,
+        "type": "command"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "bash": "tools/reconc/bin/hook copilot-post-tool-use .",
+        "cwd": ".",
+        "matcher": "Read|Bash|Edit|Write",
+        "powershell": "\u0026 sh \"tools/reconc/bin/hook\" \"copilot-post-tool-use\" \".\"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+        "timeoutSec": 5,
+        "type": "command"
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "bash": "tools/reconc/bin/hook copilot-post-tool-use-failure .",
+        "cwd": ".",
+        "matcher": "Read|Bash|Edit|Write",
+        "powershell": "\u0026 sh \"tools/reconc/bin/hook\" \"copilot-post-tool-use-failure\" \".\"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+        "timeoutSec": 5,
+        "type": "command"
+      }
+    ],
+    "PreCompact": [
+      {
+        "bash": "tools/reconc/bin/hook copilot-pre-compaction .",
+        "cwd": ".",
+        "powershell": "\u0026 sh \"tools/reconc/bin/hook\" \"copilot-pre-compaction\" \".\"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+        "timeoutSec": 5,
+        "type": "command"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "bash": "tools/reconc/bin/hook copilot-pre-tool-use . || printf '%s\\n' '{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Reconc could not evaluate this GitHub Copilot tool call. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'",
+        "cwd": ".",
+        "matcher": "Bash|Edit|Write",
+        "powershell": "if (Get-Command sh -ErrorAction SilentlyContinue) { \u0026 sh \"tools/reconc/bin/hook\" \"copilot-pre-tool-use\" \".\"; if ($LASTEXITCODE -ne 0) { Write-Output '{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Reconc could not evaluate this GitHub Copilot tool call. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'; exit 0 } } else { Write-Output '{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Reconc could not evaluate this GitHub Copilot tool call. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'; exit 0 }",
+        "timeoutSec": 10,
+        "type": "command"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "bash": "tools/reconc/bin/hook copilot-session-end .",
+        "cwd": ".",
+        "powershell": "\u0026 sh \"tools/reconc/bin/hook\" \"copilot-session-end\" \".\"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+        "timeoutSec": 5,
+        "type": "command"
+      }
+    ],
+    "SessionStart": [
+      {
+        "bash": "tools/reconc/bin/hook copilot-session-start .",
+        "cwd": ".",
+        "powershell": "\u0026 sh \"tools/reconc/bin/hook\" \"copilot-session-start\" \".\"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+        "timeoutSec": 5,
+        "type": "command"
+      }
+    ],
+    "Stop": [
+      {
+        "bash": "tools/reconc/bin/hook copilot-stop . || printf '%s\\n' '{\"decision\":\"block\",\"reason\":\"Reconc could not evaluate this GitHub Copilot stop. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'",
+        "cwd": ".",
+        "powershell": "if (Get-Command sh -ErrorAction SilentlyContinue) { \u0026 sh \"tools/reconc/bin/hook\" \"copilot-stop\" \".\"; if ($LASTEXITCODE -ne 0) { Write-Output '{\"decision\":\"block\",\"reason\":\"Reconc could not evaluate this GitHub Copilot stop. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'; exit 0 } } else { Write-Output '{\"decision\":\"block\",\"reason\":\"Reconc could not evaluate this GitHub Copilot stop. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'; exit 0 }",
+        "timeoutSec": 30,
+        "type": "command"
+      }
+    ],
+    "SubagentStop": [
+      {
+        "bash": "tools/reconc/bin/hook copilot-subagent-stop . || printf '%s\\n' '{\"decision\":\"block\",\"reason\":\"Reconc could not evaluate this GitHub Copilot stop. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'",
+        "cwd": ".",
+        "powershell": "if (Get-Command sh -ErrorAction SilentlyContinue) { \u0026 sh \"tools/reconc/bin/hook\" \"copilot-subagent-stop\" \".\"; if ($LASTEXITCODE -ne 0) { Write-Output '{\"decision\":\"block\",\"reason\":\"Reconc could not evaluate this GitHub Copilot stop. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'; exit 0 } } else { Write-Output '{\"decision\":\"block\",\"reason\":\"Reconc could not evaluate this GitHub Copilot stop. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'; exit 0 }",
+        "timeoutSec": 30,
+        "type": "command"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "bash": "tools/reconc/bin/hook copilot-user-prompt-submit .",
+        "cwd": ".",
+        "powershell": "\u0026 sh \"tools/reconc/bin/hook\" \"copilot-user-prompt-submit\" \".\"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+        "timeoutSec": 5,
+        "type": "command"
+      }
+    ],
+    "subagentStart": [
+      {
+        "bash": "tools/reconc/bin/hook copilot-subagent-start .",
+        "cwd": ".",
+        "powershell": "\u0026 sh \"tools/reconc/bin/hook\" \"copilot-subagent-start\" \".\"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+        "timeoutSec": 5,
+        "type": "command"
+      }
+    ]
+  },
+  "version": 1
+}

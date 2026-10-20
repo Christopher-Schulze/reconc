@@ -645,9 +645,9 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 			// can warn. KeepUserEdits is false by default to preserve
 			// reinstall semantics. Stored in the InstallReport.
 			if kind == KindZCode {
-				mergeDiff = mergeReconcNestedEventHooks(merged, reconcPart, MergeOptions{Force: force})
+				mergeDiff = mergeReconcNestedEventHooks(merged, reconcPart, MergeOptions{Force: force, Kind: kind})
 			} else {
-				mergeDiff = mergeReconcHooks(merged, reconcPart, MergeOptions{Force: force})
+				mergeDiff = mergeReconcHooks(merged, reconcPart, MergeOptions{Force: force, Kind: kind})
 			}
 			if len(mergeDiff.Blocked) != 0 {
 				return nil, &rerrors.PolicySourceError{
@@ -825,10 +825,11 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 		} else {
 			generatedReconc, _ := reconcPart["reconc"].(map[string]interface{})
 			existingReconc, configured := merged["reconc"]
-			if !configured {
+			if !configured || legacyGeneratedValue(KindAntigravity, "reconc", existingReconc) {
+				// A published release's own value is replaced as an upgrade.
 				merged["reconc"] = generatedReconc
 			} else if existingMap, ok := existingReconc.(map[string]interface{}); ok {
-				mergeDiff = mergeReconcHookMaps(existingMap, generatedReconc, MergeOptions{Force: force})
+				mergeDiff = mergeReconcHookMaps(existingMap, generatedReconc, MergeOptions{Force: force, Kind: KindAntigravity})
 				if len(mergeDiff.Blocked) != 0 {
 					return nil, &rerrors.PolicySourceError{
 						Message: AntigravityHooksPath + " has incompatible `reconc` hook values: " + strings.Join(mergeDiff.Blocked, "; ") + "; pass --force to replace only those values",
