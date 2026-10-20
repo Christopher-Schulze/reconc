@@ -67,6 +67,51 @@ func TestHookWrapperDirectTargetSkipsPlatformDiscovery(t *testing.T) {
 	}
 }
 
+// A repository without a repo-local binary directory, the layout of a global
+// installation, reaches the PATH binary without spawning uname.
+func TestHookWrapperPathBinarySkipsPlatformDiscoveryWithoutDistDirectories(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX wrapper execution is covered on POSIX hosts")
+	}
+	repo := t.TempDir()
+	wrapper := filepath.Join(repo, filepath.FromSlash(WrapperPath))
+	if err := os.MkdirAll(filepath.Dir(wrapper), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wrapper, []byte(GenerateWrapper().Content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "uname-called")
+	binDir := fakeUnamePath(t, marker)
+	if err := os.WriteFile(filepath.Join(binDir, "reconc"), []byte("#!/bin/sh\nprintf 'path|%s\\n' \"$*\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("sh", wrapper, "codex-stop", repo)
+	command.Env = append(os.Environ(), "PATH="+binDir+":/usr/bin:/bin", "UNAME_MARKER="+marker)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("wrapper: %v: %s", err, output)
+	}
+	if !strings.Contains(string(output), "path|hook runtime codex-stop") {
+		t.Fatalf("PATH binary did not win: %s", output)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("PATH hotpath without dist directories must not invoke uname: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command = exec.Command("sh", wrapper, "codex-stop", repo)
+	command.Env = append(os.Environ(), "PATH="+binDir+":/usr/bin:/bin", "UNAME_MARKER="+marker)
+	output, err = command.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "path|hook runtime codex-stop") {
+		t.Fatalf("wrapper with an empty dist directory: %v: %s", err, output)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("an existing dist directory must still be resolved for the host platform: %v", err)
+	}
+}
+
 func TestHookWrapperRoutesWorkerSentinelWithoutRuntimeEvent(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX wrapper execution is covered on POSIX hosts")

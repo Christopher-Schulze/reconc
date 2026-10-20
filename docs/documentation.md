@@ -5433,8 +5433,10 @@ a container may carry, or an unidentified host skips the pin. The accepted
 target must be a regular, non-symlink executable and runs without `uname`,
 a directory scan, version-glob expansion, or a `PATH` search. A missing,
 invalid, foreign, symlinked, or non-executable direct target enters the
-portable recovery resolver. That resolver probes the host, prefers the stable platform name in
-`tools/reconc/dist` and root `dist`, and accepts exactly one compatible
+portable recovery resolver. That resolver probes the host only when
+`tools/reconc/dist` or root `dist` exists, so a repository served by a global
+installation reaches the `PATH` binary without spawning `uname`. It prefers the
+stable platform name in those directories and accepts exactly one compatible
 versioned artifact as a migration fallback. Multiple compatible versions fail
 closed before PATH fallback. Transactional bootstrap, repository sync,
 rollback, and removal own the receipt as `hook-wrapper-target` together with

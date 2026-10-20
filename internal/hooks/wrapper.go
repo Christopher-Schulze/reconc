@@ -1,5 +1,7 @@
 package hooks
 
+import "strings"
+
 // WrapperPath is the canonical repository-local hook launcher. Agent hook
 // artifacts call this stable path and leave binary discovery to one small
 // resolver.
@@ -161,7 +163,7 @@ if [ -n "$reconc_target" ]; then
   fi
 fi
 
-` + shellBinaryResolver() + `
+` + shellLazyBinaryResolver() + `
 for reconc_dir in "$repo/tools/reconc/dist" "$repo/dist"; do
   resolve_status=0
   resolve_reconc_dir "$reconc_dir" || resolve_status=$?
@@ -200,7 +202,39 @@ func shellCandidateTrustFunction() string {
 `
 }
 
+// shellBinaryResolver detects the host platform and defines
+// resolve_reconc_dir for the git pre-commit hook.
 func shellBinaryResolver() string {
+	return shellPlatformDetection() + "\n" + shellDirectoryResolver()
+}
+
+// shellLazyBinaryResolver is shellBinaryResolver for the hook wrapper: the
+// platform is detected only when a repo-local binary directory exists, so a
+// global installation reaches PATH without spawning uname.
+func shellLazyBinaryResolver() string {
+	return `# The platform only selects a binary in a repo-local binary directory.
+reconc_os=""
+reconc_arch=""
+reconc_ext=""
+if [ -d "$repo/tools/reconc/dist" ] || [ -d "$repo/dist" ]; then
+` + indentShellBlock(shellPlatformDetection()) + `fi
+
+` + shellDirectoryResolver()
+}
+
+// indentShellBlock indents every non-empty line of block by two spaces.
+func indentShellBlock(block string) string {
+	var indented strings.Builder
+	for _, line := range strings.SplitAfter(block, "\n") {
+		if line != "" && line != "\n" {
+			indented.WriteString("  ")
+		}
+		indented.WriteString(line)
+	}
+	return indented.String()
+}
+
+func shellPlatformDetection() string {
 	return `reconc_uname="$(uname -sm)"
 case "$reconc_uname" in
   Darwin*) reconc_os="darwin" ;;
@@ -219,8 +253,11 @@ reconc_ext=""
 if [ "$reconc_os" = "windows" ]; then
   reconc_ext=".exe"
 fi
+`
+}
 
-resolve_reconc_dir() {
+func shellDirectoryResolver() string {
+	return `resolve_reconc_dir() {
   resolved_reconc=""
   if [ -z "$reconc_os" ] || [ -z "$reconc_arch" ]; then
     return 1

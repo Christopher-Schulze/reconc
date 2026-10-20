@@ -1305,7 +1305,8 @@ binary exists, installation also publishes the validated one-line
 normal path, after a subprocess-free check that it names the running host's
 binary, without `uname`, directory scans, version-glob expansion, or `PATH`
 search. Missing, invalid, foreign-platform, symlinked, and non-executable
-targets enter the existing unambiguous recovery resolver. Transactional
+targets enter the existing unambiguous recovery resolver, which runs `uname`
+only when a repo-local binary directory exists. Transactional
 bootstrap and repository sync own the receipt together with the wrapper and
 binary; cross-platform plans and checkouts that hold another platform's stable
 binary omit it. Codex installation also manages its

@@ -147,23 +147,29 @@ if [ -n "$reconc_target" ]; then
   fi
 fi
 
-reconc_uname="$(uname -sm)"
-case "$reconc_uname" in
-  Darwin*) reconc_os="darwin" ;;
-  Linux*) reconc_os="linux" ;;
-  CYGWIN*|MINGW*|MSYS*) reconc_os="windows" ;;
-  *) reconc_os="" ;;
-esac
-
-case "$reconc_uname" in
-  *arm64|*aarch64) reconc_arch="arm64" ;;
-  *x86_64|*amd64) reconc_arch="amd64" ;;
-  *) reconc_arch="" ;;
-esac
-
+# The platform only selects a binary in a repo-local binary directory.
+reconc_os=""
+reconc_arch=""
 reconc_ext=""
-if [ "$reconc_os" = "windows" ]; then
-  reconc_ext=".exe"
+if [ -d "$repo/tools/reconc/dist" ] || [ -d "$repo/dist" ]; then
+  reconc_uname="$(uname -sm)"
+  case "$reconc_uname" in
+    Darwin*) reconc_os="darwin" ;;
+    Linux*) reconc_os="linux" ;;
+    CYGWIN*|MINGW*|MSYS*) reconc_os="windows" ;;
+    *) reconc_os="" ;;
+  esac
+
+  case "$reconc_uname" in
+    *arm64|*aarch64) reconc_arch="arm64" ;;
+    *x86_64|*amd64) reconc_arch="amd64" ;;
+    *) reconc_arch="" ;;
+  esac
+
+  reconc_ext=""
+  if [ "$reconc_os" = "windows" ]; then
+    reconc_ext=".exe"
+  fi
 fi
 
 resolve_reconc_dir() {
