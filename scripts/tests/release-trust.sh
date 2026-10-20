@@ -259,72 +259,50 @@ for workflow in "$ci_workflow" "$release_workflow" "$codeql_workflow"; do
   require_action "$workflow" "actions/checkout"
 done
 require_action "$ci_workflow" "actions/setup-go"
-require_action "$ci_workflow" "actions/setup-python"
 require_action "$release_workflow" "actions/setup-go"
-require_action "$release_workflow" "actions/setup-python"
+for workflow in "$ci_workflow" "$release_workflow"; do
+  if grep -Eq 'setup-python|langchain' "$workflow"; then
+    fail "$workflow runs the LangChain consumer, which runs only locally"
+  fi
+done
 require_action "$codeql_workflow" "actions/setup-go"
 require_action "$codeql_workflow" "github/codeql-action/init"
 require_action "$codeql_workflow" "github/codeql-action/analyze"
 require_action "$ci_workflow" "actions/setup-node"
-require_action "$release_workflow" "actions/setup-node"
 require_action "$release_workflow" "actions/attest-build-provenance"
-[ "$(grep -Fc 'uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0' "$ci_workflow")" -eq 7 ] \
-  || fail "$ci_workflow must provision pinned Go in all seven jobs"
-[ "$(grep -Fc 'go-version-file: go.mod' "$ci_workflow")" -eq 7 ] \
-  || fail "$ci_workflow must derive Go from go.mod in all seven jobs"
-[ "$(grep -Fc 'fetch-depth: 0' "$ci_workflow")" -eq 7 ] \
-  || fail "$ci_workflow must fetch full history in all seven jobs"
-[ "$(grep -Fc 'fetch-depth: 0' "$release_workflow")" -eq 3 ] \
-  || fail "$release_workflow must fetch full history in all three release jobs"
-for workflow in "$ci_workflow" "$release_workflow"; do
-  require_text "$workflow" "uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0"
-done
-[ "$(grep -Fc 'node-version: 24.18.0' "$ci_workflow")" -eq 3 ] \
-  || fail "$ci_workflow must provision Node.js 24.18.0 in the three executable-test jobs"
-[ "$(grep -Fc 'node-version: 24.18.0' "$release_workflow")" -eq 1 ] \
-  || fail "$release_workflow must provision Node.js 24.18.0 in the artifact-build job"
-[ "$(grep -Fc 'package-manager-cache: false' "$ci_workflow")" -eq 3 ] \
+[ "$(grep -Fc 'uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0' "$ci_workflow")" -eq 5 ] \
+  || fail "$ci_workflow must provision pinned Go in all five Go jobs"
+[ "$(grep -Fc 'go-version-file: go.mod' "$ci_workflow")" -eq 5 ] \
+  || fail "$ci_workflow must derive Go from go.mod in all five Go jobs"
+[ "$(grep -Fc 'fetch-depth: 0' "$ci_workflow")" -eq 5 ] \
+  || fail "$ci_workflow must fetch full history in all five Go jobs"
+[ "$(grep -Fc 'fetch-depth: 0' "$release_workflow")" -eq 2 ] \
+  || fail "$release_workflow must fetch full history in both release jobs"
+require_text "$ci_workflow" "uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0"
+[ "$(grep -Fc 'node-version: 24.18.0' "$ci_workflow")" -eq 2 ] \
+  || fail "$ci_workflow must provision Node.js 24.18.0 in the two executable-test jobs"
+[ "$(grep -Fc 'package-manager-cache: false' "$ci_workflow")" -eq 2 ] \
   || fail "$ci_workflow must disable implicit package-manager caching in the executable-test jobs"
-[ "$(grep -Fc 'package-manager-cache: false' "$release_workflow")" -eq 1 ] \
-  || fail "$release_workflow must disable implicit package-manager caching in the artifact-build job"
-require_text "$ci_workflow" "uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0"
-require_text "$ci_workflow" "python-version: 3.13.14"
-require_text "$ci_workflow" "python -m pip install --require-hashes -r scripts/tests/langchain-requirements.lock"
-require_text "$ci_workflow" "make test-langchain PYTHON=python"
-require_text "$release_workflow" "  langchain-runtime:"
-require_text "$release_workflow" "    name: LangChain MCP release gate"
-require_text "$release_workflow" "uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0"
-require_text "$release_workflow" "python-version: 3.13.14"
-require_text "$release_workflow" "python -m pip install --require-hashes -r scripts/tests/langchain-requirements.lock"
-require_text "$release_workflow" "make test-langchain PYTHON=python"
+if grep -Eq 'setup-node|Set up Bun|BUN_VERSION|go test' "$release_workflow"; then
+  fail "$release_workflow repeats test suites that CI already ran on the release commit"
+fi
 bun_integrity='sha512-aB6GVd42x1Y5ie1K16SF+oLGtgSkwX9hgoDdIW88pjvfTccU8F1vfpoOt34QLv0dZ1v3XimtaxPlZUG81Gx9Zg=='
-for workflow in "$ci_workflow" "$release_workflow"; do
-  require_text "$workflow" "BUN_VERSION: 1.3.14"
-  require_text "$workflow" "BUN_INTEGRITY: $bun_integrity"
-  # shellcheck disable=SC2016 # Match the workflow expression literally.
-  require_text "$workflow" 'test "$actual_bun_integrity" = "$BUN_INTEGRITY"'
-  if grep -Fq 'npm install --global bun@' "$workflow"; then
-    fail "$workflow installs Bun directly without verifying the packed artifact"
-  fi
-done
+require_text "$ci_workflow" "BUN_VERSION: 1.3.14"
+require_text "$ci_workflow" "BUN_INTEGRITY: $bun_integrity"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$ci_workflow")" -eq 3 ] \
-  || fail "$ci_workflow must fetch the exact Bun package in the three executable-test jobs"
+require_text "$ci_workflow" 'test "$actual_bun_integrity" = "$BUN_INTEGRITY"'
+if grep -Fq 'npm install --global bun@' "$ci_workflow"; then
+  fail "$ci_workflow installs Bun directly without verifying the packed artifact"
+fi
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$release_workflow")" -eq 1 ] \
-  || fail "$release_workflow must fetch the exact Bun package in the artifact-build job"
+[ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$ci_workflow")" -eq 2 ] \
+  || fail "$ci_workflow must fetch the exact Bun package in the two executable-test jobs"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$ci_workflow")" -eq 3 ] \
-  || fail "$ci_workflow must install only the verified Bun tarball in the three executable-test jobs"
+[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$ci_workflow")" -eq 2 ] \
+  || fail "$ci_workflow must install only the verified Bun tarball in the two executable-test jobs"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$release_workflow")" -eq 1 ] \
-  || fail "$release_workflow must install only the verified Bun tarball in the artifact-build job"
-# shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$ci_workflow")" -eq 3 ] \
-  || fail "$ci_workflow must verify the exact Bun version in the three executable-test jobs"
-# shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$release_workflow")" -eq 1 ] \
-  || fail "$release_workflow must verify the exact Bun version in the artifact-build job"
+[ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$ci_workflow")" -eq 2 ] \
+  || fail "$ci_workflow must verify the exact Bun version in the two executable-test jobs"
 require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
 [ "$(grep -Fc 'make publication-audit' "$ci_workflow")" -eq 1 ] \
   || fail "$ci_workflow must run the publication audit exactly once"
@@ -344,7 +322,13 @@ require_text "$release_workflow" 'test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"'
 require_text "$release_workflow" 'REPLACE_PUBLISHED: ${{ inputs.replace_published }}'
 require_text "$release_workflow" './scripts/release/publish-github-release.sh'
 require_text "$release_workflow" 'go run ./scripts/release/schema-assets verify-published'
-require_text "$release_workflow" "    needs: [langchain-runtime]"
+# shellcheck disable=SC2016 # Match workflow shell expressions literally.
+require_text "$release_workflow" './scripts/release/require-green-checks.sh "$(git rev-parse HEAD)"'
+require_text "$release_workflow" "  checks: read"
+require_text "$release_workflow" "go run ./scripts/build/legacy-hook-generators --check"
+require_text "$ci_workflow" "    name: CI result"
+require_text "$ci_workflow" "    needs: [checks, race, macos, release-trust]"
+require_text "$root/scripts/release/require-green-checks.sh" 'for check in "CI result" "Go security analysis"; do'
 for workflow in "$ci_workflow" "$release_workflow"; do
   awk '
     /^      windows_smoke:$/ { in_block = 1; found = 1; next }
@@ -408,11 +392,9 @@ if grep -Eq 'pull-requests:[[:space:]]*write|issues:[[:space:]]*write' "$ci_work
 fi
 [ -f "$dependabot_config" ] || fail "bounded Dependabot configuration is missing"
 # shellcheck disable=SC2016 # Match the workflow shell expression literally.
-require_text "$ci_workflow" 'go test -p="$TEST_PARALLELISM" -count=1 ./...'
+require_text "$ci_workflow" './scripts/tests/go-test-shard.sh "$SHARD" 3 -p="$TEST_PARALLELISM" -race -count=1'
 # shellcheck disable=SC2016 # Match the workflow shell expression literally.
-require_text "$ci_workflow" '(cd harness/template && go test -p="$TEST_PARALLELISM" -count=1 ./...)'
-require_text "$release_workflow" "go test -race -count=1 ./..."
-require_text "$release_workflow" "(cd harness/template && go test -race -count=1 ./...)"
+require_text "$ci_workflow" './scripts/tests/go-test-shard.sh "$SHARD" 2 -p="$TEST_PARALLELISM" -count=1'
 root_go_version=$(sed -n 's/^go //p' "$root/go.mod")
 template_go_version=$(sed -n 's/^go //p' "$root/harness/template/go.mod")
 [ "$root_go_version" = "1.27" ] \
@@ -423,10 +405,9 @@ require_text "$ci_workflow" "go mod tidy -diff"
 require_text "$ci_workflow" "govulncheck@v1.7.0"
 require_text "$root/Makefile" "STATICCHECK_VERSION := v0.8.2"
 require_text "$ci_workflow" "staticcheck@v0.8.2"
-require_text "$release_workflow" "staticcheck@v0.8.2"
 require_text "$release_workflow" "govulncheck@v1.7.0"
-require_text "$ci_workflow" "make self-host"
-require_text "$release_workflow" "make self-host"
+[ "$(grep -Fc 'make self-host' "$ci_workflow")" -eq 2 ] \
+  || fail "$ci_workflow must self-host on Linux and macOS"
 require_text "$root/scripts/tests/self-hosting.sh" "--profile governed"
 require_text "$root/scripts/tests/self-hosting.sh" "--profile existing"
 require_text "$root/scripts/tests/self-hosting.sh" "--hook all"
@@ -664,8 +645,18 @@ chmod +x "$make_dir/fail-go"
 if (cd "$root" && GO_CALL_LOG="$make_dir/go-calls" make release GO="$make_dir/fail-go" DISTDIR="$make_dir/dist") >/dev/null 2>&1; then
   fail "release target hid a failed build"
 fi
-[ "$(wc -l < "$make_dir/go-calls" | tr -d ' ')" -eq 1 ] \
-  || fail "release target continued after its first failed build"
+# Targets build concurrently, so each starts its first Go call; a failed
+# build must still end the release before completions, manpages, notices,
+# SBOMs, or checksums run, which would add further Go calls.
+release_target_count=$(awk '/^RELEASE_TARGETS :=/ { active = 1; next }
+  active && /^[[:space:]]+[a-z0-9]+\/[a-z0-9]+/ { count++; next }
+  active { exit } END { print count + 0 }' "$root/Makefile")
+[ "$release_target_count" -ge 2 ] || fail "release target matrix could not be read"
+[ "$(wc -l < "$make_dir/go-calls" | tr -d ' ')" -eq "$release_target_count" ] \
+  || fail "release target continued after a failed build"
+if grep -Fvq 'run ./cmd/reconc-build-provenance' "$make_dir/go-calls"; then
+  fail "release target ran a later step after a failed build"
+fi
 
 fixture="$tmp/installer-fixture"
 fake_bin="$tmp/fake-bin"

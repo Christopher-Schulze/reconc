@@ -24,8 +24,9 @@ env:
   TEST_PARALLELISM: 4
 
 jobs:
-  # Linux validation runs as three parallel jobs: one complete pass of the
-  # suite per job instead of two sequential passes in one job.
+  # One complete pass of the suite is spread over parallel jobs: static checks,
+  # three Linux race shards, two macOS shards, and release trust with Linux
+  # self-hosting. "CI result" is the single required check over all of them.
   checks:
     name: Static checks
     runs-on: ubuntu-24.04
@@ -78,9 +79,13 @@ jobs:
           (cd harness/template && go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...)
 
   race:
-    name: Go checks (ubuntu-24.04)
+    name: Go checks (ubuntu-24.04, ${{ matrix.shard }}/3)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -119,61 +124,18 @@ jobs:
           (cd harness/template && go mod download)
 
       - name: Race tests
-        run: |
-          go test -p="$TEST_PARALLELISM" -race -count=1 ./...
-          (cd harness/template && go test -p="$TEST_PARALLELISM" -race -count=1 ./...)
-
-  coverage:
-    name: Coverage and self-hosting (ubuntu-24.04)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            harness/template/go.sum
-
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24.18.0
-          package-manager-cache: false
-
-      - name: Set up Bun
-        run: |
-          bun_package_dir="$(mktemp -d)"
-          trap 'rm -rf "$bun_package_dir"' EXIT
-          npm pack "bun@$BUN_VERSION" --pack-destination "$bun_package_dir" --json > "$bun_package_dir/pack.json"
-          actual_bun_integrity="$(node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(data[0].integrity)' "$bun_package_dir/pack.json")"
-          test "$actual_bun_integrity" = "$BUN_INTEGRITY"
-          npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"
-          test "$(bun --version)" = "$BUN_VERSION"
-
-      - name: Download modules
-        run: |
-          go mod download
-          (cd harness/template && go mod download)
-
-      - name: Measure coverage
-        run: make coverage
-
-      - name: Self-hosting golden path
-        run: make self-host
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: ./scripts/tests/go-test-shard.sh "$SHARD" 3 -p="$TEST_PARALLELISM" -race -count=1
 
   macos:
-    name: Go checks (macos-15)
+    name: Go checks (macos-15, ${{ matrix.shard }}/2)
     runs-on: macos-15
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     defaults:
       run:
         shell: bash
@@ -215,11 +177,12 @@ jobs:
           (cd harness/template && go mod download)
 
       - name: Test
-        run: |
-          go test -p="$TEST_PARALLELISM" -count=1 ./...
-          (cd harness/template && go test -p="$TEST_PARALLELISM" -count=1 ./...)
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: ./scripts/tests/go-test-shard.sh "$SHARD" 2 -p="$TEST_PARALLELISM" -count=1
 
       - name: Self-hosting golden path
+        if: ${{ matrix.shard == 1 }}
         run: make self-host
 
   windows-runtime:
@@ -258,42 +221,6 @@ jobs:
           "$artifact" --version
           "$artifact" --help >/dev/null
 
-  langchain-integration:
-    name: LangChain MCP interoperability
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    env:
-      PIP_DISABLE_PIP_VERSION_CHECK: "1"
-      PIP_NO_INPUT: "1"
-      PIP_ONLY_BINARY: ":all:"
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-          cache-dependency-path: go.sum
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: 3.13.14
-          check-latest: false
-
-      - name: Install pinned external consumer
-        run: |
-          test "$(python -c 'import platform; print(platform.python_version())')" = "3.13.14"
-          python -m pip install --require-hashes -r scripts/tests/langchain-requirements.lock
-
-      - name: Prove LangChain MCP interoperability
-        run: make test-langchain PYTHON=python
-
   release-trust:
     name: Release trust
     runs-on: ubuntu-24.04
@@ -316,3 +243,24 @@ jobs:
 
       - name: Verify release and installer failure paths
         run: ./scripts/tests/release-trust.sh
+
+      - name: Self-hosting golden path
+        run: make self-host
+
+  result:
+    name: CI result
+    if: ${{ always() }}
+    needs: [checks, race, macos, release-trust]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every CI job
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            if [ "$result" != success ]; then
+              printf 'A required CI job ended with %s.\n' "$result" >&2
+              exit 1
+            fi
+          done

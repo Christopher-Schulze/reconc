@@ -200,13 +200,14 @@ release-one: check-build-identity
 	     -o $$out ./cmd/reconc || exit $$?; \
 	 $(GO) run ./cmd/reconc-build-provenance --root . --goos "$$os" --goarch "$$arch" --version "$$version" --verify-binary $$out
 
+# The publication audit runs in CI, whose success the release workflow
+# requires for the release commit. Targets build concurrently.
 release: check-release-identity
-	@$(MAKE) --no-print-directory publication-audit
 	@$(MAKE) --no-print-directory clean
 	@mkdir -p $(DISTDIR)
-	@set -eu; for t in $(RELEASE_TARGETS); do \
-	  $(MAKE) --no-print-directory release-one TARGET=$$t; \
-	done
+	@set -eu; pids=""; for t in $(RELEASE_TARGETS); do \
+	  $(MAKE) --no-print-directory release-one TARGET=$$t & pids="$$pids $$!"; \
+	done; status=0; for pid in $$pids; do wait $$pid || status=1; done; exit $$status
 	@$(MAKE) --no-print-directory completion
 	@$(MAKE) --no-print-directory manpage
 	@$(MAKE) --no-print-directory checksums

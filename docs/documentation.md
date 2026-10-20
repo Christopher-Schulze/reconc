@@ -286,9 +286,7 @@ machine remains responsive; `TEST_PARALLELISM` accepts a different positive
 integer for larger hosts. The publication CLI contract test uses a
 bounded temporary Git fixture instead of rescanning the real repository under
 the race detector. `make test-langchain` is the separate hash-pinned external
-consumer proof. The `LangChain MCP interoperability` check is required for
-protected `main`, and the Release workflow reruns the same proof against the
-exact selected tag before publication. `make fuzz` uses Go's `500x` execution budget and one worker per target
+consumer proof; it runs locally only and never on GitHub. `make fuzz` uses Go's `500x` execution budget and one worker per target
 by default, avoiding the Go 1.26 time-deadline shutdown race while keeping the
 randomized gate bounded. Each minimization attempt uses Go's `10x` budget,
 and a disposable per-run Go fuzz cache prevents machine-local corpus
@@ -535,7 +533,8 @@ deterministic SPDX 2.3 and CycloneDX
 third-party notices from the binary dependency graph for all five release
 targets,
 generates a strict `release-manifest.json`, and writes `dist/SHA256SUMS`. The
-target stops on the first build, license, SBOM, manifest, or checksum failure.
+five targets build concurrently; any build, license, SBOM, manifest, or
+checksum failure stops the target before a later step.
 
 Each copied artifact has one owner. `internal/schema` owns schema source paths,
 release names, immutable schema identities, and digests; `scripts/release/copied-assets.tsv`
@@ -6269,12 +6268,15 @@ GitHub workflows:
 
 CI checks:
 
-- root-module and `harness/template` race tests on Ubuntu 24.04 and normal tests
-  on macOS 15; whole-module root/template coverage measurement with the
-  self-hosting golden path, and the publication audit, formatting, tidy, vet,
-  pinned Govulncheck v1.7.0, and pinned Staticcheck v0.8.2 run once on Linux.
-  The race, coverage, and static-check passes are parallel jobs, so each runs
-  the suite at most once and the slowest pass sets the CI duration
+- root-module and `harness/template` race tests on Ubuntu 24.04 in three
+  parallel shards and normal tests on macOS 15 in two;
+  `scripts/tests/go-test-shard.sh` deals every package to exactly one shard,
+  with the slowest packages leading their own shards. The publication audit,
+  formatting, tidy, vet, pinned Govulncheck v1.7.0, and pinned Staticcheck
+  v0.8.2 run once on Linux in parallel. Coverage is measured locally with
+  `make coverage`
+- the `CI result` job succeeds only when static checks, every test shard, and
+  release trust succeeded; it and Go CodeQL are the required checks
 - CodeQL analyzes Go on every push, pull request, and weekly schedule; its job
   always reports, but a push or pull request that changes only Markdown,
   `docs/`, or `.github/releases/` skips the analysis of unchanged code
@@ -6291,15 +6293,12 @@ CI checks:
   version before executing OpenCode, Kilo Code, OMP, and Pi adapter contracts
 - every CI job that executes Go provisions the SHA-pinned `actions/setup-go`
   action from `go.mod`, including the isolated release-trust job
-- an isolated Ubuntu job provisions SHA-pinned `actions/setup-python`, exact
-  Python `3.13.14`, and the hash-pinned external LangChain dependency lock, then
-  builds the Go gateway and Go fixture and runs the local-stdio interoperability
-  proof with runtime network access denied; its `LangChain MCP interoperability`
-  result is mandatory on protected `main`
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three
   bootstrap profiles, git pre-commit, and all fourteen agent runtimes
 - current-tree and post-boundary-history publication audit once in candidate CI
-  and once in the tagged artifact-build path
+- the Release workflow repeats no suite: it requires successful `CI result` and
+  Go CodeQL checks for the exact tagged commit, then runs only Govulncheck and
+  the legacy hook generator check, which depend on release time and tags
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;
   the trust gate validates pin shape and action identity without coupling
   updates to historical commit values
@@ -6320,8 +6319,7 @@ and the repository does not enable auto-merge.
 
 The public source repository protects its default branch with the active
 `Protect main` ruleset. It configures branch deletion and non-fast-forward
-protection plus required Ubuntu, macOS, LangChain MCP, release-trust, and Go
-CodeQL checks. A pull request is not mandatory. The configured repository-role
+protection plus the required `CI result` and Go CodeQL checks. A pull request is not mandatory. The configured repository-role
 bypass permits an authorized maintainer push before candidate checks finish.
 Product work follows the repository's main-only contract; verify completed
 checks for the exact remote commit after pushing. Push success is transport

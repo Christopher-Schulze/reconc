@@ -371,7 +371,8 @@ Both are linked into the Go CLI and operate offline. Tests also compile every
 public Draft 2020-12 schema and validate representative current and legacy
 artifacts without network access.
 Python `3.13.14` is used only by the separately pinned disposable LangChain
-consumer job; it is not required by `make test` or the release binary.
+consumer test, `make test-langchain`, which runs locally and never on GitHub;
+it is not required by `make test` or the release binary.
 
 ### Initialize a repository
 
@@ -1300,12 +1301,11 @@ remote asset name, size, and SHA-256 digest must match the local release
 inventory before publication; every published release SBOM is regenerated and
 byte-verified before its checksum and build provenance are published.
 
-Candidate CI runs root and portable-template race tests on Ubuntu, normal tests
-on macOS, whole-module
-coverage measurement, formatting, tidy checks, Vet, pinned Staticcheck, pinned
-Govulncheck, the pinned official LangChain MCP consumer proof, release-trust
-tests, one publication-boundary check, harness-pack
-parity, and Go CodeQL. GitHub Actions are allowlisted and commit-pinned, checkout
+Candidate CI runs root and portable-template race tests on Ubuntu and normal
+tests on macOS in parallel shards, formatting, tidy checks, Vet, pinned
+Staticcheck, pinned Govulncheck, release-trust tests, one publication-boundary
+check, harness-pack parity, and Go CodeQL. The release workflow requires those
+results for the exact tagged commit instead of repeating them. GitHub Actions are allowlisted and commit-pinned, checkout
 credentials are not persisted, and release/publication jobs use full history
 where the post-boundary audit requires it. Windows implementation, tests, and
 release artifacts remain maintained; native checks are manual only through
@@ -1319,12 +1319,12 @@ resolution.
 `make publication-audit` scans every tracked file present in the working tree
 plus every commit after the documented legacy-history boundary for private
 project vocabulary, personal absolute paths, session/share material,
-secret-shaped values, sensitive filenames, and placeholder residue. CI and
-release gates run it with full Git history; it does not rewrite or claim to
-erase older public history.
+secret-shaped values, sensitive filenames, and placeholder residue. CI runs it
+with full Git history, and a release requires that CI result; it does not
+rewrite or claim to erase older public history.
 
 The active `main` ruleset configures deletion and non-fast-forward protection
-plus required Ubuntu, macOS, LangChain MCP, release-trust, and CodeQL checks.
+plus the required `CI result` and CodeQL checks.
 A pull request is not mandatory. Its configured repository-role bypass can
 advance `main` before those checks finish, so a successful push alone is not
 validation: inspect completed checks for the exact remote commit.

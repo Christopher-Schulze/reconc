@@ -522,7 +522,7 @@ action engine.
 
 The product remains one Go binary. LangChain integration uses LangChain's own
 MCP adapter to launch that binary over stdio. Reconc ships no Python or
-TypeScript LangChain adapter. The disposable consumer job installs a hash-pinned
+TypeScript LangChain adapter. The disposable local consumer test installs a hash-pinned
 external Python environment, invokes converted tools directly, and denies
 runtime socket connections; it is test infrastructure, not product code or a
 release artifact. The built Go fixture owns downstream observations and
