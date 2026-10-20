@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1164,16 +1165,44 @@ func buildReleaseBinary(t *testing.T, root string, version string) string {
 	return buildReleaseBinaryWithSourceDigest(t, root, version, strings.Repeat("b", 64))
 }
 
+// releaseBuilds builds each version and source digest once per package run;
+// every caller receives its own copy, which it may replace or remove.
+var releaseBuilds sync.Map
+
+type releaseBuild struct {
+	once sync.Once
+	path string
+	err  error
+}
+
 func buildReleaseBinaryWithSourceDigest(t *testing.T, root string, version string, sourceDigest string) string {
 	t.Helper()
+	entry, _ := releaseBuilds.LoadOrStore(version+"\x00"+sourceDigest, &releaseBuild{})
+	build := entry.(*releaseBuild)
+	build.once.Do(func() { build.path, build.err = buildSharedReleaseBinary(root, version, sourceDigest) })
+	if build.err != nil {
+		t.Fatal(build.err)
+	}
+	output := filepath.Join(t.TempDir(), executableName())
+	copyFileForTest(t, build.path, output, 0o755)
+	return output
+}
+
+// buildSharedReleaseBinary builds into the hermetic home, which TestMain
+// removes after the package run.
+func buildSharedReleaseBinary(root string, version string, sourceDigest string) (string, error) {
 	marker, err := buildprovenance.FormatMarker(buildprovenance.Provenance{
 		Version: version, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,
 		SourceDigest: sourceDigest,
 	})
 	if err != nil {
-		t.Fatal(err)
+		return "", err
 	}
-	output := filepath.Join(t.TempDir(), executableName())
+	directory, err := os.MkdirTemp(os.Getenv(hermeticHomeEnv), "release-build-")
+	if err != nil {
+		return "", err
+	}
+	output := filepath.Join(directory, executableName())
 	command := exec.Command(
 		"go", "build", "-trimpath",
 		"-ldflags", "-X main.Version="+version+" -X reconc.dev/reconc/buildprovenance.BuildMarker="+marker,
@@ -1182,9 +1211,9 @@ func buildReleaseBinaryWithSourceDigest(t *testing.T, root string, version strin
 	command.Dir = root
 	command.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if body, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("build release binary: %v\n%s", err, body)
+		return "", fmt.Errorf("build release binary: %w\n%s", err, body)
 	}
-	return output
+	return output, nil
 }
 
 func writeDirectTestReceipt(t *testing.T, binary string, version string) {
