@@ -352,38 +352,44 @@ func sameRecordInput(sealed, candidate Record) bool {
 
 func (s *Store) validateRecordKeyGeneration(record Record) error {
 	return s.storage.WithIdentity(func(key *actionstate.IdentityKey) error {
-		identities := []string{
-			record.Call.RequestIdentity, record.Call.RepositoryIdentity, record.Call.ServerFingerprint,
-			record.Call.RunIdentity, record.Call.SessionIdentity, record.Call.ContextIdentity,
-		}
-		if record.Call.Tool.Mode == action.LedgerKeyedName {
-			identities = append(identities, record.Call.Tool.Value)
-		}
-		for _, field := range record.SelectedFields {
-			identities = append(identities, field.PointerIdentity, field.ValueIdentity)
-		}
-		if record.Budget != nil {
-			identities = append(identities, record.Budget.StateVersion)
-			if record.Budget.ReservationIdentity != "absent" {
-				identities = append(identities, record.Budget.ReservationIdentity)
-			}
-		}
-		if record.Dispatch != nil {
-			if record.Dispatch.ReservationIdentity != "absent" {
-				identities = append(identities, record.Dispatch.ReservationIdentity)
-			}
-		}
-		for _, identity := range identities {
-			if identity == "" {
-				continue
-			}
-			keyID, valid := action.KeyedIdentityKeyID(identity)
-			if !valid || keyID != key.ID() {
-				return fmt.Errorf("action ledger record mixes identity-key generations")
-			}
-		}
-		return nil
+		return recordKeyGenerationError(key, record)
 	})
+}
+
+// recordKeyGenerationError checks that every keyed identity of record was
+// derived with key's generation.
+func recordKeyGenerationError(key *actionstate.IdentityKey, record Record) error {
+	identities := []string{
+		record.Call.RequestIdentity, record.Call.RepositoryIdentity, record.Call.ServerFingerprint,
+		record.Call.RunIdentity, record.Call.SessionIdentity, record.Call.ContextIdentity,
+	}
+	if record.Call.Tool.Mode == action.LedgerKeyedName {
+		identities = append(identities, record.Call.Tool.Value)
+	}
+	for _, field := range record.SelectedFields {
+		identities = append(identities, field.PointerIdentity, field.ValueIdentity)
+	}
+	if record.Budget != nil {
+		identities = append(identities, record.Budget.StateVersion)
+		if record.Budget.ReservationIdentity != "absent" {
+			identities = append(identities, record.Budget.ReservationIdentity)
+		}
+	}
+	if record.Dispatch != nil {
+		if record.Dispatch.ReservationIdentity != "absent" {
+			identities = append(identities, record.Dispatch.ReservationIdentity)
+		}
+	}
+	for _, identity := range identities {
+		if identity == "" {
+			continue
+		}
+		keyID, valid := action.KeyedIdentityKeyID(identity)
+		if !valid || keyID != key.ID() {
+			return fmt.Errorf("action ledger record mixes identity-key generations")
+		}
+	}
+	return nil
 }
 
 func (s *Store) Recover(ctx context.Context) error {

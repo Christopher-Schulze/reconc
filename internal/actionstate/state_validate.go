@@ -47,6 +47,18 @@ func (s *Store) transactionDigest(transaction stateTransaction) (string, error) 
 }
 
 func (s *Store) validateState(state State, persisted bool) error {
+	if err := s.validateStateContract(state, persisted); err != nil {
+		return err
+	}
+	digest, err := s.stateDigest(state)
+	if err != nil || !constantIdentityEqual(digest, state.Digest) {
+		return stateError(action.ReasonStateCorrupt, "action state digest is invalid", err)
+	}
+	return nil
+}
+
+// validateStateContract checks every invariant of state except its digest.
+func (s *Store) validateStateContract(state State, persisted bool) error {
 	if state.Schema != StateSchema || state.FormatVersion != StateFormatVersion {
 		return stateError(action.ReasonStateCorrupt, "action state schema metadata is invalid", nil)
 	}
@@ -78,14 +90,7 @@ func (s *Store) validateState(state State, persisted bool) error {
 	if err := s.validateTerminalCalls(state); err != nil {
 		return err
 	}
-	if err := s.validateApprovalRecords(state); err != nil {
-		return err
-	}
-	digest, err := s.stateDigest(state)
-	if err != nil || !constantIdentityEqual(digest, state.Digest) {
-		return stateError(action.ReasonStateCorrupt, "action state digest is invalid", err)
-	}
-	return nil
+	return s.validateApprovalRecords(state)
 }
 
 func (s *Store) validateBudgetRecords(state State) error {

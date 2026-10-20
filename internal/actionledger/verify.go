@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/actionstate"
 	"reconc.dev/reconc/internal/jsonl"
 )
 
@@ -156,23 +157,35 @@ func (s *Store) loadVerifiedLocked() ([]Record, *chainHead, VerificationReport, 
 	report.ArchiveCount = s.archiveCount()
 	report.FirstRetainedSequence = records[0].Sequence
 	report.LastRetainedSequence = records[len(records)-1].Sequence
-	for index, record := range records {
-		if record.Call.RepositoryIdentity != s.storage.RepositoryIdentity() {
-			report.Integrity = StatusInvalid
-			return nil, head, report, fmt.Errorf("action ledger record repository identity drifted at sequence %d", record.Sequence)
-		}
-		if err := s.validateRecordKeyGeneration(record); err != nil {
-			report.Integrity = StatusInvalid
-			return nil, head, report, fmt.Errorf("action ledger identity generation drifted at sequence %d: %w", record.Sequence, err)
-		}
-		if index > 0 {
-			previous := records[index-1]
-			if record.Sequence != previous.Sequence+1 || record.PreviousDigest != previous.Digest {
+	// One identity lease covers the whole chain: storage validation and the
+	// key lease run once instead of once per record.
+	chainErr := s.storage.WithIdentity(func(key *actionstate.IdentityKey) error {
+		for index, record := range records {
+			if record.Call.RepositoryIdentity != s.storage.RepositoryIdentity() {
 				report.Integrity = StatusInvalid
-				report.ArchiveContinuity = StatusInvalid
-				return nil, head, report, fmt.Errorf("action ledger chain is discontinuous at sequence %d", record.Sequence)
+				return fmt.Errorf("action ledger record repository identity drifted at sequence %d", record.Sequence)
+			}
+			if err := recordKeyGenerationError(key, record); err != nil {
+				report.Integrity = StatusInvalid
+				return fmt.Errorf("action ledger identity generation drifted at sequence %d: %w", record.Sequence, err)
+			}
+			if index > 0 {
+				previous := records[index-1]
+				if record.Sequence != previous.Sequence+1 || record.PreviousDigest != previous.Digest {
+					report.Integrity = StatusInvalid
+					report.ArchiveContinuity = StatusInvalid
+					return fmt.Errorf("action ledger chain is discontinuous at sequence %d", record.Sequence)
+				}
 			}
 		}
+		return nil
+	})
+	if chainErr != nil {
+		if report.Integrity != StatusInvalid {
+			report.Integrity = StatusInvalid
+			chainErr = fmt.Errorf("action ledger identity generation drifted at sequence %d: %w", records[0].Sequence, chainErr)
+		}
+		return nil, head, report, chainErr
 	}
 	report.ArchiveContinuity = StatusVerified
 	report.EventsEvaluated = true

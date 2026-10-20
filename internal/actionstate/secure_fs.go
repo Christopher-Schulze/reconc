@@ -100,9 +100,25 @@ func readPrivateRegularFileSnapshot(path string, maxBytes int64) ([]byte, os.Fil
 }
 
 func validatePrivateRegularFile(path string, maxBytes int64) error {
-	return boundedio.WithRegularFileSnapshot(path, maxBytes, func(file *os.File, info os.FileInfo) error {
-		return validatePrivateFile(file, info)
+	_, err := privateRegularFileIdentity(path, maxBytes)
+	return err
+}
+
+// privateRegularFileIdentity validates a private regular file within
+// maxBytes and returns the identity it was opened as, without reading it.
+func privateRegularFileIdentity(path string, maxBytes int64) (os.FileInfo, error) {
+	var identity os.FileInfo
+	err := boundedio.WithRegularFileSnapshot(path, maxBytes, func(file *os.File, info os.FileInfo) error {
+		if err := validatePrivateFile(file, info); err != nil {
+			return err
+		}
+		identity = info
+		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return identity, nil
 }
 
 type heldLock struct {

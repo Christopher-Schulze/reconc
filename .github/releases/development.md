@@ -58,3 +58,11 @@ release.
   repository root once.
 - A Stop blocked because the repository changed during evaluation names the
   changed paths, so a check that writes into the repository can be found.
+
+## Action plane persistence
+
+- Action-ledger chain verification takes one identity lease for the whole
+  chain instead of validating the storage directories once per record; a cold
+  checkpoint load over 256 calls allocated 15 MB instead of 38 MB.
+- An action-state transition derives its digest once and validates the
+  published transaction's identity without reading it back.

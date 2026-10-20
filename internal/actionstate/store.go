@@ -319,7 +319,9 @@ func (s *Store) writeState(previous State, previousPersisted bool, next *State) 
 		return err
 	}
 	next.Digest = digest
-	if err := s.validateState(*next, true); err != nil {
+	// The digest was just derived from these bytes; only the contract needs
+	// checking, not a second digest of the same state.
+	if err := s.validateStateContract(*next, true); err != nil {
 		return err
 	}
 	transaction, err := s.newTransaction(previous, previousPersisted, *next)
@@ -337,7 +339,8 @@ func (s *Store) writeState(previous State, previousPersisted bool, next *State) 
 	if err := s.publish(s.transactionPath, transactionBody); err != nil {
 		return stateError(action.ReasonStateUnavailable, "publish action state transaction", err)
 	}
-	_, transactionInfo, err := readPrivateRegularFileSnapshot(s.transactionPath, MaxStateTransaction)
+	// Cleanup needs the published identity, not the bytes just written.
+	transactionInfo, err := privateRegularFileIdentity(s.transactionPath, MaxStateTransaction)
 	if err != nil {
 		return stateError(action.ReasonStateUnavailable, "validate published action state transaction", err)
 	}
