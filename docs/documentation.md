@@ -6260,9 +6260,14 @@ GitHub workflows:
 CI checks:
 
 - root-module and `harness/template` race tests on Ubuntu 24.04 and normal tests
-  on macOS 15; whole-module root/template coverage measurement, publication
-  audit, formatting, tidy, vet, pinned Govulncheck v1.7.0, and pinned
-  Staticcheck v0.8.2 run once on Linux
+  on macOS 15; whole-module root/template coverage measurement with the
+  self-hosting golden path, and the publication audit, formatting, tidy, vet,
+  pinned Govulncheck v1.7.0, and pinned Staticcheck v0.8.2 run once on Linux.
+  The race, coverage, and static-check passes are parallel jobs, so each runs
+  the suite at most once and the slowest pass sets the CI duration
+- CodeQL analyzes Go on every push, pull request, and weekly schedule; its job
+  always reports, but a push or pull request that changes only Markdown,
+  `docs/`, or `.github/releases/` skips the analysis of unchanged code
 - Windows 2025 checks run only with an explicit manual `windows_smoke: true`
   input; the complete optional job has a hard two-minute limit and runs focused
   filesystem checks plus native binary version/help smoke. Windows code, test

@@ -27,8 +27,38 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      # The job always reports, because branch protection requires it, but a
+      # push or pull request that changes no Go source, module, or build input
+      # skips the analysis: the analyzed code is unchanged. Scheduled and
+      # manual runs always analyze.
+      - name: Detect analyzed changes
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          base=""
+          case "$EVENT_NAME" in
+            push) base="$PUSH_BEFORE" ;;
+            pull_request) base="$PR_BASE" ;;
+          esac
+          analyze=true
+          if [ -n "$base" ] && [ "$base" != "0000000000000000000000000000000000000000" ] &&
+            git cat-file -e "$base^{commit}" 2>/dev/null; then
+            changed="$(git diff --name-only "$base" HEAD)"
+            analyzed="$(printf '%s\n' "$changed" | grep -Ev '\.md$|^docs/|^\.github/releases/' || true)"
+            if [ -z "$analyzed" ]; then
+              analyze=false
+            fi
+          fi
+          printf 'analyze=%s\n' "$analyze" >> "$GITHUB_OUTPUT"
+          printf 'CodeQL analysis needed: %s\n' "$analyze"
 
       - name: Set up Go
+        if: steps.changes.outputs.analyze == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -38,22 +68,26 @@ jobs:
             harness/template/go.sum
 
       - name: Initialize CodeQL
+        if: steps.changes.outputs.analyze == 'true'
         uses: github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
         with:
           languages: go
           build-mode: manual
 
       - name: Download modules
+        if: steps.changes.outputs.analyze == 'true'
         run: |
           go mod download
           (cd harness/template && go mod download)
 
       - name: Build analyzed modules
+        if: steps.changes.outputs.analyze == 'true'
         run: |
           go build ./...
           (cd harness/template && go build ./...)
 
       - name: Analyze
+        if: steps.changes.outputs.analyze == 'true'
         uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
         with:
           category: /language:go
