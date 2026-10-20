@@ -418,7 +418,7 @@ func TestHookVerificationPATHCannotResolveCurrentDirectoryExecutable(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command(executable, "-test.run=^TestHookVerificationCurrentDirectoryLookupChild$")
+	command := exec.Command(executable, "-test.run=^TestHookVerificationCurrentDirectoryLookupChild$", cliTestChildFlag())
 	command.Dir = workingDirectory
 	command.Env = append(hookVerificationEnvironment(values), hookVerificationLookPathProbeEnv+"="+name)
 	if output, err := command.CombinedOutput(); err != nil {

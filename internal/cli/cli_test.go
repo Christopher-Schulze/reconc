@@ -2391,7 +2391,8 @@ func TestRunSessionBriefingPreservesExactPolicyRuleID(t *testing.T) {
 }
 
 func TestRunSessionBriefingReportsOversizedSavedPolicyReport(t *testing.T) {
-	t.Setenv("RECONC_HOME", t.TempDir())
+	// A long report path must not truncate the reason out of the bounded text.
+	t.Setenv("RECONC_HOME", filepath.Join(t.TempDir(), strings.Repeat("long-temporary-directory/", 12)))
 	repo := makeAssertRepo(t, "rules: []\n")
 	state, err := agentsession.InitializeSessionState(repo, "briefing-oversize")
 	if err != nil {
@@ -2414,8 +2415,16 @@ func TestRunSessionBriefingReportsOversizedSavedPolicyReport(t *testing.T) {
 	if err := Run([]string{"session-briefing", repo, "--json"}, "test", &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout.String(), `"policy_report_error"`) || !strings.Contains(stdout.String(), "exceeds 1048576 bytes") {
-		t.Fatalf("oversized report diagnostic = %s", stdout.String())
+	var briefing struct {
+		Status     string `json:"policy_report_status"`
+		Error      string `json:"policy_report_error"`
+		ReportPath string `json:"report_path"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &briefing); err != nil {
+		t.Fatalf("decode briefing: %v\n%s", err, stdout.String())
+	}
+	if briefing.Status != string(agentsession.SessionReportUnavailable) || briefing.Error != "saved report exceeds 1048576 bytes" || briefing.ReportPath != state.ReportPath {
+		t.Fatalf("oversized report diagnostic = %+v", briefing)
 	}
 }
 

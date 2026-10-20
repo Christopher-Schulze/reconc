@@ -362,8 +362,10 @@ func addActivePolicyBriefing(out map[string]interface{}, repoRoot string) {
 	}
 	body, err := boundedio.ReadRegularFile(state.ReportPath, maxBriefingReportBytes)
 	if err != nil {
+		// report_path already names the file; naming it again could push the
+		// reason past the bounded text.
 		out["policy_report_status"] = string(agentsession.SessionReportUnavailable)
-		out["policy_report_error"] = boundedBriefingText(err.Error())
+		out["policy_report_error"] = boundedBriefingText(strings.ReplaceAll(err.Error(), state.ReportPath, "saved report"))
 		return
 	}
 	var report runtime.CheckReport

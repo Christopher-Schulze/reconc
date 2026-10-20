@@ -215,7 +215,7 @@ func TestSessionBriefingMissingReportReportsUnavailableReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	if briefing.Status != "unavailable" || briefing.SessionID != state.SessionID ||
-		briefing.Path != state.ReportPath || briefing.Error != boundedBriefingText(reportErr.Error()) {
+		briefing.Path != state.ReportPath || briefing.Error != boundedBriefingText(strings.ReplaceAll(reportErr.Error(), state.ReportPath, "saved report")) {
 		t.Fatalf("missing report diagnostic = %+v; filesystem error = %v", briefing, reportErr)
 	}
 }

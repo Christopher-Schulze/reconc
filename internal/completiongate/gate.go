@@ -373,8 +373,12 @@ func completionInputs(state agentsession.CompletionStateSnapshot) (runtime.Execu
 	}, nil
 }
 
+// inspectTaskBoard observes the TASK board once per completion check; the
+// checks judge that board instead of reading the files again.
+var inspectTaskBoard = tasklifecycle.Inspect
+
 func collectTaskChecks(report *Report, state agentsession.CompletionStateSnapshot, add func(string, Status, string, string)) {
-	board, err := tasklifecycle.Inspect(state.RepoRoot)
+	board, err := inspectTaskBoard(state.RepoRoot)
 	if err != nil {
 		var validation *tasklifecycle.ValidationError
 		if errors.As(err, &validation) {

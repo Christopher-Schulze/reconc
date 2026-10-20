@@ -42,8 +42,9 @@ func TestLiveHookCancellationOwnsCaptureDescendants(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "capture-pid")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, "/bin/sh", "-c", `export RECONC_HOOK_VERIFY_HOST_GROUP=$$; "$@"; code=$?; exit "$code"`, "native-test", executable, "-test.run=^TestLiveHookOwnedProcessGroupHelper$")
-	command.Env = append(os.Environ(), "RECONC_HOOK_VERIFY_GROUP_TEST_FILE="+path)
+	command := exec.CommandContext(ctx, "/bin/sh", "-c", `export RECONC_HOOK_VERIFY_HOST_GROUP=$$; "$@"; code=$?; exit "$code"`, "native-test", executable, "-test.run=^TestLiveHookOwnedProcessGroupHelper$", cliTestChildFlag())
+	// The child is killed, so it gets a private TMPDIR that this test removes.
+	command.Env = append(os.Environ(), "RECONC_HOOK_VERIFY_GROUP_TEST_FILE="+path, "TMPDIR="+t.TempDir())
 	configureHookVerificationProcess(command)
 	if err := command.Start(); err != nil {
 		t.Fatal(err)

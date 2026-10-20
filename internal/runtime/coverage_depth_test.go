@@ -262,3 +262,24 @@ func matchingClaims(claims, expected []string) []string {
 	return matchingClaimsWithEvidence(nil, claims, expected)
 }
 
+// Claim and redirect matching read the per-evaluation evidence index, so each
+// claim is normalized and each result's redirects are stripped once per
+// evaluation instead of once per rule.
+func TestEvidenceMatchingReusesThePerEvaluationIndex(t *testing.T) {
+	index := newCommandEvidenceIndex(ExecutionInputs{Claims: []string{"indexed   claim"}}, "")
+	ctx := &evalContext{commandEvidence: index}
+	if matched, _, err := evalCheckRequireClaim(ctx, policy.Check{Claims: []string{"indexed claim"}}, ExecutionInputs{Claims: []string{"other claim"}}); err != nil || !matched {
+		t.Fatalf("require_claim check rebuilt its claims instead of using the evaluation index: matched=%v err=%v", matched, err)
+	}
+	rule := &policy.Rule{ID: "claim", Kind: policy.KindRequireClaim, WhenPaths: []string{"src/**"}, Claims: []string{"indexed claim"}}
+	if violation, err := evalRequireClaim(ctx, rule, policy.ModeBlock, ExecutionInputs{WritePaths: []string{"src/a.go"}, Claims: []string{"other claim"}}); err != nil || violation != nil {
+		t.Fatalf("require_claim rule rebuilt its claims instead of using the evaluation index: violation=%+v err=%v", violation, err)
+	}
+
+	index = newCommandEvidenceIndex(ExecutionInputs{CommandResults: []CommandResult{{Command: "sentinel-command", Outcome: "success"}}}, "")
+	index.results[0].stripped, index.results[0].strippedReady = "go test ./...", true
+	matched := matchingCommandResultsSinceWithEvidence(index, nil, nil, []string{"go test ./..."}, "success", "", 0, policy.CommandMatchExact)
+	if len(matched) != 1 || matched[0] != "sentinel-command" {
+		t.Fatalf("redirect matching recomputed the stripped command instead of reusing it: %v", matched)
+	}
+}

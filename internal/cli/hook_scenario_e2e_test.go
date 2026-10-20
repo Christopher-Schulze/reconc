@@ -523,6 +523,7 @@ func TestGeneratedAdaptersExecuteTemplateDenial(t *testing.T) {
 			cmd.Stdin = strings.NewReader(contract.prePayload(repo, "task499-generated-"+contract.kind, "generated/blocked.go", "generated-pre"))
 			cmd.Env = append(os.Environ(),
 				"RECONC_SCENARIO_TEST_BINARY="+os.Args[0],
+				"RECONC_SCENARIO_TEST_FLAG="+cliTestChildFlag(),
 				"CLAUDE_PROJECT_DIR="+repo,
 				"DEVIN_PROJECT_DIR="+repo,
 			)
@@ -564,7 +565,7 @@ set -eu
 export RECONC_SCENARIO_CHILD=1
 export RECONC_SCENARIO_EVENT="$1"
 export RECONC_SCENARIO_REPO="$2"
-exec "$RECONC_SCENARIO_TEST_BINARY" -test.run '^TestHookScenarioChild$' -test.v=false
+exec "$RECONC_SCENARIO_TEST_BINARY" -test.run '^TestHookScenarioChild$' -test.v=false "$RECONC_SCENARIO_TEST_FLAG"
 `
 	if err := os.WriteFile(path, []byte(wrapper), 0o755); err != nil {
 		t.Fatalf("write generated wrapper: %v", err)

@@ -389,6 +389,39 @@ func TestDirectDowngradeRequiresExplicitIntent(t *testing.T) {
 	}
 }
 
+// An authorized downgrade still refuses a release that cannot read the
+// receipt the update would leave behind.
+func TestAllowedDowngradeRefusesAReleaseThatCannotReadTheReceipt(t *testing.T) {
+	if !supportedDirectTarget() {
+		t.Skip("unsupported direct release target")
+	}
+	root := repositoryRoot(t)
+	currentBinary := buildReleaseBinary(t, root, "1.1.0")
+	oldBinary := buildReleaseBinary(t, root, "0.9.8")
+	installDirectory := t.TempDir()
+	target := filepath.Join(installDirectory, executableName())
+	copyFileForTest(t, currentBinary, target, 0o755)
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv("RECONC_INSTALL_DIR", installDirectory)
+	t.Setenv("PATH", installDirectory)
+	writeDirectTestReceipt(t, target, "1.1.0")
+	releaseDirectory := t.TempDir()
+	writeLocalRelease(t, releaseDirectory, oldBinary, "0.9.8")
+
+	report, err := ApplyUpdate(context.Background(), "1.1.0", UpdateRequest{FromDir: releaseDirectory, AllowDowngrade: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != LifecycleRefused || report.Changed ||
+		!strings.Contains(report.NextAction, "cannot read the format "+ReceiptFormatVersion+" installation receipt") {
+		t.Fatalf("unreadable-receipt downgrade = %+v", report)
+	}
+	output, err := exec.Command(target, "--version").CombinedOutput()
+	if err != nil || strings.TrimSpace(string(output)) != "reconc 1.1.0" {
+		t.Fatalf("refused downgrade changed binary: %q err=%v", output, err)
+	}
+}
+
 func TestRequiredOfflineAttestationFailsWithoutChangingDirectBinary(t *testing.T) {
 	if !supportedDirectTarget() {
 		t.Skip("unsupported direct release target")
