@@ -4154,7 +4154,7 @@ The supported and continuously tested matrix is exact:
 | LangChain MCP adapter | `0.3.2` | Official external consumer package |
 | LangChain Core | `1.5.4` | Direct tool invocation, no model |
 | MCP Python SDK | `1.29.0` | Legacy protocol client used by the adapter |
-| Python CI runtime | `3.13.14` | Disposable integration job only |
+| Python test runtime | `3.13.14` | Disposable local integration test only |
 | Go downstream fixture | format `1` | Test-only Reconc-owned server, not a product adapter |
 
 The external package set is installed from the hash-pinned
@@ -6342,16 +6342,12 @@ Release:
   `-f replace_published=true`; requesting replacement when no release exists
   also fails. Existing drafts remain resumable without expanding authority.
 - The explicitly selected tag must use stable semantic versioning, identify clean HEAD, and have committed release notes. Source code contains no assigned release version.
-- An isolated Ubuntu prerequisite checks out the exact tag and runs the
-  hash-pinned official LangChain consumer against the Go gateway and Go fixture.
-  This prerequisite must pass before artifact publication can start. Optional
-  Windows smoke is independent and never blocks publication. The macOS artifact
-  job provisions the same pinned
-  GitHub-owned Node.js runtime and exact verified Bun runtime and runs formatting,
-  tidy, vet, pinned
-  Govulncheck, pinned Staticcheck, race, publication, trust, legacy hook
-  generator registry, and clean-repository self-hosting checks before
-  building.
+- The macOS artifact job checks out the exact tag and requires successful
+  `CI result` and Go CodeQL checks for that commit, so formatting, tidy, vet,
+  Staticcheck, race and macOS tests, publication, trust, and self-hosting are
+  not repeated. It then runs pinned Govulncheck and the legacy hook generator
+  registry check before building. Optional Windows smoke is independent and
+  never blocks publication. The LangChain consumer proof runs locally only.
 - `make release RELEASE_TAG=reconc-vX.Y.Z` builds the exact flat release inventory from the selected existing tag.
 - `release-manifest.json` binds the exact repository, tag, version, prerelease
   class, asset names, sizes, SHA-256 digests, and format version consumed by

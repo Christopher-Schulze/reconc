@@ -56,11 +56,10 @@ func TestLangChainExamplesMatchCanonicalGatewayMetadata(t *testing.T) {
 	assertExampleFlagsFollowMetadata(t, gateway, documentationArgs)
 }
 
-func TestLangChainGatewayIsProminentAndReleaseBlocking(t *testing.T) {
+func TestLangChainGatewayIsProminentAndLocalOnly(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	readme := readPublicSurfaceFile(t, root, "README.md")
 	documentation := readPublicSurfaceFile(t, root, "docs/documentation.md")
-	releaseWorkflow := readPublicSurfaceFile(t, root, ".github/workflows/reconc-release.yml")
 
 	const heading = "Enforce Agent Tool Calls Before Execution"
 	featureIndex := strings.Index(readme, "\n## "+heading+"\n")
@@ -83,33 +82,18 @@ func TestLangChainGatewayIsProminentAndReleaseBlocking(t *testing.T) {
 		"reported as unenforced, never inferred safe",
 	)
 
-	assertContainsAll(t, "documentation release contract", documentation,
-		"The `LangChain MCP interoperability` check is required for protected `main`",
-		"This prerequisite must pass before artifact publication can start",
+	// The LangChain consumer proof runs locally only, never on GitHub.
+	assertContainsAll(t, "documentation local-only contract", documentation,
+		"`make test-langchain` is the separate hash-pinned external\nconsumer proof; it runs locally only and never on GitHub.",
+		"The LangChain consumer proof runs locally only.",
 	)
-	gateStart := strings.Index(releaseWorkflow, "\n  langchain-runtime:\n")
-	releaseStart := strings.Index(releaseWorkflow, "\n  release:\n")
-	if gateStart < 0 || releaseStart < 0 || gateStart > releaseStart {
-		t.Fatal("release workflow omits or reorders the LangChain prerequisite job")
-	}
-	langChainGate := releaseWorkflow[gateStart:releaseStart]
-	assertContainsAll(t, "release workflow LangChain job", langChainGate,
-		"name: LangChain MCP release gate",
-		"actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
-		"python-version: 3.13.14",
-		"python -m pip install --require-hashes -r scripts/tests/langchain-requirements.lock",
-		"make test-langchain PYTHON=python",
-		"ref: ${{ inputs.tag }}",
-	)
-	assertContainsAll(t, "release workflow publication job", releaseWorkflow[releaseStart:],
-		"needs: [langchain-runtime]",
-		"./scripts/release/publish-github-release.sh",
-	)
-	if count := strings.Count(releaseWorkflow, "ref: ${{ inputs.tag }}"); count != 3 {
-		t.Fatalf("release workflow exact-tag checkouts = %d, want 3", count)
-	}
-	if count := strings.Count(releaseWorkflow, "make test-langchain PYTHON=python"); count != 1 {
-		t.Fatalf("release workflow LangChain gates = %d, want 1", count)
+	for _, path := range []string{".github/workflows/reconc-ci.yml", ".github/workflows/reconc-release.yml", ".github/workflows/codeql.yml"} {
+		workflow := strings.ToLower(readPublicSurfaceFile(t, root, path))
+		for _, forbidden := range []string{"langchain", "setup-python", "pip install"} {
+			if strings.Contains(workflow, forbidden) {
+				t.Errorf("%s runs the LangChain consumer on GitHub: contains %q", path, forbidden)
+			}
+		}
 	}
 }
 
@@ -138,7 +122,7 @@ func TestLangChainProofPinsVersionsAndUnenforcedBoundary(t *testing.T) {
 		)
 	}
 	assertContainsAll(t, "documentation", surfaces["documentation"],
-		"Python CI runtime",
+		"Python test runtime",
 		"3.13.14",
 		"Go downstream fixture",
 		"format `1`",
@@ -153,7 +137,6 @@ func TestLangChainProofPinsVersionsAndUnenforcedBoundary(t *testing.T) {
 	goModule := readPublicSurfaceFile(t, root, "go.mod")
 	requirements := readPublicSurfaceFile(t, root, "scripts/tests/langchain-requirements.in")
 	integration := readPublicSurfaceFile(t, root, "scripts/tests/langchain-integration.sh")
-	workflow := readPublicSurfaceFile(t, root, ".github/workflows/reconc-ci.yml")
 	makefile := readPublicSurfaceFile(t, root, "Makefile")
 	doctor := readPublicSurfaceFile(t, root, "internal/cli/doctor_deep.go")
 	status := readPublicSurfaceFile(t, root, "internal/cli/inspect_cmd.go")
@@ -177,13 +160,6 @@ func TestLangChainProofPinsVersionsAndUnenforcedBoundary(t *testing.T) {
 		"direct downstream configuration was incorrectly represented as enforced",
 		"socket.socket.connect = deny_network",
 		"LangChain Core 1.5.4, MCP Python SDK 1.29.0, Python 3.13.14",
-	)
-	assertContainsAll(t, "CI", workflow,
-		"langchain-integration:",
-		"actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
-		"python-version: 3.13.14",
-		"python -m pip install --require-hashes -r scripts/tests/langchain-requirements.lock",
-		"make test-langchain PYTHON=python",
 	)
 	assertContainsAll(t, "Makefile", makefile,
 		"test-langchain:",
