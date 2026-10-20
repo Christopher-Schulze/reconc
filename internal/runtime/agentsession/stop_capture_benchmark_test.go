@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/runtime"
 )
 
@@ -235,5 +236,48 @@ func BenchmarkStrictPostToolLargeOutput(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		runPostToolUseCompleteStrictResolved(root, payload)
+	}
+}
+
+// BenchmarkStopUncacheablePolicyDirtyTree runs Stop for a plan that can never
+// be cached (a require_script without cache_inputs) while 64 large files are
+// dirty, the case in which a fingerprint is never used.
+func BenchmarkStopUncacheablePolicyDirtyTree(b *testing.B) {
+	repo := setupStopBenchmarkRepo(b)
+	script := filepath.Join(repo, ".reconc", "scripts", "stop-gate.sh")
+	if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		b.Fatal(err)
+	}
+	rules := "rules:\n  - id: stop-script-gate\n    kind: require_script\n    when_paths: ['src/**']\n    script: '.reconc/scripts/stop-gate.sh'\n    mode: block\n    timeout_sec: 10\n    message: stop script gate\n"
+	if err := os.WriteFile(filepath.Join(repo, "policies", "rules.yml"), []byte(rules), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "benchmark"); err != nil {
+		b.Fatal(err)
+	}
+	state, err := InitializeSessionState(repo, "uncacheable")
+	if err != nil {
+		b.Fatal(err)
+	}
+	body := strings.Repeat("dirty generated line\n", 1<<14)
+	for index := range 64 {
+		relative := fmt.Sprintf("src/generated%02d.go", index)
+		if err := os.WriteFile(filepath.Join(repo, filepath.FromSlash(relative)), []byte(body), 0o644); err != nil {
+			b.Fatal(err)
+		}
+		state.WritePaths = append(state.WritePaths, relative)
+	}
+	if err := SaveSessionState(state); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := runStopPolicyCheck(repo, state); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

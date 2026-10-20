@@ -45,3 +45,16 @@ release.
   active-session lock when the pointer is current, post-tool handlers decode
   the hook payload once, size-checked files are read with one exact
   allocation, and the command-proof capture repairs its directory once.
+
+## Stop
+
+- Stop builds its cache fingerprint (Git index entries, dirty-file hashes,
+  evidence serialization) and the report and evidence hashes only for a plan
+  it can cache, and looks a cached entry up before hashing the evidence. A Stop
+  under a `require_script` without `cache_inputs` and 64 dirty files took
+  31 ms instead of 70 ms.
+- A clean Stop no longer locks and rewrites the session only to clear a
+  repeated-block marker that is not set, and the dirty-path scope resolves the
+  repository root once.
+- A Stop blocked because the repository changed during evaluation names the
+  changed paths, so a check that writes into the repository can be found.

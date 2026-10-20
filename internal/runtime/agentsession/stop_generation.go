@@ -402,13 +402,14 @@ func (cache *StopDecisionCache) readStableReportWithSnapshot(
 	scanCache *stopPolicyScanCache,
 	beforeSnapshot *stopPolicyAttemptSnapshot,
 ) (*runtime.CheckReport, bool) {
-	evidenceHash, err := stopPolicyEvidenceHash(state)
-	if err != nil {
+	// The entry is looked up first: hashing the complete evidence is useless
+	// without one, and one-shot hooks never have one.
+	entry, ok := cache.entry(root, state.SessionID)
+	if !ok || entry.fingerprint != state.StopPolicyFingerprint || entry.reportHash != state.StopPolicyReportHash {
 		return nil, false
 	}
-	entry, ok := cache.entry(root, state.SessionID)
-	if !ok || entry.evidenceHash != evidenceHash ||
-		entry.fingerprint != state.StopPolicyFingerprint || entry.reportHash != state.StopPolicyReportHash {
+	evidenceHash, err := stopPolicyEvidenceHash(state)
+	if err != nil || entry.evidenceHash != evidenceHash {
 		return nil, false
 	}
 	// The warm path must honour the same age boundary as the session-state

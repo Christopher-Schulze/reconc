@@ -4,7 +4,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -164,12 +166,17 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 	}
 
 	if payload.StopHookActive && !payload.StrictContinuation && !checkpointDue {
-		evidenceHash, hashErr := stopPolicyEvidenceHash(state)
-		if hashErr != nil {
-			return resultWithEncodingError(Result{ExitCode: 2}, hashErr)
+		// Without a stored report the evidence hash cannot match anything.
+		evidenceHash := ""
+		if state.StopPolicyEvidenceHash != "" && state.StopPolicyReportHash != "" {
+			hash, hashErr := stopPolicyEvidenceHash(state)
+			if hashErr != nil {
+				return resultWithEncodingError(Result{ExitCode: 2}, hashErr)
+			}
+			evidenceHash = hash
 		}
 		if cached, ok := cachedCleanStopPolicyReportForEvidenceWithCache(root, state, evidenceHash, stopCache, taskSnapshot); ok {
-			if terminalResult, handled, terminalErr := finalizeCleanStop(root, state.SessionID, cached); terminalErr != nil {
+			if terminalResult, handled, terminalErr := finalizeCleanStop(root, state, cached); terminalErr != nil {
 				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): finalize clean Stop: %s", terminalErr)}
 			} else if handled {
 				return terminalResult
@@ -228,7 +235,7 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 		return Result{ExitCode: 0, Stdout: blockOutput, Stderr: joinStderr(bestEffortStopDecisionDiagnostic(logErr), stopBlockStateDiagnostic(stateErr))}
 	}
 
-	if terminalResult, handled, terminalErr := finalizeCleanStop(root, state.SessionID, policyResult); terminalErr != nil {
+	if terminalResult, handled, terminalErr := finalizeCleanStop(root, state, policyResult); terminalErr != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): finalize clean Stop: %s", terminalErr)}
 	} else if handled {
 		return terminalResult
@@ -289,7 +296,7 @@ func applyStopRunStateClose(result Result, terminalDecision stopTerminalDecision
 	return result
 }
 
-func finalizeCleanStop(root, sessionID string, evaluated stopPolicyCheckResult) (Result, bool, error) {
+func finalizeCleanStop(root string, state SessionState, evaluated stopPolicyCheckResult) (Result, bool, error) {
 	currentTask, err := captureStopTaskSnapshot(root)
 	if err != nil {
 		return Result{}, false, fmt.Errorf("recapture TASK snapshot: %w", err)
@@ -299,19 +306,84 @@ func finalizeCleanStop(root, sessionID string, evaluated stopPolicyCheckResult) 
 		currentCacheGit = stopPolicyGitSnapshotFor(root)
 	}
 	if !reflect.DeepEqual(evaluated.TaskSnapshot, currentTask) || evaluated.GitSnapshot != currentCacheGit {
-		return Result{}, false, fmt.Errorf("terminal repository state changed during Stop evaluation")
+		return Result{}, false, fmt.Errorf("terminal repository state changed during Stop evaluation: %s",
+			terminalStateChangeDetail(evaluated, currentTask, currentCacheGit))
 	}
-	if _, err := mutateSessionStateResolved(root, sessionID, func(state SessionState) SessionState {
-		state.LastStopBlockViolationHash = ""
-		return state
-	}); err != nil {
-		return Result{}, false, fmt.Errorf("clear repeated-block state: %w", err)
+	// Only a Stop that blocked records the repeated-block hash; a session that
+	// never blocked has nothing to clear.
+	if state.LastStopBlockViolationHash != "" {
+		if _, err := mutateSessionStateResolved(root, state.SessionID, func(state SessionState) SessionState {
+			state.LastStopBlockViolationHash = ""
+			return state
+		}); err != nil {
+			return Result{}, false, fmt.Errorf("clear repeated-block state: %w", err)
+		}
 	}
 	if !taskCompletionCommitGateApplies(currentTask) {
 		return Result{}, false, nil
 	}
 	terminalGit := completionPolicyGitSnapshotFor(root)
 	return taskCompletionCommitGate(currentTask, terminalGit)
+}
+
+// maxReportedTerminalChanges bounds the paths a terminal-change block names.
+const maxReportedTerminalChanges = 8
+
+// terminalStateChangeDetail names what changed between the evaluated and the
+// terminal repository observation, so a script or tool that writes during
+// Stop can be found and made side-effect free or gitignored.
+func terminalStateChangeDetail(evaluated stopPolicyCheckResult, currentTask stopTaskSnapshot, currentGit stopPolicyGitSnapshot) string {
+	changes := []string{}
+	if !reflect.DeepEqual(evaluated.TaskSnapshot, currentTask) {
+		changes = append(changes, "the TASK board")
+	}
+	if evaluated.GitSnapshot.Head != currentGit.Head {
+		changes = append(changes, "HEAD")
+	}
+	before := stopStatusEntries(evaluated.GitSnapshot.Status)
+	after := stopStatusEntries(currentGit.Status)
+	paths := []string{}
+	for path, code := range after {
+		if before[path] != code {
+			paths = append(paths, path)
+		}
+	}
+	for path := range before {
+		if _, ok := after[path]; !ok {
+			paths = append(paths, path)
+		}
+	}
+	sort.Strings(paths)
+	if len(paths) > maxReportedTerminalChanges {
+		paths = append(paths[:maxReportedTerminalChanges], fmt.Sprintf("%d more", len(paths)-maxReportedTerminalChanges))
+	}
+	changes = append(changes, paths...)
+	if evaluated.GitSnapshot.StatusOK != currentGit.StatusOK || evaluated.GitSnapshot.StatusMode != currentGit.StatusMode {
+		changes = append(changes, "Git status availability")
+	}
+	if len(changes) == 0 {
+		return "repository observation differs"
+	}
+	return strings.Join(changes, ", ") + "; a check that writes these must write outside the repository or to gitignored paths"
+}
+
+// stopStatusEntries maps each path of a NUL-separated porcelain status to
+// its two-letter state; a rename or copy source maps to the same state.
+func stopStatusEntries(status string) map[string]string {
+	records := strings.Split(status, "\x00")
+	entries := make(map[string]string, len(records))
+	for index := 0; index < len(records); index++ {
+		record := records[index]
+		if len(record) < 4 || record[2] != ' ' {
+			continue
+		}
+		entries[filepath.ToSlash(record[3:])] = record[:2]
+		if isRenameOrCopyStatus(record[0], record[1]) && index+1 < len(records) {
+			index++
+			entries[filepath.ToSlash(records[index])] = record[:2]
+		}
+	}
+	return entries
 }
 
 // taskCompletionCommitGateApplies reports whether the committed-completion

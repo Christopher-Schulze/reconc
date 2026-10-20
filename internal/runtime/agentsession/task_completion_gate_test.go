@@ -193,4 +193,7 @@ func TestUncacheableStopRejectsTerminalGitDriftDuringEvaluation(t *testing.T) {
 	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "terminal repository state changed during Stop evaluation") {
 		t.Fatalf("terminal Git drift was released from an uncacheable Stop: %+v", result)
 	}
+	if !strings.Contains(result.Stderr, "docs/tasks.md") {
+		t.Fatalf("terminal drift block does not name what changed: %q", result.Stderr)
+	}
 }

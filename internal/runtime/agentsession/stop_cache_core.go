@@ -256,11 +256,19 @@ func runStopPolicyCheckLockedAttempt(
 		taskSnapshot = currentTask
 		gitSnapshot = currentGit
 	}
-	fingerprintInput := stopPolicyFingerprintInputForSnapshotWithScan(repoRoot, state, gitSnapshot, taskSnapshot, beforeSnapshot.generationCapture(), scanCache)
-	cacheable := stopPolicyFingerprintCacheableWithScan(fingerprintInput, scanCache)
-	fingerprint, err := hashStopPolicyFingerprintInputWithError(fingerprintInput)
-	if err != nil {
-		return stopPolicyCheckResult{}, fmt.Errorf("hash Stop fingerprint: %w", err)
+	// Only a cacheable plan over a readable Git status can use the
+	// fingerprint. Both conditions are cheap, while building the fingerprint
+	// reads the Git index and hashes every dirty file.
+	var fingerprintInput stopPolicyFingerprintInput
+	cacheable := false
+	fingerprint := ""
+	if gitSnapshot.StatusOK && scanCache.get(repoRoot, sortedUniqueExact(state.WritePaths)).Cacheable {
+		fingerprintInput = stopPolicyFingerprintInputForSnapshotWithScan(repoRoot, state, gitSnapshot, taskSnapshot, beforeSnapshot.generationCapture(), scanCache)
+		cacheable = stopPolicyFingerprintCacheableWithScan(fingerprintInput, scanCache)
+		fingerprint, err = hashStopPolicyFingerprintInputWithError(fingerprintInput)
+		if err != nil {
+			return stopPolicyCheckResult{}, fmt.Errorf("hash Stop fingerprint: %w", err)
+		}
 	}
 	if cacheable && fingerprint != "" && state.StopPolicyFingerprint == fingerprint &&
 		state.StopPolicyReportHash != "" && !stopPolicyReportExpired(state.StopPolicyExpiresAt) {
@@ -321,13 +329,18 @@ func runStopPolicyCheckLockedAttempt(
 	if err != nil {
 		return stopPolicyCheckResult{}, err
 	}
-	reportHash, err := hashCheckReport(report)
-	if err != nil {
-		return stopPolicyCheckResult{}, fmt.Errorf("hash Stop policy report: %w", err)
-	}
-	initialEvidenceHash, err := stopPolicyEvidenceHash(state)
-	if err != nil {
-		return stopPolicyCheckResult{}, fmt.Errorf("hash Stop evidence: %w", err)
+	// The report and evidence hashes only bind cache metadata, which a plan
+	// that cannot be cached never publishes.
+	reportHash, initialEvidenceHash := "", ""
+	if cacheable {
+		reportHash, err = hashCheckReport(report)
+		if err != nil {
+			return stopPolicyCheckResult{}, fmt.Errorf("hash Stop policy report: %w", err)
+		}
+		initialEvidenceHash, err = stopPolicyEvidenceHash(state)
+		if err != nil {
+			return stopPolicyCheckResult{}, fmt.Errorf("hash Stop evidence: %w", err)
+		}
 	}
 	cacheInputsStable := false
 	var postFingerprintInput stopPolicyFingerprintInput
@@ -570,8 +583,9 @@ func stopScopeWritePathsToUncommitted(repoRoot string, writePaths []string, snap
 		return nil
 	}
 	out := make([]string, 0, len(writePaths))
+	scope := stopRepoPaths{repoRoot: repoRoot, prospective: pathidentity.NewProspectiveResolver()}
 	for _, writePath := range writePaths {
-		rel := stopRepoRelPosix(repoRoot, writePath)
+		rel := scope.relPosix(writePath)
 		if rel == "" || stopPathDirtyOrUnderDirtyDir(rel, dirty) {
 			out = append(out, writePath)
 		}
@@ -592,7 +606,17 @@ func stopPathDirtyOrUnderDirtyDir(rel string, dirty map[string]struct{}) bool {
 	return false
 }
 
-func stopRepoRelPosix(repoRoot, raw string) string {
+// stopRepoPaths resolves the repository root once and every write path of a
+// batch through one prospective resolver.
+type stopRepoPaths struct {
+	repoRoot    string
+	root        string
+	rootErr     error
+	rootDone    bool
+	prospective *pathidentity.ProspectiveResolver
+}
+
+func (scope *stopRepoPaths) relPosix(raw string) string {
 	path := raw
 	if path == "" {
 		return ""
@@ -605,15 +629,18 @@ func stopRepoRelPosix(repoRoot, raw string) string {
 		}
 		return filepath.ToSlash(cleaned)
 	}
-	root, err := pathidentity.ResolveExisting(repoRoot)
+	if !scope.rootDone {
+		scope.root, scope.rootErr = pathidentity.ResolveExisting(scope.repoRoot)
+		scope.rootDone = true
+	}
+	if scope.rootErr != nil {
+		return ""
+	}
+	cleaned, err := scope.prospective.Resolve(filepath.Clean(path))
 	if err != nil {
 		return ""
 	}
-	cleaned, err := pathidentity.ResolveProspective(filepath.Clean(path))
-	if err != nil {
-		return ""
-	}
-	rel, err := filepath.Rel(root, cleaned)
+	rel, err := filepath.Rel(scope.root, cleaned)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return ""
 	}
