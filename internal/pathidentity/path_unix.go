@@ -3,6 +3,7 @@
 package pathidentity
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -28,6 +29,12 @@ type storedSpellings struct{}
 
 func (storedSpellings) compose(parentIdentity string, _ os.FileInfo, name string, _ os.FileInfo) (string, bool) {
 	return filepath.Join(parentIdentity, name), true
+}
+
+// listedType reads no listing: an inspected parent saves its own inspection
+// per path, and each path is still inspected itself.
+func (storedSpellings) listedType(string, os.FileInfo, string) (fs.FileMode, bool) {
+	return 0, false
 }
 
 func existingAliasesOS(string) []string {

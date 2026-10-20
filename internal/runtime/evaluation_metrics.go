@@ -310,8 +310,14 @@ func normalizeEvaluationInputWithRootResolver(root string, inputs ExecutionInput
 	if dropForeignReads {
 		normalizeReads = normalizeRepoReadPathsWithResolver
 	}
-	reads, err := normalizeReads(inputs.ReadPaths, paths.resolvedRoot, paths.prospective)
-	if err != nil {
+	// Recorded reads are evidence, not write targets, so their directories are
+	// inspected once for the whole set rather than once per path.
+	var reads []string
+	if err := paths.prospective.WithListedParents(func() error {
+		var normalizeErr error
+		reads, normalizeErr = normalizeReads(inputs.ReadPaths, paths.resolvedRoot, paths.prospective)
+		return normalizeErr
+	}); err != nil {
 		return normalizedEvaluationInputSet{}, err
 	}
 	writes, epochs, err := normalizeWritesAndEpochsWithResolver(inputs.WritePaths, inputs.WriteEpochs, paths.resolvedRoot, paths.prospective)

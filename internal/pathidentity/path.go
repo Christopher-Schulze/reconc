@@ -32,6 +32,17 @@ type ProspectiveResolver struct {
 	// so lookups skip the ancestor scan until one exists.
 	recordedMissing bool
 	spellings       storedSpellings
+	// listedParents and inspectedParents exist only while WithListedParents
+	// runs; they hold the directories that call already inspected.
+	listedParents    map[string]listedParent
+	inspectedParents map[string]os.FileInfo
+}
+
+// listedParent is a directory inspected once during WithListedParents: its
+// identity and the metadata observed for its canonical path.
+type listedParent struct {
+	identity string
+	info     os.FileInfo
 }
 
 // NewProspectiveResolver creates an empty evaluation-scoped resolver. It is
@@ -65,6 +76,23 @@ func (r *ProspectiveResolver) ResolveBatch(paths []string) ([]string, error) {
 	return resolved, nil
 }
 
+// WithListedParents runs resolve with every parent directory inspected once
+// for the whole call instead of once per path, for bulk recorded evidence. A
+// regular file or directory stored under its exact name in an inspected
+// parent's listing takes that parent's identity plus the name without being
+// inspected itself; every other path resolves as Resolve does. A directory
+// replaced while the call runs can go unnoticed for its later paths in the
+// same call, so it is never used for a path that a decision will write.
+func (r *ProspectiveResolver) WithListedParents(resolve func() error) error {
+	if r == nil || r.listedParents != nil {
+		return resolve()
+	}
+	r.listedParents = make(map[string]listedParent)
+	r.inspectedParents = make(map[string]os.FileInfo)
+	defer func() { r.listedParents, r.inspectedParents = nil, nil }()
+	return resolve()
+}
+
 // Resolve resolves one prospective path and revalidates every reused
 // observation before using it.
 func (r *ProspectiveResolver) Resolve(path string) (string, error) {
@@ -78,6 +106,9 @@ func (r *ProspectiveResolver) Resolve(path string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("resolve absolute path %q: %w", path, err)
 		}
+	}
+	if identity, ok := r.resolveListed(absolute); ok {
+		return identity, nil
 	}
 	cursor := r.skipConfirmedMissing(absolute)
 	for {
@@ -106,6 +137,57 @@ func (r *ProspectiveResolver) Resolve(path string) (string, error) {
 		}
 		cursor = parent
 	}
+}
+
+// resolveListed answers an existing regular file or directory from its
+// parent's listing while WithListedParents runs.
+func (r *ProspectiveResolver) resolveListed(absolute string) (string, bool) {
+	if r.listedParents == nil || !composesExistingIdentity {
+		return "", false
+	}
+	directory := filepath.Dir(absolute)
+	if directory == absolute {
+		return "", false
+	}
+	parent, seen := r.listedParents[directory]
+	if !seen {
+		parent = r.inspectListedParent(directory)
+		r.listedParents[directory] = parent
+	}
+	if parent.info == nil {
+		return "", false
+	}
+	name := filepath.Base(absolute)
+	mode, listed := r.spellings.listedType(parent.identity, parent.info, name)
+	if !listed || (!mode.IsDir() && !mode.IsRegular()) {
+		return "", false
+	}
+	return filepath.Join(parent.identity, name), true
+}
+
+func (r *ProspectiveResolver) inspectListedParent(directory string) listedParent {
+	identity, err := r.Resolve(directory)
+	if err != nil {
+		return listedParent{}
+	}
+	info, err := os.Lstat(identity)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return listedParent{}
+	}
+	return listedParent{identity: identity, info: info}
+}
+
+// inspectParent observes a parent directory, once per WithListedParents call
+// and on every use otherwise.
+func (r *ProspectiveResolver) inspectParent(parent string) (os.FileInfo, error) {
+	if info, ok := r.inspectedParents[parent]; ok {
+		return info, nil
+	}
+	info, err := os.Lstat(parent)
+	if err == nil && r.inspectedParents != nil {
+		r.inspectedParents[parent] = info
+	}
+	return info, err
 }
 
 // existingAncestorResult records the missing child of the deepest existing
@@ -156,7 +238,7 @@ func (r *ProspectiveResolver) resolveExisting(path string, info os.FileInfo) (st
 		return ResolveExisting(path)
 	}
 	if cached, ok := r.ancestors[parent]; ok && cached.info != nil {
-		current, err := os.Lstat(parent)
+		current, err := r.inspectParent(parent)
 		if err == nil && sameProspectiveAncestor(cached.info, current) {
 			if identity, ok := r.spellings.compose(cached.identity, current, filepath.Base(path), info); ok {
 				return identity, nil
@@ -172,7 +254,7 @@ func (r *ProspectiveResolver) resolveExisting(path string, info os.FileInfo) (st
 	}
 	// The parent's metadata is captured before resolution, so a parent that
 	// changes during resolution fails the next revalidation.
-	parentInfo, parentErr := os.Lstat(parent)
+	parentInfo, parentErr := r.inspectParent(parent)
 	resolved, parentProven, err := resolveExistingOSWithParent(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve filesystem identity %q: %w", path, err)

@@ -5,6 +5,7 @@ package pathidentity
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,10 @@ type storedSpellings struct{}
 
 func (storedSpellings) compose(string, os.FileInfo, string, os.FileInfo) (string, bool) {
 	return "", false
+}
+
+func (storedSpellings) listedType(string, os.FileInfo, string) (fs.FileMode, bool) {
+	return 0, false
 }
 
 func resolveExistingOSWithParent(path string) (string, bool, error) {

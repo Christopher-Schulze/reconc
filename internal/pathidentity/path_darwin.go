@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -80,8 +81,9 @@ type storedSpellings struct {
 }
 
 type directoryListing struct {
-	info  os.FileInfo
-	names map[string]struct{}
+	info os.FileInfo
+	// names maps each stored name to its entry type.
+	names map[string]fs.FileMode
 }
 
 func (s *storedSpellings) compose(parentIdentity string, parentInfo os.FileInfo, name string, info os.FileInfo) (string, bool) {
@@ -113,8 +115,15 @@ func (s *storedSpellings) compose(parentIdentity string, parentInfo os.FileInfo,
 // stores name with exactly this spelling. A symlinked parent's metadata does
 // not describe its target's entries, so it never answers from a listing.
 func (s *storedSpellings) stores(directory string, info os.FileInfo, name string) bool {
+	_, stored := s.listedType(directory, info, name)
+	return stored
+}
+
+// listedType reports the type of the entry stored exactly as name in
+// directory, observed with info just before this call.
+func (s *storedSpellings) listedType(directory string, info os.FileInfo, name string) (fs.FileMode, bool) {
 	if info == nil || !info.IsDir() {
-		return false
+		return 0, false
 	}
 	listing, ok := s.directories[directory]
 	if !ok || !sameProspectiveAncestor(listing.info, info) {
@@ -126,26 +135,26 @@ func (s *storedSpellings) stores(directory string, info os.FileInfo, name string
 		s.directories[directory] = listing
 		s.names += len(listing.names)
 	}
-	_, stored := listing.names[name]
-	return stored
+	mode, stored := listing.names[name]
+	return mode, stored
 }
 
 // readDirectoryNames lists at most maxListedDirectoryEntries names; a larger
 // or unreadable directory yields no names, so its entries take the
 // descriptor path instead.
-func readDirectoryNames(directory string) map[string]struct{} {
+func readDirectoryNames(directory string) map[string]fs.FileMode {
 	handle, err := os.Open(directory)
 	if err != nil {
 		return nil
 	}
-	entries, readErr := handle.Readdirnames(maxListedDirectoryEntries + 1)
+	entries, readErr := handle.ReadDir(maxListedDirectoryEntries + 1)
 	closeErr := handle.Close()
 	if (readErr != nil && readErr != io.EOF) || closeErr != nil || len(entries) > maxListedDirectoryEntries {
 		return nil
 	}
-	names := make(map[string]struct{}, len(entries))
+	names := make(map[string]fs.FileMode, len(entries))
 	for _, entry := range entries {
-		names[entry] = struct{}{}
+		names[entry.Name()] = entry.Type()
 	}
 	return names
 }

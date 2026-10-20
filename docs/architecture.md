@@ -767,7 +767,13 @@ and byte-compares the notice before checksums and provenance are accepted.
     their identity and metadata, confirmed-missing ancestors must still be
     missing, and existing non-symlinks derive their identity from a
     revalidated parent; missing suffixes are never trusted from string state
-    alone.
+    alone. Recorded read evidence is the one bulk exception: while its set is
+    normalized, each parent directory is inspected once for the whole set, and
+    on macOS a regular file or directory stored under its exact name in that
+    parent's listing takes the parent's identity plus the name without its
+    own inspection. Symlinks, other spellings, and missing names resolve
+    per path. A directory replaced during that one pass can go unnoticed for
+    its later reads; write paths keep the per-path revalidation.
     Write-epoch keys use the same resolver and one pass over the write-path
     sequence, merging aliases by maximum epoch after normalized containment.
      Action predicate evaluation reuses one immutable materialized context
