@@ -126,7 +126,7 @@ func writeCIHelp(output io.Writer) {
 	fmt.Fprintln(output, "                 --candidate SHA --candidate-kind commit|merge-queue [--json]")
 	fmt.Fprintln(output, "")
 	fmt.Fprintln(output, "Derive write_paths from git diff and run policy check.")
-	fmt.Fprintln(output, "  --staged                 git diff --cached --no-renames --name-only (pre-commit)")
+	fmt.Fprintln(output, "  --staged                 staged changes of the fingerprinted index (pre-commit)")
 	fmt.Fprintln(output, "  --base REF [--head REF]  git diff base...head --no-renames --name-only (PR/CI)")
 	fmt.Fprintln(output, "  --staged rejects explicit command outcome flags; use reconc exec --staged")
 	fmt.Fprintln(output, "  --staged requires a worktree matching the index, with no unstaged or untracked changes")

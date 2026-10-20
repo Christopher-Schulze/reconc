@@ -102,8 +102,10 @@ func hermeticEnvironment(directory string, objects *ObjectDirectories) []string 
 // running hooks: `git commit -a`, `-i`, `-o` and pathspec commits stage into a
 // temporary index named by GIT_INDEX_FILE, and that index, not .git/index, is
 // what the commit records. Only a regular file named index, index.lock or
-// next-index-*.lock directly inside the repository's own Git directory is
-// accepted, so the variable cannot point a gate at an arbitrary index.
+// next-index-*.lock directly inside the Git directory of the checkout that
+// contains directory is accepted, so the variable cannot point a gate at an
+// arbitrary index. Git runs hooks at the checkout root, so a relative value
+// is resolved there, also for a policy root below it.
 func commitIndexFile(directory string) (string, bool) {
 	value := strings.TrimSpace(os.Getenv("GIT_INDEX_FILE"))
 	if value == "" || directory == "" {
@@ -113,15 +115,15 @@ func commitIndexFile(directory string) (string, bool) {
 	if name != "index" && name != "index.lock" && !(strings.HasPrefix(name, "next-index-") && strings.HasSuffix(name, ".lock")) {
 		return "", false
 	}
+	checkout, gitDir, ok := enclosingRepositoryGitDir(directory)
+	if !ok {
+		return "", false
+	}
 	if !filepath.IsAbs(value) {
-		value = filepath.Join(directory, value)
+		value = filepath.Join(checkout, value)
 	}
 	info, err := os.Lstat(value)
 	if err != nil || !info.Mode().IsRegular() {
-		return "", false
-	}
-	gitDir, ok := repositoryGitDir(directory)
-	if !ok {
 		return "", false
 	}
 	parent, err := filepath.EvalSymlinks(filepath.Dir(value))
@@ -129,6 +131,26 @@ func commitIndexFile(directory string) (string, bool) {
 		return "", false
 	}
 	return filepath.Join(parent, name), true
+}
+
+// enclosingRepositoryGitDir finds the nearest directory at or above directory
+// that holds a .git entry and resolves its Git directory.
+func enclosingRepositoryGitDir(directory string) (string, string, bool) {
+	current, err := filepath.Abs(directory)
+	if err != nil {
+		return "", "", false
+	}
+	for {
+		if _, err := os.Lstat(filepath.Join(current, ".git")); err == nil {
+			gitDir, ok := repositoryGitDir(current)
+			return current, gitDir, ok
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", "", false
+		}
+		current = parent
+	}
 }
 
 // repositoryGitDir resolves directory/.git as a directory or a `gitdir:` file.

@@ -2293,8 +2293,11 @@ Repository Sync alone receives explicit ephemeral object-store overrides. The
 one ambient redirection kept is the temporary commit index Git itself names in
 `GIT_INDEX_FILE` while running hooks for `git commit -a`, `-i`, `-o`, or a
 pathspec commit: a regular file named `index`, `index.lock`, or
-`next-index-*.lock` directly inside the repository's own Git directory, so the
-staged gate evaluates exactly what the commit records. Staged and range diffs
+`next-index-*.lock` directly inside the Git directory of the checkout that
+contains the policy root, so the staged gate evaluates exactly what the commit
+records. Git runs the hook at the checkout root, so a relative value is
+resolved there, which keeps a policy root below the checkout root on the
+commit's index too. Staged and range diffs
 and Stop status observations pass `--ignore-submodules=none`, so repository
 configuration cannot hide a submodule bump from path rules, and Git
 diagnostics on stderr never enter porcelain parsing: a status that wrote
@@ -3266,7 +3269,13 @@ name the exact index-bound remediation (`reconc exec <repo> --staged --shell
 never session command history. The staged gate also requires readable Git status
 and a worktree matching the index, with no unstaged or untracked changes, so live
 content checks evaluate the same
-contents as the staged candidate. Partial staging therefore blocks until the
+contents as the staged candidate. Its write paths are that candidate's dirty
+paths, read from the same status snapshot its fingerprint binds, never from a
+second Git call that could observe another index. Loading index-bound proofs
+lists the receipts first and captures HEAD and the index tree (whose
+`write-tree` takes `index.lock`) only when a receipt exists, and `reconc exec
+--staged` confirms its candidate once after publishing a proof instead of
+capturing it again before and after. Partial staging therefore blocks until the
 worktree matches the intended index. Range CI retains its worktree semantics.
 The command kinds accept an additive `command_match: prefix` opt-in that also
 matches a recorded command extending an expected command at a token boundary

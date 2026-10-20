@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -251,5 +252,67 @@ func gitCommand(t *testing.T, repo string, args ...string) {
 	command.Dir = repo
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, output)
+	}
+}
+
+// Every write-tree takes index.lock, so staged evaluation must not spawn Git
+// for values it can obtain otherwise; the budgets pin the measured counts.
+func TestStagedEvaluationGitSpawnBudget(t *testing.T) {
+	repo := makeCheckRepo(t,
+		"rules:\n  - id: tests-must-pass\n    kind: require_command_success\n    when_paths: ['src/**']\n    commands: ['true']\n    mode: block\n    message: tests must pass\n")
+	initGitRepo(t, repo)
+	gitCommand(t, repo, "add", "AGENTS.md", "policies", ".reconc")
+	gitCommand(t, repo, "commit", "-m", "initial")
+	if err := os.MkdirAll(filepath.Join(repo, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "src", "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommand(t, repo, "add", "src/main.go")
+	t.Setenv(agentsession.StateRootEnv, filepath.Join(t.TempDir(), "state"))
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shim := t.TempDir()
+	argv := filepath.Join(shim, "argv.log")
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> %s\nexec %s \"$@\"\n", quoteCommandArgument(argv), quoteCommandArgument(git))
+	if err := os.WriteFile(filepath.Join(shim, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shim+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, step := range []struct {
+		name                    string
+		args                    []string
+		wantExit                int
+		maxSpawns, maxWriteTree int
+	}{
+		{name: "ci without proofs", args: []string{"ci", repo, "--staged"}, wantExit: 2, maxSpawns: 8, maxWriteTree: 0},
+		{name: "exec", args: []string{"exec", repo, "--staged", "--", "true"}, maxSpawns: 21, maxWriteTree: 5},
+		{name: "ci with a proof", args: []string{"ci", repo, "--staged"}, maxSpawns: 20, maxWriteTree: 4},
+	} {
+		if err := os.Remove(argv); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		var stdout, stderr bytes.Buffer
+		if code := ExitCode(Run(step.args, "test", &stdout, &stderr)); code != step.wantExit {
+			t.Fatalf("%s: exit %d, want %d: stdout=%s stderr=%s", step.name, code, step.wantExit, &stdout, &stderr)
+		}
+		body, err := os.ReadFile(argv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+		writeTrees := 0
+		for _, line := range lines {
+			if strings.Contains(" "+line+" ", " write-tree ") {
+				writeTrees++
+			}
+		}
+		if len(lines) > step.maxSpawns || writeTrees > step.maxWriteTree {
+			t.Fatalf("%s spawned Git %d times with %d write-tree calls; budget %d and %d:\n%s",
+				step.name, len(lines), writeTrees, step.maxSpawns, step.maxWriteTree, body)
+		}
 	}
 }

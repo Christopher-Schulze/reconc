@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -139,14 +140,10 @@ func VerifyStagedClean(before Snapshot) error {
 }
 
 // StoreSuccess atomically publishes one successful proof outside the repo.
+// The caller has just verified snapshot with VerifyStagedClean, and a proof
+// binds only that HEAD and index tree, so publication needs no fresh capture
+// beforehand; one capture afterwards reports a candidate that moved on.
 func StoreSuccess(snapshot Snapshot, command, executionMode string, startedAt, completedAt time.Time) (Proof, error) {
-	current, err := CaptureCurrent(snapshot.RepoRoot)
-	if err != nil {
-		return Proof{}, err
-	}
-	if current != snapshot {
-		return Proof{}, errors.New("git HEAD or staged index changed before command proof publication")
-	}
 	proof := Proof{
 		Schema:        proofSchema,
 		Scope:         proofScope,
@@ -184,7 +181,7 @@ func StoreSuccess(snapshot Snapshot, command, executionMode string, startedAt, c
 	if _, err := privatefs.WritePrivateIfChanged(path, data, 0o600); err != nil {
 		return Proof{}, fmt.Errorf("write command proof: %w", err)
 	}
-	confirmed, err := CaptureCurrent(snapshot.RepoRoot)
+	confirmed, err := capture(snapshot.RepoRoot)
 	if err != nil {
 		return Proof{}, fmt.Errorf("confirm command proof candidate after publication: %w", err)
 	}
@@ -202,10 +199,8 @@ func LoadCurrentSuccesses(repoRoot string, now time.Time) ([]Proof, error) {
 	if err != nil {
 		return nil, err
 	}
-	current, err := capture(root)
-	if err != nil {
-		return nil, err
-	}
+	// List receipts first: without one there is nothing to bind, and the
+	// capture's write-tree would take index.lock for nothing.
 	entries, err := boundedio.ReadDirNoSymlink(proofDir(root), maxProofFiles)
 	if errors.Is(err, os.ErrNotExist) {
 		return []Proof{}, nil
@@ -213,10 +208,17 @@ func LoadCurrentSuccesses(repoRoot string, now time.Time) ([]Proof, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read command proofs: %w", err)
 	}
+	if !slices.ContainsFunc(entries, proofReceiptEntry) {
+		return []Proof{}, nil
+	}
+	current, err := capture(root)
+	if err != nil {
+		return nil, err
+	}
 	maxAge := retention.DefaultPolicy().CommandProofs.MaxAge
 	proofs := make([]Proof, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || filepath.Ext(entry.Name()) != ".json" {
+		if !proofReceiptEntry(entry) {
 			continue
 		}
 		info, infoErr := entry.Info()
@@ -253,6 +255,10 @@ func LoadCurrentSuccesses(repoRoot string, now time.Time) ([]Proof, error) {
 		return nil, errors.New("git HEAD or staged index changed while loading command proofs")
 	}
 	return proofs, nil
+}
+
+func proofReceiptEntry(entry os.DirEntry) bool {
+	return !entry.IsDir() && entry.Type()&os.ModeSymlink == 0 && filepath.Ext(entry.Name()) == ".json"
 }
 
 func proofDir(repoRoot string) string {

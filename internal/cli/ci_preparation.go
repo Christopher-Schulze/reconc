@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 
+	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
@@ -62,10 +63,27 @@ func mergeCIActiveEvidence(staged bool, active runtime.ExecutionInputs, inputs *
 	inputs.Claims = append(inputs.Claims, active.Claims...)
 }
 
+// stagedCandidateGitCommand names the snapshot staged write paths come from.
+const stagedCandidateGitCommand = "git status --porcelain=v1 -z --ignore-submodules=none --untracked-files=all (fingerprinted candidate)"
+
 func addCIGitEvidence(candidate agentsession.CompletionStateSnapshot, staged bool, base, head string, inputs *runtime.ExecutionInputs) (runtime.GitDiffMetadata, error) {
-	paths, metadata, err := runtime.CollectGitWritePaths(candidate.RepoRoot, staged, base, head)
-	if err != nil {
-		return runtime.GitDiffMetadata{}, err
+	var paths []string
+	var metadata runtime.GitDiffMetadata
+	if staged && (base != "" || head != "") {
+		return runtime.GitDiffMetadata{}, &rerrors.GitError{Message: "specify either --staged OR --base/--head, not both"}
+	}
+	if staged {
+		// The candidate's worktree matches its index, so its dirty paths are
+		// exactly the staged changes, read from the same status snapshot the
+		// fingerprint binds. A second Git call could observe another index.
+		paths = append([]string{}, candidate.DirtyPaths...)
+		metadata = runtime.GitDiffMetadata{Mode: runtime.GitModeStaged, GitCommand: stagedCandidateGitCommand, WritePathCount: len(paths)}
+	} else {
+		var err error
+		paths, metadata, err = runtime.CollectGitWritePaths(candidate.RepoRoot, staged, base, head)
+		if err != nil {
+			return runtime.GitDiffMetadata{}, err
+		}
 	}
 	inputs.WritePaths = append(inputs.WritePaths, paths...)
 	if inputs.WriteEpochs == nil {
