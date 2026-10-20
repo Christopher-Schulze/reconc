@@ -34,11 +34,21 @@ func runUpdate(args []string, version string, stdout io.Writer) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	var progress *updateProgressView
+	if !jsonOut {
+		progress = newUpdateProgressView(stdout)
+		fmt.Fprintln(stdout, progress.style.token(command, ansiBold))
+		request.Progress = progress.observe
+	}
 	var report *usercli.LifecycleReport
 	if subcommand == "check" {
 		report, err = usercli.CheckUpdate(ctx, version, request)
 	} else {
 		report, err = usercli.ApplyUpdate(ctx, version, request)
+	}
+	if progress != nil {
+		progress.close()
+		fmt.Fprintln(stdout)
 	}
 	if err != nil {
 		if jsonOut {
@@ -156,29 +166,54 @@ func writeLifecycleReport(stdout io.Writer, report *usercli.LifecycleReport, jso
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(report)
 	}
-	fmt.Fprintf(stdout, "Operation: %s\n", report.Operation)
-	fmt.Fprintf(stdout, "Status: %s\n", report.Status)
-	if report.Owner == nil {
-		fmt.Fprintln(stdout, "Owner: unowned")
-	} else {
-		fmt.Fprintf(stdout, "Owner: %s\n", *report.Owner)
+	style := newTextStyler(stdout)
+	fmt.Fprintf(stdout, "%s %s\n", lifecycleHeadline(style, report.Status), lifecycleSubject(report))
+	if report.Skill != nil && report.Skill.Action != nil {
+		fmt.Fprintf(stdout, "Skill action: %s (cwd: %s; authorization: %s)\n",
+			strings.Join(report.Skill.Action.Argv, " "), report.Skill.Action.Cwd, report.Skill.Action.Authorization)
 	}
-	fmt.Fprintf(stdout, "Current: %s\n", report.CurrentVersion)
-	if report.TargetVersion != nil {
-		fmt.Fprintf(stdout, "Target: %s\n", *report.TargetVersion)
-	}
-	if report.Skill != nil {
-		fmt.Fprintf(stdout, "Skill: %s (%s)\n", report.Skill.State, report.Skill.Path)
-		if report.Skill.Action != nil {
-			fmt.Fprintf(stdout, "Skill action: %s (cwd: %s; authorization: %s)\n",
-				strings.Join(report.Skill.Action.Argv, " "), report.Skill.Action.Cwd, report.Skill.Action.Authorization)
+	// Passing checks stay in --json and `reconc doctor --global`; text shows
+	// only what needs attention.
+	for _, check := range report.Checks {
+		if check.Status != "pass" {
+			fmt.Fprintf(stdout, "  %s %s: %s\n", style.statusTag(strings.ToUpper(check.Status), 4), check.Name, check.Detail)
 		}
 	}
-	for _, check := range report.Checks {
-		fmt.Fprintf(stdout, "[%s] %s: %s\n", strings.ToUpper(check.Status), check.Name, check.Detail)
-	}
-	fmt.Fprintf(stdout, "Next: %s\n", report.NextAction)
+	fmt.Fprintf(stdout, "%s %s\n", style.token("Next:", ansiBold), report.NextAction)
 	return nil
+}
+
+func lifecycleHeadline(style textStyler, status usercli.LifecycleStatus) string {
+	switch status {
+	case usercli.LifecycleCurrent:
+		return style.token("Up to date:", ansiBold+ansiGreen)
+	case usercli.LifecycleUpdated:
+		return style.token("Updated:", ansiBold+ansiGreen)
+	case usercli.LifecycleUninstalled:
+		return style.token("Uninstalled:", ansiBold+ansiGreen)
+	case usercli.LifecycleUpdateAvailable:
+		return style.token("Update available:", ansiBold+ansiCyan)
+	case usercli.LifecycleRefused:
+		return style.token("Refused:", ansiBold+ansiRed)
+	default:
+		return style.token("Failed:", ansiBold+ansiRed)
+	}
+}
+
+func lifecycleSubject(report *usercli.LifecycleReport) string {
+	subject := "reconc " + report.CurrentVersion
+	if report.TargetVersion != nil && *report.TargetVersion != report.CurrentVersion {
+		subject += " → " + *report.TargetVersion
+	}
+	if report.Owner == nil {
+		subject += " (unowned)"
+	} else {
+		subject += " (" + string(*report.Owner) + ")"
+	}
+	if report.Skill != nil {
+		subject += ", skill " + report.Skill.State.Describe()
+	}
+	return subject
 }
 
 func lifecycleBlocking(report *usercli.LifecycleReport) bool {

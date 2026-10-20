@@ -75,8 +75,16 @@ func TestUpdatePreservesCurrentOwnedSkillWhenBinaryChanges(t *testing.T) {
 	installOldOwnedSkillForUpdate(t, skillDir)
 	oldReleaseDir := t.TempDir()
 	writeLocalReleaseWithSkill(t, oldReleaseDir, oldBinary, "1.0.0")
-	if report, err := ApplyUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: oldReleaseDir}); err != nil || report.Status != LifecycleUpdated {
+	skillOnlyPhases := &recordedUpdatePhases{}
+	report, err := ApplyUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: oldReleaseDir, Progress: skillOnlyPhases.observe})
+	if err != nil || report.Status != LifecycleUpdated {
 		t.Fatalf("establish current owned skill: %+v, %v", report, err)
+	}
+	skillOnlyPhases.requireSequence(t, "installation", "release", "skill", "publish")
+	for _, check := range report.Checks {
+		if check.Name == "skill-currentness" {
+			t.Fatalf("update report kept the pre-update running-binary skill comparison: %+v", check)
+		}
 	}
 	before, err := os.Lstat(skillDir)
 	if err != nil {

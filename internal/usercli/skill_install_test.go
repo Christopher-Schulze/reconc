@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -358,6 +359,43 @@ func TestGlobalDoctorSeparatesSkillIntegrityFromBinaryReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("fail")
+}
+
+func TestGlobalDoctorReportsCurrentOwnedSkillWithoutWarnings(t *testing.T) {
+	for _, location := range []string{"default", "custom"} {
+		t.Run(location, func(t *testing.T) {
+			home := t.TempDir()
+			installDir := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
+			t.Setenv("RECONC_HOME", t.TempDir())
+			t.Setenv("RECONC_INSTALL_DIR", installDir)
+			t.Setenv("PATH", installDir)
+			skillDir := ""
+			if location == "custom" {
+				skillDir = filepath.Join(t.TempDir(), "reconc")
+			}
+			if _, err := InstallCurrentWithReceipt("", InstallOptions{
+				Version: "test", SkillMode: SkillInstall, SkillDir: skillDir,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			diagnostic, err := DiagnoseGlobal("test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			seen := map[string]string{}
+			for _, item := range diagnostic.Checks {
+				if strings.HasPrefix(item.Name, "skill-") {
+					seen[item.Name] = item.Status
+				}
+			}
+			want := map[string]string{"skill-installation": "pass", "skill-currentness": "pass"}
+			if !reflect.DeepEqual(seen, want) {
+				t.Fatalf("skill checks = %v, want %v", seen, want)
+			}
+		})
+	}
 }
 
 func TestReadOnlySkillHomeFailsBeforeBinaryPublication(t *testing.T) {

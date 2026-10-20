@@ -80,6 +80,8 @@ type UpdateRequest struct {
 	Channel        Channel
 	FromDir        string
 	AllowDowngrade bool
+	// Progress, when set, observes each update phase as it runs.
+	Progress func(UpdateEvent)
 }
 
 type UninstallRequest struct {
@@ -126,8 +128,15 @@ func lifecycleFromDiagnostic(operation string, diagnostic *GlobalDiagnostic) *Li
 		Operation: operation, Status: LifecycleFailed, Changed: false,
 		CurrentVersion: diagnostic.CurrentVersion, Owner: diagnostic.Owner,
 		Channel: diagnostic.Channel, BinaryPath: diagnostic.BinaryPath,
-		ReceiptPath: diagnostic.ReceiptPath, Checks: append([]DiagnosticCheck(nil), diagnostic.Checks...),
+		ReceiptPath: diagnostic.ReceiptPath, Checks: make([]DiagnosticCheck, 0, len(diagnostic.Checks)),
 		Actions: []DiagnosticAction{}, NextAction: diagnostic.NextAction,
+	}
+	for _, check := range diagnostic.Checks {
+		// Doctor compares the skill with the running binary; a lifecycle
+		// report states the skill against the selected release in Skill.
+		if check.Name != "skill-currentness" {
+			report.Checks = append(report.Checks, check)
+		}
 	}
 	return report
 }

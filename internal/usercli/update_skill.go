@@ -204,11 +204,12 @@ func inspectSelectedSkill(ctx context.Context, release selectedRelease, previous
 	return report, target, archive, nil
 }
 
-func applyOwnedSkillUpdate(ctx context.Context, report *LifecycleReport, release selectedRelease, target *SkillReceipt, archive ReleaseAsset) (*LifecycleReport, error) {
+func applyOwnedSkillUpdate(ctx context.Context, report *LifecycleReport, release selectedRelease, target *SkillReceipt, archive ReleaseAsset, observe updateObserver) (*LifecycleReport, error) {
 	if target == nil || report.Skill == nil || report.Skill.State != SkillStaleOwned ||
 		report.Skill.InstalledManifestDigest == nil {
 		return nil, errors.New("owned skill update requires a verified stale target")
 	}
+	observe.start(UpdatePhasePublish)
 	files, err := loadSelectedSkillFiles(ctx, release, target, archive)
 	if err != nil {
 		report.Status = LifecycleFailed
@@ -300,6 +301,7 @@ func applyOwnedSkillUpdate(ctx context.Context, report *LifecycleReport, release
 		report.NextAction = "Inspect the owned skill, receipt, and any retained backup before retrying."
 		return report, nil
 	}
+	observe.pass(UpdatePhasePublish, "skill and receipt")
 	report.Status = LifecycleUpdated
 	report.Changed = true
 	report.Skill.State = SkillCurrent

@@ -251,17 +251,6 @@ func appendSkillDiagnostic(report *GlobalDiagnostic, installed *SkillReceipt) {
 			Name: "skill-currentness", Status: "warn", Detail: "installed payload differs from the running binary's embedded skill",
 		})
 	}
-	defaultPath, err := resolveSkillDirectory("")
-	if err != nil || !samePath(installed.Path, defaultPath) {
-		report.Checks = append(report.Checks, DiagnosticCheck{
-			Name: "skill-discovery", Status: "warn", Detail: "custom skill location; configure each host explicitly and verify loading",
-		})
-		return
-	}
-	report.Checks = append(report.Checks, DiagnosticCheck{
-		Name: "skill-discovery", Status: "warn",
-		Detail: "shared local root is eligible for Codex, Devin CLI, Cursor CLI, OMP CLI, and DSH when enabled; host loading and shadowing are unverified; Cursor cloud/remote sync excludes this root",
-	})
 }
 
 func evaluateReceiptIdentity(report *GlobalDiagnostic, receipt *Receipt, status *Status) {

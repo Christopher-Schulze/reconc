@@ -25,6 +25,8 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 	if apply {
 		operation = "update.apply"
 	}
+	observe := updateObserver(request.Progress)
+	observe.start(UpdatePhaseInstallation)
 	diagnostic, err := DiagnoseGlobal(currentVersion)
 	if err != nil {
 		return nil, err
@@ -61,6 +63,8 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 		report.NextAction = "Select the channel explicitly with `--channel " + string(requestedChannel) + "`."
 		return report, nil
 	}
+	observe.pass(UpdatePhaseInstallation, installationPhaseDetail(diagnostic))
+	observe.start(UpdatePhaseRelease)
 	release, err := selectRelease(ctx, request)
 	if err != nil {
 		report.Status = LifecycleFailed
@@ -70,6 +74,7 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 		report.NextAction = "Correct the release selection or trust failure, then rerun the update."
 		return report, nil
 	}
+	observe.pass(UpdatePhaseRelease, releasePhaseDetail(release))
 	target := release.manifest.Version
 	report.TargetVersion = &target
 	report.Channel = &requestedChannel
@@ -79,6 +84,7 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 		report.NextAction = err.Error()
 		return report, nil
 	}
+	observe.start(UpdatePhaseSkill)
 	paths, receiptErr := resolveReceiptPaths()
 	if receiptErr != nil {
 		report.Status = LifecycleFailed
@@ -99,6 +105,7 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 		return report, nil
 	}
 	report.Skill = skill
+	observe.pass(UpdatePhaseSkill, skill.State.Describe())
 	binaryCurrent := comparison == 0 && receipt.ArtifactSHA256 == release.asset.SHA256
 	if comparison > 0 && !request.AllowDowngrade {
 		report.Status = LifecycleRefused
@@ -162,12 +169,12 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 		return report, nil
 	}
 	if binaryCurrent {
-		return applyOwnedSkillUpdate(ctx, report, release, targetSkill, skillArchive)
+		return applyOwnedSkillUpdate(ctx, report, release, targetSkill, skillArchive, observe)
 	}
-	return applyDirectUpdate(ctx, report, release, targetSkill, skillArchive)
+	return applyDirectUpdate(ctx, report, release, targetSkill, skillArchive, observe)
 }
 
-func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release selectedRelease, targetSkill *SkillReceipt, skillArchive ReleaseAsset) (*LifecycleReport, error) {
+func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release selectedRelease, targetSkill *SkillReceipt, skillArchive ReleaseAsset, observe updateObserver) (*LifecycleReport, error) {
 	paths, err := resolveReceiptPaths()
 	if err != nil {
 		return nil, err
@@ -177,6 +184,7 @@ func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release sel
 	mutationCommitted := false
 	rollbackFailed := false
 	err = withReceiptLock(paths, func() (resultErr error) {
+		observe.start(UpdatePhaseDownload)
 		receiptSnapshot, err := loadReceiptSnapshot(paths.receipt)
 		if err != nil {
 			return err
@@ -253,20 +261,24 @@ func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release sel
 				if err := beforeDirectUpdatePhase("materialize"); err != nil {
 					return err
 				}
-				if err := materializeCandidate(ctx, release, candidatePath); err != nil {
+				if err := materializeCandidate(ctx, release, candidatePath, observe); err != nil {
 					return err
 				}
+				observe.passBytes(UpdatePhaseDownload, "SHA-256 verified", release.asset.Size)
 				if err := beforeDirectUpdatePhase("attestation"); err != nil {
 					return err
 				}
+				observe.start(UpdatePhaseProvenance)
 				state, err := verifyAttestation(ctx, candidatePath, release)
 				if err != nil {
 					return err
 				}
 				provenanceState = state
+				observe.pass(UpdatePhaseProvenance, provenancePhaseDetail(state))
 				if err := beforeDirectUpdatePhase("smoke"); err != nil {
 					return err
 				}
+				observe.start(UpdatePhaseSmokeTest)
 				if err := smokeCandidate(ctx, candidatePath, release.manifest.Version); err != nil {
 					return err
 				}
@@ -275,12 +287,14 @@ func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release sel
 						return err
 					}
 				}
+				observe.pass(UpdatePhaseSmokeTest, "reconc "+release.manifest.Version+" runs")
 				if err := validateReceiptSnapshot(paths.receipt, receiptSnapshot); err != nil {
 					return err
 				}
 				if err := beforeDirectUpdatePhase("publication"); err != nil {
 					return err
 				}
+				observe.start(UpdatePhasePublish)
 				publication, err := publishBinaryFromFileIfCurrent(targetPath, candidatePath, 0o755, backup)
 				if err != nil {
 					if errors.Is(err, atomicfile.ErrCurrentChanged) {
@@ -355,6 +369,11 @@ func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release sel
 		})
 		report.NextAction = "Inspect the binary, skill, receipt, and any retained backup before retrying the failed update."
 		return report, nil
+	}
+	if targetSkill != nil {
+		observe.pass(UpdatePhasePublish, "binary, skill and receipt")
+	} else {
+		observe.pass(UpdatePhasePublish, "binary and receipt")
 	}
 	report.Status = LifecycleUpdated
 	report.Changed = true

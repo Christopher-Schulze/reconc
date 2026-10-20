@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -248,23 +249,30 @@ func TestDirectOfflineUpdateAndUninstallLifecycle(t *testing.T) {
 	releaseDirectory := t.TempDir()
 	manifest := writeLocalRelease(t, releaseDirectory, updateBinary, "1.1.0")
 	enableSuccessfulOfflineAttestation(t, releaseDirectory, manifest.Assets[0].Name)
-	check, err := CheckUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDirectory})
+	checkPhases := &recordedUpdatePhases{}
+	check, err := CheckUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDirectory, Progress: checkPhases.observe})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if check.Status != LifecycleUpdateAvailable || check.TargetVersion == nil || *check.TargetVersion != "1.1.0" || check.Changed {
 		t.Fatalf("update check = %+v", check)
 	}
+	checkPhases.requireSequence(t, "installation", "release", "skill")
 	if digest, err := fileSHA256(target); err != nil || digest == manifest.Assets[0].SHA256 {
 		t.Fatalf("read-only check changed target: digest=%s err=%v", digest, err)
 	}
 
-	applied, err := ApplyUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDirectory})
+	applyPhases := &recordedUpdatePhases{}
+	applied, err := ApplyUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDirectory, Progress: applyPhases.observe})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if applied.Status != LifecycleUpdated || !applied.Changed {
 		t.Fatalf("update apply = %+v", applied)
+	}
+	applyPhases.requireSequence(t, "installation", "release", "skill", "download", "provenance", "smoke-test", "publish")
+	if applyPhases.downloaded != manifest.Assets[0].Size || applyPhases.downloadTotal != manifest.Assets[0].Size {
+		t.Fatalf("download progress = %d, pass total = %d, want %d", applyPhases.downloaded, applyPhases.downloadTotal, manifest.Assets[0].Size)
 	}
 	output, err := exec.Command(target, "--version").CombinedOutput()
 	if err != nil || strings.TrimSpace(string(output)) != "reconc 1.1.0" {
@@ -1109,6 +1117,47 @@ func repositoryRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return root
+}
+
+// recordedUpdatePhases checks that every phase starts, then passes, before
+// the next phase starts, and that download progress only grows.
+type recordedUpdatePhases struct {
+	passed        []string
+	running       UpdatePhase
+	violations    []string
+	downloaded    int64
+	downloadTotal int64
+}
+
+func (record *recordedUpdatePhases) observe(event UpdateEvent) {
+	switch event.Kind {
+	case UpdateEventStart:
+		if record.running != "" {
+			record.violations = append(record.violations, "start "+string(event.Phase)+" while "+string(record.running)+" runs")
+		}
+		record.running = event.Phase
+	case UpdateEventProgress:
+		if event.Phase != record.running || event.Done < record.downloaded || event.Done > event.Total {
+			record.violations = append(record.violations, fmt.Sprintf("progress %s %d/%d", event.Phase, event.Done, event.Total))
+		}
+		record.downloaded = event.Done
+	case UpdateEventPass:
+		if event.Phase != record.running || event.Detail == "" {
+			record.violations = append(record.violations, "pass "+string(event.Phase)+" while "+string(record.running)+" runs")
+		}
+		if event.Phase == UpdatePhaseDownload {
+			record.downloadTotal = event.Total
+		}
+		record.passed = append(record.passed, string(event.Phase))
+		record.running = ""
+	}
+}
+
+func (record *recordedUpdatePhases) requireSequence(t *testing.T, phases ...string) {
+	t.Helper()
+	if len(record.violations) != 0 || record.running != "" || !reflect.DeepEqual(record.passed, phases) {
+		t.Fatalf("update phases = %v (running %q, violations %v), want %v", record.passed, record.running, record.violations, phases)
+	}
 }
 
 func buildReleaseBinary(t *testing.T, root string, version string) string {

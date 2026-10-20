@@ -21,18 +21,23 @@ type textStyler struct {
 }
 
 func newTextStyler(writer io.Writer) textStyler {
+	return textStyler{enabled: colorEnabled(writerIsTerminal(writer))}
+}
+
+// writerIsTerminal reports whether writer, or a writer it wraps, is a terminal.
+func writerIsTerminal(writer io.Writer) bool {
 	for {
 		if file, ok := writer.(*os.File); ok {
 			info, err := file.Stat()
-			return textStyler{enabled: colorEnabled(err == nil && info.Mode()&os.ModeCharDevice != 0)}
+			return err == nil && info.Mode()&os.ModeCharDevice != 0
 		}
 		unwrapper, ok := writer.(interface{ Unwrap() io.Writer })
 		if !ok {
-			return textStyler{}
+			return false
 		}
 		next := unwrapper.Unwrap()
 		if next == nil || next == writer {
-			return textStyler{}
+			return false
 		}
 		writer = next
 	}

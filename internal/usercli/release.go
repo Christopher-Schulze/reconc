@@ -550,7 +550,7 @@ func parseChecksumManifest(body []byte) (map[string]string, error) {
 	return out, nil
 }
 
-func materializeCandidate(ctx context.Context, release selectedRelease, destination string) error {
+func materializeCandidate(ctx context.Context, release selectedRelease, destination string, observe updateObserver) error {
 	before, err := os.Lstat(destination)
 	if err != nil || before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() || before.Size() != 0 {
 		return fmt.Errorf("update candidate must be a new empty regular file: %s", destination)
@@ -576,7 +576,7 @@ func materializeCandidate(ctx context.Context, release selectedRelease, destinat
 		return closeWith(fmt.Errorf("make release candidate executable: %w", err))
 	}
 	write := func(source io.Reader) error {
-		return copyReleaseCandidate(ctx, file, source, release.asset)
+		return copyReleaseCandidate(ctx, file, observe.progressReader(UpdatePhaseDownload, source, release.asset.Size), release.asset)
 	}
 	if release.localDir != "" {
 		source := filepath.Join(release.localDir, release.asset.Name)

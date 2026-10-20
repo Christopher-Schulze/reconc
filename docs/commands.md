@@ -526,6 +526,13 @@ guidance. The current user flow has no separate check/apply step:
 `reconc update` performs the verified check and either applies the selected
 update or succeeds without mutation when already current. Hidden `check` and
 `apply` forms exist only as compatibility aliases for older automation.
+Text output prints one line per completed phase (installation, release, skill,
+download, provenance, smoke test, publish). On a terminal the running phase
+animates in place with its elapsed time, and the binary download shows a byte
+progress bar; without a terminal or with `TERM=dumb` the output carries no
+cursor control, and `NO_COLOR` removes colors. The closing summary states the version
+change, owner, and skill state against the selected release, and lists only
+checks that need attention; `--json` keeps the complete report.
 
 ### `reconc uninstall [--purge-state] [--json]`
 Removes only a globally owned installation. Direct and source removals require
