@@ -41,7 +41,7 @@ func CommandContext(
 		"-c", "core.hooksPath=",
 	)
 	gitArgs = append(gitArgs, args...)
-	command := exec.CommandContext(ctx, "git", gitArgs...)
+	command := exec.CommandContext(ctx, gitProgram(), gitArgs...)
 	command.Dir = directory
 	command.Env = hermeticEnvironment(directory, objects)
 	configureGitCommand(command)
@@ -52,7 +52,7 @@ func CommandContext(
 // effective repository configuration. It is reserved for commands whose
 // purpose is to inspect that configuration itself.
 func ConfigAwareCommandContext(ctx context.Context, args ...string) *exec.Cmd {
-	command := exec.CommandContext(ctx, "git", args...)
+	command := exec.CommandContext(ctx, gitProgram(), args...)
 	configureGitCommand(command)
 	return command
 }

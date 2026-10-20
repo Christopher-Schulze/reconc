@@ -126,6 +126,10 @@ corrects the 0.10.3 guarantees.
 - Stop walks an untracked directory once for its metadata and content
   identity and reuses its hash buffers: a Stop over 1,000 untracked files
   allocated 16 MB instead of 52 MB.
+- On macOS, Git subprocesses run the developer-directory git that the
+  `/usr/bin/git` xcrun shim would select instead of the shim, which spent
+  about 10 ms on every call. A Stop with four Git inspections took 26 ms
+  instead of 54 ms.
 - The repository hook wrapper runs `uname` only when a repo-local binary
   directory exists, so a repository served by a global installation reaches
   the binary without that subprocess: a wrapped pre-tool call took 16.2 ms

@@ -63,10 +63,19 @@ func TestCommandContextSanitizesAmbientGitEnvironment(t *testing.T) {
 		t.Fatalf("Git argv is truncated: %v", command.Args)
 	}
 	for index, value := range wantPrefix {
-		if command.Args[index] != value {
+		if gitArgument(command.Args, index) != value {
 			t.Fatalf("Git argv[%d] = %q, want %q", index, command.Args[index], value)
 		}
 	}
+}
+
+// gitArgument compares argv[0] by program name: on macOS a command may run
+// the developer-directory git behind the /usr/bin/git shim by absolute path.
+func gitArgument(args []string, index int) string {
+	if index == 0 {
+		return filepath.Base(args[0])
+	}
+	return args[index]
 }
 
 func TestConfigAwareCommandContextPreservesArgumentsAndCancellation(t *testing.T) {
@@ -76,7 +85,7 @@ func TestConfigAwareCommandContextPreservesArgumentsAndCancellation(t *testing.T
 		t.Fatalf("config-aware Git argv = %v", command.Args)
 	}
 	for index := range want {
-		if command.Args[index] != want[index] {
+		if gitArgument(command.Args, index) != want[index] {
 			t.Fatalf("config-aware Git argv[%d] = %q, want %q", index, command.Args[index], want[index])
 		}
 	}

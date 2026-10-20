@@ -1611,7 +1611,13 @@ by `internal/gitexec`. That boundary removes every ambient `GIT_*` variable,
 pins system/global config, prompts, optional locks, pager, hooks, fsmonitor,
 untracked cache, and locale to inert values, then binds repository discovery to
 the requested working directory. Repository Sync uses the same contract and is
-the only caller allowed to add its explicit ephemeral object directories.
+the only caller allowed to add its explicit ephemeral object directories. On
+macOS, when `git` resolves to the `/usr/bin/git` xcrun shim, the boundary runs
+the git that shim would execute directly: the toolchain or `usr/bin` git of
+`DEVELOPER_DIR`, the `xcode-select` selection, or the Command Line Tools when
+no Xcode is installed. An unselected Xcode, a `TOOLCHAINS` selection, or a
+missing target leaves the shim in place. This saves about 10 ms per Git
+process.
 
 `BenchmarkRepositoryRunStopHotpath` measures the in-process executable-TASK
 continuation path without process startup. A five-iteration Apple M1 sample on
