@@ -324,12 +324,16 @@ func preDecisionInputsForPayloadWithEvaluatorAndStopCache(
 		ToolName   string                 `json:"tool_name"`
 		ToolInput  map[string]interface{} `json:"tool_input"`
 		WritePaths []string               `json:"reconc_write_paths,omitempty"`
+		// Literal shell targets resolve against the call's working
+		// directory, which the tool input alone does not carry.
+		LiteralWrites []string `json:"literal_write_paths,omitempty"`
 	}{
-		SessionID:  payload.SessionID,
-		ToolUseID:  payload.ToolUseID,
-		ToolName:   payload.ToolName,
-		ToolInput:  payload.ToolInput,
-		WritePaths: declaredCommandWritePaths(payload),
+		SessionID:     payload.SessionID,
+		ToolUseID:     payload.ToolUseID,
+		ToolName:      payload.ToolName,
+		ToolInput:     payload.ToolInput,
+		WritePaths:    declaredCommandWritePaths(payload),
+		LiteralWrites: literalCommandWritePaths(root, payload),
 	})
 	if err != nil {
 		return preDecisionInputs{}, false
@@ -426,6 +430,9 @@ func preDecisionEvaluationInputs(
 			}
 			trialWrites = append(append([]string(nil), state.WritePaths...), normalized.WritePaths...)
 		}
+		if literal := literalCommandWritePaths(root, payload); len(literal) > 0 {
+			trialWrites = append(append([]string(nil), trialWrites...), literal...)
+		}
 		return executionInputs(readPaths, trialWrites, state.WriteEpochs, []string{payload.Command()}, state.CommandResults, state.Claims),
 			runtime.PreDecisionRouteCommand, true
 	}
@@ -507,6 +514,9 @@ func capturePreDecisionDependencySnapshot(
 	}
 	if payload != nil && payload.IsCommandTool() {
 		for _, path := range declaredCommandWritePaths(payload) {
+			paths = append(paths, preDecisionDependencyRequest{path: path})
+		}
+		for _, path := range literalCommandWritePaths(root, payload) {
 			paths = append(paths, preDecisionDependencyRequest{path: path})
 		}
 	}

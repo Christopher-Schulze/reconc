@@ -45,7 +45,9 @@ func TestDeclaredCommandEffectsReachPreventionAndCache(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			command := "printf changed > notes.md"
+			// A dynamic target leaves the declaration as the only statement of
+			// the write; a literal target is judged on its own.
+			command := `printf changed > "$TARGET"`
 			for _, paths := range [][]string{{"other.md"}, {"./notes.md"}, {"other.md"}, {"notes.md", "notes.md"}} {
 				inputs := runtime.Empty()
 				inputs.Commands, inputs.WritePaths = []string{command}, paths

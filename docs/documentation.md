@@ -2581,6 +2581,26 @@ stable host `tool_use_id`; the receipt identity is consumed once under the
 session lock. A changed policy generation, path identity, effect, or session
 state invalidates the receipt.
 
+Shell commands also meet write policy before they run for every literal
+write target Reconc can read from the parsed command, including nested `sh -c`
+and `eval` bodies and command substitutions: output redirections (`>`, `>>`,
+`>|`, `&>`, `<>`, and `>&FILE`, but not descriptor duplication or
+`/dev/null`), `tee`, `touch`, `truncate`, and `rm` operands, `cp`, `install`,
+and `ln` destinations (also joined with each source name when the destination
+may be a directory, and `-t`/`--target-directory`), `mv` destinations and
+sources, and the files `sed -i` rewrites. A relative target is resolved
+against the call's working directory (the tool input's `workdir` or `cwd`,
+else the payload `cwd`, else the policy root); after a `cd`, `pushd`, or
+`popd` in the same command only absolute targets are judged. Targets outside
+the repository, targets built from expansions, and writes by other programs
+are judged only after execution, from the recorded evidence and the Git status
+that Stop and `reconc ci` evaluate. A literal target is judged even when a
+`reconc_write_paths` declaration names other paths, and literal targets are
+part of the pre-decision cache identity. `xargs` with a literal utility is
+analyzed as that utility, with GNU and BSD options separate, joined (`-n1`,
+`-I{}`), clustered (`-0rn1`), or long; an unknown option or a dynamic utility
+remains incomplete analysis.
+
 Declared command writes are normalized through the prospective repository
 path contract before command prevention. Both command prevention and ordinary
 pre-write policy evaluate the combined historical and declared write paths,

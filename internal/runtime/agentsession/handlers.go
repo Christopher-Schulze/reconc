@@ -341,6 +341,12 @@ func evaluatePreToolUseParsed(
 			}
 			trialState.WritePaths = append(append([]string(nil), state.WritePaths...), normalizedWrites.WritePaths...)
 		}
+		// Literal shell write targets meet write policy before execution, as
+		// Edit and Write calls do.
+		literalWrites := literalCommandWritePaths(root, payload)
+		if len(literalWrites) > 0 {
+			trialState.WritePaths = append(append([]string(nil), trialState.WritePaths...), literalWrites...)
+		}
 		report, err := runPreCommandPolicyCheckWithEvaluator(evaluator, root, trialState, payload.Command())
 		if err != nil {
 			if isLockfileError(err) {
@@ -358,6 +364,17 @@ func evaluatePreToolUseParsed(
 		policyReports = append(policyReports, report)
 		if len(violations) > 0 {
 			return resultWithPolicyDecision(Result{ExitCode: 2, Stderr: firstLinesForViolations(violations, "reconc blocked this command before execution.")}, policyReports...)
+		}
+		if len(literalWrites) > 0 && !declared {
+			writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, root, state.ReadPaths, trialState.WritePaths, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
+			if writeErr != nil {
+				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): command write check failed: %s", writeErr)}
+			}
+			writeViolations := preWriteBlockingViolations(writeReport)
+			policyReports = append(policyReports, writeReport)
+			if len(writeViolations) > 0 {
+				return resultWithPolicyDecision(Result{ExitCode: 2, Stderr: firstLinesForViolations(writeViolations, "reconc blocked this command's repository write before execution.")}, policyReports...)
+			}
 		}
 		if declared || commandMayWriteRepository(payload.Command()) {
 			compiled, _, compiledErr := evaluator.CurrentCompiledPolicyEvaluator(root)

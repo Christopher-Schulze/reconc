@@ -1338,41 +1338,72 @@ func watchCommand(words []commandWord) ([]commandWord, bool) {
 	return nil, true
 }
 
+// xargsCommand returns the utility xargs runs. GNU and BSD options are
+// accepted separate, joined (`-n1`, `-I{}`), clustered (`-0rn1`), and in
+// their long forms; an unknown option fails closed.
 func xargsCommand(words []commandWord) ([]commandWord, bool) {
 	for index := 0; index < len(words); index++ {
 		if words[index].dynamic {
 			return nil, false
 		}
 		word := words[index].value
-		if word == "--" {
+		switch {
+		case word == "--":
 			return words[index+1:], allStatic(words[index+1:])
-		}
-		if word == "-a" || word == "--arg-file" || word == "-E" || word == "--eof" || word == "-I" || word == "--replace" || word == "-L" || word == "--max-lines" || word == "-n" || word == "--max-args" || word == "-P" || word == "--max-procs" || word == "-s" || word == "--max-chars" {
-			if index+1 >= len(words) || words[index+1].dynamic {
+		case strings.HasPrefix(word, "--"):
+			name, _, joined := strings.Cut(word, "=")
+			takesValue, known := xargsLongOptions[name]
+			if !known || joined && !takesValue {
 				return nil, false
 			}
-			index++
-			continue
-		}
-		if strings.HasPrefix(word, "--arg-file=") || strings.HasPrefix(word, "--eof=") || strings.HasPrefix(word, "--replace=") || strings.HasPrefix(word, "--max-lines=") || strings.HasPrefix(word, "--max-args=") || strings.HasPrefix(word, "--max-procs=") || strings.HasPrefix(word, "--max-chars=") || word == "-0" || word == "--null" || word == "-r" || word == "--no-run-if-empty" || word == "-t" || word == "--verbose" || word == "-x" || word == "--exit" {
-			continue
-		}
-		if word == "-d" || word == "--delimiter" {
-			if index+1 >= len(words) || words[index+1].dynamic {
+			if takesValue && !joined {
+				index++
+				if index >= len(words) || words[index].dynamic {
+					return nil, false
+				}
+			}
+		case len(word) > 1 && word[0] == '-':
+			consumed, ok := xargsShortCluster(word[1:])
+			if !ok {
 				return nil, false
 			}
-			index++
-			continue
+			if consumed {
+				index++
+				if index >= len(words) || words[index].dynamic {
+					return nil, false
+				}
+			}
+		default:
+			return words[index:], allStatic(words[index:])
 		}
-		if strings.HasPrefix(word, "--delimiter=") {
-			continue
-		}
-		if strings.HasPrefix(word, "-") {
-			return nil, false
-		}
-		return words[index:], allStatic(words[index:])
 	}
 	return nil, true
+}
+
+// xargsLongOptions maps each GNU long option to whether it takes a value.
+var xargsLongOptions = map[string]bool{
+	"--arg-file": true, "--delimiter": true, "--eof": true, "--max-args": true,
+	"--max-chars": true, "--max-lines": true, "--max-procs": true, "--process-slot-var": true,
+	"--replace": true, "--exit": false, "--interactive": false, "--no-run-if-empty": false,
+	"--null": false, "--open-tty": false, "--show-limits": false, "--verbose": false,
+}
+
+// xargsShortCluster parses one cluster of short options and reports whether
+// its last option takes the next word as its value.
+func xargsShortCluster(cluster string) (bool, bool) {
+	for index := 0; index < len(cluster); index++ {
+		switch option := cluster[index]; {
+		case strings.IndexByte("0oprtx", option) >= 0:
+		case strings.IndexByte("eil", option) >= 0:
+			// GNU's optional value is joined only.
+			return false, true
+		case strings.IndexByte("EIJLPRSadns", option) >= 0:
+			return index == len(cluster)-1, true
+		default:
+			return false, false
+		}
+	}
+	return false, true
 }
 
 func allStatic(words []commandWord) bool {
