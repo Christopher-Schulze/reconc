@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -38,6 +39,9 @@ type moduleRecord struct {
 	Version string
 	Sum     string
 	Root    bool
+	// ModifiedCopy is the repository directory of a module replaced by an
+	// in-repository copy; it keeps the upstream identity without its hash.
+	ModifiedCopy string
 }
 
 type moduleEdge struct {
@@ -111,6 +115,14 @@ func collectModuleRecords(ctx context.Context, roots []moduleRoot, releaseVersio
 			}
 			existing := byKey[moduleKey(record.Path, record.Version)]
 			record.Root = record.Root || existing.Root
+			// A root that only lists a module in its graph must not restore
+			// the upstream hash of the in-repository copy another root builds.
+			if existing.ModifiedCopy != "" {
+				record.ModifiedCopy = existing.ModifiedCopy
+			}
+			if record.ModifiedCopy != "" {
+				record.Sum = ""
+			}
 			byKey[moduleKey(record.Path, record.Version)] = record
 		}
 	}
@@ -153,10 +165,14 @@ func normalizeModule(module listedModule, releaseVersion string) moduleRecord {
 		}
 	}
 	sum := module.Sum
+	modifiedCopy := ""
 	if module.Replace != nil && module.Replace.Sum != "" {
 		sum = module.Replace.Sum
 	}
-	return moduleRecord{Path: module.Path, Version: version, Sum: sum, Root: module.Main}
+	if module.Replace != nil && module.Replace.Version == "" {
+		modifiedCopy = path.Clean(filepath.ToSlash(module.Replace.Path))
+	}
+	return moduleRecord{Path: module.Path, Version: version, Sum: sum, Root: module.Main, ModifiedCopy: modifiedCopy}
 }
 
 func collectModuleEdges(ctx context.Context, roots []moduleRoot, modules []moduleRecord) ([]moduleEdge, error) {

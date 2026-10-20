@@ -22,6 +22,7 @@ func TestDiscoverInventoryCoversReleaseDependencyLicenses(t *testing.T) {
 	}
 	for _, text := range []string{
 		"github.com/modelcontextprotocol/go-sdk@v1.7.0",
+		"github.com/santhosh-tekuri/jsonschema/v6@v6.0.3 (modified copy in third_party/jsonschema)",
 		"go@go",
 		"File: LICENSE",
 	} {
@@ -115,9 +116,45 @@ func TestNormalizeTargetsAndModuleDecodeRejectAmbiguity(t *testing.T) {
 	if _, err := decodeListedModules(strings.NewReader(conflict)); err == nil {
 		t.Fatal("one module identity resolving to multiple directories was accepted")
 	}
-	replacement := `{"Module":{"Path":"example.invalid/m","Version":"v1.0.0","Dir":"/a","Replace":{"Path":"../local"}}}`
-	if _, err := decodeListedModules(strings.NewReader(replacement)); err == nil {
-		t.Fatal("module replacement was accepted")
+	for _, replacement := range []string{
+		`{"Path":"../local"}`,
+		`{"Path":"/absolute/local"}`,
+		`{"Path":"./"}`,
+		`{"Path":"./third_party/../../local"}`,
+		`{"Path":"example.invalid/fork","Version":"v1.0.1"}`,
+	} {
+		listed := `{"Module":{"Path":"example.invalid/m","Version":"v1.0.0","Dir":"/a","Replace":` + replacement + `}}`
+		if _, err := decodeListedModules(strings.NewReader(listed)); err == nil {
+			t.Fatalf("module replacement %s outside the repository was accepted", replacement)
+		}
+	}
+	local := `{"Module":{"Path":"example.invalid/m","Version":"v1.0.0","Dir":"/a","Replace":{"Path":"./third_party/m","Dir":"/a"}}}`
+	modules, err := decodeListedModules(strings.NewReader(local))
+	if err != nil || len(modules) != 1 || moduleIdentity(modules[0]) != "example.invalid/m@v1.0.0 (modified copy in third_party/m)" {
+		t.Fatalf("in-repository replacement = %+v, %v", modules, err)
+	}
+}
+
+func TestRepositoryReplacementMustResolveInsideTheRoot(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "third_party", "m")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	module := listedModule{Path: "example.invalid/m", Version: "v1.0.0", Dir: inside, Replace: &listedModule{Path: "./third_party/m", Dir: inside}}
+	if err := requireRepositoryReplacement(root, module); err != nil {
+		t.Fatalf("replacement inside the repository was rejected: %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	escaped := filepath.Join(root, "third_party", "escaped")
+	if err := os.Symlink(t.TempDir(), escaped); err != nil {
+		t.Fatal(err)
+	}
+	module.Dir, module.Replace.Dir, module.Replace.Path = escaped, escaped, "./third_party/escaped"
+	if err := requireRepositoryReplacement(root, module); err == nil {
+		t.Fatal("replacement resolving outside the repository was accepted")
 	}
 }
 

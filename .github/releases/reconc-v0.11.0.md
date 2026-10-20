@@ -107,6 +107,29 @@ corrects the 0.10.3 guarantees.
 - Action-ledger chain verification takes one identity lease for the whole
   chain, so a cold checkpoint load over 256 calls allocated 15 MB instead of
   38 MB, and an action-state transition derives its digest once.
+- Every Reconc process starts about 3 ms sooner: package-level regular
+  expressions, the command catalog, and the JSON Schema draft metaschemas
+  compile on first use instead of at startup. The metaschemas come from an
+  in-repository copy of `jsonschema` v6.0.3 that defers only that step. A
+  Claude Code pre-tool hook process took 9.4 ms instead of 12.6 ms, and
+  `reconc --version` 6.6 ms instead of 9.9 ms.
+- A policy check resolves recorded read evidence once, dropping absolute reads
+  outside the repository in the same pass: a pre-tool call with 1,000
+  recorded reads took about 19 ms instead of 23 ms under load.
+- Session state, evidence segments, complete command texts, and Stop reports
+  are published with ordered barrier syncs on macOS (`F_BARRIERFSYNC`)
+  instead of full device-cache flushes; a power failure can lose their newest
+  version but never keeps a state whose segments were lost. A Claude Code
+  post-tool Bash call took 3.4 ms instead of 10.7 ms in process. The
+  pre-decision cache, which is only a shortcut, skips both syncs: a pre-tool
+  call that misses it took about 12 ms instead of 20 ms.
+- Stop walks an untracked directory once for its metadata and content
+  identity and reuses its hash buffers: a Stop over 1,000 untracked files
+  allocated 16 MB instead of 52 MB.
+- The repository hook wrapper runs `uname` only when a repo-local binary
+  directory exists, so a repository served by a global installation reaches
+  the binary without that subprocess: a wrapped pre-tool call took 16.2 ms
+  instead of 18.0 ms.
 
 ## Installation and upgrade
 
@@ -145,6 +168,9 @@ corrects the 0.10.3 guarantees.
 
 ## Maintenance
 
+- `THIRD_PARTY_NOTICES.txt` and the SBOMs name the in-repository `jsonschema`
+  copy as a modified copy of v6.0.3; the notice generator still rejects every
+  module replacement that does not resolve inside the repository.
 - The host contract source watch digests the contract sections of each
   official source, so unrelated page edits no longer fail it.
 - Benchmark peak RSS is measured per benchmark process, and each sample keeps

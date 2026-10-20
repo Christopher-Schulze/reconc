@@ -59,6 +59,18 @@ func TestGenerateAndVerifyRealRepositoryInventory(t *testing.T) {
 	if err := verifyDocuments(options.outputDir, options.version, spdx, cyclonedx); err != nil {
 		t.Fatal(err)
 	}
+	// The in-repository jsonschema copy keeps its upstream identity for
+	// vulnerability matching but is declared modified, without an upstream hash.
+	for _, module := range inventory.Modules {
+		if module.Path == "github.com/santhosh-tekuri/jsonschema/v6" &&
+			(module.Version != "v6.0.3" || module.Sum != "" || module.ModifiedCopy != "third_party/jsonschema") {
+			t.Fatalf("jsonschema copy record = %+v", module)
+		}
+	}
+	modified := "Modified copy in third_party/jsonschema"
+	if !strings.Contains(string(spdx), modified) || !strings.Contains(string(cyclonedx), `"reconc:modified-copy"`) {
+		t.Fatal("SBOMs do not declare the modified jsonschema copy")
+	}
 	path := filepath.Join(options.outputDir, "reconc-9.8.7.spdx.json")
 	if err := os.WriteFile(path, append(spdx, ' '), 0o644); err != nil {
 		t.Fatal(err)

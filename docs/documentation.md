@@ -586,14 +586,19 @@ The stdlib-only SBOM generator inventories both repository Go modules with
 `go list -m -json all`, resolves their selected dependency graph, and records
 the Go toolchain, release version, full commit ID, and commit timestamp. SPDX
 exposes the commit in its document namespace; CycloneDX exposes it as the root
-component property `reconc:source-commit`. Fixed inputs produce byte-identical
-documents. Verification regenerates both files from the tagged source and
+component property `reconc:source-commit`. A module replaced by an
+in-repository copy keeps its upstream path and version without the upstream
+hash and is declared modified: SPDX as the package comment `Modified copy in
+DIR`, CycloneDX as the component property `reconc:modified-copy`. Fixed inputs
+produce byte-identical documents. Verification regenerates both files from the tagged source and
 rejects missing, malformed, stale-version, or otherwise non-identical output
 before checksums and provenance are accepted.
 
 The release notice generator unions the exact package dependency graphs of all
-five `CGO_ENABLED=0` release targets, rejects module replacements and missing or
-symlinked root license files, includes the Go toolchain license and patent
+five `CGO_ENABLED=0` release targets, rejects every module replacement except
+an unversioned `./` directory that resolves inside the repository, names such a
+copy `PATH@VERSION (modified copy in DIR)`, rejects missing or symlinked root
+license files, includes the Go toolchain license and patent
 notice, and preserves each source text with its SHA-256 digest. Verification
 regenerates `THIRD_PARTY_NOTICES.txt` from the tagged source and byte-compares
 it before checksums and provenance are accepted.

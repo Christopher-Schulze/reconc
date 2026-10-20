@@ -38,6 +38,7 @@ type spdxPackage struct {
 	CopyrightText    string            `json:"copyrightText"`
 	Checksums        []spdxChecksum    `json:"checksums,omitempty"`
 	ExternalRefs     []spdxExternalRef `json:"externalRefs"`
+	Comment          string            `json:"comment,omitempty"`
 }
 
 type spdxChecksum struct {
@@ -141,6 +142,9 @@ func spdxModulePackage(module moduleRecord) spdxPackage {
 	if digest := goSumDigest(module.Sum); digest != "" {
 		pack.Checksums = []spdxChecksum{{Algorithm: "SHA256", ChecksumValue: digest}}
 	}
+	if module.ModifiedCopy != "" {
+		pack.Comment = "Modified copy in " + module.ModifiedCopy
+	}
 	return pack
 }
 
@@ -197,6 +201,9 @@ func cyclonedxModuleComponent(module moduleRecord) cyclonedxComponent {
 	}
 	if digest := goSumDigest(module.Sum); digest != "" {
 		component.Hashes = []cyclonedxHash{{Algorithm: "SHA-256", Content: digest}}
+	}
+	if module.ModifiedCopy != "" {
+		component.Properties = append(component.Properties, cyclonedxProperty{Name: "reconc:modified-copy", Value: module.ModifiedCopy})
 	}
 	return component
 }

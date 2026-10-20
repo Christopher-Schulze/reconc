@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -140,7 +141,12 @@ func discoverTargetModules(root, goBinary, target string, modules map[string]lis
 		return fmt.Errorf("decode dependencies for %s: %w", target, err)
 	}
 	for _, module := range discovered {
-		identity := module.Path + "@" + module.Version
+		if module.Replace != nil {
+			if err := requireRepositoryReplacement(root, module); err != nil {
+				return err
+			}
+		}
+		identity := moduleIdentity(module)
 		if prior, ok := modules[identity]; ok && prior.Dir != module.Dir {
 			return fmt.Errorf("module %s resolved to multiple directories", identity)
 		}
@@ -168,13 +174,13 @@ func decodeListedModules(input io.Reader) ([]listedModule, error) {
 			continue
 		}
 		module := *pkg.Module
-		if module.Replace != nil {
-			return nil, fmt.Errorf("release dependency %s uses a module replacement", module.Path)
+		if module.Replace != nil && !repositoryReplacementPath(*module.Replace) {
+			return nil, fmt.Errorf("release dependency %s uses a module replacement outside the repository", module.Path)
 		}
 		if module.Path == "" || module.Version == "" || module.Dir == "" {
 			return nil, errors.New("release dependency has incomplete module identity")
 		}
-		identity := module.Path + "@" + module.Version
+		identity := moduleIdentity(module)
 		if prior, ok := modules[identity]; ok && prior.Dir != module.Dir {
 			return nil, fmt.Errorf("module %s resolved to multiple directories", identity)
 		}
@@ -191,6 +197,44 @@ func decodeListedModules(input io.Reader) ([]listedModule, error) {
 		return result[i].Path+"@"+result[i].Version < result[j].Path+"@"+result[j].Version
 	})
 	return result, nil
+}
+
+// repositoryReplacementPath accepts only an unversioned replacement by a
+// relative directory below the main module, which the release commit pins.
+func repositoryReplacementPath(replacement listedModule) bool {
+	if replacement.Version != "" || !strings.HasPrefix(filepath.ToSlash(replacement.Path), "./") {
+		return false
+	}
+	cleaned := path.Clean(filepath.ToSlash(replacement.Path))
+	return cleaned != "." && cleaned != ".." && !strings.HasPrefix(cleaned, "../")
+}
+
+// requireRepositoryReplacement proves that a replaced module's directory
+// resolves inside the repository, so a symlink cannot import foreign code.
+func requireRepositoryReplacement(root string, module listedModule) error {
+	resolvedRoot, err := pathidentity.ResolveExisting(root)
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	resolvedDir, err := pathidentity.ResolveExisting(module.Dir)
+	if err != nil {
+		return fmt.Errorf("resolve replacement of %s: %w", module.Path, err)
+	}
+	relative, err := filepath.Rel(resolvedRoot, resolvedDir)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return fmt.Errorf("replacement of %s resolves outside the repository", module.Path)
+	}
+	return nil
+}
+
+// moduleIdentity names a release dependency; an in-repository replacement is
+// marked as the modified copy it is.
+func moduleIdentity(module listedModule) string {
+	identity := module.Path + "@" + module.Version
+	if module.Replace != nil {
+		identity += " (modified copy in " + path.Clean(filepath.ToSlash(module.Replace.Path)) + ")"
+	}
+	return identity
 }
 
 func targetEnvironment(current []string, goos, goarch string) []string {

@@ -25,3 +25,8 @@ require (
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 )
+
+// The in-repository copy of jsonschema v6.0.3 compiles its draft metaschemas
+// on first use instead of at package initialization, which every Reconc
+// process otherwise paid for.
+replace github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 => ./third_party/jsonschema

@@ -364,7 +364,9 @@ before removing the skill with the binary.
 The shipped CLI has no Bun, Node, Python, Docker, or service dependency. Bun
 `1.3.14` is required only by contributors running the executable OpenCode,
 Kilo Code, Oh My Pi, DeepSeek Harness, and Pi adapter contract tests. Policy authoring and runtime
-validation use `jsonschema/v6`; bounded ECMAScript matching uses `regexp2`.
+validation use `jsonschema/v6`, built from an in-repository copy of v6.0.3
+under `third_party/jsonschema` that compiles its draft metaschemas on first use
+instead of at every process start; bounded ECMAScript matching uses `regexp2`.
 Both are linked into the Go CLI and operate offline. Tests also compile every
 public Draft 2020-12 schema and validate representative current and legacy
 artifacts without network access.
