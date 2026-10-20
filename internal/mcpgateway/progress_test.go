@@ -433,3 +433,15 @@ func TestCallProgressQueueSaturationFailsClosed(t *testing.T) {
 		t.Fatalf("saturation result = %q, recorded=%t", reason, recorded)
 	}
 }
+
+func (p *callProgress) prepare(ctx context.Context, event ProgressEvent) (ProgressEvent, action.ReasonCode) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.prepareLocked(ctx, event)
+}
+
+func (p *callProgress) admit(ctx context.Context, event ProgressEvent) action.ReasonCode {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.admitLocked(ctx, event)
+}

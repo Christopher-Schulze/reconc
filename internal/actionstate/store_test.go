@@ -1430,3 +1430,11 @@ func TestOpenStoreActionBoundaryIsNeverRemovedByGenericProjectRetention(t *testi
 		t.Fatalf("over-budget protected action state was not reported: %+v", report)
 	}
 }
+
+func writeBoundedJSON(path string, value any, maximum int) error {
+	body, err := encodeBoundedJSON(value, maximum)
+	if err != nil {
+		return err
+	}
+	return publishPrivateFile(path, body)
+}

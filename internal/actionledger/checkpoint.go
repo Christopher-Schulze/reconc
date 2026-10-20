@@ -1,13 +1,10 @@
 package actionledger
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -287,88 +284,4 @@ func (s *Store) encodeCheckpoint(payload ledgerCheckpointPayload) ([]byte, error
 		return nil, fmt.Errorf("action ledger checkpoint exceeds %d bytes", maxCheckpointBytes)
 	}
 	return body, nil
-}
-
-func (s *Store) decodeCheckpoint(body []byte) (ledgerCheckpointPayload, error) {
-	if len(body) == 0 || len(body) > maxCheckpointBytes {
-		return ledgerCheckpointPayload{}, fmt.Errorf("action ledger checkpoint size is invalid")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
-	var envelope ledgerCheckpointEnvelope
-	if err := decoder.Decode(&envelope); err != nil {
-		return ledgerCheckpointPayload{}, err
-	}
-	var trailing json.RawMessage
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return ledgerCheckpointPayload{}, fmt.Errorf("action ledger checkpoint contains trailing data")
-	}
-	payloadBody, err := json.Marshal(envelope.Payload)
-	if err != nil {
-		return ledgerCheckpointPayload{}, err
-	}
-	if err := s.storage.WithIdentity(func(key *actionstate.IdentityKey) error {
-		want := key.Identity(actionstate.DomainLedger, []byte(checkpointSchema), payloadBody)
-		if envelope.Payload.KeyID != key.ID() || envelope.Identity != want {
-			return fmt.Errorf("action ledger checkpoint authentication failed")
-		}
-		return nil
-	}); err != nil {
-		return ledgerCheckpointPayload{}, err
-	}
-	if envelope.Payload.Schema != checkpointSchema ||
-		envelope.Payload.RepositoryIdentity != s.storage.RepositoryIdentity() ||
-		envelope.Payload.Head.validate() != nil ||
-		envelope.Payload.LastRecord.Sequence != envelope.Payload.Head.LastSequence ||
-		envelope.Payload.LastRecord.Digest != envelope.Payload.Head.LastDigest {
-		return ledgerCheckpointPayload{}, fmt.Errorf("action ledger checkpoint binding is invalid")
-	}
-	if err := s.validateCheckpointPayload(envelope.Payload); err != nil {
-		return ledgerCheckpointPayload{}, err
-	}
-	canonical, err := s.encodeCheckpoint(envelope.Payload)
-	if err != nil || !bytes.Equal(body, canonical) {
-		return ledgerCheckpointPayload{}, fmt.Errorf("action ledger checkpoint is not canonical")
-	}
-	return envelope.Payload, nil
-}
-
-func (s *Store) validateCheckpointPayload(payload ledgerCheckpointPayload) error {
-	if payload.TerminalCallCount > payload.Head.EntryCount ||
-		payload.TerminalCallCount == 0 && payload.TerminalCallDigest != "" ||
-		payload.TerminalCallCount > 0 && !validCheckpointDigest(payload.TerminalCallDigest) {
-		return fmt.Errorf("action ledger checkpoint terminal summary is invalid")
-	}
-	for index, file := range payload.Files {
-		if file.Generation == "" || file.Size < 0 ||
-			index > 0 && payload.Files[index-1].Name >= file.Name ||
-			!allowedLedgerEntry(file.Name, false, s.policy.MaxArchives) || file.Name == checkpointFileName {
-			return fmt.Errorf("action ledger checkpoint file summary is invalid")
-		}
-	}
-	statuses, err := BuildCallStatuses(payload.ActiveRecords)
-	if err != nil {
-		return fmt.Errorf("action ledger checkpoint active-call summary is invalid: %w", err)
-	}
-	for _, status := range statuses {
-		if status.TerminalComplete {
-			return fmt.Errorf("action ledger checkpoint retains a terminal call")
-		}
-	}
-	for index, record := range payload.ActiveRecords {
-		if record.Call.RepositoryIdentity != s.storage.RepositoryIdentity() ||
-			record.Sequence > payload.Head.LastSequence ||
-			index > 0 && payload.ActiveRecords[index-1].Sequence >= record.Sequence {
-			return fmt.Errorf("action ledger checkpoint active record binding is invalid")
-		}
-		if err := s.validateRecordKeyGeneration(record); err != nil {
-			return fmt.Errorf("action ledger checkpoint identity generation is invalid: %w", err)
-		}
-	}
-	return nil
-}
-
-func validCheckpointDigest(value string) bool {
-	decoded, err := hex.DecodeString(value)
-	return err == nil && len(decoded) == sha256.Size
 }

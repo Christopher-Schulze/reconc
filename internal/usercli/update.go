@@ -435,15 +435,6 @@ func isGitHubCLI(path string) bool {
 	return verifierErr == nil && resolvedErr == nil && os.SameFile(verifier, resolved)
 }
 
-// verifiedInstallProvenance turns a provenance claim from the installer's
-// environment into a recorded state. A GitHub claim is recorded only when the
-// installed binary verifies against its release attestation here; without a
-// verifier on PATH it keeps the checksum-verified state, and a failing
-// verification refuses the receipt.
-func verifiedInstallProvenance(claimed ProvenanceState, binaryPath, releaseTag string) (ProvenanceState, error) {
-	return verifiedInstallProvenanceFor(claimed, binaryPath, releaseTag, "")
-}
-
 // verifiedInstallProvenanceFor verifies a claimed GitHub provenance unless the
 // caller already verified exactly these bytes: the release installer checks
 // the attestation of the artifact it then runs, and repeating that network

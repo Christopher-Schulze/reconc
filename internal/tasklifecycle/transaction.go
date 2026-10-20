@@ -124,15 +124,6 @@ func transactionExists(repoRoot string) (bool, error) {
 	return false, fmt.Errorf("inspect %s: %w", transactionRel, err)
 }
 
-func withMutationLock(repoRoot string, fn func() error) (resultErr error) {
-	if fn == nil {
-		return errors.New("TASK mutation lock callback is required")
-	}
-	return withMutationLockLease(repoRoot, func(*taskMutationLockLease) error {
-		return fn()
-	})
-}
-
 func withMutationLockLease(repoRoot string, fn func(*taskMutationLockLease) error) (resultErr error) {
 	if fn == nil {
 		return errors.New("TASK mutation lock callback is required")
@@ -342,10 +333,6 @@ func openTaskMutationLockFile(directory *os.Root, name string, before os.FileInf
 		return nil, errors.Join(fmt.Errorf("TASK lock changed identity while opening"), statErr, lstatErr, file.Close())
 	}
 	return file, nil
-}
-
-func applyTransaction(repoRoot, action string, files []fileMutation, moves []moveMutation) error {
-	return applyTransactionWithLease(repoRoot, action, files, moves, nil)
 }
 
 func applyTransactionWithLease(repoRoot, action string, files []fileMutation, moves []moveMutation, lease *taskMutationLockLease) error {
@@ -599,10 +586,6 @@ func buildTransactionMove(repoRoot string, move moveMutation, afterByPath map[st
 	}, sourceFile, nil
 }
 
-func publishTransaction(repoRoot string, journal transaction, files []fileMutation, moves []moveMutation) error {
-	return publishTransactionWithLease(repoRoot, journal, files, moves, journal.lockLease)
-}
-
 func publishTransactionWithLease(repoRoot string, journal transaction, files []fileMutation, moves []moveMutation, lease *taskMutationLockLease) error {
 	journal.lockLease = lease
 	if err := validateTransactionShape(journal); err != nil {
@@ -653,10 +636,6 @@ func publishTransactionWithLease(repoRoot string, journal transaction, files []f
 		}
 	}
 	return nil
-}
-
-func prepareTransactionDirectories(repoRoot string, directories []transactionDirectory) error {
-	return prepareTransactionDirectoriesWithLease(repoRoot, directories, nil)
 }
 
 func prepareTransactionDirectoriesWithLease(repoRoot string, directories []transactionDirectory, lease *taskMutationLockLease) error {
@@ -1143,10 +1122,6 @@ func readTransaction(repoRoot string) (transaction, error) {
 	return journal, nil
 }
 
-func rollbackTransaction(repoRoot string, journal transaction) error {
-	return rollbackTransactionWithLease(repoRoot, journal, journal.lockLease)
-}
-
 func rollbackTransactionWithLease(repoRoot string, journal transaction, lease *taskMutationLockLease) error {
 	journal.lockLease = lease
 	if err := journal.validateLockLease(); err != nil {
@@ -1283,10 +1258,6 @@ func rollbackCreatedDirectoriesWithLease(repoRoot string, directories []transact
 		}
 	}
 	return nil
-}
-
-func rollbackTransactionMove(repoRoot string, move transactionMove, sourceFile transactionFile) error {
-	return rollbackTransactionMoveWithLease(repoRoot, move, sourceFile, nil)
 }
 
 func rollbackTransactionMoveWithLease(repoRoot string, move transactionMove, sourceFile transactionFile, lease *taskMutationLockLease) error {

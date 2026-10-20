@@ -1,6 +1,7 @@
 package assurance
 
 import (
+	"go/ast"
 	"os"
 	"path/filepath"
 	"testing"
@@ -445,4 +446,12 @@ func work() {}
 	if len(findings) != 1 {
 		t.Fatalf("unowned named launch must stay flagged: %+v", findings)
 	}
+}
+
+func collectWaitGroupAssignment(assignment *ast.AssignStmt, waitGroups map[string]bool) {
+	collectWaitGroupAssignmentWithAliases(assignment, waitGroups, nil)
+}
+
+func isSyncWaitGroupValue(expression ast.Expr) bool {
+	return isSyncWaitGroupValueWithAliases(expression, nil)
 }

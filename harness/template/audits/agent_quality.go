@@ -260,7 +260,3 @@ func auditReconcBinaryFreshness(root string) []string {
 	}
 	return nil
 }
-
-func localReconcBinaryRel() string {
-	return reconcbinary.RelativePath()
-}

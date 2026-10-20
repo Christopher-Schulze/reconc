@@ -368,10 +368,6 @@ func mergeGitIndexEntries(entries map[string]string, repoRoot string, paths []st
 	}
 }
 
-func worktreePathHash(repoRoot string, path, indexEntry string) string {
-	return worktreePathHashWithScan(repoRoot, path, indexEntry, nil)
-}
-
 func worktreePathHashWithScan(repoRoot string, path, indexEntry string, scanCache *stopPolicyScanCache) string {
 	fullPath := filepath.Join(repoRoot, filepath.FromSlash(path))
 	info, err := os.Lstat(fullPath)

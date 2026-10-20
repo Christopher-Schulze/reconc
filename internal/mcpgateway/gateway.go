@@ -55,14 +55,13 @@ type Gateway struct {
 	snapshot     PolicySnapshot
 	inspections  *actioninspect.EngineFactory
 
-	process       *ownedProcess
-	downstream    Downstream
-	upstreamMu    sync.Mutex
-	upstream      *mcp.Server
-	sessionMu     sync.RWMutex
-	session       *mcp.ServerSession
-	upstreamNames map[string]struct{}
-	upstreamWire  *upstreamObserver
+	process      *ownedProcess
+	downstream   Downstream
+	upstreamMu   sync.Mutex
+	upstream     *mcp.Server
+	sessionMu    sync.RWMutex
+	session      *mcp.ServerSession
+	upstreamWire *upstreamObserver
 
 	toolsMu       sync.RWMutex
 	published     *publishedToolGeneration
@@ -1086,12 +1085,6 @@ func (g *Gateway) waitForCalls(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-func (g *Gateway) finalizePendingAndDrainCalls(ctx context.Context) error {
-	pendingErr := g.shutdownPending(ctx)
-	drainErr := g.waitForCalls(ctx)
-	return errors.Join(pendingErr, drainErr)
 }
 
 func (g *Gateway) shutdownPending(ctx context.Context) error {

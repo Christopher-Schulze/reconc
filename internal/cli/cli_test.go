@@ -3423,3 +3423,9 @@ func TestRunAuditTailCompactFitsBudget(t *testing.T) {
 		t.Errorf("audit tail --compact exceeded token budget: %d tokens\n%s", approxTokens(out), out)
 	}
 }
+
+var hiddenCompatibilityCommands = map[string]struct{}{
+	"compile":         {},
+	"grok":            {},
+	"post-task-check": {},
+}

@@ -210,10 +210,6 @@ func (snapshot *doctorGrokCapabilitySnapshot) nativeStop() grokacp.NativeStopGat
 	return snapshot.result
 }
 
-func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
-	return doctorCheckGrokRuntimeWithCapability(discovery, nil)
-}
-
 func doctorCheckGrokRuntimeWithCapability(discovery ingest.DiscoveryResult, capabilitySnapshot *doctorGrokCapabilitySnapshot) doctorCheck {
 	check := doctorCheck{
 		Name:   "Grok native hook",
@@ -352,10 +348,6 @@ func doctorPathWithin(root, candidate string) bool {
 }
 
 var doctorProbeGrokLeader = grokacp.ProbeLeaderSteering
-
-func doctorCheckGrokLeaderSteering(discovery ingest.DiscoveryResult) doctorCheck {
-	return doctorCheckGrokLeaderSteeringWithCapability(discovery, nil)
-}
 
 func doctorCheckGrokLeaderSteeringWithCapability(discovery ingest.DiscoveryResult, capabilitySnapshot *doctorGrokCapabilitySnapshot) doctorCheck {
 	check := doctorCheck{

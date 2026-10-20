@@ -11,10 +11,6 @@ import (
 
 const maxRepositoryRunPromptBytes = 1600
 
-func inspectRepositoryRunTask(repoRoot string) (tasklifecycle.RunState, error) {
-	return tasklifecycle.InspectRunStateResolved(repoRoot)
-}
-
 func buildRepositoryRunPrompt(state tasklifecycle.RunState) string {
 	var prompt string
 	switch state.Disposition {

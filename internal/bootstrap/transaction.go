@@ -1047,14 +1047,6 @@ func rollbackCreated(root string, created []createdRecord, dirs []createdDirecto
 	return rolledBack, nil
 }
 
-func captureCreatedDirectory(path string) (createdDirectory, error) {
-	identity, err := captureDirectoryIdentity(path)
-	if err != nil {
-		return createdDirectory{}, err
-	}
-	return createdDirectory{path: path, identity: identity}, nil
-}
-
 func removeCreatedRecord(record *createdRecord) error {
 	_, err := removeCreatedRecordOutcome(record)
 	return err

@@ -155,12 +155,6 @@ func (p *callProgress) enqueue(ctx context.Context, event ProgressEvent) error {
 	}
 }
 
-func (p *callProgress) prepare(ctx context.Context, event ProgressEvent) (ProgressEvent, action.ReasonCode) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.prepareLocked(ctx, event)
-}
-
 func (p *callProgress) prepareLocked(ctx context.Context, event ProgressEvent) (ProgressEvent, action.ReasonCode) {
 	if reason := p.admitLocked(ctx, event); reason != "" {
 		return ProgressEvent{}, reason
@@ -426,12 +420,6 @@ func progressFloat(decimal action.Decimal) (float64, error) {
 		return 0, fmt.Errorf("downstream progress number is outside finite float64")
 	}
 	return value, nil
-}
-
-func (p *callProgress) admit(ctx context.Context, event ProgressEvent) action.ReasonCode {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.admitLocked(ctx, event)
 }
 
 func (p *callProgress) admitLocked(ctx context.Context, event ProgressEvent) action.ReasonCode {

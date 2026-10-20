@@ -253,3 +253,29 @@ func BenchmarkAgentMemoryPathPreflight(b *testing.B) {
 		b.ReportMetric(float64(gitInvocations)/float64(b.N), "git-invocations/op")
 	})
 }
+
+// agentMemoryWritePath reports whether path targets the Claude Code
+// persistent-memory tree (~/.claude/projects/<project>/memory/**). Memory is
+// agent runtime state owned by the agent harness, not repository content:
+// blocking it as a repo-boundary escape breaks the harness memory feature,
+// and recording it as repo write evidence would poison policy triggers.
+//
+// The check is filesystem-identity-hardened and fail-closed: the path (or, for
+// a not-yet-created leaf, its closest existing ancestor) must resolve inside
+// the memory tree. A memory-looking path redirected elsewhere by a Unix
+// symlink or Windows reparse point is not treated as memory, so the normal
+// write policy applies to it.
+func agentMemoryWritePath(repoRoot, raw string) bool {
+	configRoot, ok := claudeConfigRoot()
+	if !ok || strings.TrimSpace(repoRoot) == "" {
+		return false
+	}
+	projectsRoot := filepath.Join(configRoot, "projects")
+	projectKey, ok := agentMemoryProjectKeyInProjects(projectsRoot, raw)
+	return ok && expectedClaudeProjectKeys(repoRoot).allows(projectKey)
+}
+
+func agentMemoryWritePathInProjects(projectsRoot string, allowedProjectKeys claudeProjectKeyMatcher, raw string) bool {
+	projectKey, ok := agentMemoryProjectKeyInProjects(projectsRoot, raw)
+	return ok && allowedProjectKeys.allows(projectKey)
+}

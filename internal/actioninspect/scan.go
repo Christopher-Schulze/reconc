@@ -47,14 +47,6 @@ var loadBuiltinDetectorPrograms = sync.OnceValues(func() (*builtinDetectorProgra
 	}, nil
 })
 
-func loadSharedBuiltinPack() (compiledDetectorPack, error) {
-	programs, err := loadBuiltinDetectorPrograms()
-	if err != nil {
-		return compiledDetectorPack{}, err
-	}
-	return programs.pack, nil
-}
-
 func compileBuiltinPack() (compiledDetectorPack, error) {
 	return compileDetectorPack(builtinPack())
 }

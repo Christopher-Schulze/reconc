@@ -42,10 +42,6 @@ func matchingPathsWithExclusions(matchers *runtimePathMatchers, paths, patterns,
 	return out, nil
 }
 
-func matchingCommands(commands, expected []string, repoRoot string, match policy.CommandMatch) []string {
-	return matchingCommandsWithEvidence(nil, nil, commands, expected, repoRoot, match)
-}
-
 func matchingCommandsWithEvidence(evidence *commandEvidenceIndex, cache *commandInvocationCache, commands, expected []string, repoRoot string, match policy.CommandMatch) []string {
 	if len(expected) == 0 {
 		return nil
@@ -68,10 +64,6 @@ func matchingCommandsWithEvidence(evidence *commandEvidenceIndex, cache *command
 		}
 	}
 	return out
-}
-
-func matchingForbiddenCommands(commands, expected []string, repoRoot string, match policy.CommandMatch) []string {
-	return matchingForbiddenCommandsWithCache(nil, commands, expected, repoRoot, match)
 }
 
 func matchingForbiddenCommandsWithCache(cache *commandInvocationCache, commands, expected []string, repoRoot string, match policy.CommandMatch) []string {
@@ -140,14 +132,6 @@ func executableCommandSegments(command string, depth int) ([]shellcommand.Invoca
 		return nil, false
 	}
 	return shellcommand.Invocations(command, maxCommandSubstitutionDepth-depth)
-}
-
-func matchingCommandResults(results []CommandResult, expected []string, outcome string, repoRoot string) []string {
-	return matchingCommandResultsSince(results, expected, outcome, repoRoot, 0, policy.CommandMatchExact)
-}
-
-func matchingCommandResultsSince(results []CommandResult, expected []string, outcome string, repoRoot string, minimumEpoch uint64, match policy.CommandMatch) []string {
-	return matchingCommandResultsSinceWithEvidence(nil, nil, results, expected, outcome, repoRoot, minimumEpoch, match)
 }
 
 func matchingCommandResultsSinceWithEvidence(evidence *commandEvidenceIndex, cache *commandInvocationCache, results []CommandResult, expected []string, outcome string, repoRoot string, minimumEpoch uint64, match policy.CommandMatch) []string {

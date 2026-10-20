@@ -112,3 +112,7 @@ func expectedDecisionAndPhaseDeltas(
 	}
 	return deltas
 }
+
+func observationFromResult(result action.EvaluationResult, approval *ActionApprovalAssertion) (ActionObservation, error) {
+	return observationFromResultWithLedger(result, approval, nil)
+}

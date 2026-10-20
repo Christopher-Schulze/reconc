@@ -104,10 +104,6 @@ func evaluateActionScenario(scenario ActionCase, compiled runtime.CompiledAction
 	return observationFromResultWithLedger(result, approval, ledger)
 }
 
-func observationFromResult(result action.EvaluationResult, approval *ActionApprovalAssertion) (ActionObservation, error) {
-	return observationFromResultWithLedger(result, approval, nil)
-}
-
 func observationFromResultWithLedger(
 	result action.EvaluationResult,
 	approval *ActionApprovalAssertion,

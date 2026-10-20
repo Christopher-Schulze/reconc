@@ -421,3 +421,17 @@ func TestRunResetCLIRecoversCorruptState(t *testing.T) {
 		t.Fatalf("reset state is not readable and disabled: %+v err=%v", status, err)
 	}
 }
+
+// followRunLog baselines the complete bounded ring and renders only later
+// records. It is kept separate from the CLI snapshot path for deterministic
+// tests and other internal callers.
+func followRunLog(ctx context.Context, repoRoot, branch, session string, jsonOut bool, pollInterval time.Duration, ready chan<- struct{}, stdout io.Writer) error {
+	follower, _, err := agentsession.NewRunDecisionFollower(repoRoot)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
+	}
+	if ready != nil {
+		close(ready)
+	}
+	return followRunLogAfter(ctx, follower, branch, session, jsonOut, pollInterval, stdout)
+}

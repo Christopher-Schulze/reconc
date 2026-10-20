@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -197,4 +198,73 @@ func instrumentedToolParams(
 		t.Fatal(err)
 	}
 	return &params
+}
+
+func (o *upstreamObserver) instrumentInbound(frame []byte) ([]byte, error) {
+	parsed, err := parseFrameJSON(frame)
+	if err != nil {
+		return nil, err
+	}
+	return o.instrumentInboundFrame(parsed)
+}
+
+func (o *upstreamObserver) outbound(frame []byte) error {
+	parsed, err := parseFrameJSON(frame)
+	if err != nil {
+		return err
+	}
+	return o.outboundFrame(parsed)
+}
+
+func (g *Gateway) replaceUpstreamTools(contracts []ToolContract) error {
+	if g == nil {
+		return fmt.Errorf("upstream MCP server is unavailable")
+	}
+	g.upstreamMu.Lock()
+	defer g.upstreamMu.Unlock()
+	return g.replaceUpstreamToolsLocked(contracts)
+}
+
+func (g *Gateway) replaceUpstreamToolsLocked(contracts []ToolContract) error {
+	if g == nil || g.upstream == nil {
+		return fmt.Errorf("upstream MCP server is unavailable")
+	}
+	prepared, err := sdkToolsFromContracts(contracts)
+	if err != nil {
+		return err
+	}
+	byName := make(map[string]ToolContract, len(contracts))
+	for _, contract := range contracts {
+		byName[contract.Name] = contract
+	}
+	for name := range upstreamNamesOf(g) {
+		if _, keep := byName[name]; !keep {
+			g.upstream.RemoveTools(name)
+		}
+	}
+	for index, contract := range contracts {
+		tool := prepared[index]
+		contractCopy := contract
+		if err := addSDKTool(g.upstream, tool, func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return g.handleTool(ctx, request, contractCopy)
+		}); err != nil {
+			return err
+		}
+	}
+	names := make(map[string]struct{}, len(contracts))
+	for _, contract := range contracts {
+		names[contract.Name] = struct{}{}
+	}
+	testUpstreamNames.Store(g, names)
+	return nil
+}
+
+// testUpstreamNames records, per gateway, the tool names the test-only SDK
+// catalog path last published; production publishes tool generations instead.
+var testUpstreamNames sync.Map
+
+func upstreamNamesOf(g *Gateway) map[string]struct{} {
+	names, _ := testUpstreamNames.Load(g)
+	published, _ := names.(map[string]struct{})
+	return published
 }

@@ -318,14 +318,6 @@ func (identity preDecisionIdentity) equal(other preDecisionIdentity) bool {
 	return identity == other
 }
 
-func preDecisionInputsForPayload(root string, payload *HookPayload) (preDecisionInputs, bool) {
-	return preDecisionInputsForPayloadWithEvaluator(root, payload, nil)
-}
-
-func preDecisionInputsForPayloadWithEvaluator(root string, payload *HookPayload, evaluator *runtime.Evaluator) (preDecisionInputs, bool) {
-	return preDecisionInputsForPayloadWithEvaluatorAndStopCache(root, payload, evaluator, nil)
-}
-
 func preDecisionInputsForPayloadWithEvaluatorAndStopCache(
 	root string,
 	payload *HookPayload,
@@ -838,23 +830,6 @@ func preDecisionFileInfoIdentity(info os.FileInfo) string {
 	return fmt.Sprintf("mode=%d;size=%d;mtime=%d", info.Mode(), info.Size(), info.ModTime().UnixNano())
 }
 
-func resamplePreDecisionInputs(
-	root string,
-	payload *HookPayload,
-	baseline preDecisionInputs,
-) (preDecisionInputs, bool) {
-	return resamplePreDecisionInputsWithEvaluator(root, payload, baseline, nil)
-}
-
-func resamplePreDecisionInputsWithEvaluator(
-	root string,
-	payload *HookPayload,
-	baseline preDecisionInputs,
-	evaluator *runtime.Evaluator,
-) (preDecisionInputs, bool) {
-	return resamplePreDecisionInputsWithEvaluatorAndStopCache(root, payload, baseline, evaluator, nil)
-}
-
 func resamplePreDecisionInputsWithEvaluatorAndStopCache(
 	root string,
 	payload *HookPayload,
@@ -899,51 +874,11 @@ func hashPreDecisionFile(path string, allowMissing bool) (string, bool) {
 	return hashBytes(body), true
 }
 
-func preDecisionCachePath(root string, payloadBytes []byte) string {
-	payload, err := ParsePayload(payloadBytes)
-	if err != nil {
-		return ""
-	}
-	return preDecisionCachePathForPayload(root, payload)
-}
-
 func preDecisionCachePathForPayload(root string, payload *HookPayload) string {
 	if payload == nil {
 		return ""
 	}
 	return filepath.Join(projectDir(root), "pre-decisions", sessionFileKey(payload.SessionID)+".json")
-}
-
-func readPreDecisionCache(root string, payloadBytes []byte, expectedKey string) (Result, bool) {
-	payload, err := ParsePayload(payloadBytes)
-	if err != nil {
-		return Result{}, false
-	}
-	return readPreDecisionCacheForPayload(root, payload, expectedKey)
-}
-
-func readPreDecisionCacheForPayload(root string, payload *HookPayload, expectedKey string) (Result, bool) {
-	inputs, ok := preDecisionInputsForPayload(root, payload)
-	if !ok || inputs.key != expectedKey {
-		return Result{}, false
-	}
-	return readPreDecisionCacheForInputs(root, payload, inputs)
-}
-
-func readPreDecisionCacheForInputs(
-	root string,
-	payload *HookPayload,
-	expected preDecisionInputs,
-) (Result, bool) {
-	cached, ok := readPreDecisionCacheCandidate(root, payload)
-	if !ok || cached.Key != expected.key {
-		return Result{}, false
-	}
-	current, ok := resamplePreDecisionInputs(root, payload, expected)
-	if !ok || !expected.identity.equal(current.identity) || !current.cacheableAt(time.Now()) {
-		return Result{}, false
-	}
-	return Result{ExitCode: cached.ExitCode, Stderr: cached.Stderr, decisionClass: cached.DecisionClass}, true
 }
 
 func readPreDecisionCacheCandidate(root string, payload *HookPayload) (preDecisionCache, bool) {

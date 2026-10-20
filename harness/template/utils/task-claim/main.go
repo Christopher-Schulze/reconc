@@ -383,10 +383,6 @@ func readRegularFile(path string) ([]byte, error) {
 	return body, nil
 }
 
-func reconcBinaryRel() string {
-	return reconcbinary.RelativePath()
-}
-
 func fail(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, "task-claim: "+format+"\n", args...)
 	os.Exit(2)

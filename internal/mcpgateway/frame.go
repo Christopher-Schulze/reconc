@@ -116,14 +116,6 @@ func (o *protocolObserver) wait(ctx context.Context, call *pendingProtocolCall) 
 	return result, err
 }
 
-func (o *protocolObserver) outbound(frame []byte) error {
-	parsed, err := parseFrameJSON(frame)
-	if err != nil {
-		return err
-	}
-	return o.outboundFrame(parsed)
-}
-
 func (o *protocolObserver) outboundFrame(frame validatedFrame) error {
 	if frame.method == "" || len(frame.id) == 0 {
 		return nil
@@ -216,14 +208,6 @@ func correlationParamsKey(raw []byte) (string, error) {
 	}
 	canonical.WriteByte('}')
 	return canonical.String(), nil
-}
-
-func (o *protocolObserver) inbound(frame []byte) error {
-	parsed, err := parseFrameJSON(frame)
-	if err != nil {
-		return err
-	}
-	return o.inboundFrame(parsed)
 }
 
 func (o *protocolObserver) inboundFrame(frame validatedFrame) error {

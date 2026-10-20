@@ -332,3 +332,24 @@ func quoteTestJSON(t testing.TB, value string) string {
 	}
 	return string(encoded)
 }
+
+func evaluatePredicate(
+	predicate *CompiledPredicate,
+	request Request,
+	ruleDecision Decision,
+) predicateEvaluation {
+	return evaluatePredicateCore(predicate, request, ruleDecision, nil, true, true, nil)
+}
+
+func evaluatePredicateWithRoots(
+	predicate *CompiledPredicate,
+	request Request,
+	ruleDecision Decision,
+	roots *predicateRoots,
+) predicateEvaluation {
+	return evaluatePredicateCore(predicate, request, ruleDecision, roots, false, true, nil)
+}
+
+func summarizePointer(pointer PointerResult) OperandSummary {
+	return summarizePointerMemoized(pointer, nil)
+}

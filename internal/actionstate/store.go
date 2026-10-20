@@ -399,14 +399,6 @@ func publishPrivateFileIfChanged(path string, body []byte) (bool, error) {
 	return result.Changed, nil
 }
 
-func writeBoundedJSON(path string, value any, maximum int) error {
-	body, err := encodeBoundedJSON(value, maximum)
-	if err != nil {
-		return err
-	}
-	return publishPrivateFile(path, body)
-}
-
 func (s *Store) writeBoundedJSON(path string, value any, maximum int) error {
 	if s == nil || s.publish == nil {
 		return fmt.Errorf("action state publisher is unavailable")

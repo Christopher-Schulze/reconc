@@ -773,3 +773,11 @@ func doctorCheckDetail(t *testing.T, report *doctorDeepJSON, name string) string
 	t.Fatalf("missing doctor check %q in %#v", name, report.Checks)
 	return ""
 }
+
+func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
+	return doctorCheckGrokRuntimeWithCapability(discovery, nil)
+}
+
+func doctorCheckGrokLeaderSteering(discovery ingest.DiscoveryResult) doctorCheck {
+	return doctorCheckGrokLeaderSteeringWithCapability(discovery, nil)
+}

@@ -25,9 +25,3 @@ func (r nativeEventRegistry) lookup(route string) (nativeEventBinding, bool) {
 	}
 	return nativeEventBinding{}, false
 }
-
-func (r nativeEventRegistry) entries() []nativeEventBinding {
-	entries := make([]nativeEventBinding, len(r.bindings))
-	copy(entries, r.bindings)
-	return entries
-}

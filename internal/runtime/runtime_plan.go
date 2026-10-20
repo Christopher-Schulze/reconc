@@ -168,10 +168,6 @@ func (e *Evaluator) loadFreshRuntimePlanWithContext(ctx context.Context, root st
 	return plan, nil
 }
 
-func (e *Evaluator) loadRuntimePlan(root string) (*runtimePlan, error) {
-	return e.loadRuntimePlanWithContext(context.Background(), root)
-}
-
 func (e *Evaluator) loadRuntimePlanWithContext(ctx context.Context, root string) (*runtimePlan, error) {
 	if ctx == nil {
 		return nil, context.Canceled
@@ -500,14 +496,6 @@ func (e *Evaluator) evictRuntimePlanCache(incomingRoot string, incomingBytes uin
 	}
 }
 
-func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
-	return compileRuntimePlanWithParts(payload, nil, nil, nil)
-}
-
-func compileRuntimePlanWithParts(payload map[string]interface{}, rulesJSON, actionsJSON []byte, compiledActions *action.CompiledPlan) (*runtimePlan, error) {
-	return compileRuntimePlanPrepared(payload, nil, rulesJSON, actionsJSON, nil, compiledActions, "")
-}
-
 func compileRuntimePlanFromLock(lock *decodedLockfile) (*runtimePlan, error) {
 	return compileRuntimePlanFromLockForRoot(lock, "")
 }
@@ -698,14 +686,6 @@ func customRuntimeManifestDigests(envelope *runtimeEnvelope) (map[string]string,
 		}
 	}
 	return customRuntimeDigests, nil
-}
-
-func decodeRuntimeRules(raw interface{}) ([]policy.Rule, error) {
-	data, err := json.Marshal(raw)
-	if err != nil {
-		return nil, &rerrors.LockfileError{Message: "encode compiled rules for typed runtime plan", Cause: err}
-	}
-	return decodeRuntimeRulesJSON(data)
 }
 
 func decodeRuntimeRulesJSON(data []byte) ([]policy.Rule, error) {

@@ -137,14 +137,6 @@ func parseTaskSpecBindings(relative string, raw string) ([]taskSpecBinding, []st
 	return bindings, failures
 }
 
-func taskSpecBulletField(section string, name string) string {
-	values := taskSpecBulletFields(section, name)
-	if len(values) == 0 {
-		return ""
-	}
-	return values[0]
-}
-
 func taskSpecBulletFields(section string, name string) []string {
 	prefix := "- " + name + ":"
 	var values []string

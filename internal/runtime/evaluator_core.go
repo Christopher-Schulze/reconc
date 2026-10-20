@@ -477,10 +477,6 @@ func evaluateRuntimePlanContext(ctx context.Context, root string, plan *runtimeP
 	return evaluateRuntimePlanWithRootResolverContext(ctx, root, plan, inputs, allowedKinds, phase, pathidentity.ResolveExisting)
 }
 
-func evaluateRuntimePlanWithRootResolver(root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, phase evaluationPhase, resolveRoot func(string) (string, error)) (*CheckReport, error) {
-	return evaluateRuntimePlanWithRootResolverContext(context.Background(), root, plan, inputs, allowedKinds, phase, resolveRoot)
-}
-
 func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, phase evaluationPhase, resolveRoot func(string) (string, error)) (*CheckReport, error) {
 	if lifecycle == nil {
 		return nil, errors.New("runtime evaluation context is required")

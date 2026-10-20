@@ -413,10 +413,6 @@ func collectWaitGroupValueSpecWithAliases(spec *ast.ValueSpec, waitGroups map[st
 	}
 }
 
-func collectWaitGroupAssignment(assignment *ast.AssignStmt, waitGroups map[string]bool) {
-	collectWaitGroupAssignmentWithAliases(assignment, waitGroups, nil)
-}
-
 func collectWaitGroupAssignmentWithAliases(assignment *ast.AssignStmt, waitGroups map[string]bool, aliases map[string]bool) {
 	if assignment.Tok != token.DEFINE {
 		return
@@ -430,10 +426,6 @@ func collectWaitGroupAssignmentWithAliases(assignment *ast.AssignStmt, waitGroup
 			waitGroups[name.Name] = true
 		}
 	}
-}
-
-func isSyncWaitGroupValue(expression ast.Expr) bool {
-	return isSyncWaitGroupValueWithAliases(expression, nil)
 }
 
 func isSyncWaitGroupValueWithAliases(expression ast.Expr, aliases map[string]bool) bool {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reconc-harness/template/audits/lib/reconcbinary"
 	"runtime"
 	"sort"
 	"strings"
@@ -498,4 +499,8 @@ func bindClaimStubProvenance(t *testing.T, root, binPath string) {
 	if err := errors.Join(writeErr, file.Close()); err != nil {
 		t.Fatalf("append claim stub provenance: %v", err)
 	}
+}
+
+func reconcBinaryRel() string {
+	return reconcbinary.RelativePath()
 }

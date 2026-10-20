@@ -49,10 +49,6 @@ func tailData(path string, maxBytes int64) (int64, int64, []byte, os.FileMode, e
 	return tailDataForLayout(path, path, maxBytes, defaultLayout(path))
 }
 
-func tailDataWithLayout(path string, maxBytes int64, layout Layout) (int64, int64, []byte, os.FileMode, error) {
-	return tailDataForLayout(path, path, maxBytes, layout)
-}
-
 func tailDataForLayout(livePath string, path string, maxBytes int64, layout Layout) (int64, int64, []byte, os.FileMode, error) {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -123,10 +119,6 @@ type archiveCandidate struct {
 	index int
 }
 
-func archiveCandidates(path string) ([]archiveCandidate, error) {
-	return archiveCandidatesContext(context.Background(), path)
-}
-
 func archiveCandidatesContext(ctx context.Context, path string) ([]archiveCandidate, error) {
 	directory := filepath.Dir(path)
 	entries, err := readArchiveDirectoryContext(ctx, directory)
@@ -153,13 +145,6 @@ func archiveCandidatesContext(ctx context.Context, path string) ([]archiveCandid
 
 func readArchiveDirectoryContext(ctx context.Context, directory string) ([]os.DirEntry, error) {
 	return readArchiveDirectoryContextWith(ctx, directory, boundedio.ReadDir)
-}
-
-func readArchiveDirectoryWith(
-	directory string,
-	read func(string, int) ([]os.DirEntry, error),
-) ([]os.DirEntry, error) {
-	return readArchiveDirectoryContextWith(context.Background(), directory, read)
 }
 
 func readArchiveDirectoryContextWith(

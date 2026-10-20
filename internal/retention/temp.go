@@ -253,10 +253,6 @@ func pruneExpiredCandidates(class ClassReport, candidates []candidate, now time.
 	return class
 }
 
-func enforceRepoTotal(options Options, report *Report) ClassReport {
-	return enforceRepoTotalContext(context.Background(), options, report)
-}
-
 func enforceRepoTotalContext(ctx context.Context, options Options, report *Report) ClassReport {
 	class := ClassReport{Name: "repo-runtime-total"}
 	bytesBefore, err := ownedRepoRuntimeBytes(options.RepoRoot)

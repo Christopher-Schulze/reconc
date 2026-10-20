@@ -133,14 +133,6 @@ func validateRepositoryRunIdentity(root string, snapshot repositoryRunSnapshot) 
 	return nil
 }
 
-func repositoryRunStatePath(repoRoot string) (string, error) {
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return "", err
-	}
-	return repositoryRunStatePathResolved(root), nil
-}
-
 func repositoryRunStatePathResolved(root string) string {
 	return filepath.Join(root, filepath.FromSlash(repositoryRunDir), "state.bin")
 }
@@ -186,14 +178,6 @@ func runDecisionLogPath(repoRoot string) (string, error) {
 	return runDecisionLogPathResolved(root), nil
 }
 
-func appendRunDecision(repoRoot string, decision RunDecision) error {
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return err
-	}
-	return appendRunDecisionResolved(root, decision)
-}
-
 func runDecisionLogPathResolved(root string) string {
 	return filepath.Join(root, filepath.FromSlash(repositoryRunDir), "decisions.jsonl")
 }
@@ -235,14 +219,6 @@ func sessionIDFromPayload(payload *HookPayload) string {
 
 func repositoryRunEnabled(state repositoryRunState) bool {
 	return state.Enabled
-}
-
-func loadRepositoryRunState(repoRoot string) (repositoryRunState, error) {
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return repositoryRunState{}, err
-	}
-	return loadRepositoryRunStateResolved(root)
 }
 
 func loadRepositoryRunStateResolved(root string) (repositoryRunState, error) {
@@ -339,41 +315,6 @@ func withRepositoryRunFileResolved(root string, fn func(*os.File) error) error {
 		wrapOperationError("unlock repository run state", unlockErr),
 		wrapOperationError("close repository run state", closeErr),
 	)
-}
-
-// saveRepositoryRunState persists state while holding the repository run state
-// lock. Use this for standalone/terminal writes; use
-// mutateRepositoryRunStateResolved
-// for read-modify-write so the load and save share a single lock.
-func saveRepositoryRunState(repoRoot string, state repositoryRunState) error {
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return err
-	}
-	return withRepositoryRunFileResolved(root, func(file *os.File) error {
-		snapshot, readErr := readRepositoryRunSnapshotFile(file)
-		if readErr != nil {
-			return wrapRepositoryRunRecovery(root, readErr)
-		}
-		if identityErr := validateRepositoryRunIdentity(root, snapshot); identityErr != nil {
-			return wrapRepositoryRunRecovery(root, identityErr)
-		}
-		state.RootIdentity = repositoryRunRootIdentity(root)
-		return commitRepositoryRunSnapshotFile(file, state, snapshot)
-	})
-}
-
-// mutateRepositoryRunStateResolved serializes load -> mutate -> save under one lock so
-// concurrent agent tool events cannot lose each other's updates. Mirror of
-// MutateSessionState. Corrupt or unreadable state fails closed and is never
-// replaced with a zero value; CRC-protected alternating slots recover from a
-// torn newest write without accepting corrupt state.
-func mutateRepositoryRunState(repoRoot string, fn func(repositoryRunState) repositoryRunState) (repositoryRunState, repositoryRunState, error) {
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return repositoryRunState{}, repositoryRunState{}, err
-	}
-	return mutateRepositoryRunStateResolved(root, fn)
 }
 
 func mutateRepositoryRunStateResolved(root string, fn func(repositoryRunState) repositoryRunState) (repositoryRunState, repositoryRunState, error) {

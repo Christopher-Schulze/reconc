@@ -628,3 +628,26 @@ func trackStopGenerationBytes(t *testing.T, repo, rel string, body []byte) {
 		}
 	}
 }
+
+func captureStopPolicyAttemptSnapshotWithSourceIdentity(
+	root string,
+	state SessionState,
+	evidenceRevision string,
+	taskSnapshot stopTaskSnapshot,
+	gitSnapshot stopPolicyGitSnapshot,
+	scanCache *stopPolicyScanCache,
+	loadSourceIdentity func(string) (string, int, error),
+) stopPolicyAttemptSnapshot {
+	return captureStopPolicyAttemptSnapshotWithSourceIdentityAtBoundary(
+		stopCaptureBeforeEvaluation, root, state, evidenceRevision, taskSnapshot, gitSnapshot, scanCache, loadSourceIdentity,
+	)
+}
+
+func captureStopRepositoryGeneration(
+	root string,
+	gitSnapshot stopPolicyGitSnapshot,
+	taskSnapshot stopTaskSnapshot,
+	writePaths []string,
+) (stopGenerationCapture, bool) {
+	return captureStopRepositoryGenerationWithScan(root, gitSnapshot, taskSnapshot, writePaths, nil)
+}

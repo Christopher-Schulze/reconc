@@ -374,15 +374,6 @@ func defaultEvidenceSegmentLoadHooks() evidenceSegmentLoadHooks {
 	}
 }
 
-func loadCompleteSessionEvidenceWithHooks(
-	repoRoot string,
-	state SessionState,
-	cache *StopDecisionCache,
-	hooks evidenceSegmentLoadHooks,
-) (SessionState, error) {
-	return loadCompleteSessionEvidenceWithHooksCapture(repoRoot, state, cache, hooks, nil)
-}
-
 func loadCompleteSessionEvidenceWithHooksCapture(
 	repoRoot string,
 	state SessionState,
@@ -620,15 +611,6 @@ func persistEvidenceChainFailure(repoRoot string, state SessionState, cause erro
 		return errors.Join(cause, err)
 	}
 	return cause
-}
-
-func readEvidenceSegment(repoRoot, sessionID string, index uint64) (evidenceSegment, error) {
-	path := evidenceSegmentPath(repoRoot, sessionID, index)
-	body, err := boundedio.ReadRegularFile(path, maxEvidenceSegmentBytes)
-	if err != nil {
-		return evidenceSegment{}, fmt.Errorf("read evidence segment %d: %w", index, err)
-	}
-	return decodeEvidenceSegment(repoRoot, sessionID, index, body)
 }
 
 func decodeEvidenceSegment(repoRoot, sessionID string, index uint64, body []byte) (evidenceSegment, error) {

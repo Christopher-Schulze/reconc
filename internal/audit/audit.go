@@ -688,10 +688,6 @@ func advanceChainHead(repoRoot string, previous *chainHead, entry Entry) error {
 	return writeChainHeadValue(repoRoot, head)
 }
 
-func recoverPendingAppend(repoRoot string) error {
-	return recoverPendingAppendContext(context.Background(), repoRoot)
-}
-
 func recoverPendingAppendContext(ctx context.Context, repoRoot string) error {
 	if ctx == nil {
 		return errors.New("audit: recovery context is required")
@@ -734,10 +730,6 @@ func readVerifiedSnapshotContext(ctx context.Context, repoRoot string) ([]Entry,
 	return entries, head, err
 }
 
-func loadVerifiedSnapshot(repoRoot string) ([]Entry, *chainHead, error) {
-	return loadVerifiedSnapshotContext(context.Background(), repoRoot)
-}
-
 func loadVerifiedSnapshotContext(ctx context.Context, repoRoot string) ([]Entry, *chainHead, error) {
 	if ctx == nil {
 		return nil, nil, errors.New("audit: snapshot context is required")
@@ -768,10 +760,6 @@ func loadVerifiedSnapshotContext(ctx context.Context, repoRoot string) ([]Entry,
 		return nil, nil, err
 	}
 	return entries, head, nil
-}
-
-func readAuditEntries(path string) ([]Entry, error) {
-	return readAuditEntriesContext(context.Background(), path)
 }
 
 func readAuditEntriesContext(ctx context.Context, path string) ([]Entry, error) {

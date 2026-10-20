@@ -302,10 +302,6 @@ type sourceProvenance struct {
 	digest  string
 }
 
-func compileSourceProvenance(bundle *ingest.SourceBundle) (sourceProvenance, error) {
-	return compileSourceProvenanceWithContext(context.Background(), bundle)
-}
-
 func compileSourceProvenanceWithContext(ctx context.Context, bundle *ingest.SourceBundle) (sourceProvenance, error) {
 	dependencies, err := parser.ResolveTemplateDependenciesWithContext(ctx, bundle)
 	if err != nil {
@@ -422,18 +418,6 @@ func normalizeLockPayload(payload map[string]interface{}) (map[string]interface{
 	return object, nil
 }
 
-func normalizeLockPayloadWithBytes(payload map[string]interface{}) (map[string]interface{}, []byte, error) {
-	normalized, canonical, _, err := normalizeJSONValueWithBytesAndSize(payload)
-	if err != nil {
-		return nil, nil, err
-	}
-	object, ok := normalized.(map[string]interface{})
-	if !ok {
-		return nil, nil, fmt.Errorf("normalized lockfile is not an object")
-	}
-	return object, canonical, nil
-}
-
 func canonicalLockPayloadForEncoding(payload map[string]interface{}) ([]byte, int, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -462,27 +446,6 @@ func decodeNormalizedJSON(data []byte) (interface{}, error) {
 		return nil, fmt.Errorf("normalized value contains trailing JSON")
 	}
 	return normalized, nil
-}
-
-func normalizeJSONValueWithBytes(value interface{}) (interface{}, []byte, error) {
-	normalized, canonical, _, err := normalizeJSONValueWithBytesAndSize(value)
-	return normalized, canonical, err
-}
-
-func normalizeJSONValueWithBytesAndSize(value interface{}) (interface{}, []byte, int, error) {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	canonical, formattedSize, err := canonicalizeJSONObjectsIfNeeded(data)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	normalized, err := decodeNormalizedJSON(canonical)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	return normalized, canonical, formattedSize, nil
 }
 
 func canonicalizeJSONObjectsIfNeeded(data []byte) ([]byte, int, error) {
@@ -1119,33 +1082,6 @@ func sourceKindValid(kind policy.SourceKind) bool {
 	return policy.SourceRank(kind) >= 0
 }
 
-// writeLockfile materializes payload at $repoRoot/.reconc/policy.lock.json
-// with sorted keys (Go's json.Marshal already does this for maps) and
-// 2-space indentation, terminated by a single newline.
-//
-// The atomic publisher creates and identity-binds a missing .reconc/ directory;
-// existing files are replaced with temp-file-then-rename so readers never
-// observe a truncated lockfile.
-func encodeLockfile(payload map[string]interface{}) ([]byte, error) {
-	data, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return nil, &rerrors.LockfileError{Message: "marshal lockfile", Cause: err}
-	}
-	data = append(data, '\n')
-	if int64(len(data)) > MaxLockfileBytes {
-		return nil, &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile exceeds %d bytes", MaxLockfileBytes)}
-	}
-	return data, nil
-}
-
-func encodeCanonicalLockfile(canonical []byte, digest string) ([]byte, error) {
-	_, formattedSize, err := inspectCanonicalJSON(canonical)
-	if err != nil {
-		return nil, &rerrors.LockfileError{Message: "format lockfile", Cause: err}
-	}
-	return encodeCanonicalLockfileWithSize(canonical, digest, formattedSize)
-}
-
 func encodeCanonicalLockfileWithSize(canonical []byte, digest string, formattedSize int) ([]byte, error) {
 	offset, member, err := canonicalStringFieldInsertion(canonical, "lock_digest", digest)
 	if err != nil {
@@ -1246,14 +1182,6 @@ func indentCanonicalJSONWithField(compact []byte, offset int, member []byte, for
 	return formatted, nil
 }
 
-func insertCanonicalStringField(canonical []byte, name, value string) ([]byte, error) {
-	offset, member, err := canonicalStringFieldInsertion(canonical, name, value)
-	if err != nil {
-		return nil, err
-	}
-	return insertCanonicalObjectMember(canonical, offset, member)
-}
-
 func canonicalStringFieldInsertion(canonical []byte, name, value string) (int, []byte, error) {
 	decoder := jsontext.NewDecoder(bytes.NewReader(canonical))
 	opening, err := decoder.ReadToken()
@@ -1291,31 +1219,6 @@ func canonicalStringFieldInsertion(canonical []byte, name, value string) (int, [
 		previousEnd = int(decoder.InputOffset())
 	}
 	return previousEnd, member, nil
-}
-
-func insertCanonicalObjectMember(canonical []byte, offset int, member []byte) ([]byte, error) {
-	if offset < 0 || offset > len(canonical) {
-		return nil, fmt.Errorf("canonical JSON member offset is outside the object")
-	}
-	empty := offset == 1 && len(canonical) == 2
-	extra := 1
-	if empty {
-		extra = 0
-	}
-	if len(canonical) > int(MaxLockfileBytes) || len(member) > int(MaxLockfileBytes) {
-		return nil, fmt.Errorf("canonical JSON member insertion exceeds the lockfile size boundary")
-	}
-	out := make([]byte, 0, len(canonical)+len(member)+extra)
-	out = append(out, canonical[:offset]...)
-	if offset > 1 {
-		out = append(out, ',')
-	}
-	out = append(out, member...)
-	if offset == 1 && !empty {
-		out = append(out, ',')
-	}
-	out = append(out, canonical[offset:]...)
-	return out, nil
 }
 
 func writeLockfile(repoRoot string, body []byte) error {

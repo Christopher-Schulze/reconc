@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/runtime"
 )
 
@@ -806,4 +807,22 @@ func TestEvidenceTaintResolutionAfterSessionEndRequiresExactToken(t *testing.T) 
 	if err != nil || successor.EvidenceOverflow {
 		t.Fatalf("fresh evidence window remained tainted: %+v err=%v", successor, err)
 	}
+}
+
+func loadCompleteSessionEvidenceWithHooks(
+	repoRoot string,
+	state SessionState,
+	cache *StopDecisionCache,
+	hooks evidenceSegmentLoadHooks,
+) (SessionState, error) {
+	return loadCompleteSessionEvidenceWithHooksCapture(repoRoot, state, cache, hooks, nil)
+}
+
+func readEvidenceSegment(repoRoot, sessionID string, index uint64) (evidenceSegment, error) {
+	path := evidenceSegmentPath(repoRoot, sessionID, index)
+	body, err := boundedio.ReadRegularFile(path, maxEvidenceSegmentBytes)
+	if err != nil {
+		return evidenceSegment{}, fmt.Errorf("read evidence segment %d: %w", index, err)
+	}
+	return decodeEvidenceSegment(repoRoot, sessionID, index, body)
 }

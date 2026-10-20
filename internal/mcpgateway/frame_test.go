@@ -382,3 +382,19 @@ func assertProtocolObserverReusable(t *testing.T, observer *protocolObserver) {
 	}
 	observer.cancel(call)
 }
+
+func (o *protocolObserver) outbound(frame []byte) error {
+	parsed, err := parseFrameJSON(frame)
+	if err != nil {
+		return err
+	}
+	return o.outboundFrame(parsed)
+}
+
+func (o *protocolObserver) inbound(frame []byte) error {
+	parsed, err := parseFrameJSON(frame)
+	if err != nil {
+		return err
+	}
+	return o.inboundFrame(parsed)
+}

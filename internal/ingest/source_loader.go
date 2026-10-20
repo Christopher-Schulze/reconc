@@ -658,15 +658,6 @@ func sortedUniquePolicyGlobPatterns(patterns []string) []string {
 	return uniquePatterns
 }
 
-func readRepositorySource(root, rel string) ([]byte, error) {
-	reader, err := newRepositorySourceReader(root)
-	if err != nil {
-		return nil, err
-	}
-	data, readErr := reader.Read(rel)
-	return data, errors.Join(readErr, reader.Close())
-}
-
 func validatePolicySourceBounds(sources []policy.PolicySource) error {
 	if len(sources) > maxPolicySources {
 		return &rerrors.PolicySourceError{Message: fmt.Sprintf("policy bundle contains %d sources; maximum is %d", len(sources), maxPolicySources)}

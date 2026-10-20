@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"context"
+	"crypto/sha256"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -486,4 +488,16 @@ func benchmarkFreshnessRepo(b *testing.B, sourceCount int) string {
 		b.Fatal(err)
 	}
 	return repo
+}
+
+func observeRuntimeSourceFreshness(root string, plan *runtimePlan) ([sha256.Size]byte, error) {
+	return observeRuntimeSourceFreshnessWithStats(root, plan, nil)
+}
+
+func observeRuntimeSourceFreshnessWithStats(root string, plan *runtimePlan, stats *sourceFreshnessStats) ([sha256.Size]byte, error) {
+	return observeRuntimeSourceFreshnessWithStatsContext(context.Background(), root, plan, stats)
+}
+
+func observeFreshnessFile(path string, totalBytes *int64, copyBuffer []byte) (freshnessFile, error) {
+	return observeFreshnessFileSeeded(path, totalBytes, copyBuffer, [sha256.Size]byte{}, false, false, false, nil)
 }

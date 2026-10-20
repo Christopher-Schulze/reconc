@@ -1569,3 +1569,23 @@ func TestMergeReconcHooksAcceptsEveryCanonicalEntry(t *testing.T) {
 		t.Fatalf("a genuinely modified reconc entry must still be reported: %v", diff.Removed)
 	}
 }
+
+func antigravityHookObjectIsReconcManaged(value interface{}) bool {
+	events, ok := value.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	for _, rawEntries := range events {
+		entries, ok := rawEntries.([]interface{})
+		if !ok {
+			continue
+		}
+		for _, rawEntry := range entries {
+			entry, ok := rawEntry.(map[string]interface{})
+			if ok && hookEntryContainsReconcInvocation(entry) {
+				return true
+			}
+		}
+	}
+	return false
+}

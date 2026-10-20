@@ -14,10 +14,6 @@ import (
 	"reconc.dev/reconc/internal/shellcommand"
 )
 
-func forbiddenShellCommandReason(command string) string {
-	return forbiddenShellCommandReasonInRepo("", command)
-}
-
 func forbiddenShellCommandReasonInRepo(repoRoot, command string) string {
 	return forbiddenShellCommandReasonWithAliases(repoRoot, command, make(map[string]gitAlias), 0)
 }

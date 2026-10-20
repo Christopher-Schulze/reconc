@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+
+	"reconc.dev/reconc/internal/action"
+
 	stderrors "errors"
 	"fmt"
 	"os"
@@ -15,8 +18,10 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/compiler"
+
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/policy"
+
 	contractschema "reconc.dev/reconc/internal/schema"
 )
 
@@ -1302,4 +1307,24 @@ func TestRuntimePlanCommandExpectationsPreserveRootAnchoredPolicySemantics(t *te
 	if report.Decision != DecisionPass {
 		t.Fatalf("root-anchored prepared expectation decision = %s, violations=%+v", report.Decision, report.Violations)
 	}
+}
+
+func (e *Evaluator) loadRuntimePlan(root string) (*runtimePlan, error) {
+	return e.loadRuntimePlanWithContext(context.Background(), root)
+}
+
+func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
+	return compileRuntimePlanWithParts(payload, nil, nil, nil)
+}
+
+func compileRuntimePlanWithParts(payload map[string]interface{}, rulesJSON, actionsJSON []byte, compiledActions *action.CompiledPlan) (*runtimePlan, error) {
+	return compileRuntimePlanPrepared(payload, nil, rulesJSON, actionsJSON, nil, compiledActions, "")
+}
+
+func decodeRuntimeRules(raw interface{}) ([]policy.Rule, error) {
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "encode compiled rules for typed runtime plan", Cause: err}
+	}
+	return decodeRuntimeRulesJSON(data)
 }

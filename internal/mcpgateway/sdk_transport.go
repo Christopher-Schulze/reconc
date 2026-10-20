@@ -184,14 +184,6 @@ func (d *sdkDownstream) observeInbound(frame validatedFrame) error {
 	return nil
 }
 
-func (d *sdkDownstream) routeProgress(frame []byte) {
-	parsed, err := parseFrameJSON(frame)
-	if err != nil {
-		return
-	}
-	d.routeProgressFrame(parsed)
-}
-
 func (d *sdkDownstream) routeProgressFrame(frame validatedFrame) {
 	if frame.method != "notifications/progress" || len(frame.id) != 0 || len(frame.params) == 0 {
 		return

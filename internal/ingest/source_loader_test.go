@@ -2,7 +2,7 @@ package ingest
 
 import (
 	"context"
-	stderrors "errors"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -17,7 +17,7 @@ import (
 func TestSourceLoadContextHonorsCancellationBeforeDiscovery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := NewSourceLoadContextWithContext(ctx, t.TempDir()); !stderrors.Is(err, context.Canceled) {
+	if _, err := NewSourceLoadContextWithContext(ctx, t.TempDir()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled source context error = %v", err)
 	}
 }
@@ -39,7 +39,7 @@ func TestLoadPolicySourcesEmptyRepoFails(t *testing.T) {
 		t.Fatal("expected error for empty repo")
 	}
 	var pse *rerrors.PolicySourceError
-	if !stderrors.As(err, &pse) {
+	if !errors.As(err, &pse) {
 		t.Errorf("expected *PolicySourceError, got %T", err)
 	}
 }
@@ -214,7 +214,7 @@ func TestLoadPolicySourcesExtendsUnknownPresetFails(t *testing.T) {
 		t.Fatal("expected error for unknown preset")
 	}
 	var pnf *rerrors.PresetNotFoundError
-	if !stderrors.As(err, &pnf) {
+	if !errors.As(err, &pnf) {
 		t.Errorf("expected *PresetNotFoundError, got %T (msg: %v)", err, err)
 	}
 }
@@ -436,7 +436,7 @@ func TestLoadPolicySourcesInvalidConfigYAMLFails(t *testing.T) {
 		t.Fatal("expected error for invalid YAML")
 	}
 	var pse *rerrors.PolicySourceError
-	if !stderrors.As(err, &pse) {
+	if !errors.As(err, &pse) {
 		t.Errorf("expected *PolicySourceError, got %T", err)
 	}
 }
@@ -470,7 +470,7 @@ func TestDecodeYAMLMappingUsesBoundedAdmission(t *testing.T) {
 				t.Fatalf("decodeYAMLMapping error = %v, want %q with source context", err, test.wantErr)
 			}
 			var sourceErr *rerrors.PolicySourceError
-			if !stderrors.As(err, &sourceErr) {
+			if !errors.As(err, &sourceErr) {
 				t.Fatalf("decodeYAMLMapping error type = %T, want *PolicySourceError", err)
 			}
 		})
@@ -539,4 +539,13 @@ func TestFragmentOutsideRootFailsClosed(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "resolves outside the repository root") {
 		t.Fatalf("expected out-of-root fragment to fail closed, got %v", err)
 	}
+}
+
+func readRepositorySource(root, rel string) ([]byte, error) {
+	reader, err := newRepositorySourceReader(root)
+	if err != nil {
+		return nil, err
+	}
+	data, readErr := reader.Read(rel)
+	return data, errors.Join(readErr, reader.Close())
 }

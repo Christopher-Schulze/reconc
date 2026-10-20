@@ -93,27 +93,6 @@ func (v *catalogValidator) finish() ([]ToolContract, error) {
 	return v.contracts, nil
 }
 
-func validateCatalog(ctx context.Context, pages []ToolPage) ([]ToolContract, error) {
-	validator, err := newCatalogValidator()
-	if err != nil {
-		return nil, err
-	}
-	for _, page := range pages {
-		if err := validator.addPage(ctx, page); err != nil {
-			return nil, err
-		}
-	}
-	return validator.finish()
-}
-
-func validateToolContract(ctx context.Context, raw []byte) (ToolContract, error) {
-	scanner, err := actioninspect.NewTextScanner()
-	if err != nil {
-		return ToolContract{}, fmt.Errorf("initialize tool metadata inspection: %w", err)
-	}
-	return validateToolContractWithCache(ctx, raw, nil, scanner)
-}
-
 func validateToolContractWithCache(
 	ctx context.Context,
 	raw []byte,

@@ -176,3 +176,11 @@ Browser downloads need owned storage and disk quota enforcement.
 func taskSpecTestDigest(text string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
 }
+
+func taskSpecBulletField(section string, name string) string {
+	values := taskSpecBulletFields(section, name)
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}

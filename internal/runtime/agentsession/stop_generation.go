@@ -119,20 +119,6 @@ func captureStopPolicyBoundarySnapshot(
 	)
 }
 
-func captureStopPolicyAttemptSnapshotWithSourceIdentity(
-	root string,
-	state SessionState,
-	evidenceRevision string,
-	taskSnapshot stopTaskSnapshot,
-	gitSnapshot stopPolicyGitSnapshot,
-	scanCache *stopPolicyScanCache,
-	loadSourceIdentity func(string) (string, int, error),
-) stopPolicyAttemptSnapshot {
-	return captureStopPolicyAttemptSnapshotWithSourceIdentityAtBoundary(
-		stopCaptureBeforeEvaluation, root, state, evidenceRevision, taskSnapshot, gitSnapshot, scanCache, loadSourceIdentity,
-	)
-}
-
 func captureStopPolicyAttemptSnapshotWithSourceIdentityAtBoundary(
 	boundary stopPolicyCaptureBoundary,
 	root string,
@@ -203,15 +189,6 @@ func stopPolicySourceIdentity(root string) (string, int, error) {
 		return "", 0, err
 	}
 	return digest, len(bundle.Sources), nil
-}
-
-func captureStopRepositoryGeneration(
-	root string,
-	gitSnapshot stopPolicyGitSnapshot,
-	taskSnapshot stopTaskSnapshot,
-	writePaths []string,
-) (stopGenerationCapture, bool) {
-	return captureStopRepositoryGenerationWithScan(root, gitSnapshot, taskSnapshot, writePaths, nil)
 }
 
 func captureStopRepositoryGenerationWithScan(

@@ -14,8 +14,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/actioninspect"
 )
 
 func testPNGDataURI(t *testing.T, width, height int) string {
@@ -239,8 +239,8 @@ func TestGatewaySerializesConcurrentToolPublication(t *testing.T) {
 		}()
 	}
 	wait.Wait()
-	if len(gateway.upstreamNames) != 1 {
-		t.Fatalf("published tool names = %#v", gateway.upstreamNames)
+	if names := upstreamNamesOf(gateway); len(names) != 1 {
+		t.Fatalf("published tool names = %#v", names)
 	}
 }
 
@@ -411,4 +411,25 @@ func TestGatewayListsPublishedCatalogWithBoundedOpaqueCursor(t *testing.T) {
 	if _, err := gateway.listPublishedTools(&mcp.ListToolsParams{Cursor: "not-a-cursor"}); err == nil {
 		t.Fatal("malformed catalog cursor was accepted")
 	}
+}
+
+func validateCatalog(ctx context.Context, pages []ToolPage) ([]ToolContract, error) {
+	validator, err := newCatalogValidator()
+	if err != nil {
+		return nil, err
+	}
+	for _, page := range pages {
+		if err := validator.addPage(ctx, page); err != nil {
+			return nil, err
+		}
+	}
+	return validator.finish()
+}
+
+func validateToolContract(ctx context.Context, raw []byte) (ToolContract, error) {
+	scanner, err := actioninspect.NewTextScanner()
+	if err != nil {
+		return ToolContract{}, fmt.Errorf("initialize tool metadata inspection: %w", err)
+	}
+	return validateToolContractWithCache(ctx, raw, nil, scanner)
 }

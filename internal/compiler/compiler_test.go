@@ -2,7 +2,10 @@ package compiler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
+
 	stderrors "errors"
 	"os"
 	"path/filepath"
@@ -1178,4 +1181,101 @@ func TestCompileWarnsOnBraceVariableInNonCaptureKind(t *testing.T) {
 	if hits != 2 {
 		t.Fatalf("expected two brace-variable warnings (one path and one exclusion; not for alternation or capture kinds), got %d: %v", hits, compiled.Warnings)
 	}
+}
+
+func compileSourceProvenance(bundle *ingest.SourceBundle) (sourceProvenance, error) {
+	return compileSourceProvenanceWithContext(context.Background(), bundle)
+}
+
+func normalizeLockPayloadWithBytes(payload map[string]interface{}) (map[string]interface{}, []byte, error) {
+	normalized, canonical, _, err := normalizeJSONValueWithBytesAndSize(payload)
+	if err != nil {
+		return nil, nil, err
+	}
+	object, ok := normalized.(map[string]interface{})
+	if !ok {
+		return nil, nil, fmt.Errorf("normalized lockfile is not an object")
+	}
+	return object, canonical, nil
+}
+
+func normalizeJSONValueWithBytes(value interface{}) (interface{}, []byte, error) {
+	normalized, canonical, _, err := normalizeJSONValueWithBytesAndSize(value)
+	return normalized, canonical, err
+}
+
+func normalizeJSONValueWithBytesAndSize(value interface{}) (interface{}, []byte, int, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	canonical, formattedSize, err := canonicalizeJSONObjectsIfNeeded(data)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	normalized, err := decodeNormalizedJSON(canonical)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	return normalized, canonical, formattedSize, nil
+}
+
+// writeLockfile materializes payload at $repoRoot/.reconc/policy.lock.json
+// with sorted keys (Go's json.Marshal already does this for maps) and
+// 2-space indentation, terminated by a single newline.
+//
+// The atomic publisher creates and identity-binds a missing .reconc/ directory;
+// existing files are replaced with temp-file-then-rename so readers never
+// observe a truncated lockfile.
+func encodeLockfile(payload map[string]interface{}) ([]byte, error) {
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "marshal lockfile", Cause: err}
+	}
+	data = append(data, '\n')
+	if int64(len(data)) > MaxLockfileBytes {
+		return nil, &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile exceeds %d bytes", MaxLockfileBytes)}
+	}
+	return data, nil
+}
+
+func encodeCanonicalLockfile(canonical []byte, digest string) ([]byte, error) {
+	_, formattedSize, err := inspectCanonicalJSON(canonical)
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "format lockfile", Cause: err}
+	}
+	return encodeCanonicalLockfileWithSize(canonical, digest, formattedSize)
+}
+
+func insertCanonicalStringField(canonical []byte, name, value string) ([]byte, error) {
+	offset, member, err := canonicalStringFieldInsertion(canonical, name, value)
+	if err != nil {
+		return nil, err
+	}
+	return insertCanonicalObjectMember(canonical, offset, member)
+}
+
+func insertCanonicalObjectMember(canonical []byte, offset int, member []byte) ([]byte, error) {
+	if offset < 0 || offset > len(canonical) {
+		return nil, fmt.Errorf("canonical JSON member offset is outside the object")
+	}
+	empty := offset == 1 && len(canonical) == 2
+	extra := 1
+	if empty {
+		extra = 0
+	}
+	if len(canonical) > int(MaxLockfileBytes) || len(member) > int(MaxLockfileBytes) {
+		return nil, fmt.Errorf("canonical JSON member insertion exceeds the lockfile size boundary")
+	}
+	out := make([]byte, 0, len(canonical)+len(member)+extra)
+	out = append(out, canonical[:offset]...)
+	if offset > 1 {
+		out = append(out, ',')
+	}
+	out = append(out, member...)
+	if offset == 1 && !empty {
+		out = append(out, ',')
+	}
+	out = append(out, canonical[offset:]...)
+	return out, nil
 }

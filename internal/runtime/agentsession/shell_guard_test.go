@@ -237,3 +237,7 @@ func assertPhrases(t *testing.T, reason string, phrases []string) {
 		}
 	}
 }
+
+func forbiddenShellCommandReason(command string) string {
+	return forbiddenShellCommandReasonInRepo("", command)
+}

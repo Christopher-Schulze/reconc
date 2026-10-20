@@ -30,12 +30,6 @@ type CLIError struct {
 	Message  string
 }
 
-var hiddenCompatibilityCommands = map[string]struct{}{
-	"compile":         {},
-	"grok":            {},
-	"post-task-check": {},
-}
-
 func (e *CLIError) Error() string {
 	return e.Message
 }

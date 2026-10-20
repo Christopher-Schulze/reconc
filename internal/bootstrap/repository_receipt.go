@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/harness"
-	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/presets"
 	"reconc.dev/reconc/internal/schema"
@@ -235,22 +234,6 @@ func writeRepositoryReceiptCreate(plan *Plan, receipt *RepositoryReceipt) (creat
 		mode: 0o644, content: body,
 	}
 	return publishArtifact(plan.RepoRoot, artifact, artifact.path, bytesSHA256(body), plan.PlanDigest)
-}
-
-func writeRepositoryReceiptAtomic(root string, receipt *RepositoryReceipt) (bool, error) {
-	body, err := encodeRepositoryReceipt(receipt)
-	if err != nil {
-		return false, err
-	}
-	target, err := safeBootstrapTarget(root, RepositoryReceiptRelativePath)
-	if err != nil {
-		return false, err
-	}
-	result, err := atomicfile.WriteIfChanged(target, body, 0o644)
-	if err != nil {
-		return false, fmt.Errorf("publish repository receipt: %w", err)
-	}
-	return result.Changed, nil
 }
 
 func encodeRepositoryReceipt(receipt *RepositoryReceipt) ([]byte, error) {

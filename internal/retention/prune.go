@@ -1095,10 +1095,6 @@ func liveActiveSession(project, requested string, now time.Time, maxAge time.Dur
 	return requested, nil
 }
 
-func enforceJSONL(name, path string, maxBytes int64, archives int, dryRun bool, report *Report) ClassReport {
-	return enforceJSONLContext(context.Background(), name, path, maxBytes, archives, dryRun, report)
-}
-
 func enforceJSONLContext(ctx context.Context, name, path string, maxBytes int64, archives int, dryRun bool, report *Report) ClassReport {
 	class := ClassReport{Name: name, InspectionStatus: InspectionUnknown}
 	var err error

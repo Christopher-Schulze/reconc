@@ -2,6 +2,7 @@ package audit
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -849,4 +850,16 @@ func BenchmarkAuditReadMaximumRing(b *testing.B) {
 			b.Fatalf("read %d entries, want %d", len(entries), recordsPerFile*(MaxArchiveFiles+1))
 		}
 	}
+}
+
+func recoverPendingAppend(repoRoot string) error {
+	return recoverPendingAppendContext(context.Background(), repoRoot)
+}
+
+func loadVerifiedSnapshot(repoRoot string) ([]Entry, *chainHead, error) {
+	return loadVerifiedSnapshotContext(context.Background(), repoRoot)
+}
+
+func readAuditEntries(path string) ([]Entry, error) {
+	return readAuditEntriesContext(context.Background(), path)
 }

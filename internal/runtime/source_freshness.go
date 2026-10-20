@@ -93,14 +93,6 @@ type sourceFreshnessHasher struct {
 	strings [256]byte
 }
 
-func observeRuntimeSourceFreshness(root string, plan *runtimePlan) ([sha256.Size]byte, error) {
-	return observeRuntimeSourceFreshnessWithStats(root, plan, nil)
-}
-
-func observeRuntimeSourceFreshnessWithStats(root string, plan *runtimePlan, stats *sourceFreshnessStats) ([sha256.Size]byte, error) {
-	return observeRuntimeSourceFreshnessWithStatsContext(context.Background(), root, plan, stats)
-}
-
 func observeRuntimeSourceFreshnessWithStatsContext(ctx context.Context, root string, plan *runtimePlan, stats *sourceFreshnessStats) ([sha256.Size]byte, error) {
 	if ctx == nil {
 		return [sha256.Size]byte{}, context.Canceled
@@ -485,10 +477,6 @@ func observeFreshnessFilesWithContext(
 		return err
 	}
 	return nil
-}
-
-func observeFreshnessFile(path string, totalBytes *int64, copyBuffer []byte) (freshnessFile, error) {
-	return observeFreshnessFileSeeded(path, totalBytes, copyBuffer, [sha256.Size]byte{}, false, false, false, nil)
 }
 
 func observeFreshnessFileSeeded(

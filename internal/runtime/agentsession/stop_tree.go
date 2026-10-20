@@ -21,10 +21,6 @@ const (
 	stopGenerationMinEntries = 1_024
 )
 
-func stopGenerationWorthwhile(repoRoot string, files []gitDirtyFile) bool {
-	return stopGenerationWorthwhileWithMetrics(repoRoot, files, nil)
-}
-
 func stopGenerationWorthwhileWithMetrics(repoRoot string, files []gitDirtyFile, metrics *stopPolicyAttemptMetrics) bool {
 	for _, file := range files {
 		if strings.HasPrefix(file.WorktreeHash, "submodule:") {

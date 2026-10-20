@@ -68,14 +68,6 @@ func newUpstreamObserver() *upstreamObserver {
 	}
 }
 
-func (o *upstreamObserver) instrumentInbound(frame []byte) ([]byte, error) {
-	parsed, err := parseFrameJSON(frame)
-	if err != nil {
-		return nil, err
-	}
-	return o.instrumentInboundFrame(parsed)
-}
-
 func (o *upstreamObserver) instrumentInboundFrame(frame validatedFrame) ([]byte, error) {
 	if frame.method == "" || len(frame.id) == 0 {
 		return frame.raw, nil
@@ -182,14 +174,6 @@ func injectUpstreamCorrelation(frame []byte, correlation string) ([]byte, error)
 		return nil, fmt.Errorf("encode instrumented upstream request: %w", err)
 	}
 	return transformed, nil
-}
-
-func (o *upstreamObserver) outbound(frame []byte) error {
-	parsed, err := parseFrameJSON(frame)
-	if err != nil {
-		return err
-	}
-	return o.outboundFrame(parsed)
 }
 
 func (o *upstreamObserver) outboundFrame(frame validatedFrame) error {
@@ -473,15 +457,6 @@ func (g *Gateway) upstreamSession() *mcp.ServerSession {
 	return g.session
 }
 
-func (g *Gateway) replaceUpstreamTools(contracts []ToolContract) error {
-	if g == nil {
-		return fmt.Errorf("upstream MCP server is unavailable")
-	}
-	g.upstreamMu.Lock()
-	defer g.upstreamMu.Unlock()
-	return g.replaceUpstreamToolsLocked(contracts)
-}
-
 const gatewayCatalogNotificationToolName = "reconc_catalog_notice"
 
 func gatewayCatalogNotificationTool() *mcp.Tool {
@@ -597,39 +572,6 @@ func (g *Gateway) listPublishedTools(params *mcp.ListToolsParams) (*mcp.ListTool
 		result.NextCursor = encoded
 	}
 	return result, nil
-}
-
-func (g *Gateway) replaceUpstreamToolsLocked(contracts []ToolContract) error {
-	if g == nil || g.upstream == nil {
-		return fmt.Errorf("upstream MCP server is unavailable")
-	}
-	prepared, err := sdkToolsFromContracts(contracts)
-	if err != nil {
-		return err
-	}
-	byName := make(map[string]ToolContract, len(contracts))
-	for _, contract := range contracts {
-		byName[contract.Name] = contract
-	}
-	for name := range g.upstreamNames {
-		if _, keep := byName[name]; !keep {
-			g.upstream.RemoveTools(name)
-		}
-	}
-	for index, contract := range contracts {
-		tool := prepared[index]
-		contractCopy := contract
-		if err := addSDKTool(g.upstream, tool, func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return g.handleTool(ctx, request, contractCopy)
-		}); err != nil {
-			return err
-		}
-	}
-	g.upstreamNames = make(map[string]struct{}, len(contracts))
-	for _, contract := range contracts {
-		g.upstreamNames[contract.Name] = struct{}{}
-	}
-	return nil
 }
 
 func sdkToolFromContract(contract ToolContract) (*mcp.Tool, error) {

@@ -468,10 +468,6 @@ func sourceInventory(source fs.FS) ([]string, error) {
 	return paths, nil
 }
 
-func readBoundedFile(source fs.FS, name string, expectedSize int64) ([]byte, error) {
-	return readBoundedFileWithLimit(source, name, expectedSize, MaxFileBytes)
-}
-
 func readBoundedFileWithLimit(source fs.FS, name string, expectedSize, maximum int64) ([]byte, error) {
 	if expectedSize < 0 || expectedSize > MaxFileBytes {
 		return nil, fmt.Errorf("file size must be 0..%d bytes", MaxFileBytes)

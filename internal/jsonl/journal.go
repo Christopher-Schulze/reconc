@@ -586,10 +586,6 @@ func readBoundedBackupWithLayout(
 	return data, err
 }
 
-func writeAppendJournal(path string, journal appendJournal) error {
-	return writeAppendJournalWithLayout(path, defaultLayout(path), journal)
-}
-
 func writeAppendJournalWithLayout(path string, layout Layout, journal appendJournal) error {
 	if err := layout.validateLockLease(); err != nil {
 		return err
@@ -631,10 +627,6 @@ func writeAppendJournalWithLayout(path string, layout Layout, journal appendJour
 		}
 	}
 	return nil
-}
-
-func readAppendJournal(path string) (*appendJournal, error) {
-	return readAppendJournalWithLayout(path, defaultLayout(path))
 }
 
 func readAppendJournalWithLayout(path string, layout Layout) (*appendJournal, error) {
@@ -790,10 +782,6 @@ func recoverAppendLockedWithLayout(path string, layout Layout, commit func() err
 		}
 	}
 	return finishAppendJournalWithLayout(path, layout, *journal)
-}
-
-func rollbackAppendError(path string, journal *appendJournal, cause error) error {
-	return rollbackAppendErrorWithLayout(path, defaultLayout(path), journal, cause)
 }
 
 func rollbackAppendErrorWithLayout(path string, layout Layout, journal *appendJournal, cause error) error {

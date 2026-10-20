@@ -2,6 +2,7 @@ package retention
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -737,4 +738,8 @@ func BenchmarkLifecycleRetentionNotDue(b *testing.B) {
 			b.Fatalf("not-due retention: %+v", report)
 		}
 	}
+}
+
+func enforceJSONL(name, path string, maxBytes int64, archives int, dryRun bool, report *Report) ClassReport {
+	return enforceJSONLContext(context.Background(), name, path, maxBytes, archives, dryRun, report)
 }

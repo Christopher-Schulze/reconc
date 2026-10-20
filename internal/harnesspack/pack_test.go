@@ -582,3 +582,7 @@ func sortedMapKeys(values map[string][]byte) []string {
 	}
 	return keys
 }
+
+func readBoundedFile(source fs.FS, name string, expectedSize int64) ([]byte, error) {
+	return readBoundedFileWithLimit(source, name, expectedSize, MaxFileBytes)
+}

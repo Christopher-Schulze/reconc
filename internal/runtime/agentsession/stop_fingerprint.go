@@ -134,10 +134,6 @@ func stopPolicyWritePaths(input stopPolicyFingerprintInput) []string {
 	return input.WritePaths
 }
 
-func stopPolicyFingerprintCacheable(input stopPolicyFingerprintInput) bool {
-	return stopPolicyFingerprintCacheableWithScan(input, nil)
-}
-
 func stopPolicyFingerprintCacheableWithScan(input stopPolicyFingerprintInput, scanCache *stopPolicyScanCache) bool {
 	if !(input.GitStatusOK &&
 		!strings.HasPrefix(input.GitHead, "error:") &&
@@ -446,10 +442,6 @@ func stopPolicyInputIdentitiesWithScan(repoRoot string, paths []string, scanCach
 	return identities
 }
 
-func stopPolicyInputIdentity(repoRoot, path string) policyInputIdentity {
-	return stopPolicyInputIdentityWithScan(repoRoot, path, nil)
-}
-
 func stopPolicyInputIdentityWithScan(repoRoot, path string, scanCache *stopPolicyScanCache) policyInputIdentity {
 	identity := policyInputIdentity{Path: path}
 	resolved, err := resolveStopPolicyInputPath(repoRoot, path)
@@ -654,11 +646,6 @@ func sortedKeys(values map[string]struct{}) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func stopPolicyGitStatus(repoRoot string) (status string, mode string) {
-	snapshot := stopPolicyGitSnapshotFor(repoRoot)
-	return snapshot.Status, snapshot.StatusMode
 }
 
 func stopPolicyGitSnapshotFor(repoRoot string) stopPolicyGitSnapshot {

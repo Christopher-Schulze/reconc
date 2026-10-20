@@ -881,13 +881,6 @@ func optionalCheckList(item map[string]interface{}, key, ruleID string, sourcePa
 	return out, nil
 }
 
-// parseCheck validates one sub-check mapping per its kind. Inline
-// fields (path/file/script for require_fresh_file/evidence/script)
-// are required where the kind expects them.
-func parseCheck(item map[string]interface{}, ruleID, listKey string, index int) (policy.Check, error) {
-	return parseCheckWithSource(item, ruleID, listKey, "", index)
-}
-
 func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePath string, index int) (policy.Check, error) {
 	kindStr, err := requiredStringField(item, "kind", ruleID, listKey, index)
 	if err != nil {

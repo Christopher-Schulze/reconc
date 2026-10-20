@@ -295,20 +295,6 @@ func runRunLog(args []string, stdout, stderr io.Writer) error {
 	return followRunLogAfter(ctx, follower, branch, session, jsonOut, 500*time.Millisecond, stdout)
 }
 
-// followRunLog baselines the complete bounded ring and renders only later
-// records. It is kept separate from the CLI snapshot path for deterministic
-// tests and other internal callers.
-func followRunLog(ctx context.Context, repoRoot, branch, session string, jsonOut bool, pollInterval time.Duration, ready chan<- struct{}, stdout io.Writer) error {
-	follower, _, err := agentsession.NewRunDecisionFollower(repoRoot)
-	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
-	}
-	if ready != nil {
-		close(ready)
-	}
-	return followRunLogAfter(ctx, follower, branch, session, jsonOut, pollInterval, stdout)
-}
-
 // followRunLogAfter polls a lock-consistent incremental follower. This
 // survives append races and rotation without dropping partial records or
 // printing an already-rendered record twice.
