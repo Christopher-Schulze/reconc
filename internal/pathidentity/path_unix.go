@@ -2,10 +2,32 @@
 
 package pathidentity
 
-import "path/filepath"
+import (
+	"os"
+	"path/filepath"
+)
 
 func resolveExistingOS(path string) (string, error) {
 	return filepath.EvalSymlinks(path)
+}
+
+// resolveExistingOSWithParent resolves path; EvalSymlinks of a non-symlink
+// final name always ends in the identity of its parent directory.
+func resolveExistingOSWithParent(path string) (string, bool, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	return resolved, err == nil, err
+}
+
+// composesExistingIdentity reports that a non-symlink name inside a resolved
+// directory has that directory's identity plus its own name, which is exactly
+// what EvalSymlinks returns for it.
+const composesExistingIdentity = true
+
+// storedSpellings needs no state: Unix identities keep the given spelling.
+type storedSpellings struct{}
+
+func (storedSpellings) compose(parentIdentity string, _ os.FileInfo, name string, _ os.FileInfo) (string, bool) {
+	return filepath.Join(parentIdentity, name), true
 }
 
 func existingAliasesOS(string) []string {

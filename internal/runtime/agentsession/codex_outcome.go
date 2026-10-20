@@ -15,14 +15,14 @@ func runCodexPostToolUseResolved(root string, body []byte) Result {
 		return Result{Stderr: fmt.Sprintf("reconc hook (Codex post, warn): %s", err)}
 	}
 	if !payload.IsCommandTool() {
-		return runPostToolUseCompleteResolved(root, body)
+		return runPostToolUseCompleteParsed(root, payload)
 	}
 	if payload.IsInterrupt != nil && *payload.IsInterrupt {
-		return codexPostToolUseOutput(runPostToolUseFailureResolved(root, body))
+		return codexPostToolUseOutput(runPostToolUseFailureParsed(root, payload))
 	}
 	_, hasExit, _ := strictExitCode(payload.ToolResponse)
 	if hasExit || toolResponseFailed(payload) {
-		return codexPostToolUseOutput(runPostToolUseCompleteStrictResolved(root, body))
+		return codexPostToolUseOutput(runPostToolUseCompleteStrictParsed(root, payload))
 	}
 	result := runPassiveEventResolved(root, body)
 	if result.Stderr == "" {

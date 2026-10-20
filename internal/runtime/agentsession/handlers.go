@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -347,7 +348,8 @@ func evaluatePreToolUseParsed(
 		if len(literalWrites) > 0 {
 			trialState.WritePaths = append(append([]string(nil), trialState.WritePaths...), literalWrites...)
 		}
-		report, err := runPreCommandPolicyCheckWithEvaluator(evaluator, root, trialState, payload.Command())
+		paths := pathidentity.NewProspectiveResolver()
+		report, err := runPreCommandPolicyCheckWithEvaluator(evaluator, paths, root, trialState, payload.Command())
 		if err != nil {
 			if isLockfileError(err) {
 				// A stale lockfile blocks every gated command, including the
@@ -366,7 +368,7 @@ func evaluatePreToolUseParsed(
 			return resultWithPolicyDecision(Result{ExitCode: 2, Stderr: firstLinesForViolations(violations, "reconc blocked this command before execution.")}, policyReports...)
 		}
 		if len(literalWrites) > 0 && !declared {
-			writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, root, state.ReadPaths, trialState.WritePaths, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
+			writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, paths, root, state.ReadPaths, trialState.WritePaths, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
 			if writeErr != nil {
 				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): command write check failed: %s", writeErr)}
 			}
@@ -393,7 +395,7 @@ func evaluatePreToolUseParsed(
 				return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + staleErr.Error()}
 			}
 			if declared {
-				writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, root, state.ReadPaths, trialState.WritePaths, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
+				writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, paths, root, state.ReadPaths, trialState.WritePaths, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
 				if writeErr != nil {
 					return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): command write check failed: %s", writeErr)}
 				}
@@ -445,7 +447,7 @@ func evaluatePreToolUseParsed(
 	}
 	trialWrites := append([]string{}, state.WritePaths...)
 	trialWrites = append(trialWrites, pendingWrites...)
-	report, err := runPreWritePolicyCheckWithEvaluator(evaluator, root, state.ReadPaths, trialWrites,
+	report, err := runPreWritePolicyCheckWithEvaluator(evaluator, nil, root, state.ReadPaths, trialWrites,
 		state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
 	if err != nil {
 		if isLockfileError(err) {
@@ -546,6 +548,10 @@ func runPostToolUseResolved(root string, payloadBytes []byte) Result {
 		// Fail-open on parse errors for observation-only events.
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post, warn): %s", err)}
 	}
+	return runPostToolUseParsed(root, payload)
+}
+
+func runPostToolUseParsed(root string, payload *HookPayload) Result {
 	var recordErr error
 	updated, err := mutateSessionStateResolved(root, payload.SessionID, func(state SessionState) SessionState {
 		updated, err := recordToolUse(state, payload)
@@ -578,6 +584,10 @@ func runPostToolUseFailureResolved(root string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-fail, warn): %s", err)}
 	}
+	return runPostToolUseFailureParsed(root, payload)
+}
+
+func runPostToolUseFailureParsed(root string, payload *HookPayload) Result {
 	var recordErr error
 	updated, err := mutateSessionStateResolved(root, payload.SessionID, func(state SessionState) SessionState {
 		updated, err := recordToolFailure(state, payload)
@@ -613,10 +623,14 @@ func runPostToolUseCompleteResolved(root string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-complete, warn): %s", err)}
 	}
+	return runPostToolUseCompleteParsed(root, payload)
+}
+
+func runPostToolUseCompleteParsed(root string, payload *HookPayload) Result {
 	if toolResponseFailed(payload) {
-		return runPostToolUseFailureResolved(root, payloadBytes)
+		return runPostToolUseFailureParsed(root, payload)
 	}
-	return runPostToolUseResolved(root, payloadBytes)
+	return runPostToolUseParsed(root, payload)
 }
 
 // RunPostToolUseCompleteStrict requires an explicit, internally consistent
@@ -636,12 +650,16 @@ func runPostToolUseCompleteStrictResolved(root string, payloadBytes []byte) Resu
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-complete, warn): %s", err)}
 	}
+	return runPostToolUseCompleteStrictParsed(root, payload)
+}
+
+func runPostToolUseCompleteStrictParsed(root string, payload *HookPayload) Result {
 	if !payload.IsCommandTool() {
-		return runPostToolUseCompleteResolved(root, payloadBytes)
+		return runPostToolUseCompleteParsed(root, payload)
 	}
 	success, diagnostic := strictCommandOutcome(payload)
 	if success {
-		return runPostToolUseResolved(root, payloadBytes)
+		return runPostToolUseParsed(root, payload)
 	}
 	if strings.TrimSpace(payload.Error) == "" && diagnostic != "" {
 		payload.Raw["error"] = diagnostic
@@ -651,13 +669,15 @@ func runPostToolUseCompleteStrictResolved(root string, payloadBytes []byte) Resu
 		}
 		toolResponse["success"] = false
 		payload.Raw["tool_response"] = toolResponse
-		normalized, marshalErr := json.Marshal(payload.Raw)
-		if marshalErr != nil {
-			return resultWithEncodingError(Result{ExitCode: 2}, fmt.Errorf("marshal strict command outcome: %w", marshalErr))
+		// Rebuilding from the edited map derives every field exactly as
+		// parsing its encoding would, without re-encoding the tool output.
+		rebuilt, rebuildErr := payloadFromMap(payload.Raw)
+		if rebuildErr != nil {
+			return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-fail, warn): %s", rebuildErr)}
 		}
-		payloadBytes = normalized
+		payload = rebuilt
 	}
-	return runPostToolUseFailureResolved(root, payloadBytes)
+	return runPostToolUseFailureParsed(root, payload)
 }
 
 func strictCommandOutcome(payload *HookPayload) (bool, string) {
@@ -964,8 +984,9 @@ func runCheckAndSaveWithEvaluator(
 	cmdResults []CommandResult,
 	claims []string,
 ) (*runtime.CheckReport, error) {
-	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, readPaths), writePaths, writeEpochs, commands, cmdResults, claims)
-	report, err := evaluator.CheckRepoPolicy(repoRoot, inputs)
+	paths := pathidentity.NewProspectiveResolver()
+	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, readPaths, paths), writePaths, writeEpochs, commands, cmdResults, claims)
+	report, err := evaluator.CheckRepoPolicyContext(runtime.WithProspectiveResolver(context.Background(), paths), repoRoot, inputs)
 	if err != nil {
 		return nil, err
 	}
@@ -975,8 +996,11 @@ func runCheckAndSaveWithEvaluator(
 	return report, nil
 }
 
+// runPreWritePolicyCheckWithEvaluator judges a write. paths is the request's
+// shared prospective resolver; nil gives the check its own.
 func runPreWritePolicyCheckWithEvaluator(
 	evaluator *runtime.Evaluator,
+	paths *pathidentity.ProspectiveResolver,
 	repoRoot string,
 	readPaths, writePaths []string,
 	writeEpochs map[string]uint64,
@@ -984,17 +1008,31 @@ func runPreWritePolicyCheckWithEvaluator(
 	cmdResults []CommandResult,
 	claims []string,
 ) (*runtime.CheckReport, error) {
-	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, readPaths), writePaths, writeEpochs, commands, cmdResults, claims)
-	return evaluator.CheckRepoPolicyForPreWrite(repoRoot, inputs)
+	if paths == nil {
+		paths = pathidentity.NewProspectiveResolver()
+	}
+	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, readPaths, paths), writePaths, writeEpochs, commands, cmdResults, claims)
+	return evaluator.CheckRepoPolicyForPreWriteContext(runtime.WithProspectiveResolver(context.Background(), paths), repoRoot, inputs)
 }
 
-func runPreCommandPolicyCheckWithEvaluator(evaluator *runtime.Evaluator, repoRoot string, state SessionState, command string) (*runtime.CheckReport, error) {
-	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, state.ReadPaths), state.WritePaths, state.WriteEpochs, []string{command}, state.CommandResults, state.Claims)
-	return evaluator.CheckRepoPolicyForPreCommand(repoRoot, inputs)
+// runPreCommandPolicyCheckWithEvaluator judges a command. paths is the
+// request's shared prospective resolver; nil gives the check its own.
+func runPreCommandPolicyCheckWithEvaluator(evaluator *runtime.Evaluator, paths *pathidentity.ProspectiveResolver, repoRoot string, state SessionState, command string) (*runtime.CheckReport, error) {
+	if paths == nil {
+		paths = pathidentity.NewProspectiveResolver()
+	}
+	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, state.ReadPaths, paths), state.WritePaths, state.WriteEpochs, []string{command}, state.CommandResults, state.Claims)
+	return evaluator.CheckRepoPolicyForPreCommandContext(runtime.WithProspectiveResolver(context.Background(), paths), repoRoot, inputs)
 }
 
-func filterRepoScopedReadPaths(repoRoot string, paths []string) []string {
-	scope := readEvidenceScope{repoRoot: repoRoot}
+// filterRepoScopedReadPaths keeps relative read paths and the absolute ones
+// inside the repository, resolving them through prospective (nil gives the
+// batch its own resolver).
+func filterRepoScopedReadPaths(repoRoot string, paths []string, prospective *pathidentity.ProspectiveResolver) []string {
+	if prospective == nil {
+		prospective = pathidentity.NewProspectiveResolver()
+	}
+	scope := readEvidenceScope{repoRoot: repoRoot, prospective: prospective}
 	out := make([]string, 0, len(paths))
 	for _, path := range paths {
 		if scope.contains(path) {
@@ -1013,12 +1051,14 @@ func isRepoScopedReadEvidence(repoRoot, raw string) bool {
 var resolveReadEvidenceRoot = pathidentity.ResolveExisting
 
 // readEvidenceScope resolves the repository root identity at most once for a
-// batch of read paths instead of once per absolute path.
+// batch of read paths instead of once per absolute path, and resolves the
+// paths of a batch through one prospective resolver.
 type readEvidenceScope struct {
-	repoRoot string
-	resolved string
-	err      error
-	done     bool
+	repoRoot    string
+	resolved    string
+	err         error
+	done        bool
+	prospective *pathidentity.ProspectiveResolver
 }
 
 func (scope *readEvidenceScope) contains(raw string) bool {
@@ -1037,7 +1077,7 @@ func (scope *readEvidenceScope) contains(raw string) bool {
 	if scope.err != nil {
 		return false
 	}
-	cleaned, err := pathidentity.ResolveProspective(filepath.Clean(path))
+	cleaned, err := scope.prospective.Resolve(filepath.Clean(path))
 	if err != nil {
 		return false
 	}

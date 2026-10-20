@@ -93,3 +93,39 @@ func TestResolveExistingPreservesDistinctHardlinkNames(t *testing.T) {
 		t.Fatalf("hardlink entry names changed: first=%q second=%q", resolvedFirst, resolvedSecond)
 	}
 }
+
+func TestProspectiveResolverRelistsDirectoryAfterCaseOnlyRename(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt", "d.txt", "e.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resolver := NewProspectiveResolver()
+	// The second sibling caches the parent and the third lists it; c.txt is
+	// never resolved itself.
+	for _, name := range []string{"a.txt", "b.txt", "d.txt"} {
+		if _, err := resolver.Resolve(filepath.Join(root, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Rename(filepath.Join(root, "c.txt"), filepath.Join(root, "C.txt")); err != nil {
+		t.Fatal(err)
+	}
+	// e.txt finds the parent changed and caches it again with its new
+	// metadata, so only the listing's own binding can expose the rename.
+	if _, err := resolver.Resolve(filepath.Join(root, "e.txt")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolver.Resolve(filepath.Join(root, "c.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := ResolveProspective(filepath.Join(root, "c.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want || filepath.Base(got) != "C.txt" {
+		t.Fatalf("resolver answered from a stale directory listing: got %q, want %q", got, want)
+	}
+}

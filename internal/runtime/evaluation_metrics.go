@@ -298,11 +298,11 @@ type normalizedEvaluationInputSet struct {
 }
 
 func normalizeEvaluationInput(root string, inputs ExecutionInputs) (normalizedEvaluationInputSet, error) {
-	return normalizeEvaluationInputWithRootResolver(root, inputs, pathidentity.ResolveExisting)
+	return normalizeEvaluationInputWithRootResolver(root, inputs, pathidentity.ResolveExisting, nil)
 }
 
-func normalizeEvaluationInputWithRootResolver(root string, inputs ExecutionInputs, resolveRoot func(string) (string, error)) (normalizedEvaluationInputSet, error) {
-	paths, err := newEvaluationPathStateWithRootResolver(root, resolveRoot)
+func normalizeEvaluationInputWithRootResolver(root string, inputs ExecutionInputs, resolveRoot func(string) (string, error), prospective *pathidentity.ProspectiveResolver) (normalizedEvaluationInputSet, error) {
+	paths, err := newEvaluationPathStateWithRootResolver(root, resolveRoot, prospective)
 	if err != nil {
 		return normalizedEvaluationInputSet{}, err
 	}

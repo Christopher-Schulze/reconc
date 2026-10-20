@@ -141,7 +141,7 @@ func ReadRegularFileSnapshot(path string, maxBytes int64) ([]byte, os.FileInfo, 
 	err := WithRegularFileSnapshot(path, maxBytes, func(file *os.File, openedInfo os.FileInfo) error {
 		opened = openedInfo
 		var readErr error
-		body, readErr = io.ReadAll(io.LimitReader(file, maxBytes+1))
+		body, readErr = readValidatedSize(file, openedInfo.Size(), maxBytes)
 		if readErr != nil {
 			return readErr
 		}
@@ -166,6 +166,20 @@ func ReadRegularFile(path string, maxBytes int64) ([]byte, error) {
 	return body, err
 }
 
+// readValidatedSize reads a file whose opened size was checked against
+// maxBytes with one exact allocation. It reads one byte past that size, so
+// growth after the check still yields a body whose length differs from the
+// size, which every caller rejects as a changed file.
+func readValidatedSize(reader io.Reader, size, maxBytes int64) ([]byte, error) {
+	capacity := min(max(size, 0), maxBytes) + 1
+	body := make([]byte, capacity)
+	count, err := io.ReadFull(reader, body)
+	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+		err = nil
+	}
+	return body[:count], err
+}
+
 func sameRegularSnapshot(left, right os.FileInfo) bool {
 	return left != nil && right != nil && left.Mode().IsRegular() && right.Mode().IsRegular() &&
 		left.Mode()&os.ModeSymlink == 0 && right.Mode()&os.ModeSymlink == 0 &&
@@ -174,7 +188,7 @@ func sameRegularSnapshot(left, right os.FileInfo) bool {
 }
 
 func readOpenedFileSnapshot(path string, file *os.File, before os.FileInfo, maxBytes int64, pathStat func(string) (os.FileInfo, error)) ([]byte, os.FileInfo, error) {
-	body, readErr := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	body, readErr := readValidatedSize(file, before.Size(), maxBytes)
 	afterFile, statErr := file.Stat()
 	afterPath, pathStatErr := pathStat(path)
 	closeErr := file.Close()

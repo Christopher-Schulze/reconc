@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,11 +20,26 @@ type evaluationPathState struct {
 	prospective  *pathidentity.ProspectiveResolver
 }
 
-func newEvaluationPathState(repoRoot string) (*evaluationPathState, error) {
-	return newEvaluationPathStateWithRootResolver(repoRoot, pathidentity.ResolveExisting)
+type prospectiveResolverKey struct{}
+
+// WithProspectiveResolver returns a context whose evaluations resolve paths
+// through resolver. One hook request shares one resolver between its read-path
+// filter and its policy checks, so each recorded path is resolved once and
+// later only revalidated.
+func WithProspectiveResolver(ctx context.Context, resolver *pathidentity.ProspectiveResolver) context.Context {
+	return context.WithValue(ctx, prospectiveResolverKey{}, resolver)
 }
 
-func newEvaluationPathStateWithRootResolver(repoRoot string, resolveRoot func(string) (string, error)) (*evaluationPathState, error) {
+func prospectiveResolverFrom(ctx context.Context) *pathidentity.ProspectiveResolver {
+	resolver, _ := ctx.Value(prospectiveResolverKey{}).(*pathidentity.ProspectiveResolver)
+	return resolver
+}
+
+func newEvaluationPathState(repoRoot string) (*evaluationPathState, error) {
+	return newEvaluationPathStateWithRootResolver(repoRoot, pathidentity.ResolveExisting, nil)
+}
+
+func newEvaluationPathStateWithRootResolver(repoRoot string, resolveRoot func(string) (string, error), prospective *pathidentity.ProspectiveResolver) (*evaluationPathState, error) {
 	resolvedRoot, err := resolveRoot(repoRoot)
 	if err != nil {
 		return nil, fmt.Errorf("resolve repo filesystem identity: %w", err)
@@ -42,9 +58,12 @@ func newEvaluationPathStateWithRootResolver(repoRoot string, resolveRoot func(st
 	if !os.SameFile(identity, confirmation) {
 		return nil, fmt.Errorf("resolved repository root changed during identity capture")
 	}
+	if prospective == nil {
+		prospective = pathidentity.NewProspectiveResolver()
+	}
 	return &evaluationPathState{
 		repoRoot: repoRoot, resolvedRoot: resolvedRoot, rootIdentity: identity,
-		prospective: pathidentity.NewProspectiveResolver(),
+		prospective: prospective,
 	}, nil
 }
 

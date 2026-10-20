@@ -267,9 +267,7 @@ func proofDir(repoRoot string) string {
 
 func capture(repoRoot string) (Snapshot, error) {
 	project := retention.ProjectDir(retention.ResolveStateRoot(), repoRoot)
-	if err := privatefs.RepairDirectory(project); err != nil {
-		return Snapshot{}, fmt.Errorf("secure command proof state directory: %w", err)
-	}
+	// OpenLock repairs the project directory before it opens the lock.
 	lock, err := privatefs.OpenLock(filepath.Join(project, "command-proof.snapshot.lock"))
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("open command proof snapshot lock: %w", err)

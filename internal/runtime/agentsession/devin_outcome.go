@@ -30,14 +30,14 @@ func runDevinPostToolUseResolved(root string, body []byte) Result {
 		return result
 	}
 	if !success || payload.IsInterrupt != nil && *payload.IsInterrupt || toolResponseFailed(payload) {
-		return runPostToolUseFailureResolved(root, body)
+		return runPostToolUseFailureParsed(root, payload)
 	}
 	if !payload.IsCommandTool() {
-		return runPostToolUseCompleteResolved(root, body)
+		return runPostToolUseCompleteParsed(root, payload)
 	}
 	_, hasExit, _ := strictExitCode(payload.ToolResponse)
 	if hasExit {
-		return runPostToolUseCompleteStrictResolved(root, body)
+		return runPostToolUseCompleteStrictParsed(root, payload)
 	}
 	result := runPassiveEventResolved(root, body)
 	if result.Stderr == "" {

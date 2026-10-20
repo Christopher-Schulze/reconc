@@ -170,7 +170,7 @@ func completionExecutionInputs(
 	now time.Time,
 ) (runtime.ExecutionInputs, error) {
 	inputs := executionInputs(
-		filterRepoScopedReadPaths(root, state.ReadPaths),
+		filterRepoScopedReadPaths(root, state.ReadPaths, nil),
 		append([]string{}, state.WritePaths...), cloneWriteEpochs(state.WriteEpochs),
 		append([]string{}, state.Commands...), append([]CommandResult{}, state.CommandResults...),
 		append([]string{}, state.Claims...),

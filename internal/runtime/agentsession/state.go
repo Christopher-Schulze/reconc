@@ -25,6 +25,7 @@
 package agentsession
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -351,39 +352,70 @@ func loadSessionStateWithLockResolved(root, sessionID string) (SessionState, err
 }
 
 func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
-	state, err := readSessionStateResolved(root, sessionID)
+	state, _, err := loadSessionStateResolvedPersisted(root, sessionID)
+	return state, err
+}
+
+// loadSessionStateResolvedPersisted also returns the canonical state file the
+// load read, so a caller can tell whether the loaded state is already stored.
+func loadSessionStateResolvedPersisted(root, sessionID string) (SessionState, persistedSessionState, error) {
+	state, persisted, err := readSessionStateResolvedPersisted(root, sessionID)
 	if err != nil {
-		return SessionState{}, err
+		return SessionState{}, persistedSessionState{}, err
 	}
 	if taint, err := loadEvidenceTaint(root); err != nil {
-		return SessionState{}, err
+		return SessionState{}, persistedSessionState{}, err
 	} else if taint != nil {
 		applyEvidenceTaint(&state, *taint)
 	} else if state.EvidenceOverflow {
 		resolved, err := evidenceTaintWasResolved(state)
 		if err != nil {
-			return SessionState{}, err
+			return SessionState{}, persistedSessionState{}, err
 		}
 		if resolved {
 			state.EvidenceOverflow = false
 			state.EvidenceOverflowReason = ""
 			state.EvidenceOverflowLimit = ""
 			state.EvidenceTaintToken = ""
-			return state, nil
+			return state, persisted, nil
 		}
 		if err := persistEvidenceTaint(root, state); err != nil {
-			return SessionState{}, err
+			return SessionState{}, persistedSessionState{}, err
 		}
 	}
-	return state, nil
+	return state, persisted, nil
+}
+
+// persistedSessionState is the canonical state file one load read: its bytes
+// and metadata, or nothing when the state was absent or came from the legacy
+// location.
+type persistedSessionState struct {
+	data []byte
+	info os.FileInfo
+}
+
+// holds reports whether the canonical file already stores exactly state with
+// private permissions, so saving it again would change nothing. Windows always
+// republishes, because its private-file contract is an ACL, not a mode.
+func (persisted persistedSessionState) holds(state SessionState) bool {
+	if persisted.info == nil || filepath.Separator == '\\' || persisted.info.Mode().Perm() != 0o600 {
+		return false
+	}
+	data, err := marshalStateDeterministic(state)
+	return err == nil && bytes.Equal(data, persisted.data)
 }
 
 func readSessionStateResolved(root, sessionID string) (SessionState, error) {
+	state, _, err := readSessionStateResolvedPersisted(root, sessionID)
+	return state, err
+}
+
+func readSessionStateResolvedPersisted(root, sessionID string) (SessionState, persistedSessionState, error) {
 	if err := validateSessionID(sessionID); err != nil {
-		return SessionState{}, err
+		return SessionState{}, persistedSessionState{}, err
 	}
 	path := sessionStatePath(root, sessionID)
-	data, _, err := boundedio.ReadRegularFileSnapshot(path, maxLegacySessionStateBytes)
+	data, info, err := boundedio.ReadRegularFileSnapshot(path, maxLegacySessionStateBytes)
 	loadedLegacyPath := false
 	legacyPath := legacySessionStatePath(root, sessionID)
 	if os.IsNotExist(err) && legacyPath != path {
@@ -395,15 +427,18 @@ func readSessionStateResolved(root, sessionID string) (SessionState, error) {
 	}
 	if err != nil {
 		if os.IsNotExist(err) {
-			return emptyState(root, sessionID), nil
+			return emptyState(root, sessionID), persistedSessionState{}, nil
 		}
-		return SessionState{}, fmt.Errorf("read session state %s: %w", path, err)
+		return SessionState{}, persistedSessionState{}, fmt.Errorf("read session state %s: %w", path, err)
 	}
 	state, err := decodeSessionState(data, path, root, sessionID, loadedLegacyPath)
 	if err != nil {
-		return SessionState{}, &unusableSessionStateError{path: path, err: err}
+		return SessionState{}, persistedSessionState{}, &unusableSessionStateError{path: path, err: err}
 	}
-	return state, nil
+	if loadedLegacyPath {
+		return state, persistedSessionState{}, nil
+	}
+	return state, persistedSessionState{data: data, info: info}, nil
 }
 
 // unusableSessionStateError marks a state file that exists but cannot be
@@ -489,7 +524,7 @@ func saveSessionStateLockedIfChanged(state SessionState) (bool, error) {
 	// the bounded publication small while remaining compatible with the JSON
 	// readers used for current and legacy session files.
 	state = normalizeSessionState(state)
-	data, err := marshalStateDeterministic(state)
+	data, err := marshalNormalizedStateDeterministic(state)
 	if err != nil {
 		return false, fmt.Errorf("marshal session state: %w", err)
 	}
@@ -863,15 +898,18 @@ func EnsureSessionState(repoRoot, sessionID string) (SessionState, error) {
 func ensureSessionStateResolved(root, sessionID string) (SessionState, error) {
 	var state SessionState
 	err := withSessionLock(root, sessionID, func() error {
-		loaded, err := loadSessionStateResolved(root, sessionID)
+		loaded, persisted, err := loadSessionStateResolvedPersisted(root, sessionID)
 		if err != nil {
 			return err
 		}
 		state = loaded
-		// Persist any default-normalisation done by LoadSessionState and
-		// record this as the active session.
-		if err := saveSessionStateLocked(state); err != nil {
-			return err
+		// Persist any default-normalisation done by LoadSessionState unless
+		// the canonical file already holds it, and record this as the active
+		// session.
+		if !persisted.holds(state) {
+			if err := saveSessionStateLocked(state); err != nil {
+				return err
+			}
 		}
 		return writeActiveSession(root, sessionID)
 	})
@@ -1116,6 +1154,11 @@ func writeActiveSession(repoRoot, sessionID string) error {
 func writeActiveSessionIfChanged(repoRoot, sessionID string) (bool, error) {
 	if err := validateSessionID(sessionID); err != nil {
 		return false, err
+	}
+	// An already current pointer needs no lock: the locked path would read
+	// the same pointer and write nothing.
+	if current, err := activeSessionMatches(repoRoot, sessionID); err == nil && current {
+		return false, nil
 	}
 	var written bool
 	err := withActiveSessionLock(repoRoot, func() error {

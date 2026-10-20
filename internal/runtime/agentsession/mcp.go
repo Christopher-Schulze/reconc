@@ -125,7 +125,7 @@ func runMCPAfterResolvedWithEvaluator(root string, payloadBytes []byte, hostIden
 		if hostIdentified {
 			return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): host event has no MCP identity"}
 		}
-		return runPostToolUseCompleteStrictResolved(root, payloadBytes)
+		return runPostToolUseCompleteStrictParsed(root, payload)
 	}
 	contract, err := evaluator.LoadMCPPolicy(root)
 	if err != nil {
@@ -139,7 +139,7 @@ func runMCPAfterResolvedWithEvaluator(root string, payloadBytes []byte, hostIden
 	}
 	classification, classified := classifyMCP(contract, payload)
 	if !classified && !hostIdentified {
-		return runPostToolUseCompleteStrictResolved(root, payloadBytes)
+		return runPostToolUseCompleteStrictParsed(root, payload)
 	}
 	if !classified {
 		return observeUnclassifiedMCP(root, contract, payload, "unclassified")
@@ -351,7 +351,7 @@ func runMCPWritePreResolvedWithStopCache(
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): load evidence chain: " + err.Error()}
 	}
 	trialWrites := append(append([]string(nil), state.WritePaths...), paths...)
-	report, err := runPreWritePolicyCheckWithEvaluator(evaluator, root, state.ReadPaths, trialWrites, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
+	report, err := runPreWritePolicyCheckWithEvaluator(evaluator, nil, root, state.ReadPaths, trialWrites, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): write check failed: " + err.Error()}
 	}
@@ -409,7 +409,7 @@ func runMCPCommandPreResolvedWithStopCache(
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): load evidence chain: " + err.Error()}
 	}
-	report, err := runPreCommandPolicyCheckWithEvaluator(evaluator, root, state, command)
+	report, err := runPreCommandPolicyCheckWithEvaluator(evaluator, nil, root, state, command)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): command check failed: " + err.Error()}
 	}

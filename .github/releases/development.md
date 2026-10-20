@@ -31,3 +31,17 @@ release.
 - `applicable_if` globs skip `.git`, `.reconc`, and `node_modules` unless a
   pattern names them, so dependencies neither activate a gate nor exhaust the
   walk budget.
+
+## Hook performance
+
+- A hook request resolves each recorded path once and only revalidates it
+  afterwards: the read-path filter and every policy check share one path
+  resolver, confirmed-missing directories are not walked again, existing files
+  take their identity from their revalidated directory, and macOS reads a
+  directory listing instead of opening each file for its stored spelling. A
+  pre-tool call in a Claude Code session with 1,000 recorded reads, 200 writes,
+  and 200 commands took 18 ms instead of 85 ms on an Apple M1.
+- A pre-tool call no longer rewrites an unchanged session state or takes the
+  active-session lock when the pointer is current, post-tool handlers decode
+  the hook payload once, size-checked files are read with one exact
+  allocation, and the command-proof capture repairs its directory once.

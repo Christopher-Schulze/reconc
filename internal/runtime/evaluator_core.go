@@ -484,7 +484,7 @@ func evaluateRuntimePlanWithRootResolverContext(lifecycle context.Context, root 
 	if err := lifecycle.Err(); err != nil {
 		return nil, err
 	}
-	normalized, err := normalizeEvaluationInputWithRootResolver(root, inputs, resolveRoot)
+	normalized, err := normalizeEvaluationInputWithRootResolver(root, inputs, resolveRoot, prospectiveResolverFrom(lifecycle))
 	if err != nil {
 		return nil, err
 	}

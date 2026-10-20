@@ -762,9 +762,12 @@ and byte-compares the notice before checksums and provenance are accepted.
      match-context construction is likewise memoized per evaluation with cloned
      immutable capture maps under both a 4 MiB retained-byte budget and a 4,096-entry cap.
      Literal templates return no capture map. High-cardinality path
-    normalization uses an evaluation-local prospective resolver that
-    revalidates shared existing ancestors before reusing their filesystem
-    identities; missing suffixes are never trusted from string state alone.
+    normalization uses a request-local prospective resolver that revalidates
+    every reused observation with `Lstat` before use: existing ancestors keep
+    their identity and metadata, confirmed-missing ancestors must still be
+    missing, and existing non-symlinks derive their identity from a
+    revalidated parent; missing suffixes are never trusted from string state
+    alone.
     Write-epoch keys use the same resolver and one pass over the write-path
     sequence, merging aliases by maximum epoch after normalized containment.
      Action predicate evaluation reuses one immutable materialized context

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -653,5 +654,56 @@ func BenchmarkDuplicateSessionMutation(b *testing.B) {
 		}); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestEnsureSessionStateRepublishesOnlyDivergentFiles(t *testing.T) {
+	_, repo := withStateRoot(t)
+	state, err := EnsureSessionState(repo, "ensure-republish")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := sessionStatePath(state.RepoRoot, state.SessionID)
+	canonical, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureSessionState(repo, "ensure-republish"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Lstat(path)
+	if err != nil || !os.SameFile(before, after) || !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("unchanged state was republished: %v", err)
+	}
+	for name, diverge := range map[string]func() error{
+		"bytes": func() error { return os.WriteFile(path, append([]byte(" "), canonical...), 0o600) },
+		"mode":  func() error { return os.Chmod(path, 0o644) },
+	} {
+		if runtime.GOOS == "windows" && name == "mode" {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			if err := diverge(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := EnsureSessionState(repo, "ensure-republish"); err != nil {
+				t.Fatal(err)
+			}
+			body, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Lstat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(body) != string(canonical) || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
+				t.Fatalf("divergent state was not republished: mode=%v body=%q", info.Mode().Perm(), body)
+			}
+		})
 	}
 }

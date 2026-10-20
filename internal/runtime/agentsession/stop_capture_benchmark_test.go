@@ -163,3 +163,77 @@ func withBenchmarkStateRoot(b *testing.B) (string, string) {
 	b.Setenv("TMPDIR", b.TempDir())
 	return stateDir, b.TempDir()
 }
+
+// BenchmarkOneShotClaudeSessionPreHook models a long Claude Code session in
+// one live state: absolute read paths and repo-relative write paths of files
+// that exist, and recorded commands, judged by Write and Bash pre-tool calls.
+func BenchmarkOneShotClaudeSessionPreHook(b *testing.B) {
+	repo := setupStopBenchmarkRepo(b)
+	root, err := ResolveRepoRootRef(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	const sessionID = "one-shot-claude"
+	state, err := InitializeSessionState(repo, sessionID)
+	if err != nil {
+		b.Fatal(err)
+	}
+	for directory := range 40 {
+		for file := range 25 {
+			relative := fmt.Sprintf("src/module%02d/internal/file%02d.go", directory, file)
+			path := filepath.Join(repo, filepath.FromSlash(relative))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				b.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("package internal\n"), 0o644); err != nil {
+				b.Fatal(err)
+			}
+			state.ReadPaths = append(state.ReadPaths, path)
+			if file < 5 {
+				state.WritePaths = append(state.WritePaths, relative)
+			}
+		}
+	}
+	for index := range 200 {
+		state.Commands = append(state.Commands, fmt.Sprintf("go test ./src/module%02d/...", index%40))
+	}
+	if err := SaveSessionState(state); err != nil {
+		b.Fatal(err)
+	}
+	for _, call := range []struct {
+		name    string
+		payload string
+	}{
+		{name: "write", payload: `{"session_id":"one-shot-claude","tool_use_id":"call-%d","tool_name":"Write","tool_input":{"file_path":"src/module00/internal/file00.go"}}`},
+		{name: "bash", payload: `{"session_id":"one-shot-claude","tool_use_id":"call-%d","tool_name":"Bash","tool_input":{"command":"go vet ./src/..."}}`},
+	} {
+		b.Run(call.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for index := range b.N {
+				payload := []byte(fmt.Sprintf(call.payload, index))
+				if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 0 {
+					b.Fatalf("one-shot pre-hook failed: %+v", result)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkStrictPostToolLargeOutput records a failed shell call whose tool
+// response carries one MiB of output, as OpenCode, Kilo, OMP, and Pi report it.
+func BenchmarkStrictPostToolLargeOutput(b *testing.B) {
+	_, repo := withBenchmarkStateRoot(b)
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	if _, err := InitializeSessionState(repo, "strict-post"); err != nil {
+		b.Fatal(err)
+	}
+	payload := []byte(fmt.Sprintf(`{"session_id":"strict-post","tool_name":"Bash","tool_input":{"command":"go test ./..."},"tool_response":{"exit_code":1,"output":%q}}`, strings.Repeat("x", 1<<20)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		runPostToolUseCompleteStrictResolved(root, payload)
+	}
+}

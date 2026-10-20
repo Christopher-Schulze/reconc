@@ -425,7 +425,7 @@ func preDecisionEvaluationInputs(
 	if payload == nil {
 		return runtime.Empty(), 0, false
 	}
-	readPaths := filterRepoScopedReadPaths(root, state.ReadPaths)
+	readPaths := filterRepoScopedReadPaths(root, state.ReadPaths, nil)
 	if payload.IsCommandTool() {
 		declaredWrites, _, err := commandWritePaths(payload)
 		if err != nil {
@@ -510,7 +510,7 @@ func capturePreDecisionDependencySnapshot(
 	plan runtime.PreDecisionDependencyPlan,
 ) (preDecisionDependencySnapshot, time.Time, preDecisionSampleMetrics, bool) {
 	paths := make([]preDecisionDependencyRequest, 0, len(state.ReadPaths)+len(state.WritePaths)+len(plan.Dependencies)+4)
-	for _, path := range filterRepoScopedReadPaths(root, state.ReadPaths) {
+	for _, path := range filterRepoScopedReadPaths(root, state.ReadPaths, nil) {
 		paths = append(paths, preDecisionDependencyRequest{path: path})
 	}
 	for _, path := range state.WritePaths {

@@ -5,6 +5,7 @@ package pathidentity
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -15,6 +16,23 @@ const (
 	maximumWindowsPathCodeUnits = 1 << 16
 	windowsVolumeNameDOS        = 0
 )
+
+// composesExistingIdentity is false on Windows: a final name can be an 8.3
+// alias that only the full handle path expands, so every existing path
+// resolves through resolveExistingOS.
+const composesExistingIdentity = false
+
+// storedSpellings needs no state because Windows never composes identities.
+type storedSpellings struct{}
+
+func (storedSpellings) compose(string, os.FileInfo, string, os.FileInfo) (string, bool) {
+	return "", false
+}
+
+func resolveExistingOSWithParent(path string) (string, bool, error) {
+	resolved, err := resolveExistingOS(path)
+	return resolved, false, err
+}
 
 func resolveExistingOS(path string) (resolved string, err error) {
 	pathPointer, err := windows.UTF16PtrFromString(path)

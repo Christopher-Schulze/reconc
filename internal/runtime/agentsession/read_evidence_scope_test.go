@@ -22,7 +22,7 @@ func TestReadEvidenceFilterResolvesTheRepositoryOnce(t *testing.T) {
 	for index := 0; index < 100; index++ {
 		paths = append(paths, filepath.Join(repo, fmt.Sprintf("docs/file%03d.md", index)))
 	}
-	kept := filterRepoScopedReadPaths(repo, paths)
+	kept := filterRepoScopedReadPaths(repo, paths, nil)
 	if len(kept) != 101 || kept[0] != "relative/doc.md" {
 		t.Fatalf("kept %d read paths, want the relative and every in-repository path: %v", len(kept), kept[:2])
 	}

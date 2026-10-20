@@ -2889,7 +2889,8 @@ identical locks, regardless of the physical user-template directory.
 Runtime resolves every such path against the filesystem identity of the
 repository root and rejects symlink, reparse-point, or missing-tail resolution
 that escapes it. One evaluation owns one resolved root identity and one bounded
-prospective-path resolver shared by read/write normalization, write epochs,
+prospective-path resolver, which a hook request also shares with its read-path
+filter and its other checks, used by read/write normalization, write epochs,
 top-level evidence checks, composite checks, kind-filtered checks, assertions,
 and pre-command checks. The root directory entry and reused ancestors are
 revalidated during evaluation, while evidence snapshots still revalidate the
@@ -6547,11 +6548,19 @@ Security posture:
   bypass storage and FIFO eviction accounts for keys, strings, captures,
   errors, slice slots, and the simultaneously retained defensive clone.
 - Batch path normalization and policy evidence resolution use one
-  evaluation-local `pathidentity` prospective resolver. Shared existing
-  ancestors are `Lstat`-revalidated before reuse; missing suffixes remain
-  uncached, preserving symlink/reparse, containment, case, and replacement
-  semantics while eliminating repeated root resolution and reducing ancestor
-  walks.
+  request-local `pathidentity` prospective resolver: a hook request shares it
+  between its read-path filter and every policy check. Every reused
+  observation is `Lstat`-revalidated before use: an existing ancestor must keep
+  its identity and metadata, and a missing ancestor must still be missing, so
+  deeper missing components are not inspected again. On Unix and macOS an
+  existing non-symlink derives its identity from its revalidated parent
+  directory; macOS takes a name's stored spelling from a directory listing
+  bound to the directory's metadata and opens the object for its descriptor
+  path only when the requested spelling differs. Windows resolves every
+  existing path through its final handle path. This preserves
+  symlink/reparse, containment, case, and replacement semantics while a long
+  session's thousand recorded paths cost two `Lstat` calls each instead of a
+  full resolution.
 - Write-epoch normalization runs through the same resolver in one ordered pass
   and merges normalized aliases with the maximum observed epoch, preserving
   causal freshness when absolute and relative spellings collide.
