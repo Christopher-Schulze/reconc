@@ -42,6 +42,9 @@ type Evaluator struct {
 	cacheObserveHook func(root string, gen uint64)
 	slotWaitHook     func(root string)
 	loadStats        *sourceFreshnessStats
+	// planFreshnessFile locates the persisted plan freshness of a root, or
+	// is nil when this evaluator persists none.
+	planFreshnessFile func(root string) string
 }
 
 const maxRuntimePlanCacheEntries = 32
@@ -342,6 +345,15 @@ func (e *Evaluator) loadRuntimePlanOwned(ctx context.Context, root string, gen u
 			e.invalidateRuntimePlanFrom(root, gen)
 		}
 	}
+	if plan, freshness, ok, err := e.planFromPersistedFreshness(ctx, root, data, lockHash); err != nil {
+		return nil, err
+	} else if ok {
+		e.cacheRuntimePlan(root, runtimePlanCacheEntry{
+			lockHash: lockHash, freshness: freshness, freshnessValid: true,
+			gen: gen, plan: plan, bytes: plan.memoryBytes,
+		})
+		return plan, nil
+	}
 	loadContext, err := ingest.NewSourceLoadContextWithContext(ctx, root)
 	if err != nil {
 		return e.failRuntimePlanLoad(root, gen, err)
@@ -421,6 +433,7 @@ func (e *Evaluator) loadRuntimePlanOwned(ctx context.Context, root string, gen u
 		lockHash: lockHash, freshness: freshness, freshnessValid: true,
 		gen: gen, plan: plan, bytes: plan.memoryBytes,
 	})
+	e.storePlanFreshness(root, lockHash, freshness, bundle.PolicyIncludePatterns())
 	return plan, nil
 }
 

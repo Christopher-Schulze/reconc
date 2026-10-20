@@ -795,6 +795,14 @@ and byte-compares the notice before checksums and provenance are accepted.
      accounting from one opened stable file snapshot. Replacement before that
      open may yield one coherent new observation; replacement after it fails
      closed, and rejected observations never consume the aggregate budget.
+     One-shot hook processes persist each full validation as
+     `plan-freshness.json` in the project's private state directory: the lock
+     digest, the content freshness, and the include patterns. A later cold
+     process that observes the same lock bytes and the same source content
+     compiles the plan without re-reading and re-digesting the sources, as a
+     warm evaluator reuses its cached plan; any mismatch or untrusted record
+     takes the full validation. The record is an unsynced cache written only
+     into the existing private directory.
      Runtime evidence/report collections use a local membership map plus an
      ordered slice, preserving first-seen output while avoiding quadratic
      duplicate scans at bounded high cardinalities.

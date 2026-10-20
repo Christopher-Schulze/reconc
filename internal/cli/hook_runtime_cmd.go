@@ -134,7 +134,8 @@ func runHookRuntimeWithResolver(
 	stdout, stderr io.Writer,
 	resolveRoot func(string) (agentsession.ResolvedRepoRoot, error),
 ) error {
-	return runHookRuntimeWithResolverAndEvaluator(args, input, stdout, stderr, resolveRoot, runtime.NewEvaluator())
+	return runHookRuntimeWithResolverAndEvaluator(args, input, stdout, stderr, resolveRoot,
+		runtime.NewEvaluatorWithPlanFreshnessFile(agentsession.PlanFreshnessPath))
 }
 
 func runHookRuntimeWithResolverAndEvaluator(

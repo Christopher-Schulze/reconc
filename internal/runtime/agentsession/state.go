@@ -175,6 +175,13 @@ func projectDir(repoRoot string) string {
 	return retention.ProjectDir(stateRoot(), repoRoot)
 }
 
+// PlanFreshnessPath is where one-shot hook processes persist which policy
+// lockfile was validated against which source content, inside the project's
+// private state directory.
+func PlanFreshnessPath(repoRoot string) string {
+	return filepath.Join(projectDir(repoRoot), "plan-freshness.json")
+}
+
 func sessionStatePath(repoRoot, sessionID string) string {
 	return filepath.Join(projectDir(repoRoot), "sessions", sessionFileKey(sessionID)+".json")
 }
