@@ -4,6 +4,18 @@ Reconc 0.10.3 is a patch release that removes every way a governed session
 could seal itself shut and gives the operator a sanctioned administration path
 that never requires removing or stubbing hooks.
 
+## Correction
+
+These notes overstate several guarantees. Evidence-segment rotation, oversized
+session state, and CRLF or concurrently written TASK boards could still lock a
+session; the bounded command prefix dropped trailing command text from the
+evidence that policy matched; `hook evidence-resolve` resets the resolved
+session's evidence window; and the pre-tool guard refuses only recognized
+operator-only invocations, so scripts, aliases, or copied binaries could still
+run them. This release also shipped fail-open paths. The corrected behavior is
+described in the [development notes](https://github.com/Christopher-Schulze/reconc/blob/main/.github/releases/development.md)
+and ships with the next release.
+
 ## Fixes
 
 - A command longer than 32 KiB no longer taints the session. Command and

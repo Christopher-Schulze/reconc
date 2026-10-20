@@ -251,7 +251,7 @@ func installedNativeEvents(t *testing.T, kind string) []string {
 
 // TestPiBlockResponseStaysInsideTheHostResultContract pins the response Reconc
 // returns from Pi's only blocking event against `ToolCallEventResult` as the
-// host declares it. Pi 0.84.1 widened that result with `terminate`, a hint that
+// host declares it. Since Pi 0.84.1 that result also carries `terminate`, a hint that
 // takes effect only when every finalized call in a tool batch sets it. Reconc
 // has no policy mode that ends a session, so the field stays unused on purpose;
 // this test fails if a future change starts emitting it, or emits any other

@@ -967,7 +967,7 @@ class of hostile input.
 | Hook worker response frame | **128 KiB at the adapter** | Bounds framed JSON and escaped 8 KiB route output before parsing. |
 | OpenCode/Kilo continuation state | **1,024 sessions / 10 accepted continuations each** | Bounded generation and in-flight state suppress duplicate idle delivery without storing prompts, tool payloads, or model output. |
 | OMP native Stop continuation | **8 turns / 29 s internal timeout** | The OMP host caps awaited main-agent `session_stop` continuation and its 30-second handler deadline stays outside Reconc's fail-closed timeout; an aborted host signal releases immediately. |
-| Pi settled continuation | **1,024 sessions / 10 requested continuations each** | Bounded generation and in-flight state suppress duplicate `agent_settled` requests. Pi returns no delivery acknowledgement, so requested delivery is never recorded as acceptance. |
+| Pi settle continuation | **1,024 sessions / 10 requested continuations each** | Pi 1.x continues natively at the awaited `agent_before_settle` boundary; on older Pi, bounded generation and in-flight state suppress duplicate `agent_settled` requests, and because Pi returns no delivery acknowledgement, requested delivery is never recorded as acceptance. |
 | Compaction context | **4 KiB** | Restores control-plane orientation without replaying logs or task files. |
 | Native assurance file | **4 MiB** | Rejects oversized source, manifest, or proof inputs before allocation. |
 | Native assurance run | **4,096 files / 32 MiB reads** | Bounds aggregate source and evidence inspection across all gates. |
@@ -1020,8 +1020,10 @@ entries are preserved and block cleanup; partial failure keeps taint in force an
 same token permits a retry. Ordinary field overflow preserves healthy evidence.
 Origin and active session leases precede the permanent project taint lock;
 concurrent faults cannot be erased by resolving an older token.
-The resolver is operator-only: the pre-tool gate refuses it from agent tool
-calls, together with `hook pause`, `hook resume`, and `operator:*` claims.
+The resolver is operator-only: the pre-tool gate refuses recognized
+invocations of it in agent tool calls, together with `hook pause`,
+`hook resume`, and `operator:*` claims; a command the gate cannot recognize,
+such as one inside a script file the call runs, is outside that guard.
 The terminal confirmation is a local interaction requirement, not human
 authentication. A process with the same user rights can automate a PTY or
 modify local state; independent approval is outside this contract.
@@ -1044,7 +1046,7 @@ Decision is per-event based on the security role of the event:
 | `PostToolUseFailure` | **fail-open** (exit 0, stderr warn) | Same as PostToolUse. |
 | `Stop` | **fail-closed** (exit 2) | GATES session completion; uncertain input must block. |
 | `SessionEnd` | **fail-open** (exit 0, stderr warn) | Cleanup-only; forced close shouldn't propagate errors. |
-| MCP pre-action | **host capability** | Cursor's native pre-hook can deny an exact or strict-unclassified call. OpenCode/Kilo/OMP/Pi/ZCode generic hooks enforce configured identities but cannot soundly identify unconfigured MCP calls. |
+| MCP pre-action | **host capability** | Cursor's native pre-hook and the `mcp__` tool namespace of Claude Code and Codex can deny an exact or strict-unclassified call. OpenCode/Kilo/OMP/DSH/Pi/ZCode generic hooks enforce configured identities but cannot soundly identify unconfigured MCP calls. |
 | MCP post-action | **fail-open, non-evidentiary on uncertainty** | Post-action blocking cannot undo a side effect. Positive evidence requires exact identity, valid selected values, and explicit success. |
 
 The CLI applies the registry failure policy after handler execution as well as
@@ -1060,8 +1062,8 @@ Each runtime route has a small six-hour marker: the common path is one `stat`,
 zero locks, zero JSON reads, and zero writes; a due route refresh updates the
 bounded aggregate status used by `reconc hook status`.
 
-OpenCode, Kilo Code, and Pi own one `reconc hook worker` child per live plugin
-repository. OMP owns one per `ExtensionAPI` binding and repository, so cached
+OpenCode, Kilo Code, DeepSeek Harness, and Pi own one `reconc hook worker`
+child per live plugin repository. OMP owns one per `ExtensionAPI` binding and repository, so cached
 factory reuse cannot couple parent and child session shutdown. The internal
 protocol is newline-framed JSON format 1 with
 printable request IDs, explicit event and repository fields, one object payload,
@@ -1175,19 +1177,24 @@ three-consecutive-block host bound. Generic tool payloads can enforce configured
 MCP identities but cannot soundly identify an unconfigured MCP call.
 
 OpenCode and Kilo plugins are generated transport adapters. Shell outcomes are
-normalized from the exact integer `output.metadata.exit` into the neutral Go
-payload. Their session-owned worker uses the common framed protocol above; the
+normalized from the exact integer `metadata.exit` of the tool result
+(`output.metadata` on OpenCode 1.x and Kilo, `result.metadata` on OpenCode 2.x)
+into the neutral Go payload. Their session-owned worker uses the common framed protocol above; the
 one-shot recovery runner concurrently drains both pipes, applies one combined
-output budget, validates UTF-8, and terminates the subprocess on timeout. Idle continuation uses bounded per-session generations and only the
-asynchronous SDK request `promptAsync({sessionID, messageID, parts})`. The
-caller-owned message identifier distinguishes the injected callback from
-external user activity; no synchronous prompt fallback exists.
+output budget, validates UTF-8, and terminates the subprocess on timeout. Continuation uses bounded per-session
+generations; on OpenCode 1.x and Kilo it sends only the asynchronous SDK request
+`promptAsync({sessionID, messageID, parts})` after `session.idle`, and on
+OpenCode 2.x `session.prompt` with queue delivery and a `reconc_message_id`
+metadata marker after a succeeded or failed execution. The caller-owned
+message identifier distinguishes the injected callback from external user
+activity; no synchronous prompt fallback exists.
 
 OMP's generated `.omp/extensions/reconc.ts` is also transport-only. It
 validates and forwards documented `ExtensionAPI` events, uses `tool_call` and
 awaited main-agent `session_stop` as its fail-closed boundaries, and keeps
 approval events observational because OMP does not accept decisions from
-them. `tool_result.isError` is the authoritative outcome; successful built-in
+them. `tool_execution_end.isError` is the authoritative outcome, and
+`tool_result` only records the input the tool ran with; successful built-in
 Bash results alone synthesize exit code zero. Generic `session_before_compact`
 and `session_compact` cover manual, automatic, and extension-supplied successful
 compaction without duplicate auto-attempt routes. Each extension binding owns
@@ -1201,11 +1208,13 @@ It uses awaited `tool_call` and `user_bash` as fail-closed boundaries while
 tool results, lifecycle, compaction, and shutdown remain observational.
 `tool_result.isError` is authoritative; successful built-in Bash results alone
 synthesize exit code zero, while failed Bash output never becomes a fabricated
-exit status. `agent_settled` can request a bounded continuation through
+exit status. Pi 1.x runs the Stop gate on the awaited `agent_before_settle`
+boundary and continues natively with a hidden `custom_message` entry; on older
+Pi, `agent_settled` can request a bounded continuation through
 `sendUserMessage`, but the host API returns no delivery acknowledgement. Pi
 exposes `project_trust` as a project-level veto, which Reconc reads rather than
-answers, and no per-call permission event, MCP discriminator, post-`user_bash` result, or
-synchronous Stop gate. Host cancellation wins over Reconc subprocess output.
+answers, and no per-call permission event, MCP discriminator, or
+post-`user_bash` result. Host cancellation wins over Reconc subprocess output.
 The Pi shutdown route closes its repository worker after recording SessionEnd.
 
 ### Path-traversal

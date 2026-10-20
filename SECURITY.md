@@ -61,7 +61,17 @@ Security-relevant defaults:
 - hook payload size, read time, and JSON nesting depth are bounded
 - paths are normalized and constrained to the discovered repository root
 - payload command strings are matched as data and are not executed
-- subprocess execution is limited to policy-authored `require_script` checks
+- Reconc starts subprocesses only for Git, policy-authored `require_script`
+  checks, the command an operator or agent passes to `reconc exec`,
+  `gh attestation verify` (or the configured attestation tool) during
+  installation and update, the downstream servers configured for the MCP
+  gateway, the Grok host for its ACP driver and preflight, its own executable,
+  and the wrappers, adapters, and hosts that `reconc hook verify` exercises
+- operator administration (`hook pause`, `hook evidence-resolve`, and
+  `operator:*` claims) refuses recognized invocations in agent tool calls and
+  requires a local interactive confirmation; that confirmation is a local
+  interaction requirement, not authentication, and a process with the same
+  user rights can automate a terminal or modify local state
 - native installers accept only supported, overflow-safe semantic versions,
   immutable release tags, HTTPS downloads, metadata bounded to 2 MiB, binaries
   bounded to 256 MiB, one exact checksum entry, and explicit downgrades

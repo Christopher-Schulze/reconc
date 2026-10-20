@@ -161,7 +161,7 @@ Core invariants are deliberately strict:
 | Autonomous run control | `reconc run on|off|reset|status|log` provides one durable repository switch, bounded decision logs, terminal gates, and per-session no-progress guards. |
 | Transactional adoption | Inspects existing repositories, proposes evidence-backed packs and commands, and plans, applies, verifies, synchronizes, or removes only receipt-owned rollout state. |
 | Runtime enforcement | Generates, installs, verifies, and safely removes registry-backed hooks for fourteen coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
-| MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, Kilo, Oh My Pi, DeepSeek Harness, Pi, and ZCode MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
+| MCP side-effect control | Classifies explicitly configured Claude Code, Codex, Cursor, OpenCode, Kilo, Oh My Pi, DeepSeek Harness, Pi, and ZCode MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
 | Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, an offline policy impact lab, staged command execution, deterministic text, JSON, SARIF 2.1.0, JUnit XML, and GitHub impact reports, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
 | Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, the project license, exact third-party notices, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
 
@@ -275,18 +275,18 @@ state exactly what remains outside the boundary.
 
 ## Install and Bootstrap
 
-The following historical installation example selects the published `reconc-v0.10.3`
-tag. Select a published tag from [Releases](https://github.com/Christopher-Schulze/reconc/releases)
-for an intentional installation. Later changes on `main` remain unreleased; use the source-build path
-below when those development changes are required.
+Select a published tag from [Releases](https://github.com/Christopher-Schulze/reconc/releases)
+and substitute it for `reconc-vX.Y.Z`, and its version for `X.Y.Z`, in the
+commands below. Later changes on `main` remain unreleased; use the source-build
+path below when those development changes are required.
 
 ### Native release installation
 
 macOS or Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.10.3/install.sh \
-  | sh -s -- --version 0.10.3
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-vX.Y.Z/install.sh \
+  | sh -s -- --version X.Y.Z
 export PATH="$HOME/.local/bin:$PATH"
 reconc --version
 ```
@@ -295,15 +295,16 @@ Windows x64:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.10.3/install.ps1 -OutFile $installer
-& $installer -Version 0.10.3
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-vX.Y.Z/install.ps1 -OutFile $installer
+& $installer -Version X.Y.Z
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
 reconc --version
 ```
 
-The protected `reconc-v0.10.3` tag contains both installer scripts, so these
-commands do not fetch executable installation logic from mutable `main`. The
+The selected protected release tag supplies the installer script (both scripts
+since `reconc-v0.8.7`), so these commands do not fetch executable installation
+logic from mutable `main`. The
 installers:
 
 - resolve one explicit version or release channel;
@@ -362,7 +363,7 @@ before removing the skill with the binary.
 
 The shipped CLI has no Bun, Node, Python, Docker, or service dependency. Bun
 `1.3.14` is required only by contributors running the executable OpenCode,
-Kilo Code, Oh My Pi, and Pi adapter contract tests. Policy authoring and runtime
+Kilo Code, Oh My Pi, DeepSeek Harness, and Pi adapter contract tests. Policy authoring and runtime
 validation use `jsonschema/v6`; bounded ECMAScript matching uses `regexp2`.
 Both are linked into the Go CLI and operate offline. Tests also compile every
 public Draft 2020-12 schema and validate representative current and legacy
@@ -762,7 +763,7 @@ instead of being reported as successful partial publication.
 | Codex | session start and end, prompt, tool, permission, evidence, compaction, subagent, and Stop hooks with `apply_patch` path extraction and the same MCP namespace group |
 | GitHub Copilot | contract-tested repository hooks for Copilot CLI and coding agent; hard PreToolUse and Stop decisions where the host fires them; host timeouts remain fail-open |
 | Cursor | one registry-generated `.cursor/hooks.json` for Agent/Cmd+K, Tab, CLI, and supported cloud routes; registry-derived `surface_events`, native prompt/subagent decisions, sessionless workspace liveness, and tool/Stop behavior remain event-specific |
-| OpenCode | thin project plugin with strict `metadata.exit` shell outcomes, permission/tool/session/compaction routes, and bounded asynchronous `session.idle` continuation |
+| OpenCode | thin project plugin with strict `metadata.exit` shell outcomes, permission/tool/session/compaction routes, and bounded asynchronous continuation after `session.idle` (1.x) or a finished execution (2.x) |
 | Devin CLI | native session, prompt, tool, permission, stop, and post-compaction hooks |
 | Antigravity CLI | invocation, tool, post-tool, and stop hook coverage |
 | Kilo Code | thin CLI/VS Code project plugin with strict `metadata.exit` shell outcomes and the same bounded asynchronous continuation contract as OpenCode |
@@ -770,7 +771,7 @@ instead of being reported as successful partial publication.
 | Kimi Code CLI | explicit user-global `$KIMI_CODE_HOME/config.toml` integration for the 16 decision- and evidence-carrying events of the host's twenty; repository discovery prevents global hooks from acting outside initialized Reconc repositories |
 | Oh My Pi | project-local `.omp/extensions/reconc.ts` ExtensionAPI adapter with native session, prompt, approval, tool-result, generic `session_before_compact`/`session_compact`, shutdown, and synchronous `session_stop` handling, the same policy decision for shell commands the user types, and a redacted observation for Python the user runs, which no policy can decide |
 | DeepSeek Harness | project-owned `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml`, loaded with `npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml`; blocking pre-tool decisions, passive results, and awaited bounded Stop continuation |
-| Pi Coding Agent | trust-aware project-local `.pi/extensions/reconc.ts` extension with blocking tool and user-shell interception, exact tool outcomes, lifecycle and compaction observations, and bounded asynchronous `agent_settled` continuation |
+| Pi Coding Agent | trust-aware project-local `.pi/extensions/reconc.ts` extension with blocking tool and user-shell interception, exact tool outcomes, lifecycle and compaction observations, an awaited `agent_before_settle` Stop gate with native continuation on Pi 1.x, and bounded asynchronous `agent_settled` continuation on older Pi |
 | ZCode | project-local `.zcode/config.json` integration for all seven native hook events, process-executor transport, hard pre-tool and permission decisions, and synchronous Stop continuation |
 | Declarative custom runtimes | repository-owned `.reconc/runtimes/*.json` manifests map exact host events and JSON Pointers into the neutral lifecycle; `hook bridge` reuses the same policy/session engine and `hook conform` proves the public adapter contract offline |
 
@@ -799,7 +800,8 @@ Kimi Code CLI, Oh My Pi CLI, and ZCode expose a synchronous Stop event. OMP awai
 remain fail-open,
 and this adapter is contract-tested rather than claimed live until
 `reconc hook status . --json` records real events. OpenCode and Kilo Code
-expose `session.idle`; Reconc submits at most one bounded asynchronous
+expose `session.idle` (OpenCode 2.x: `session.execution.succeeded` or
+`session.execution.failed`); Reconc submits at most one bounded asynchronous
 continuation per new activity generation, but that inferred fail-open adapter
 is not an equivalent host-level Stop gate. Cursor's shared project file does
 not imply event parity between Agent, Cmd+K, Tab, interactive CLI, print CLI,
@@ -817,11 +819,14 @@ guarantees are reported as degraded or unsupported and never promoted to a
 stronger enforcement claim. Adapter authors validate request, response,
 timeout, failure, liveness, and privacy behavior with `reconc hook conform`.
 
-Pi exposes no synchronous Stop decision event. Reconc maps `agent_settled` to
-bounded asynchronous continuation with at most ten requests per session. The
-extension reports requested, locally failed, or suppressed delivery; Pi's
-`sendUserMessage` API returns no acknowledgement, so Reconc never claims that
-a requested continuation was accepted or completed.
+Pi 1.x settles through the awaited `agent_before_settle` boundary: Reconc runs
+the Stop gate there and continues natively by appending a hidden
+`custom_message` entry, so no input is injected. Older Pi emits only
+`agent_settled`, where Reconc falls back to bounded asynchronous continuation;
+Pi's `sendUserMessage` API returns no acknowledgement, so Reconc reports
+requested, locally failed, or suppressed delivery and never claims that a
+requested continuation was accepted or completed. Both paths allow at most ten
+continuations per session.
 
 Cursor CLI's primary executable is `agent`; `cursor-agent` is its
 backward-compatible alias. Reconc validates the executable identity instead of
@@ -902,8 +907,10 @@ accepts positive command evidence only from authoritative host outcome fields,
 never from stdout text. OMP and Pi Bash success is accepted only when `isError`
 is false, with exit code zero synthesized solely for that successful built-in
 result. MCP mappings on Claude Code, Codex, Cursor, OpenCode, Kilo, OMP, Pi, and
-ZCode use exact platform, server fingerprint, tool, and JSON Pointer selectors;
-malformed or unclassified calls produce no positive repository evidence.
+ZCode use exact platform, server fingerprint, tool, and JSON Pointer selectors,
+and DeepSeek Harness classifies before the call under the `custom:dsh`
+platform; malformed or unclassified calls produce no positive repository
+evidence.
 
 ## Release Trust and Reproducibility
 
@@ -1273,7 +1280,7 @@ through the private route in
 
 Development source has no assigned product release version.
 Published tags and artifacts are listed in [Releases](https://github.com/Christopher-Schulze/reconc/releases).
-Only Christopher's explicit instruction assigns a release tag to a chosen
+Only the maintainer's explicit instruction assigns a release tag to a chosen
 commit. Development builds report `dev` with available VCS metadata; managed
 builds include the commit and dirty state. Changed schemas use content-addressed
 identities; unchanged contracts retain their published identities.

@@ -68,10 +68,13 @@ Repository mode is durable for this repository, not machine-global. Claude
 Code, Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, ZCode, and Kimi Code
 CLI expose synchronous Stop continuation. Oh My Pi exposes awaited native
 main-session Stop continuation capped at eight accepted requests. OpenCode and
-Kilo Code use inferred
-`session.idle`, so their host continuation remains best-effort and fail-open.
-Pi uses inferred fail-open `agent_settled` continuation with at most ten
-requests per session; `sendUserMessage` provides no delivery acknowledgement.
+Kilo Code use inferred end-of-run continuation (`session.idle`, or OpenCode 2.x
+execution events), so their host continuation remains best-effort and
+fail-open.
+Pi 1.x continues natively at the awaited `agent_before_settle` boundary;
+older Pi uses inferred fail-open `agent_settled` continuation, where
+`sendUserMessage` provides no delivery acknowledgement. Both allow at most ten
+continuations per session.
 Grok Build has hard native PreToolUse. Reconc also emits exact native Stop
 blocks without a leader, but accepts synchronous enforcement only when the
 installed Grok hook guide advertises blocking Stop decision control. Passive

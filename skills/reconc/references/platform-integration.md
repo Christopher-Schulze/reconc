@@ -92,9 +92,10 @@ Never claim live enforcement from static configuration or contract tests;
 require exact `hook status` liveness.
 
 OpenCode and Kilo accept shell success only from integer
-`output.metadata.exit == 0`. Their `session.idle` continuation calls only
-asynchronous `promptAsync`, is generation-deduplicated and capped, and remains
-fail-open/inferred. A missing API, rejected request, or invalid response is not
+`metadata.exit == 0`. Their continuation after `session.idle` (OpenCode 2.x: a
+succeeded or failed execution) calls only asynchronous `promptAsync` (OpenCode
+2.x: `session.prompt` with queue delivery), is generation-deduplicated and
+capped, and remains fail-open/inferred. A missing API, rejected request, or invalid response is not
 delivered continuation.
 
 Oh My Pi binds executed arguments from `tool_result` to the final
@@ -145,7 +146,8 @@ MCP repository effects are opt-in exact mappings in `.reconc.yml`. Use
 `reconc why mcp .` to inspect the compiled contract. Never treat an unknown
 identity, malformed selector value, unknown outcome, or `external` effect as
 repository evidence. Cursor can strictly deny unclassified calls through its
-dedicated MCP pre-hook. OpenCode/Kilo generic hooks cannot identify
+dedicated MCP pre-hook, and Claude Code and Codex through their `mcp__` tool
+namespace. OpenCode/Kilo generic hooks cannot identify
 unconfigured MCP calls soundly; OMP, DSH, Pi, and ZCode have the same generic-tool identity limit.
 Report strict unclassified deny as unavailable on those surfaces while exact
 configured tool identities remain enforceable.

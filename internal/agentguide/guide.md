@@ -292,7 +292,8 @@ stays active:
 reconc hook evidence-resolve . --token <sha256> --reason "<reviewed reason>"
 ```
 `hook evidence-resolve`, `hook pause`, and `hook resume` are operator-only;
-the gate refuses them from agent tool calls. During an operator pause
+the gate refuses recognized invocations of them in agent tool calls, and you
+must never route them through a script or other indirection. During an operator pause
 (`reconc hook pause-status .`), gates pass with a notice; it is not evidence.
 
 ## Integration Surfaces
@@ -364,9 +365,9 @@ weaker host lifecycle respectively.
   artifact loading only and never creates task evidence.
 - **OpenCode**: use `reconc hook install opencode .` for the
   thin project-local `.opencode/plugins/reconc.js` adapter. Shell success
-  requires integer `output.metadata.exit == 0`. Bounded asynchronous
-  continuation is inferred from `session.idle`, not a synchronous native Stop
-  gate.
+  requires integer `metadata.exit == 0`. Bounded asynchronous continuation is
+  inferred from the end of a run (`session.idle` on 1.x, a succeeded or failed
+  execution on 2.x), not a synchronous native Stop gate.
 - **Devin CLI**: `.devin/hooks.v1.json` covers session, user-prompt, tool,
   permission, Stop, cleanup, and post-compaction recovery.
 - **Antigravity CLI**: `.agents/hooks.json` covers invocation, tool,
@@ -397,8 +398,10 @@ weaker host lifecycle respectively.
   never edits project trust. Status requires saved canonical-path trust or
   `defaultProjectTrust: "always"` before reporting `configured`. Native
   `tool_call` and `user_bash` fail closed; result, lifecycle, compaction, and
-  shutdown observations fail open. Inferred `agent_settled` continuation is
-  capped at ten requests per session and reports no delivery acknowledgement.
+  shutdown observations fail open. Pi 1.x continues natively at the awaited
+  `agent_before_settle` boundary; older Pi's inferred `agent_settled`
+  continuation reports no delivery acknowledgement. Both are capped at ten
+  continuations per session.
   Pi exposes no native permission event, MCP discriminator, post-user-shell
   result, or synchronous Stop gate.
 - **ZCode**: `reconc hook install zcode .` merges exact Reconc process entries
@@ -447,8 +450,9 @@ git hook remain the deterministic backstop for unsupported host events.
 Configured MCP tools are exact opt-in mappings in `.reconc.yml`. Unknown
 identity, wrong fingerprint presence, malformed selected values, unknown
 outcome, and `external` effects produce no repository evidence. Cursor's
-dedicated pre-hook can deny unclassified MCP calls. OpenCode/Kilo generic hooks
-and OMP/Pi/ZCode tool hooks cannot soundly identify unconfigured MCP calls, so strict
+dedicated pre-hook and the `mcp__` tool namespace of Claude Code and Codex can
+deny unclassified MCP calls. OpenCode/Kilo generic hooks and OMP/DSH/Pi/ZCode
+tool hooks cannot soundly identify unconfigured MCP calls, so strict
 unclassified deny is unavailable there. Exact configured tool identities remain
 enforceable. Inspect the compiled redacted contract with
 `reconc why mcp .`.
@@ -470,9 +474,11 @@ Pi Coding Agent,
 Grok Build, ZCode, and Kimi
 Code CLI, scoped to this repository rather than the whole machine. Claude Code,
 Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, Oh My Pi, ZCode, and Kimi
-Code CLI expose synchronous Stop gates. OpenCode and Kilo Code use
-inferred `session.idle`, so their host continuation is best-effort and fail-open.
-Pi uses inferred fail-open `agent_settled` continuation; a requested
+Code CLI expose synchronous Stop gates. OpenCode and Kilo Code use inferred
+end-of-run continuation (`session.idle`, or OpenCode 2.x execution events), so
+their host continuation is best-effort and fail-open.
+Pi 1.x continues natively at the awaited `agent_before_settle` boundary; older
+Pi uses inferred fail-open `agent_settled` continuation, where a requested
 `sendUserMessage` call is not a delivery acknowledgement.
 Grok has a native synchronous Stop gate without a leader only when its installed
 hook guide advertises blocking Stop decision control. Passive Stop TUI sessions

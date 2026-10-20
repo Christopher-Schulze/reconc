@@ -290,7 +290,10 @@ func TestHostIntegrationDocumentationCoversStructuredContract(t *testing.T) {
 	}
 }
 
-func TestBootstrapUsesImmutableHistoricalReleaseTag(t *testing.T) {
+// The README installs from a release tag the reader selects: installer URLs
+// and version arguments carry the reconc-vX.Y.Z placeholder, never mutable
+// main and never a pinned release number.
+func TestREADMEInstallsFromASelectedReleaseTag(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	readme := readPublicSurfaceFile(t, root, "README.md")
 	status := markdownSection(t, "README.md", readme, "Status")
@@ -300,34 +303,29 @@ func TestBootstrapUsesImmutableHistoricalReleaseTag(t *testing.T) {
 	if !strings.Contains(status, "https://github.com/Christopher-Schulze/reconc/releases") {
 		t.Error("README status omits the published release inventory")
 	}
-	publishedPattern := regexp.MustCompile("historical installation example selects the published `(reconc-v[0-9]+\\.[0-9]+\\.[0-9]+)`")
-	publishedMatch := publishedPattern.FindStringSubmatch(readme)
-	if len(publishedMatch) != 2 {
-		t.Fatal("README.md does not identify one historical installation tag")
-	}
-	expectedRef := publishedMatch[1]
-	command := exec.Command("git", "rev-parse", "--verify", "refs/tags/"+expectedRef+"^{commit}")
-	command.Dir = root
-	if err := command.Run(); err != nil {
-		t.Fatalf("historical installation tag %q does not exist: %v", expectedRef, err)
+	install := markdownSection(t, "README.md", readme, "Install and Bootstrap")
+	if !strings.Contains(install, "https://github.com/Christopher-Schulze/reconc/releases") {
+		t.Error("README installation omits the published release inventory")
 	}
 	for _, installer := range []string{"install.sh", "install.ps1"} {
-		command = exec.Command("git", "show", expectedRef+":"+installer)
-		command.Dir = root
-		if output, err := command.Output(); err != nil || len(output) == 0 {
-			t.Fatalf("declared release %s has no installer %s: %v", expectedRef, installer, err)
-		}
 		pattern := regexp.MustCompile(`https://raw\.githubusercontent\.com/Christopher-Schulze/reconc/([^/]+)/` + regexp.QuoteMeta(installer))
 		matches := pattern.FindAllStringSubmatch(readme, -1)
 		if len(matches) == 0 {
 			t.Errorf("README.md omits the %s installer URL", installer)
-			continue
 		}
 		for _, match := range matches {
-			if match[1] != expectedRef {
-				t.Errorf("README.md %s source = %q, want historical installation tag %q", installer, match[1], expectedRef)
+			if match[1] != "reconc-vX.Y.Z" {
+				t.Errorf("README.md %s source = %q, want the reconc-vX.Y.Z placeholder", installer, match[1])
 			}
 		}
+	}
+	for _, argument := range []string{"--version X.Y.Z", "-Version X.Y.Z"} {
+		if !strings.Contains(install, argument) {
+			t.Errorf("README installation omits %q", argument)
+		}
+	}
+	if pinned := regexp.MustCompile(`-(-v|V)ersion [0-9]`).FindString(install); pinned != "" {
+		t.Errorf("README installation pins a release version: %q", pinned)
 	}
 }
 

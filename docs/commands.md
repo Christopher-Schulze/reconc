@@ -1276,7 +1276,7 @@ non-reconc hook groups; and Kilo Code owns
 `.grok/hooks/reconc.json` file. Oh My Pi owns only the dedicated
 `.omp/extensions/reconc.ts` file. DeepSeek Harness owns `.dsh/reconc.mjs`
 and `.dsh/reconc.patch.yml`; start it from the repository with
-`dsh --patch .dsh/reconc.patch.yml`. Installation does not change user
+`npx --yes @deepseek-ai/dsh@0.1.5-rc.2 --profile headless --patch .dsh/reconc.patch.yml`. Installation does not change user
 profiles, and status cannot treat an installed overlay as proof that the
 current DSH process loaded it. Native file paths from subdirectory sessions
 are rebased to the policy root; stateful shells retain their named tool identity
@@ -1397,9 +1397,11 @@ inline-table syntax. It rejects root-level `hooks=true`, duplicate or malformed
 declarations, and non-boolean values, and has no
 separate failed-tool route; failed Bash outcomes are inferred from
 `PostToolUse`. OpenCode and Kilo Code preserve complete post-tool output,
-deduplicate terminal tool errors from `message.part.updated`, and route user
-prompts plus pre/post-compaction lifecycle. Their continuation is inferred from
-`session.idle`, not a synchronous native Stop gate. OMP uses native awaited
+deduplicate terminal tool errors (from `message.part.updated`, or from a failed
+`execute.after` on OpenCode 2.x), and route user prompts plus pre/post-compaction
+lifecycle. Their continuation is inferred from `session.idle` (OpenCode 2.x: a
+succeeded or failed execution; an interrupted run never continues), not a
+synchronous native Stop gate. OMP uses native awaited
 `session_stop`, with at most eight continuation turns, and routes `tool_call`
 and `user_bash` blocking separately from observational approval events. A shell
 command the user types reaches the same decision as one the agent requests.
@@ -1419,12 +1421,13 @@ loading; its optional leader probe requires protocol
 version 1 and a recognized `_x.ai/interject` response, not just a successful
 register handshake. It also requires project-owned inspect metadata and exact
 route command tokens; prefix collisions do not satisfy route coverage.
-Pi maps `agent_settled` to fail-open asynchronous continuation, caps requests at
-ten per session, and reports requested delivery without inventing an API
-acknowledgement. Native `tool_call` and `user_bash` are blocking; result,
+Pi 1.x runs the Stop gate on the awaited `agent_before_settle` boundary and
+continues natively with a hidden `custom_message` entry; older Pi maps
+`agent_settled` to fail-open asynchronous continuation and reports requested
+delivery without inventing an API acknowledgement. Both cap continuations at
+ten per session. Native `tool_call` and `user_bash` are blocking; result,
 lifecycle, compaction, and shutdown routes are observational. Pi exposes no
-native permission, MCP discriminator, post-user-shell result, or synchronous
-Stop decision event.
+native permission, MCP discriminator, or post-user-shell result event.
 ZCode status verifies the nested project configuration, `hooks.enabled`, all
 seven exact managed process entries, the shared wrapper, and `sh` availability.
 Hard pre-tool blocks use exit 2, permission denials use the native decision
@@ -1432,8 +1435,8 @@ object, and Stop uses native block JSON; malformed fail-closed requests use
 exit 2. Host timeouts remain ZCode-owned fail-open boundaries. ZCode generic
 tool payloads do not distinguish an unconfigured MCP call from a built-in or
 custom tool.
-OpenCode, Kilo Code, OMP, and Pi keep one session-owned Reconc stdio worker per
-plugin repository. Requests are bounded format-1 JSON frames and retain the
+OpenCode, Kilo Code, OMP, DeepSeek Harness, and Pi keep one session-owned
+Reconc stdio worker per plugin repository. Requests are bounded format-1 JSON frames and retain the
 registry route timeout and error policy. A failure before an event request is
 written may use one-shot execution within the remaining route budget. Transient
 startup failures use capped 100 ms, 500 ms, and 2.5 s retry delays; a proven
@@ -1589,7 +1592,10 @@ and the project taint lock serialize recovery; partial cleanup retains the taint
 and can retry the same token. The original review receipt is never replaced.
 Ordinary field overflows retain healthy evidence. Required lost evidence must
 be reproduced before certification. The
-command is operator-only: agent tool calls that issue it are refused.
+command is operator-only: the pre-tool gate refuses recognized invocations in
+agent tool calls, and the command requires a local interactive terminal
+confirmation, a local interaction requirement that a process with the same
+user rights can still automate.
 
 ### `reconc hook pause [repo] --for DURATION --reason TEXT [--json]`
 Operator-only incident valve that replaces removing or stubbing hooks. For the
@@ -1602,7 +1608,7 @@ pause supersedes the active one. The record keeps the 32 most recent pauses.
 ### `reconc hook resume [repo] [--json]`
 Ends the active pause before its expiry; fails when no pause is active. It only
 restores enforcement, so it needs no interactive confirmation; the operator-only
-command guard still refuses it inside agent tool calls.
+command guard still refuses recognized invocations of it in agent tool calls.
 
 ### `reconc hook pause-status [repo] [--json]`
 Read-only. Reports the newest pause as active, expired, resumed, or none.
@@ -1650,8 +1656,9 @@ chained evidence.
 AI-operated switch scoped to one repository, not the whole machine. It routes
 continuation through all fourteen registered agent runtimes. Claude Code, Codex,
 GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, Kimi Code CLI, OMP, and ZCode expose
-synchronous Stop gates; OpenCode and Kilo Code use inferred `session.idle`
-adapters whose host boundary is best-effort and fail-open. DSH offers one
+synchronous Stop gates; OpenCode and Kilo Code use inferred end-of-run
+adapters (`session.idle`, or OpenCode 2.x execution events) whose host boundary
+is best-effort and fail-open. DSH offers one
 awaited `agent/turn-stopping` remediation through `agent.steer` per turn. Reconc emits exact Grok
 Stop block JSON
 without a leader; synchronous stock-TUI enforcement and its continuation bound
@@ -1659,8 +1666,9 @@ are accepted only when the installed Grok guide explicitly advertises the
 contract. Passive Stop sessions can be steered through `_x.ai/interject` over
 the Unix socket or Windows named pipe. Eligible leader Stops use strict
 continuation before policy evaluation.
-Pi uses a separate inferred `agent_settled` adapter whose asynchronous
-`sendUserMessage` request is fail-open and has no host delivery
+Pi 1.x continues natively at the awaited `agent_before_settle` boundary; on
+older Pi the inferred `agent_settled` fallback sends an asynchronous
+`sendUserMessage` request that is fail-open and has no host delivery
 acknowledgement.
 Only successfully delivered interjections consume the 32-attempt cap;
 transport or protocol failures do not. The cap resets on material progress, a

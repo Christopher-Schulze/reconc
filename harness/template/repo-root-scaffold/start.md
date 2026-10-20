@@ -51,9 +51,12 @@ issue `run off` for a blocker. Resolve the blocker, then run `reconc run on .`
 to resume. Never ask the user to operate these commands. The switch is scoped
 to this repository. Claude Code, Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity
 CLI, and ZCode expose synchronous Stop continuation. Oh My Pi exposes awaited
-main-session `session_stop` with an eight-continuation cap; Pi uses inferred
-fail-open `agent_settled` continuation with no delivery acknowledgement; OpenCode and Kilo
-Code use best-effort, fail-open `session.idle` adapters. It claims queued work when
+main-session `session_stop` with an eight-continuation cap; Pi 1.x continues
+natively at the awaited `agent_before_settle` boundary, while older Pi uses
+inferred fail-open `agent_settled` continuation with no delivery
+acknowledgement; OpenCode and Kilo
+Code use best-effort, fail-open end-of-run adapters (`session.idle`, or
+OpenCode 2.x execution events). It claims queued work when
 `Current: none`, disables on complete or absent state after terminal gates,
 releases blocked state to the hard Stop gate, and fails closed on invalid TASK
 state. An interrupt or six repeated no-progress continuations releases only

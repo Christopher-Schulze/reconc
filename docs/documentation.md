@@ -246,8 +246,9 @@ Requirements:
 - macOS `13` Ventura or later for native macOS builds; this is the minimum
   supported by the Go 1.27 toolchain
 - Git for `reconc ci` and hook installation
-- Bun `1.3.14` for executable OpenCode, Kilo Code, Oh My Pi, and Pi adapter tests
-  only; the shipped Reconc binary has no Bun runtime dependency
+- Bun `1.3.14` for executable OpenCode, Kilo Code, Oh My Pi, DeepSeek Harness,
+  and Pi adapter tests only; the shipped Reconc binary has no Bun runtime
+  dependency
 - Python `3.13.14` only for the pinned disposable LangChain MCP interoperability
   job; the shipped binary, product code, and core tests have no Python runtime
   dependency
@@ -515,7 +516,7 @@ Development has no assigned product release version. `make build` resolves
 `dev+<commit>` and appends `-dirty` for tracked or untracked changes. Direct
 `go build` uses embedded VCS metadata when available; `go run` or source without
 VCS metadata reports `dev`. No build discovers a release version from tags
-automatically. Only Christopher's explicit instruction selects a commit and
+automatically. Only the maintainer's explicit instruction selects a commit and
 release tag. `RELEASE_TAG=reconc-vX.Y.Z` must name an existing stable tag whose
 commit equals clean HEAD; the build derives its version from that tag.
 
@@ -4808,7 +4809,7 @@ contains no second matrix.
 | Kilo Code VS Code host | The same canonical project plugin when that host loads external project plugins | CLI observations are never reused as VS Code proof |
 | Oh My Pi CLI | `.omp/extensions/reconc.ts`; native session, input, tool, user-shell, user-Python observation, approval, compaction, shutdown, and awaited main-session Stop routes | OMP 18.1.18 emitted Reconc session, pre-tool, final post-tool, Stop, and shutdown routes in a disposable repository; `tool_call` and `user_bash` have blocking contracts, but native policy denial was not exercised; `user_python` is observed and never decided |
 | DeepSeek Harness CLI | `.dsh/reconc.mjs` and `.dsh/reconc.patch.yml` loaded with the selected profile; blocking pre-tool decisions, passive results, and awaited bounded Stop continuation | Pinned source/profile contracts and executable offline tests verify policy denial/allow, worker failures, continuation, composition, and observational evidence |
-| Pi Coding Agent | `.pi/extensions/reconc.ts`; trusted-project session, input, tool, user-shell, result, compaction, settled, and shutdown routes | Static extension and saved-trust contract plus per-route liveness; `tool_call` and `user_bash` can enforce before host action, while settled continuation remains inferred |
+| Pi Coding Agent | `.pi/extensions/reconc.ts`; trusted-project session, input, tool, user-shell, result, compaction, awaited before-settle Stop, settled, and shutdown routes | Static extension and saved-trust contract plus per-route liveness; `tool_call` and `user_bash` can enforce before host action, while settled continuation remains inferred |
 | ZCode CLI | `.zcode/config.json`; all seven native session, prompt, tool, permission, failure, and synchronous Stop routes through the documented process executor | Static workspace contract plus per-route liveness; pre-tool, permission, and Stop can block, while host timeouts remain fail-open |
 | Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; the 16 decision- and evidence-carrying hooks of the host's twenty dispatch through receipt-bound bare `reconc` and discover the current repository | Generator-exact global configuration plus installation-receipt executable identity; no live claim without a real Kimi route observation |
 
@@ -5123,8 +5124,8 @@ Interactive trust or `pi --approve` can activate one run but does not become a
 static saved-trust claim.
 
 The Pi adapter registers `session_start`, `input`, `tool_call`, `tool_result`,
-`user_bash`, `session_before_compact`, `session_compact`, `agent_settled`, and
-`session_shutdown`. Awaited `tool_call` and `user_bash` are fail-closed before
+`user_bash`, `session_before_compact`, `session_compact`,
+`agent_before_settle`, `agent_settled`, and `session_shutdown`. Awaited `tool_call` and `user_bash` are fail-closed before
 host execution. An allowed `user_bash` returns no replacement result and lets
 Pi execute its own command; a denial returns a complete synthetic shell result
 with exit code 2. Pi exposes no post-user-shell event. `tool_result.isError` is
@@ -5156,12 +5157,11 @@ taken. A test compares each record against the registry in both directions, so
 a route the host does not publish and an event the host publishes that Reconc
 drops both fail. Every deliberate non-binding carries its reason in the record,
 which is how "the host cannot do this" stays distinguishable from "Reconc
-chooses not to". Contract fixtures pin Pi
-source revision `ac4ac9eaf69f2b01ca3af984a5c48f3b99b84278` at
-`@earendil-works/pi-coding-agent` v0.84.1 and OMP revision
-`00085d4e7dfdcfbf302c122fa2682b410a0f43d1` at v18.1.18. That Pi revision widened
-the blocking tool result with `terminate`, a hint the host honors only when
-every finalized call in a tool batch sets it. Reconc has no policy mode that
+chooses not to". Contract fixtures pin Pi 1.3.0 at source revision
+`d2e7d8b7c1d31d3661f769d5caef7ba8d50c3e03` and OMP 18.12.2 at revision
+`5d72f5d3f49a802e51d04c810002eb1830440172`, both captured 2026-10-19. Pi's
+blocking tool result also accepts `terminate` (since 0.84.1), a hint the host
+honors only when every finalized call in a tool batch sets it. Reconc has no policy mode that
 ends a session, so the adapter keeps returning `{block, reason}` and leaves the
 hint unused.
 
@@ -5757,7 +5757,7 @@ registers native `session_start`, `input`, `tool_call`, `tool_result`,
 extension translates only host envelopes and decisions; policy and durable
 session state stay in Go. On Windows it uses the same `sh` wrapper boundary.
 Pi uses the typed Bun extension at `.pi/extensions/reconc.ts`. It translates
-the nine native events and host decisions only; policy and durable session
+the ten native events and host decisions only; policy and durable session
 state stay in Go. Its adapter shares the bounded output, UTF-8, timeout, kill,
 await, wrapper-resolution, and Windows `sh` transport contract, while preserving
 the host abort signal as authoritative cancellation.
@@ -6692,7 +6692,7 @@ current-state documentation.
 ## Release State
 
 Development source has no assigned product release version.
-Only Christopher's explicit instruction assigns a release tag to a chosen
+Only the maintainer's explicit instruction assigns a release tag to a chosen
 commit. Creating a tag and publishing a release require explicit authorization.
 The latest published stable release is available at
 [GitHub Releases](https://github.com/Christopher-Schulze/reconc/releases/latest).
