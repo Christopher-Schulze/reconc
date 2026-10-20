@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -16,8 +17,16 @@ func TestWorkerResponseBufferContract(t *testing.T) {
 	}
 	repo := t.TempDir()
 	driverPath := filepath.Join(repo, "worker-buffer-contract.js")
+	// The driver asserts clean shutdowns, so the fake worker gets far more
+	// than the production 200 ms to answer one even on a heavily loaded host.
+	productionShutdownWait := `waitForWorkerLine(current, 200, undefined, "shutdown")`
+	if !strings.Contains(hookWorkerClientSource, productionShutdownWait) {
+		t.Fatal("worker client shutdown wait changed; update this contract driver")
+	}
+	client := strings.Replace(hookWorkerClientSource, productionShutdownWait,
+		`waitForWorkerLine(current, 10000, undefined, "shutdown")`, 1)
 	driver := "const routeBudgets = new Proxy({}, { get: () => ({ timeoutMilliseconds: 2000, maxOutputBytes: 8192 }) })\n" +
-		hookWorkerClientSource + workerBufferContractDriver
+		client + workerBufferContractDriver
 	if err := os.WriteFile(driverPath, []byte(driver), 0o644); err != nil {
 		t.Fatal(err)
 	}
