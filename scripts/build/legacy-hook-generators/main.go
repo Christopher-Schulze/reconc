@@ -31,6 +31,8 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedexec"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/gitexec"
 	"reconc.dev/reconc/internal/hooks"
 )
@@ -60,6 +62,13 @@ func main() {
 	}
 }
 `
+
+const (
+	maxArchiveBytes         = 256 << 20
+	maxGeneratorOutputBytes = 64 << 20
+	maxGitOutputBytes       = 1 << 20
+	maxRegistryBytes        = 16 << 20
+)
 
 // firstRecordedRelease is the earliest release whose generators the dump
 // program can run: `hooks.Platforms` and `hooks.Generate` exist from it on.
@@ -123,7 +132,7 @@ func run(args []string) error {
 		_, err = atomicfile.WriteIfChanged(*output, body, 0o644)
 		return err
 	}
-	current, err := os.ReadFile(*output)
+	current, err := boundedio.ReadRegularFile(*output, maxRegistryBytes)
 	if err != nil {
 		return err
 	}
@@ -159,13 +168,19 @@ func recordedReleaseTags(ctx context.Context, root string) ([]string, error) {
 }
 
 func gitLines(ctx context.Context, root string, args ...string) ([]string, error) {
-	var stdout, stderr bytes.Buffer
-	command := gitexec.CommandContext(ctx, root, nil, args...)
-	command.Stdout, command.Stderr = &stdout, &stderr
-	if err := command.Run(); err != nil {
-		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	output, err := boundedexec.Output(gitexec.CommandContext(ctx, root, nil, args...), maxGitOutputBytes)
+	if err != nil {
+		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, exitDetail(err))
 	}
-	return strings.Fields(stdout.String()), nil
+	return strings.Fields(string(output)), nil
+}
+
+func exitDetail(err error) string {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return strings.TrimSpace(string(exitErr.Stderr))
+	}
+	return ""
 }
 
 func releaseArtifacts(ctx context.Context, tag string) (map[string]string, error) {
@@ -174,13 +189,11 @@ func releaseArtifacts(ctx context.Context, tag string) (map[string]string, error
 		return nil, err
 	}
 	defer os.RemoveAll(directory)
-	var archive bytes.Buffer
-	command := gitexec.CommandContext(ctx, ".", nil, "archive", "--format=tar", tag)
-	command.Stdout = &archive
-	if err := command.Run(); err != nil {
-		return nil, fmt.Errorf("export source: %w", err)
+	archive, err := boundedexec.Output(gitexec.CommandContext(ctx, ".", nil, "archive", "--format=tar", tag), maxArchiveBytes)
+	if err != nil {
+		return nil, fmt.Errorf("export source: %w: %s", err, exitDetail(err))
 	}
-	if err := extract(&archive, directory); err != nil {
+	if err := extract(bytes.NewReader(archive), directory); err != nil {
 		return nil, err
 	}
 	program := filepath.Join(directory, "internal", "zzlegacydump")
@@ -190,14 +203,14 @@ func releaseArtifacts(ctx context.Context, tag string) (map[string]string, error
 	if err := os.WriteFile(filepath.Join(program, "main.go"), []byte(dumpProgram), 0o644); err != nil {
 		return nil, err
 	}
-	var stdout, stderr bytes.Buffer
 	run := exec.CommandContext(ctx, "go", "run", "./internal/zzlegacydump")
-	run.Dir, run.Stdout, run.Stderr = directory, &stdout, &stderr
-	if err := run.Run(); err != nil {
-		return nil, fmt.Errorf("run release generators: %w: %s", err, strings.TrimSpace(stderr.String()))
+	run.Dir = directory
+	output, err := boundedexec.Output(run, maxGeneratorOutputBytes)
+	if err != nil {
+		return nil, fmt.Errorf("run release generators: %w: %s", err, exitDetail(err))
 	}
 	artifacts := map[string]string{}
-	if err := json.Unmarshal(stdout.Bytes(), &artifacts); err != nil {
+	if err := json.Unmarshal(output, &artifacts); err != nil {
 		return nil, fmt.Errorf("decode release generators: %w", err)
 	}
 	return artifacts, nil
