@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"reconc.dev/reconc/internal/boundedexec"
@@ -388,13 +389,21 @@ func worktreePathHashWithScan(repoRoot string, path, indexEntry string, scanCach
 		if strings.HasPrefix(indexEntry, "160000 ") {
 			return submoduleWorktreeHash(fullPath)
 		}
-		generation, reliable := stopDirectoryGeneration(fullPath)
-		if reliable {
-			if identity, ok := cachedStopDirtyIdentity(scanCache, repoRoot, path, indexEntry, generation); ok {
-				return identity
+		var identity, generation string
+		var reliable bool
+		if hasStopDirtyIdentity(scanCache, repoRoot, path, indexEntry) {
+			generation, reliable = stopDirectoryGeneration(fullPath)
+			if reliable {
+				if cached, ok := cachedStopDirtyIdentity(scanCache, repoRoot, path, indexEntry, generation); ok {
+					return cached
+				}
 			}
+			identity = stopDirectoryContentHashObserved(fullPath, scanCache.recordContentHash)
+		} else {
+			// Nothing to revalidate yet: one walk yields both the metadata
+			// generation and the content identity.
+			identity, generation, reliable = stopDirectoryIdentityAndGeneration(fullPath, scanCache.recordContentHash)
 		}
-		identity := stopDirectoryContentHashObserved(fullPath, scanCache.recordContentHash)
 		if reliable && trustedStopDirectoryIdentity(identity) {
 			storeStopDirtyIdentity(scanCache, repoRoot, path, indexEntry, generation, identity)
 		}
@@ -432,6 +441,14 @@ func cachedStopDirtyIdentity(
 	key := repoRoot + "\x00" + path + "\x00" + indexEntry
 	entry, ok := cache.dirtyIdentities[key]
 	return entry.identity, ok && entry.generation == generation
+}
+
+func hasStopDirtyIdentity(cache *stopPolicyScanCache, repoRoot, path, indexEntry string) bool {
+	if cache == nil {
+		return false
+	}
+	_, ok := cache.dirtyIdentities[repoRoot+"\x00"+path+"\x00"+indexEntry]
+	return ok
 }
 
 func storeStopDirtyIdentity(
@@ -510,6 +527,13 @@ func hashFileContent(path string) (string, error) {
 	return hashFileContentExpected(path, info)
 }
 
+// contentHashBuffers recycles the copy buffer of Stop content hashing, which
+// would otherwise allocate 32 KiB for every dirty or untracked file.
+var contentHashBuffers = sync.Pool{New: func() any {
+	buffer := make([]byte, 32<<10)
+	return &buffer
+}}
+
 func hashFileContentExpected(path string, expected os.FileInfo) (string, error) {
 	if !expected.Mode().IsRegular() {
 		return "", fmt.Errorf("hash content: %s is not a regular file", path)
@@ -534,7 +558,9 @@ func hashFileContentExpected(path string, expected os.FileInfo) (string, error) 
 		return oversizedFileFingerprint(info), nil
 	}
 	hash := sha256.New()
-	_, readErr := io.Copy(hash, io.LimitReader(file, stopPolicyContentHashBound))
+	buffer := contentHashBuffers.Get().(*[]byte)
+	_, readErr := io.CopyBuffer(hash, io.LimitReader(file, stopPolicyContentHashBound), *buffer)
+	contentHashBuffers.Put(buffer)
 	after, statErr := file.Stat()
 	closeErr := file.Close()
 	if err := errors.Join(readErr, statErr, closeErr); err != nil {

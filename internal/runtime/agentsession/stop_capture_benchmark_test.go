@@ -281,3 +281,100 @@ func BenchmarkStopUncacheablePolicyDirtyTree(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkOneShotClaudeSessionPostHook records Read, Write, and Bash results
+// into the same long session state the pre-hook benchmark judges.
+func BenchmarkOneShotClaudeSessionPostHook(b *testing.B) {
+	repo := setupStopBenchmarkRepo(b)
+	root, err := ResolveRepoRootRef(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	const sessionID = "one-shot-claude-post"
+	state, err := InitializeSessionState(repo, sessionID)
+	if err != nil {
+		b.Fatal(err)
+	}
+	for directory := range 40 {
+		for file := range 25 {
+			relative := fmt.Sprintf("src/module%02d/internal/file%02d.go", directory, file)
+			path := filepath.Join(repo, filepath.FromSlash(relative))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				b.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("package internal\n"), 0o644); err != nil {
+				b.Fatal(err)
+			}
+			state.ReadPaths = append(state.ReadPaths, path)
+		}
+	}
+	for index := range 200 {
+		state.Commands = append(state.Commands, fmt.Sprintf("go test ./src/module%02d/...", index%40))
+	}
+	if err := SaveSessionState(state); err != nil {
+		b.Fatal(err)
+	}
+	content := strings.Repeat("package internal // line\n", 2000)
+	for _, call := range []struct {
+		name    string
+		payload string
+	}{
+		{name: "read", payload: `{"session_id":"one-shot-claude-post","tool_use_id":"call-%d","tool_name":"Read","tool_input":{"file_path":"` + filepath.Join(repo, "src/module01/internal/file01.go") + `"},"tool_response":{"type":"text","file":{"content":%q}}}`},
+		{name: "bash", payload: `{"session_id":"one-shot-claude-post","tool_use_id":"call-%d","tool_name":"Bash","tool_input":{"command":"go vet ./src/..."},"tool_response":{"stdout":%q,"stderr":"","interrupted":false}}`},
+	} {
+		b.Run(call.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for index := range b.N {
+				payload := []byte(fmt.Sprintf(call.payload, index, content))
+				if result := RunHookRequest(root, HookHandlerPostToolUse, "claude-post-tool-use", payload); result.ExitCode != 0 || result.Stderr != "" {
+					b.Fatalf("one-shot post-hook failed: %+v", result)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkOneShotClaudeSessionStop runs the Claude Code Stop hook over the
+// long session the pre-hook benchmark uses, with its writes dirty in Git.
+func BenchmarkOneShotClaudeSessionStop(b *testing.B) {
+	repo := setupStopBenchmarkRepo(b)
+	root, err := ResolveRepoRootRef(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	const sessionID = "one-shot-claude-stop"
+	state, err := InitializeSessionState(repo, sessionID)
+	if err != nil {
+		b.Fatal(err)
+	}
+	for directory := range 40 {
+		for file := range 25 {
+			relative := fmt.Sprintf("src/module%02d/internal/file%02d.go", directory, file)
+			path := filepath.Join(repo, filepath.FromSlash(relative))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				b.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("package internal\n"), 0o644); err != nil {
+				b.Fatal(err)
+			}
+			state.ReadPaths = append(state.ReadPaths, path)
+			if file < 5 {
+				state.WritePaths = append(state.WritePaths, relative)
+			}
+		}
+	}
+	for index := range 200 {
+		state.Commands = append(state.Commands, fmt.Sprintf("go test ./src/module%02d/...", index%40))
+	}
+	if err := SaveSessionState(state); err != nil {
+		b.Fatal(err)
+	}
+	payload := []byte(`{"session_id":"one-shot-claude-stop","stop_hook_active":false}`)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if result := RunHookRequest(root, HookHandlerStop, "claude-stop", payload); result.ExitCode != 0 {
+			b.Fatalf("one-shot Stop failed: %+v", result)
+		}
+	}
+}

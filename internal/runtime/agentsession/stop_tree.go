@@ -203,6 +203,90 @@ func stopDirectoryContentHashObserved(root string, observe func(int64)) string {
 	return "dir:" + hex.EncodeToString(hasher.Sum(nil))
 }
 
+// stopDirectoryIdentityAndGeneration computes in one walk exactly what
+// stopDirectoryContentHashObserved and stopDirectoryGeneration return. A
+// content failure ends only the content identity; the metadata generation
+// keeps walking, as its own walk would.
+func stopDirectoryIdentityAndGeneration(root string, observe func(int64)) (string, string, bool) {
+	contentHasher := sha256.New()
+	generationHasher := sha256.New()
+	var totalBytes int64
+	var contentErr error
+	_, walkErr := walkStopTree(root, func(path string, info os.FileInfo) error {
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		metadata, ok := stopPathMetadataGeneration(path, info)
+		if !ok {
+			if contentErr == nil {
+				contentErr = fmt.Errorf("platform identity unavailable for %s", filepath.ToSlash(rel))
+			}
+			return fmt.Errorf("platform identity unavailable for %s", rel)
+		}
+		generation := metadata
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(path)
+			if err != nil {
+				if contentErr == nil {
+					contentErr = fmt.Errorf("tree contains symlink %s", filepath.ToSlash(rel))
+				}
+				return err
+			}
+			generation += ";target=" + hashBytes([]byte(target))
+		}
+		writeStopTreeComponent(generationHasher, filepath.ToSlash(rel))
+		writeStopTreeComponent(generationHasher, generation)
+		if contentErr == nil {
+			contentErr = writeStopContentComponent(contentHasher, path, rel, metadata, info, &totalBytes, observe)
+		}
+		return nil
+	})
+	identity := "dir:" + hex.EncodeToString(contentHasher.Sum(nil))
+	switch {
+	case contentErr != nil:
+		identity = "dir-error:" + contentErr.Error()
+	case walkErr != nil:
+		identity = "dir-error:" + walkErr.Error()
+	}
+	if walkErr != nil {
+		return identity, "", false
+	}
+	return identity, "dir-generation:" + hex.EncodeToString(generationHasher.Sum(nil)), true
+}
+
+// writeStopContentComponent adds one walked entry to a content identity, with
+// the checks of stopDirectoryContentHashObserved.
+func writeStopContentComponent(hasher hash.Hash, path, rel, metadata string, info os.FileInfo, totalBytes *int64, observe func(int64)) error {
+	writeStopTreeComponent(hasher, filepath.ToSlash(rel))
+	writeStopTreeComponent(hasher, metadata)
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		return fmt.Errorf("tree contains symlink %s", filepath.ToSlash(rel))
+	case info.IsDir():
+		writeStopTreeComponent(hasher, "directory")
+	case info.Mode().IsRegular():
+		*totalBytes += info.Size()
+		if *totalBytes > maxStopTreeBytes {
+			return fmt.Errorf("tree exceeds %d content bytes", maxStopTreeBytes)
+		}
+		contentHash, err := hashFileContentExpected(path, info)
+		if err != nil {
+			return err
+		}
+		if strings.HasPrefix(contentHash, "oversized:") {
+			return fmt.Errorf("tree contains oversized file")
+		}
+		if observe != nil {
+			observe(info.Size())
+		}
+		writeStopTreeComponent(hasher, contentHash)
+	default:
+		return fmt.Errorf("tree contains unsupported mode %s", info.Mode())
+	}
+	return nil
+}
+
 func stopPolicyDirectoryGeneration(root string) (string, bool) {
 	hasher := sha256.New()
 	_, err := walkStopTree(root, func(path string, info os.FileInfo) error {
