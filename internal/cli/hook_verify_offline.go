@@ -788,30 +788,17 @@ func verifyGeneratedHookTransport(kind, repo string) (string, string, []string, 
 	return verifyGeneratedAdapterTransport(kind, repo)
 }
 
+// dshVerificationWorker returns the executable that serves as the DSH
+// verification worker: the running Reconc binary.
+var dshVerificationWorker = os.Executable
+
 func installDSHVerificationWorker(repo, target string) string {
-	executable, err := os.Executable()
+	executable, err := dshVerificationWorker()
 	if err != nil {
 		return "resolve DSH verification executable: " + err.Error()
 	}
-	name := strings.ToLower(filepath.Base(executable))
-	if !strings.HasSuffix(name, ".test") && !strings.HasSuffix(name, ".test.exe") {
-		if err := copyHookVerificationExecutable(executable, target); err != nil {
-			return "install real DSH verification worker: " + err.Error()
-		}
-		return ""
-	}
-	_, source, _, ok := runtime.Caller(0)
-	if !ok {
-		return "resolve DSH verification source: runtime.Caller failed"
-	}
-	moduleRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	command := exec.CommandContext(ctx, "go", "build", "-o", target, "./cmd/reconc")
-	command.Dir = moduleRoot
-	command.Env = append(os.Environ(), "GOFLAGS=-modcacherw")
-	if output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput); err != nil {
-		return fmt.Sprintf("build real DSH verification worker: %v: %s", err, strings.TrimSpace(string(output)))
+	if err := copyHookVerificationExecutable(executable, target); err != nil {
+		return "install real DSH verification worker: " + err.Error()
 	}
 	return ""
 }

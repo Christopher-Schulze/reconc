@@ -9,7 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
+	"time"
 )
 
 // The -reconc-cli-test-directory flag names the directory the package run
@@ -106,7 +108,47 @@ func configureCLITestProcess(source, staged, state string) {
 		}
 	}
 	newHookVerificationChildCommand = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+		// Children get an isolated HOME without the Go build cache, so the
+		// worker is built here first, where the cache is warm.
+		if _, err := stageDSHVerificationWorker(staged); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
 		childArgs := append([]string{"-test.run=^TestHookVerificationIsolatedChild$", cliTestChildFlag(), "--"}, args...)
 		return exec.CommandContext(ctx, source, childArgs...)
 	}
+	dshVerificationWorker = func() (string, error) {
+		return stageDSHVerificationWorker(staged)
+	}
+}
+
+// The generated DSH extension executes its worker directly, which the test
+// binary cannot serve, so a real Reconc build is staged once per package run.
+var (
+	stageDSHVerificationWorkerOnce sync.Once
+	stagedDSHVerificationWorkerErr error
+)
+
+func stageDSHVerificationWorker(staged string) (string, error) {
+	worker := filepath.Join(staged, "reconc-dsh-worker")
+	if runtime.GOOS == "windows" {
+		worker += ".exe"
+	}
+	stageDSHVerificationWorkerOnce.Do(func() {
+		if info, err := os.Stat(worker); err == nil && info.Mode().IsRegular() {
+			return
+		}
+		_, source, _, ok := runtime.Caller(0)
+		if !ok {
+			stagedDSHVerificationWorkerErr = fmt.Errorf("resolve the DSH verification worker source")
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		build := exec.CommandContext(ctx, "go", "build", "-o", worker, "./cmd/reconc")
+		build.Dir = filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
+		if output, err := build.CombinedOutput(); err != nil {
+			stagedDSHVerificationWorkerErr = fmt.Errorf("build the DSH verification worker: %w: %s", err, output)
+		}
+	})
+	return worker, stagedDSHVerificationWorkerErr
 }
