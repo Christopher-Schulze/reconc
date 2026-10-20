@@ -291,9 +291,12 @@ func TestUpdateChecksMissingSkillBeforeSameBinaryReturn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A no-skill installation whose binary is current has nothing to update:
+	// the missing skill is proposed, never installed or required by update.
 	check, err := CheckUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDir})
-	if err != nil || check.Status != LifecycleUpdateAvailable || check.Changed ||
-		check.Skill == nil || check.Skill.State != SkillMissing || check.Skill.Action == nil {
+	if err != nil || check.Status != LifecycleCurrent || check.Changed ||
+		check.Skill == nil || check.Skill.State != SkillMissing || check.Skill.Action == nil ||
+		!strings.Contains(check.NextAction, "reconc install-cli --skill-only") {
 		t.Fatalf("missing skill check = %+v, %v", check, err)
 	}
 	if got := check.Skill.Action.Argv; len(got) != 3 || got[0] != "reconc" || got[1] != "install-cli" || got[2] != "--skill-only" ||
@@ -301,7 +304,7 @@ func TestUpdateChecksMissingSkillBeforeSameBinaryReturn(t *testing.T) {
 		t.Fatalf("missing skill action = %+v", check.Skill.Action)
 	}
 	apply, err := ApplyUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDir})
-	if err != nil || apply.Status != LifecycleRefused || apply.Changed {
+	if err != nil || apply.Status != LifecycleCurrent || apply.Changed {
 		t.Fatalf("missing skill apply = %+v, %v", apply, err)
 	}
 	after, err := os.Lstat(installedBinary)
@@ -311,6 +314,85 @@ func TestUpdateChecksMissingSkillBeforeSameBinaryReturn(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(os.Getenv("HOME"), ".agents", "skills", "reconc")); !os.IsNotExist(err) {
 		t.Fatalf("missing skill was installed silently: %v", err)
 	}
+	withoutBundle := t.TempDir()
+	writeLocalRelease(t, withoutBundle, binary, "1.0.0")
+	check, err = CheckUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: withoutBundle})
+	if err != nil || check.Status != LifecycleCurrent || check.Changed ||
+		check.Skill == nil || check.Skill.State != SkillMissing || check.Skill.Action != nil {
+		t.Fatalf("missing skill without a selected bundle = %+v, %v", check, err)
+	}
+}
+
+func TestUpdateReplacesNoSkillBinaryAndOnlyProposesSkill(t *testing.T) {
+	root := repositoryRoot(t)
+	oldBinary := buildReleaseBinary(t, root, "1.0.0")
+	newBinary := buildReleaseBinary(t, root, "1.1.0")
+	for _, state := range []SkillUpdateState{SkillMissing, SkillUnmanaged} {
+		t.Run(string(state), func(t *testing.T) {
+			installDir := t.TempDir()
+			installedBinary := filepath.Join(installDir, executableName())
+			copyFileForTest(t, oldBinary, installedBinary, 0o755)
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("RECONC_HOME", t.TempDir())
+			t.Setenv("RECONC_INSTALL_DIR", installDir)
+			t.Setenv("PATH", installDir)
+			writeDirectTestReceipt(t, installedBinary, "1.0.0")
+			skillDir := filepath.Join(os.Getenv("HOME"), ".agents", "skills", "reconc")
+			foreignFile := filepath.Join(skillDir, "SKILL.md")
+			if state == SkillUnmanaged {
+				if err := os.MkdirAll(skillDir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(foreignFile, []byte("foreign skill\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			releaseDir := t.TempDir()
+			manifest := writeLocalReleaseWithSkill(t, releaseDir, newBinary, "1.1.0")
+			enableSuccessfulOfflineAttestation(t, releaseDir, targetArtifact("1.1.0"))
+			check, err := CheckUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDir})
+			if err != nil || check.Status != LifecycleUpdateAvailable || check.Skill == nil ||
+				check.Skill.State != state || !proposesSkillInstallation(check) {
+				t.Fatalf("no-skill binary check = %+v, %v", check, err)
+			}
+			applied, err := ApplyUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDir})
+			if err != nil || applied.Status != LifecycleUpdated || !applied.Changed || applied.Skill == nil ||
+				applied.Skill.State != state || !proposesSkillInstallation(applied) {
+				t.Fatalf("no-skill binary apply = %+v, %v", applied, err)
+			}
+			digest, err := fileSHA256(installedBinary)
+			if err != nil || digest != selectedBinaryDigest(t, manifest, "1.1.0") {
+				t.Fatalf("binary did not update: %v", err)
+			}
+			receipt, _, err := LoadReceipt()
+			if err != nil || receipt.Version != "1.1.0" || receipt.Skill != nil {
+				t.Fatalf("updated receipt = %+v, %v; want the new binary without an owned skill", receipt, err)
+			}
+			if state == SkillMissing {
+				if _, err := os.Lstat(skillDir); !os.IsNotExist(err) {
+					t.Fatalf("missing skill was installed silently: %v", err)
+				}
+				return
+			}
+			entries, err := os.ReadDir(skillDir)
+			body, readErr := os.ReadFile(foreignFile)
+			if err != nil || len(entries) != 1 || readErr != nil || string(body) != "foreign skill\n" {
+				t.Fatalf("unmanaged skill directory changed: %d entries, %q, %v, %v", len(entries), body, err, readErr)
+			}
+		})
+	}
+}
+
+// proposesSkillInstallation reports whether a binary-only update names the
+// explicit skill installation in a warning instead of performing it.
+func proposesSkillInstallation(report *LifecycleReport) bool {
+	for _, check := range report.Checks {
+		if check.Name == "skill-installation" && check.Status == "warn" &&
+			strings.Contains(check.Detail, "reconc install-cli --skill-only") {
+			return true
+		}
+	}
+	return false
 }
 
 func TestUpdateCLIRequiresExplicitMissingSkillAction(t *testing.T) {
@@ -327,11 +409,12 @@ func TestUpdateCLIRequiresExplicitMissingSkillAction(t *testing.T) {
 	releaseDir := t.TempDir()
 	writeLocalReleaseWithSkill(t, releaseDir, binary, "1.0.0")
 	check, err := runUpdateCLI(t, installedBinary, "update", "check", "--from-dir", releaseDir, "--json")
-	if err != nil || check.Status != LifecycleUpdateAvailable || check.Skill == nil || check.Skill.Action == nil {
+	if err != nil || check.Status != LifecycleCurrent || check.Skill == nil || check.Skill.Action == nil {
 		t.Fatalf("CLI omitted missing-skill action: %+v, %v", check, err)
 	}
 	apply, err := runUpdateCLI(t, installedBinary, "update", "apply", "--from-dir", releaseDir, "--json")
-	if err == nil || apply.Status != LifecycleRefused || apply.Changed {
+	if err != nil || apply.Status != LifecycleCurrent || apply.Changed ||
+		apply.Skill == nil || apply.Skill.State != SkillMissing {
 		t.Fatalf("CLI installed missing skill without explicit action: %+v, %v", apply, err)
 	}
 	install := exec.Command(installedBinary, "install-cli", "--skill-only", "--json")

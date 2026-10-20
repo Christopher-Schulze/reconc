@@ -126,6 +126,10 @@ corrects the 0.10.3 guarantees.
   comparison of the skill with the running binary.
 - A skill-only update no longer copies the whole binary into a backup it never
   uses, so it also works with a read-only binary directory.
+- An installation without a receipt-owned skill, such as one installed with
+  `--no-skill`, now updates its binary instead of refusing. The skill is only
+  proposed as `reconc install-cli --skill-only`, and an unmanaged skill
+  directory stays unchanged.
 
 - Hook install and uninstall recognize the exact generator output of every
   published release since 0.7.0, so an upgrade replaces it without reporting

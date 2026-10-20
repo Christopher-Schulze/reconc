@@ -1809,11 +1809,14 @@ The command selects stable by default and inspects the binary and portable
 skill independently, even when the selected binary is already current.
 `reconc update check --json` reports the plan without mutation. An owned stale
 skill updates automatically with the selected binary or by itself when the
-binary is current. An absent skill produces an explicit `reconc install-cli
---skill-only` action with typed arguments, working directory, and authorization;
-`update` never installs an absent skill silently. Modified or unmanaged skill
-directories are preserved and block the update. A selected release without a
-verified skill bundle cannot repair an owned skill.
+binary is current. An installation without a receipt-owned skill updates
+only its binary: an absent skill produces an explicit `reconc install-cli
+--skill-only` action with typed arguments, working directory, and
+authorization, and an unmanaged skill directory stays unchanged with a warning
+to move it aside before that installation. `update` never installs a skill
+silently. A modified receipt-owned skill is preserved and blocks the update,
+as does a receipt-owned skill whose directory is absent. A selected release
+without a verified skill bundle cannot repair an owned skill.
 
 Before publication, the updater verifies the selected manifest and archive
 against release checksums, then compares the candidate binary's embedded

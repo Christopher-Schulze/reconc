@@ -118,8 +118,20 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 			return report, nil
 		}
 	}
-	switch skill.State {
-	case SkillMissing:
+	unownedSkill := receipt.Skill == nil && (skill.State == SkillMissing || skill.State == SkillUnmanaged)
+	switch {
+	case unownedSkill:
+		// Update maintains only a receipt-owned skill: a no-skill installation
+		// updates its binary, and its skill stays an explicit installation that
+		// update proposes but never performs.
+		targetSkill = nil
+		replaceLifecycleCheck(report, DiagnosticCheck{Name: "skill-installation", Status: "warn", Detail: unownedSkillDetail(skill)})
+		if binaryCurrent {
+			report.Status = LifecycleCurrent
+			report.NextAction = unownedSkillNextAction(skill)
+			return report, nil
+		}
+	case skill.State == SkillMissing:
 		if skill.Action != nil {
 			report.Status = LifecycleUpdateAvailable
 			report.NextAction = "Run `reconc install-cli --skill-only` explicitly before updating; the missing skill is not installed silently."
@@ -134,11 +146,11 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 			report.NextAction = "The selected release has no verified skill bundle; its binary is current but the skill cannot be installed from it."
 			return report, nil
 		}
-	case SkillUnmanaged, SkillModifiedOwned:
+	case skill.State == SkillUnmanaged || skill.State == SkillModifiedOwned:
 		report.Status = LifecycleRefused
 		report.NextAction = "Preserve and inspect the unmanaged or modified skill directory before updating."
 		return report, nil
-	case SkillUnavailable:
+	case skill.State == SkillUnavailable:
 		report.Status = LifecycleRefused
 		report.NextAction = "The selected release has no verified skill bundle; choose a release with the portable skill."
 		return report, nil
@@ -171,6 +183,42 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 		return applyOwnedSkillUpdate(ctx, report, release, targetSkill, skillArchive, observe)
 	}
 	return applyDirectUpdate(ctx, report, release, targetSkill, skillArchive, observe)
+}
+
+// unownedSkillDetail states a no-skill installation's skill and the explicit
+// step that installs it.
+func unownedSkillDetail(skill *SkillUpdateReport) string {
+	switch {
+	case skill.State == SkillUnmanaged:
+		return "a skill directory exists without receipt ownership at " + skill.Path +
+			" and stays unchanged; move it aside, then run `reconc install-cli --skill-only` to install the owned skill"
+	case skill.Action != nil:
+		return "no receipt-owned portable skill; run `reconc install-cli --skill-only` to install it, update never installs it"
+	default:
+		return "no receipt-owned portable skill, and the selected release ships no skill bundle"
+	}
+}
+
+func unownedSkillNextAction(skill *SkillUpdateReport) string {
+	switch {
+	case skill.State == SkillUnmanaged:
+		return "Move the skill directory at " + skill.Path + " aside, then run `reconc install-cli --skill-only` to install the owned skill."
+	case skill.Action != nil:
+		return "Run `reconc install-cli --skill-only` to install the portable skill; update never installs it."
+	default:
+		return "Global Reconc matches the selected release, which ships no portable skill."
+	}
+}
+
+// replaceLifecycleCheck replaces the check of the same name, or appends it.
+func replaceLifecycleCheck(report *LifecycleReport, check DiagnosticCheck) {
+	for index := range report.Checks {
+		if report.Checks[index].Name == check.Name {
+			report.Checks[index] = check
+			return
+		}
+	}
+	report.Checks = append(report.Checks, check)
 }
 
 func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release selectedRelease, targetSkill *SkillReceipt, skillArchive ReleaseAsset, observe updateObserver) (*LifecycleReport, error) {

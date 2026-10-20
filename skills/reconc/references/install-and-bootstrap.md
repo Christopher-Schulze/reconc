@@ -35,10 +35,11 @@ After successful installation, use bare `reconc` instead of versioned paths.
 
 Use `reconc update check --json` to inspect the selected binary and skill
 without mutation. Bare `reconc update` updates a stale receipt-owned skill
-automatically, including when the binary is already current. If the skill is
-absent, follow the explicit `install-cli --skill-only` action in the report;
-`update` does not install it silently. Modified or unmanaged skill directories
-must be inspected before retrying. `reconc skill-manifest --json` prints the
+automatically, including when the binary is already current. Without a
+receipt-owned skill, `update` updates only the binary and never installs the
+skill silently: follow the explicit `install-cli --skill-only` action in the
+report, after moving an unmanaged skill directory aside. A modified owned skill
+blocks the update and must be inspected before retrying. `reconc skill-manifest --json` prints the
 running binary's embedded skill identity for read-only verification.
 
 ## Bootstrap A Repo
