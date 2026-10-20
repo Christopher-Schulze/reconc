@@ -764,7 +764,8 @@ and byte-compares the notice before checksums and provenance are accepted.
      Literal templates return no capture map. High-cardinality path
     normalization uses a request-local prospective resolver that revalidates
     every reused observation with `Lstat` before use: existing ancestors keep
-    their identity and metadata, confirmed-missing ancestors must still be
+    their identity and metadata, including the inode change time that a
+    case-only rename alters, confirmed-missing ancestors must still be
     missing, and existing non-symlinks derive their identity from a
     revalidated parent; missing suffixes are never trusted from string state
     alone. Recorded read evidence is the one bulk exception: while its set is

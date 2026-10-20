@@ -301,7 +301,16 @@ func joinProspectiveSuffix(identity, absolute, ancestor string) string {
 func sameProspectiveAncestor(left, right os.FileInfo) bool {
 	return left != nil && right != nil && os.SameFile(left, right) &&
 		left.Mode() == right.Mode() && left.Size() == right.Size() &&
-		left.ModTime().Equal(right.ModTime())
+		left.ModTime().Equal(right.ModTime()) && sameChangeTime(left, right)
+}
+
+// sameChangeTime compares inode change times where the platform reports
+// them: a rename, including a case-only one, changes the renamed entry's
+// change time but not its modification time.
+func sameChangeTime(left, right os.FileInfo) bool {
+	leftTime, leftOK := changeTime(left)
+	rightTime, rightOK := changeTime(right)
+	return leftOK == rightOK && leftTime == rightTime
 }
 
 // ResolveExisting returns the absolute operating-system identity of an
