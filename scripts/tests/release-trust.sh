@@ -268,23 +268,23 @@ require_action "$codeql_workflow" "github/codeql-action/analyze"
 require_action "$ci_workflow" "actions/setup-node"
 require_action "$release_workflow" "actions/setup-node"
 require_action "$release_workflow" "actions/attest-build-provenance"
-[ "$(grep -Fc 'uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0' "$ci_workflow")" -eq 4 ] \
-  || fail "$ci_workflow must provision pinned Go in all four jobs"
-[ "$(grep -Fc 'go-version-file: go.mod' "$ci_workflow")" -eq 4 ] \
-  || fail "$ci_workflow must derive Go from go.mod in all four jobs"
-[ "$(grep -Fc 'fetch-depth: 0' "$ci_workflow")" -eq 4 ] \
-  || fail "$ci_workflow must fetch full history in all four jobs"
+[ "$(grep -Fc 'uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0' "$ci_workflow")" -eq 7 ] \
+  || fail "$ci_workflow must provision pinned Go in all seven jobs"
+[ "$(grep -Fc 'go-version-file: go.mod' "$ci_workflow")" -eq 7 ] \
+  || fail "$ci_workflow must derive Go from go.mod in all seven jobs"
+[ "$(grep -Fc 'fetch-depth: 0' "$ci_workflow")" -eq 7 ] \
+  || fail "$ci_workflow must fetch full history in all seven jobs"
 [ "$(grep -Fc 'fetch-depth: 0' "$release_workflow")" -eq 3 ] \
   || fail "$release_workflow must fetch full history in all three release jobs"
 for workflow in "$ci_workflow" "$release_workflow"; do
   require_text "$workflow" "uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0"
 done
-[ "$(grep -Fc 'node-version: 24.18.0' "$ci_workflow")" -eq 1 ] \
-  || fail "$ci_workflow must provision Node.js 24.18.0 in the executable-test job"
+[ "$(grep -Fc 'node-version: 24.18.0' "$ci_workflow")" -eq 3 ] \
+  || fail "$ci_workflow must provision Node.js 24.18.0 in the three executable-test jobs"
 [ "$(grep -Fc 'node-version: 24.18.0' "$release_workflow")" -eq 1 ] \
   || fail "$release_workflow must provision Node.js 24.18.0 in the artifact-build job"
-[ "$(grep -Fc 'package-manager-cache: false' "$ci_workflow")" -eq 1 ] \
-  || fail "$ci_workflow must disable implicit package-manager caching in the executable-test job"
+[ "$(grep -Fc 'package-manager-cache: false' "$ci_workflow")" -eq 3 ] \
+  || fail "$ci_workflow must disable implicit package-manager caching in the executable-test jobs"
 [ "$(grep -Fc 'package-manager-cache: false' "$release_workflow")" -eq 1 ] \
   || fail "$release_workflow must disable implicit package-manager caching in the artifact-build job"
 require_text "$ci_workflow" "uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0"
@@ -308,20 +308,20 @@ for workflow in "$ci_workflow" "$release_workflow"; do
   fi
 done
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$ci_workflow")" -eq 1 ] \
-  || fail "$ci_workflow must fetch the exact Bun package in the executable-test job"
+[ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$ci_workflow")" -eq 3 ] \
+  || fail "$ci_workflow must fetch the exact Bun package in the three executable-test jobs"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
 [ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$release_workflow")" -eq 1 ] \
   || fail "$release_workflow must fetch the exact Bun package in the artifact-build job"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$ci_workflow")" -eq 1 ] \
-  || fail "$ci_workflow must install only the verified Bun tarball in the executable-test job"
+[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$ci_workflow")" -eq 3 ] \
+  || fail "$ci_workflow must install only the verified Bun tarball in the three executable-test jobs"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
 [ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$release_workflow")" -eq 1 ] \
   || fail "$release_workflow must install only the verified Bun tarball in the artifact-build job"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$ci_workflow")" -eq 1 ] \
-  || fail "$ci_workflow must verify the exact Bun version in the executable-test job"
+[ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$ci_workflow")" -eq 3 ] \
+  || fail "$ci_workflow must verify the exact Bun version in the three executable-test jobs"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
 [ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$release_workflow")" -eq 1 ] \
   || fail "$release_workflow must verify the exact Bun version in the artifact-build job"
