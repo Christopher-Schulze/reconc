@@ -2,6 +2,9 @@ package tasklifecycle
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +12,10 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
+
+	"reconc.dev/reconc/internal/boundedio"
+	"reconc.dev/reconc/internal/filelock"
 )
 
 var (
@@ -41,18 +48,113 @@ func Inspect(repoRoot string) (*Board, error) {
 // must not turn a Stop into a hard block.
 const maxConcurrentReadAttempts = 3
 
+// liveTaskMutationWait bounds the wait for a mutation that holds the TASK
+// lock while a read finds its journal.
+const liveTaskMutationWait = 5 * time.Second
+
 // inspectResolved reads TASK state from a canonical repository root. Runtime
 // hotpaths use it after resolving the root once at their process boundary.
 func inspectResolved(root string) (*Board, error) {
 	var board *Board
 	var err error
 	for attempt := 0; attempt < maxConcurrentReadAttempts; attempt++ {
+		before := taskBoardIdentity(root)
 		board, err = inspectResolvedOnce(root)
-		if !onlyConcurrentReadMutation(err) {
+		var retry bool
+		err, retry = transientTaskReadFailure(root, err, before)
+		if !retry {
 			return board, err
 		}
 	}
 	return board, err
+}
+
+// transientTaskReadFailure decides whether a failed read raced a concurrent
+// TASK change and must be retried. A read that reported a concurrent
+// mutation, or whose overview or journal changed while it ran, is reduced to
+// that one cause, because the torn read's other findings describe no real
+// state. A journal held by a live mutation is awaited under its lock.
+func transientTaskReadFailure(root string, err error, before string) (error, bool) {
+	if err == nil {
+		return nil, false
+	}
+	var validation *ValidationError
+	if errors.As(err, &validation) && len(validation.Issues) == 1 && validation.Issues[0].ID == "task/transaction/pending" {
+		if awaitLiveTaskMutation(root) {
+			return err, true
+		}
+		return err, false
+	}
+	if concurrent := concurrentMutationIssues(err); len(concurrent) > 0 {
+		return &ValidationError{Issues: concurrent}, true
+	}
+	if taskBoardIdentity(root) != before {
+		cfg, cfgErr := LoadConfig(root)
+		if cfgErr != nil {
+			return err, true
+		}
+		return &ValidationError{Issues: concurrentMutationIssue(cfg)}, true
+	}
+	return err, false
+}
+
+func concurrentMutationIssues(err error) []Issue {
+	var validation *ValidationError
+	if !errors.As(err, &validation) {
+		return nil
+	}
+	issues := []Issue{}
+	for _, item := range validation.Issues {
+		if item.ID == "task/read/concurrent-mutation" {
+			issues = append(issues, item)
+		}
+	}
+	return issues
+}
+
+// taskBoardIdentity fingerprints the TASK overview bytes and the journal's
+// presence; a read that failed while either changed raced a mutation.
+func taskBoardIdentity(root string) string {
+	cfg, err := LoadConfig(root)
+	if err != nil {
+		return "config:" + err.Error()
+	}
+	if !cfg.Enabled {
+		return "disabled"
+	}
+	identity := sha256.New()
+	body, err := boundedio.ReadRegularFile(filepath.Join(root, filepath.FromSlash(cfg.OverviewPath)), maxTaskControlBytes)
+	if err != nil {
+		fmt.Fprintf(identity, "overview-error:%v", errors.Is(err, os.ErrNotExist))
+	} else {
+		identity.Write(body)
+	}
+	pending, err := transactionExists(root)
+	fmt.Fprintf(identity, "\x00journal:%t:%t", pending, err != nil)
+	return hex.EncodeToString(identity.Sum(nil))
+}
+
+// awaitLiveTaskMutation waits, within a bound, for a mutation that holds the
+// TASK lock while its journal exists. It reports true once the journal is
+// gone, so the read can be retried, and false for an abandoned journal. It
+// opens only an existing lock file and creates nothing.
+func awaitLiveTaskMutation(root string) bool {
+	file, err := os.Open(filepath.Join(root, filepath.FromSlash(taskLockRel)))
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), liveTaskMutationWait)
+	defer cancel()
+	unlock, err := filelock.LockContext(ctx, file, liveTaskMutationWait)
+	if err != nil {
+		return false
+	}
+	pending, existsErr := transactionExists(root)
+	if unlockErr := unlock(); unlockErr != nil {
+		return false
+	}
+	return existsErr == nil && !pending
 }
 
 // onlyConcurrentReadMutation reports a read that failed solely because TASK

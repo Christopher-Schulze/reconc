@@ -2257,9 +2257,15 @@ run-state reader and complete inspector bind the overview, every detail they
 read, every component identity, and the absent transaction journal to one
 before/after snapshot. Changed bytes, disappearance, inode replacement, a new
 symlink, or an appearing transaction fails with
-`task/read/concurrent-mutation`; a read that failed only that way is retried
-up to three times, so a concurrent editor or agent write does not block a
-Stop. The guard records each component once and revalidates all of them at
+`task/read/concurrent-mutation`. A read that reports that issue, or that
+fails in any other way while the overview bytes or the journal's presence
+change, is retried up to three times, and its other findings are discarded as
+artifacts of the torn read; so a concurrent editor or agent write, including a
+complete archive move with an atomic overview rewrite, does not block a Stop.
+A read that finds the mutation journal waits up to five seconds for the
+mutation holding the TASK lock (opening only an existing lock file) and
+retries once the journal is gone; a journal whose lock nobody holds is an
+interrupted mutation and reports `task/transaction/pending`. The guard records each component once and revalidates all of them at
 the end of the read, which keeps a board read linear in its TASK count. CRLF
 boards and details parse exactly like LF ones, and mutations keep the file's
 own line ending. The fast run-state reader defers to the full parser whenever

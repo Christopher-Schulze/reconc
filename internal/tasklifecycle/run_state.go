@@ -50,9 +50,14 @@ func InspectRunState(repoRoot string) (RunState, error) {
 // canonical repository root.
 func InspectRunStateResolved(root string) (RunState, error) {
 	for attempt := 1; ; attempt++ {
+		before := taskBoardIdentity(root)
 		state, ok, err := inspectActiveSectionsRunState(root)
-		if attempt < maxConcurrentReadAttempts && onlyConcurrentReadMutation(err) {
+		transient, retry := transientTaskReadFailure(root, err, before)
+		if retry && attempt < maxConcurrentReadAttempts {
 			continue
+		}
+		if retry {
+			err = transient
 		}
 		if ok || err != nil {
 			return state, err
