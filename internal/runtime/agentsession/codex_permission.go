@@ -16,11 +16,11 @@ func runCodexPermissionResolved(root string, body []byte, evaluator *runtime.Eva
 		return adaptPreDecision(Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc permission: %s", err)}, true)
 	}
 	if !strings.HasPrefix(payload.ToolName, namespacedMCPPrefix) {
-		return runPreDecisionResolvedWithEvaluatorAndStopCache(root, body, true, evaluator, stopCache)
+		return runPreDecisionResolvedWithEvaluatorAndStopCache(root, body, true, true, evaluator, stopCache)
 	}
 	normalized, err := NormalizeNamespacedMCPPayload(policy.MCPPlatformCodex, true, body)
 	if err != nil {
 		return adaptPreDecision(Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc MCP permission: %s", err)}, true)
 	}
-	return adaptPreDecision(runMCPBeforeResolvedWithEvaluatorAndStopCache(root, normalized, true, evaluator, stopCache), true)
+	return adaptPreDecision(runMCPBeforeResolvedWithEvaluatorAndStopCache(root, normalized, true, true, evaluator, stopCache), true)
 }

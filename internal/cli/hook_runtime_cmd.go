@@ -201,11 +201,12 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	repo = root.Path()
 	project := root
 	timing.mark("root_resolve")
-	if route.PlatformKind == hooks.KindClaudeCode {
+	if route.PlatformKind == hooks.KindClaudeCode && agentsession.HasLinkedWorktrees(repo) {
 		// ${CLAUDE_PROJECT_DIR} stays on the main checkout after Claude enters
 		// a worktree; cwd follows the session, so its linked worktree is the
 		// checkout the policy must describe, provided that worktree's policy
-		// keeps every project rule.
+		// keeps every project rule. Without a registered worktree the payload
+		// is not decoded for it.
 		var location struct {
 			Cwd string `json:"cwd"`
 		}

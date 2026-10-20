@@ -132,3 +132,23 @@ func TestLinkedWorktreeCheckoutsListsExistingRegistrations(t *testing.T) {
 		t.Fatalf("linked worktrees seen from %s = %v, %v", want[0], fromNested, err)
 	}
 }
+
+func TestHasLinkedWorktreesFollowsTheRegistry(t *testing.T) {
+	repo := t.TempDir()
+	gitInitHelper(t, repo)
+	if HasLinkedWorktrees(repo) {
+		t.Fatal("a repository without linked worktrees reported one")
+	}
+	worktree := filepath.Join(t.TempDir(), "linked")
+	if out, err := exec.Command("git", "-C", repo, "worktree", "add", "-q", worktree, "-b", "linked").CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v\n%s", err, out)
+	}
+	for _, checkout := range []string{repo, worktree} {
+		if !HasLinkedWorktrees(checkout) {
+			t.Fatalf("%s does not see its registered linked worktree", checkout)
+		}
+	}
+	if HasLinkedWorktrees(t.TempDir()) {
+		t.Fatal("a directory outside Git reported linked worktrees")
+	}
+}

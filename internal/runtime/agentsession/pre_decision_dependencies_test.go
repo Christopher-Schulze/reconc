@@ -33,7 +33,7 @@ func TestPreDecisionCacheRejectsRetargetedWriteAncestor(t *testing.T) {
 				t.Fatalf("session start failed: %+v", start)
 			}
 			payload := []byte(`{"session_id":"retarget","tool_use_id":"same-call","tool_name":"Write","tool_input":{"file_path":"target/main.go"}}`)
-			warm := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+			warm := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload)
 			if warm.ExitCode != 0 {
 				t.Fatalf("initial safe write denied: %+v", warm)
 			}
@@ -46,7 +46,7 @@ func TestPreDecisionCacheRejectsRetargetedWriteAncestor(t *testing.T) {
 			if err := os.Symlink(filepath.Join(root.Path(), "generated"), link); err != nil {
 				t.Fatal(err)
 			}
-			cached := RunHookRequest(root, handler, "claude-pre-tool-use", payload)
+			cached := RunHookRequest(root, handler, "kimi-pre-tool-use", payload)
 			fresh := runPreToolUseResolved(root.Path(), payload)
 			if fresh.ExitCode != 2 {
 				t.Fatalf("uncached write to protected target was not denied: %+v", fresh)
@@ -77,7 +77,7 @@ func TestPreDecisionCacheRejectsChangedEvidenceSegment(t *testing.T) {
 				t.Fatalf("real evidence rotation failed: segments=%d error=%v", state.EvidenceSegmentCount, err)
 			}
 			payload := []byte(`{"session_id":"segments","tool_use_id":"same-call","tool_name":"Write","tool_input":{"file_path":"src/main.go"}}`)
-			if warm := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); warm.ExitCode != 0 {
+			if warm := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload); warm.ExitCode != 0 {
 				t.Fatalf("initial write denied: %+v", warm)
 			}
 			if _, err := os.Stat(preDecisionCachePath(root.Path(), payload)); err != nil {
@@ -102,7 +102,7 @@ func TestPreDecisionCacheRejectsChangedEvidenceSegment(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			cached := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+			cached := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload)
 			fresh := runPreToolUseResolved(root.Path(), payload)
 			if fresh.ExitCode != 2 {
 				t.Fatalf("uncached evaluation accepted changed evidence: %+v", fresh)
@@ -285,7 +285,7 @@ func TestPreDecisionCacheBindsReachedEvidenceContentWithEqualMetadata(t *testing
 `)
 	path := filepath.Join(repo, "proof.txt")
 	writePreDecisionDependencyFile(t, path, []byte("allow\n"), 0o644)
-	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 0 || result.decisionClass != preDecisionResultPass {
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload); result.ExitCode != 0 || result.decisionClass != preDecisionResultPass {
 		t.Fatalf("initial evidence decision = %+v class=%q", result, result.decisionClass)
 	}
 	assertPreDecisionCacheExists(t, root.Path(), payload)
@@ -297,7 +297,7 @@ func TestPreDecisionCacheBindsReachedEvidenceContentWithEqualMetadata(t *testing
 	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
 		t.Fatal(err)
 	}
-	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload)
 	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "evidence-command") {
 		t.Fatalf("equal-metadata evidence mutation reused stale pass: %+v", result)
 	}
@@ -319,7 +319,7 @@ func TestPreDecisionCacheExpiresReachedFreshFile(t *testing.T) {
 `)
 	path := filepath.Join(repo, "status.txt")
 	writePreDecisionDependencyFile(t, path, []byte("current\n"), 0o644)
-	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 0 {
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload); result.ExitCode != 0 {
 		t.Fatalf("initial freshness decision = %+v", result)
 	}
 	assertPreDecisionCacheExists(t, root.Path(), payload)
@@ -327,7 +327,7 @@ func TestPreDecisionCacheExpiresReachedFreshFile(t *testing.T) {
 	if err := os.Chtimes(path, old, old); err != nil {
 		t.Fatal(err)
 	}
-	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload)
 	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "freshness-command") {
 		t.Fatalf("expired fresh-file dependency reused stale pass: %+v", result)
 	}
@@ -350,7 +350,7 @@ func TestPreDecisionCacheBindsReachedScriptAndDeclaredInput(t *testing.T) {
 	writePreDecisionDependencyFile(t, filepath.Join(repo, "scripts", "check.sh"), []byte("#!/bin/sh\nif grep -qx allow build/gate.txt; then exit 0; fi\nexit 2\n"), 0o755)
 	input := filepath.Join(repo, "build", "gate.txt")
 	writePreDecisionDependencyFile(t, input, []byte("allow\n"), 0o644)
-	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 0 {
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload); result.ExitCode != 0 {
 		t.Fatalf("initial script decision = %+v", result)
 	}
 	assertPreDecisionCacheExists(t, root.Path(), payload)
@@ -362,7 +362,7 @@ func TestPreDecisionCacheBindsReachedScriptAndDeclaredInput(t *testing.T) {
 	if err := os.Chtimes(input, info.ModTime(), info.ModTime()); err != nil {
 		t.Fatal(err)
 	}
-	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload)
 	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "script-command") {
 		t.Fatalf("declared script-input mutation reused stale pass: %+v", result)
 	}
@@ -385,12 +385,12 @@ func TestPreDecisionCacheBindsReachedScriptContent(t *testing.T) {
 	script := filepath.Join(repo, "scripts", "check.sh")
 	writePreDecisionDependencyFile(t, filepath.Join(repo, "build", "gate.txt"), []byte("stable\n"), 0o644)
 	writePreDecisionDependencyFile(t, script, []byte("#!/bin/sh\nexit 0\n"), 0o755)
-	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 0 {
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload); result.ExitCode != 0 {
 		t.Fatalf("initial script decision = %+v", result)
 	}
 	assertPreDecisionCacheExists(t, root.Path(), payload)
 	writePreDecisionDependencyFile(t, script, []byte("#!/bin/sh\nexit 2\n"), 0o755)
-	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload)
 	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "script-content") {
 		t.Fatalf("changed script content reused stale pass: %+v", result)
 	}
@@ -413,12 +413,12 @@ func TestPreDecisionCacheBindsReachedScriptEnvironment(t *testing.T) {
 `)
 	writePreDecisionDependencyFile(t, filepath.Join(repo, "scripts", "check.sh"), []byte("#!/bin/sh\nif [ \"$LANG\" = reconc-pass ]; then exit 0; fi\nexit 2\n"), 0o755)
 	writePreDecisionDependencyFile(t, filepath.Join(repo, "build", "gate.txt"), []byte("stable\n"), 0o644)
-	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 0 {
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload); result.ExitCode != 0 {
 		t.Fatalf("initial script environment decision = %+v", result)
 	}
 	assertPreDecisionCacheExists(t, root.Path(), payload)
 	t.Setenv("LANG", "reconc-block")
-	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload)
 	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "script-environment") {
 		t.Fatalf("changed script environment reused stale pass: %+v", result)
 	}
@@ -501,7 +501,7 @@ func TestPreDecisionOperationalScriptFailureNeverWarmsCache(t *testing.T) {
 	script := filepath.Join(repo, "scripts", "check.sh")
 	writePreDecisionDependencyFile(t, filepath.Join(repo, "build", "gate.txt"), []byte("stable\n"), 0o644)
 	writePreDecisionDependencyFile(t, script, []byte("#!/bin/sh\nexit 1\n"), 0o755)
-	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload)
 	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "script-error") {
 		t.Fatalf("operational script failure did not fail closed: %+v", result)
 	}
@@ -509,7 +509,7 @@ func TestPreDecisionOperationalScriptFailureNeverWarmsCache(t *testing.T) {
 		t.Fatalf("operational script failure warmed cache: %v", err)
 	}
 	writePreDecisionDependencyFile(t, script, []byte("#!/bin/sh\nexit 0\n"), 0o755)
-	if healthy := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); healthy.ExitCode != 0 {
+	if healthy := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload); healthy.ExitCode != 0 {
 		t.Fatalf("healthy retry did not evaluate live: %+v", healthy)
 	}
 	assertPreDecisionCacheExists(t, root.Path(), payload)

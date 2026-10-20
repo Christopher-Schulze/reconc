@@ -78,6 +78,28 @@ func BenchmarkWorkerPreHookVerifiedEvidencePrefix(b *testing.B) {
 	})
 }
 
+// BenchmarkOneShotUniquePreHook measures what a host pays on every new tool
+// call: a one-shot hook process without a worker cache and a tool_use_id the
+// decision cache has never seen, over a sealed chain of maximal segments.
+func BenchmarkOneShotUniquePreHook(b *testing.B) {
+	repo := setupStopBenchmarkRepo(b)
+	state := writeAggregateEvidenceChainFixture(b, repo, "one-shot-unique", 16)
+	if err := SaveSessionState(state); err != nil {
+		b.Fatal(err)
+	}
+	root, err := ResolveRepoRootRef(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for index := range b.N {
+		payload := []byte(fmt.Sprintf(`{"session_id":"one-shot-unique","tool_use_id":"call-%d","tool_name":"Write","tool_input":{"file_path":"src/a.go"}}`, index))
+		if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 0 {
+			b.Fatalf("one-shot pre-hook failed: %+v", result)
+		}
+	}
+}
+
 func BenchmarkStopLoadedEvidenceAttempt(b *testing.B) {
 	_, repo := withBenchmarkStateRoot(b)
 	state := writeEvidenceChainFixture(b, repo, "attempt-evidence-benchmark", 4, 4*1024)

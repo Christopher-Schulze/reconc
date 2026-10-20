@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"unicode"
 
 	"reconc.dev/reconc/internal/boundedio"
+	"reconc.dev/reconc/internal/pathidentity"
 )
 
 // canonicalCaseCache memoizes CanonicalizePathCase per process: hook
@@ -62,10 +64,29 @@ func CanonicalizePathCase(path string) string {
 	if cached, ok := canonicalCaseCache.Load(path); ok {
 		return cached.(string)
 	}
-	canonical := canonicalizePathCaseUncached(path)
+	canonical := filepath.Clean(path)
+	if !storedSpellingIdentity(canonical) {
+		canonical = canonicalizePathCaseUncached(path)
+	}
 	canonicalCaseCache.Store(path, canonical)
 	return canonical
 }
+
+// storedSpellingIdentity reports a path that already is its filesystem
+// identity where that identity is the stored spelling (macOS F_GETPATH, the
+// Windows final path name). Every component is then spelled as stored, so
+// the ancestor walk would return the path unchanged; it lists every ancestor
+// directory, which costs milliseconds under a large temporary directory.
+func storedSpellingIdentity(path string) bool {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+		return false
+	}
+	resolved, err := pathidentity.ResolveExisting(path)
+	return err == nil && resolved == path
+}
+
+// readCaseDirectory lists one ancestor while canonicalizing; tests count it.
+var readCaseDirectory = boundedio.ReadDir
 
 func canonicalizePathCaseUncached(path string) string {
 	originalInfo, err := os.Stat(path)
@@ -81,7 +102,7 @@ func canonicalizePathCaseUncached(path string) string {
 			if _, err := os.Lstat(next); err != nil {
 				return path
 			}
-			entries, err := boundedio.ReadDir(canonical, maxCaseDirEntries)
+			entries, err := readCaseDirectory(canonical, maxCaseDirEntries)
 			if err != nil {
 				canonical = next
 				continue

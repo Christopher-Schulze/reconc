@@ -593,12 +593,12 @@ func TestPreDecisionCacheAllowsReadOnlyCommandsWhenBoundRulesExist(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payloadBody)
+	result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payloadBody)
 	if result.ExitCode != 0 {
 		t.Fatalf("read-only command was blocked: %+v", result)
 	}
 	assertPreDecisionCacheExists(t, root.Path(), payloadBody)
-	result = RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payloadBody)
+	result = RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payloadBody)
 	if result.ExitCode != 0 {
 		t.Fatalf("cached read-only command was blocked: %+v", result)
 	}

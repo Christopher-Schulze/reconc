@@ -41,7 +41,7 @@ func TestPreDecisionCapturesGitAliasesOnlyForGitCommands(t *testing.T) {
 	snapshots := countGitAliasSnapshots(t)
 	run := func(id, command string) {
 		payload := `{"session_id":"alias-scope","tool_use_id":"` + id + `","tool_name":"Bash","tool_input":{"command":"` + command + `"}}`
-		runPreDecisionResolvedWithEvaluatorAndStopCache(repo, []byte(payload), false, runtime.NewEvaluator(), nil)
+		runPreDecisionResolvedWithEvaluatorAndStopCache(repo, []byte(payload), false, true, runtime.NewEvaluator(), nil)
 	}
 	run("call-ls", "ls -la")
 	if count := snapshots(); count != 0 {

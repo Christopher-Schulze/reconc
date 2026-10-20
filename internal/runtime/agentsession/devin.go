@@ -203,7 +203,7 @@ func PayloadLooksLikeDevin(payloadBytes []byte, repoRoot string) bool {
 // Unlike the inherited DEVIN_PROJECT_DIR, which every process started from a
 // Devin shell carries, it proves the event came from Devin.
 func PayloadMarkedDevin(payloadBytes []byte) bool {
-	if len(bytes.TrimSpace(payloadBytes)) == 0 || !bytes.Contains(bytes.ToLower(payloadBytes), []byte("devin")) {
+	if len(bytes.TrimSpace(payloadBytes)) == 0 || !containsFoldASCII(payloadBytes, "devin") {
 		return false
 	}
 	var raw map[string]interface{}
@@ -215,6 +215,26 @@ func PayloadMarkedDevin(payloadBytes []byte) bool {
 	}
 	source := strings.ToLower(cursorFirstString(raw, "source", "runtime", "agent_runtime"))
 	return strings.Contains(source, "devin")
+}
+
+// containsFoldASCII reports whether haystack contains the lowercase ASCII
+// needle in any letter case, without copying haystack. Folding only ASCII can
+// miss an exotic spelling, which keeps this route enforcing the event.
+func containsFoldASCII(haystack []byte, needle string) bool {
+	for start := 0; start+len(needle) <= len(haystack); start++ {
+		matched := true
+		for offset := 0; offset < len(needle) && matched; offset++ {
+			character := haystack[start+offset]
+			if 'A' <= character && character <= 'Z' {
+				character += 'a' - 'A'
+			}
+			matched = character == needle[offset]
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeDevinToolName(name string) string {

@@ -3,7 +3,10 @@ package retention
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+
+	"reconc.dev/reconc/internal/pathidentity"
 )
 
 // TestCanonicalizePathCaseHealsSpellingVariants proves spelling variants of
@@ -86,5 +89,38 @@ func TestCanonicalizePathCaseCacheReturnsStableResults(t *testing.T) {
 	second := CanonicalizePathCase(dir)
 	if first != second || !filepath.IsAbs(first) {
 		t.Fatalf("memoized result drifted: %q vs %q", first, second)
+	}
+}
+
+// Where the filesystem identity is the stored spelling, a path that already
+// is its identity needs no ancestor listing; a case variant still heals.
+func TestCanonicalizePathCaseSkipsTheWalkForStoredSpellings(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+		t.Skip("only macOS and Windows report the stored spelling as identity")
+	}
+	base, err := pathidentity.ResolveExisting(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(base, "Stored", "Spelling")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reads := 0
+	previous := readCaseDirectory
+	t.Cleanup(func() { readCaseDirectory = previous })
+	readCaseDirectory = func(path string, maxEntries int) ([]os.DirEntry, error) {
+		reads++
+		return previous(path, maxEntries)
+	}
+	if got := CanonicalizePathCase(repo); got != repo || reads != 0 {
+		t.Fatalf("stored spelling = %q after %d ancestor listings, want %q after none", got, reads, repo)
+	}
+	variant := filepath.Join(base, "stored", "spelling")
+	if _, err := os.Stat(variant); err != nil {
+		t.Skip("case-sensitive volume")
+	}
+	if got := CanonicalizePathCase(variant); got != repo || reads == 0 {
+		t.Fatalf("case variant = %q after %d listings, want %q through the walk", got, reads, repo)
 	}
 }

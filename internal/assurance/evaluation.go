@@ -19,7 +19,8 @@ type Evaluation struct {
 	modules   map[string]*evaluationState
 }
 
-// NewEvaluation binds one immutable input set and one shared scan budget.
+// NewEvaluation binds one immutable input set. Discovery, module state and
+// file facts are shared; each Evaluate call charges its own scan budget.
 func NewEvaluation(repoRoot string, inputs Inputs) (*Evaluation, error) {
 	return newEvaluation(repoRoot, inputs, maxAnalysisWorkers)
 }
@@ -50,7 +51,10 @@ func newEvaluation(repoRoot string, inputs Inputs, workers int) (*Evaluation, er
 }
 
 // Evaluate runs this rule's gates while reusing root detection and file facts.
+// The rule gets a fresh scan budget that is charged for every file it uses,
+// so its outcome does not depend on which rules ran before it.
 func (evaluation *Evaluation) Evaluate(gates []policy.AssuranceGate) ([]Finding, error) {
+	evaluation.state.budget = newScanBudget()
 	findings := []Finding{}
 	for _, gate := range gates {
 		gateFindings, err := evaluation.evaluate(gate)
@@ -111,6 +115,7 @@ func (evaluation *Evaluation) evaluateScopes(gate policy.AssuranceGate, scopes [
 func (evaluation *Evaluation) moduleState(scope moduleScope) *evaluationState {
 	key := stringSlicesKey([]string{scope.rootAbs}, scope.changedPaths)
 	if state, present := evaluation.modules[key]; present {
+		state.budget = evaluation.state.budget
 		return state
 	}
 	state := newEvaluationState(scope.changedPaths, evaluation.state.analysisWorkers)

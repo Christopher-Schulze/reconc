@@ -63,7 +63,7 @@ func TestPreDecisionCacheRequiresExactToolPolicyAndEvidenceIdentity(t *testing.T
 		t.Fatalf("session start: %+v", result)
 	}
 	allowed := []byte(`{"session_id":"decision","tool_use_id":"call-1","tool_name":"Write","tool_input":{"file_path":"src/main.go"}}`)
-	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", allowed); result.ExitCode != 0 {
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", allowed); result.ExitCode != 0 {
 		t.Fatalf("initial decision: %+v", result)
 	}
 	cachePath := preDecisionCachePath(root.Path(), allowed)
@@ -78,7 +78,7 @@ func TestPreDecisionCacheRequiresExactToolPolicyAndEvidenceIdentity(t *testing.T
 	if err := json.Unmarshal(body, &cached); err != nil {
 		t.Fatal(err)
 	}
-	permission := RunHookRequest(root, HookHandlerPermissionRequest, "claude-permission-request", allowed)
+	permission := RunHookRequest(root, HookHandlerPermissionRequest, "kimi-permission-request", allowed)
 	if permission.ExitCode != 0 || permission.Stdout != "" || permission.Stderr != "" {
 		t.Fatalf("identical permission decision changed: %+v", permission)
 	}
@@ -97,7 +97,7 @@ func TestPreDecisionCacheRequiresExactToolPolicyAndEvidenceIdentity(t *testing.T
 	}
 
 	changedInput := []byte(`{"session_id":"decision","tool_use_id":"call-1","tool_name":"Write","tool_input":{"file_path":"generated/main.go"}}`)
-	denied := RunHookRequest(root, HookHandlerPermissionRequest, "claude-permission-request", changedInput)
+	denied := RunHookRequest(root, HookHandlerPermissionRequest, "kimi-permission-request", changedInput)
 	if denied.ExitCode != 0 || !strings.Contains(denied.Stdout, `"behavior":"deny"`) {
 		t.Fatalf("changed input reused stale allow: %+v", denied)
 	}
@@ -111,7 +111,7 @@ func TestPreDecisionCacheRequiresExactToolPolicyAndEvidenceIdentity(t *testing.T
 	if err := os.WriteFile(lockPath, lockBody, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	policyResult := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", allowed)
+	policyResult := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", allowed)
 	if policyResult.ExitCode != 0 {
 		t.Fatalf("semantically unchanged policy should still allow: %+v", policyResult)
 	}
@@ -135,7 +135,7 @@ func TestPreDecisionCacheRequiresExactToolPolicyAndEvidenceIdentity(t *testing.T
 	if err := os.WriteFile(sourcePath, append(sourceBody, []byte("# changed\n")...), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	staleResult := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", allowed)
+	staleResult := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", allowed)
 	if staleResult.ExitCode != 2 || !strings.Contains(staleResult.Stderr, "refresh") {
 		t.Fatalf("policy source mutation reused a stale decision: %+v", staleResult)
 	}
@@ -283,7 +283,7 @@ func TestPreDecisionCacheInvalidatesOnGitAliasMutation(t *testing.T) {
 		t.Fatalf("session start: %+v", result)
 	}
 	payload := []byte(`{"session_id":"alias-decision","tool_use_id":"call-alias","tool_name":"Bash","tool_input":{"command":"git st"}}`)
-	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 0 {
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload); result.ExitCode != 0 {
 		t.Fatalf("safe alias decision: %+v", result)
 	}
 	before, ok := preDecisionKey(root.Path(), payload)
@@ -295,7 +295,7 @@ func TestPreDecisionCacheInvalidatesOnGitAliasMutation(t *testing.T) {
 	if !ok || before == after {
 		t.Fatalf("alias mutation did not change cache identity: before=%q after=%q cacheable=%v", before, after, ok)
 	}
-	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 2 {
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload); result.ExitCode != 2 {
 		t.Fatalf("destructive alias reused stale allow: %+v", result)
 	}
 	updatedBody, err := os.ReadFile(preDecisionCachePath(root.Path(), payload))
@@ -608,4 +608,17 @@ func BenchmarkPreDecisionIrrelevantRoute(b *testing.B) {
 			}
 		}
 	})
+}
+
+func preDecisionKey(root string, payloadBytes []byte) (string, bool) {
+	payload, err := ParsePayload(payloadBytes)
+	if err != nil {
+		return "", false
+	}
+	return preDecisionKeyForPayload(root, payload)
+}
+
+func preDecisionKeyForPayload(root string, payload *HookPayload) (string, bool) {
+	inputs, ok := preDecisionInputsForPayload(root, payload)
+	return inputs.key, ok
 }

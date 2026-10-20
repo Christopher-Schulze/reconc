@@ -96,7 +96,7 @@ func TestDeclaredCommandDependenciesInvalidateCachedPass(t *testing.T) {
 				t.Fatal(err)
 			}
 			payload := nativeCommandPayload(t, fixture, "same-tool-id", command, []string{"notes.md"})
-			warm := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+			warm := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload)
 			if warm.ExitCode != 0 {
 				t.Fatalf("initial evidence did not permit command: %+v", warm)
 			}
@@ -111,7 +111,7 @@ func TestDeclaredCommandDependenciesInvalidateCachedPass(t *testing.T) {
 				t.Fatal(err)
 			}
 			fresh := RunPreToolUse(fixture.repo, payload)
-			cached := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+			cached := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload)
 			if fresh.ExitCode != 2 || cached.ExitCode != 2 || cached.Stderr != fresh.Stderr {
 				t.Fatalf("changed dependency not enforced: fresh=%+v cached=%+v", fresh, cached)
 			}
@@ -161,7 +161,7 @@ func TestDeclaredWriteCacheRejectsRetargetedPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := nativeCommandPayload(t, fixture, "same-id", "echo unchanged", []string{"target"})
-	if warm := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); warm.ExitCode != 0 {
+	if warm := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload); warm.ExitCode != 0 {
 		t.Fatalf("unprotected target denied: %+v", warm)
 	}
 	if _, err := os.Stat(preDecisionCachePath(root.Path(), payload)); err != nil {
@@ -175,7 +175,7 @@ func TestDeclaredWriteCacheRejectsRetargetedPath(t *testing.T) {
 	}
 	for _, result := range []Result{
 		RunPreToolUse(fixture.repo, payload),
-		RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload),
+		RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload),
 	} {
 		if result.ExitCode != 2 || !strings.Contains(result.Stderr, "protected-notes") {
 			t.Fatalf("retargeted declaration reused stale pass: %+v", result)

@@ -106,7 +106,7 @@ func TestOperatorPauseOverridesCachedPolicyBlockButKeepsDestructiveGuard(t *test
 		t.Fatal(err)
 	}
 	publish := nativeCommandPayload(t, fixture, "publish-call", "npm publish", nil)
-	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", publish); result.ExitCode != 2 {
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", publish); result.ExitCode != 2 {
 		t.Fatalf("forbidden command was not blocked: %+v", result)
 	}
 	if _, err := os.Stat(preDecisionCachePath(root.Path(), publish)); err != nil {
@@ -115,17 +115,17 @@ func TestOperatorPauseOverridesCachedPolicyBlockButKeepsDestructiveGuard(t *test
 	if _, err := PauseHooks(fixture.repo, time.Hour, "release hotfix", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", publish); result.ExitCode != 0 {
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", publish); result.ExitCode != 0 {
 		t.Fatalf("cached block outlived the pause: %+v", result)
 	}
 	reset := nativeCommandPayload(t, fixture, "reset-call", "git reset --hard HEAD", nil)
-	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", reset); result.ExitCode != 2 {
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", reset); result.ExitCode != 2 {
 		t.Fatalf("destructive git guard was lifted by the pause: %+v", result)
 	}
 	if _, err := ResumeHooks(fixture.repo, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", publish); result.ExitCode != 2 {
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", publish); result.ExitCode != 2 {
 		t.Fatalf("policy block did not return after resume: %+v", result)
 	}
 }

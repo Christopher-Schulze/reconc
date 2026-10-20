@@ -262,10 +262,6 @@ func stripTrailingRedirects(cmd string) string {
 	return stripped
 }
 
-func matchingClaims(claims, expected []string) []string {
-	return matchingClaimsWithEvidence(nil, claims, expected)
-}
-
 func matchingClaimsWithEvidence(evidence *commandEvidenceIndex, claims, expected []string) []string {
 	if len(expected) == 0 {
 		return nil

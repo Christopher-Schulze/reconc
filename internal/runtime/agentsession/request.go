@@ -75,11 +75,11 @@ func RunHookRequestWithEvaluatorAndStopCache(
 	case HookHandlerWorkspaceOpen:
 		return Result{}
 	case HookHandlerPreToolUse:
-		return runPreDecisionResolvedWithEvaluatorAndStopCache(root.path, payload, false, evaluator, stopCache)
+		return runPreDecisionResolvedWithEvaluatorAndStopCache(root.path, payload, false, preToolCallReplayable(runtimeEvent), evaluator, stopCache)
 	case HookHandlerDevinPreToolUse:
 		return runDevinPreToolUseResolved(root.path, payload, evaluator, stopCache)
 	case HookHandlerPermissionRequest:
-		return runPreDecisionResolvedWithEvaluatorAndStopCache(root.path, payload, true, evaluator, stopCache)
+		return runPreDecisionResolvedWithEvaluatorAndStopCache(root.path, payload, true, true, evaluator, stopCache)
 	case HookHandlerPostToolUse:
 		return runPostToolUseResolved(root.path, payload)
 	case HookHandlerPostToolUseFailure:
@@ -97,11 +97,11 @@ func RunHookRequestWithEvaluatorAndStopCache(
 	case HookHandlerCodexSubagentStop:
 		return runCodexSubagentStopResolved(root.path, payload, evaluator, stopCache)
 	case HookHandlerMCPBefore:
-		return runMCPBeforeResolvedWithEvaluatorAndStopCache(root.path, payload, true, evaluator, stopCache)
+		return runMCPBeforeResolvedWithEvaluatorAndStopCache(root.path, payload, true, true, evaluator, stopCache)
 	case HookHandlerMCPAfter:
 		return runMCPAfterResolvedWithEvaluator(root.path, payload, true, evaluator)
 	case HookHandlerMCPAwarePreToolUse:
-		return runMCPBeforeResolvedWithEvaluatorAndStopCache(root.path, payload, false, evaluator, stopCache)
+		return runMCPBeforeResolvedWithEvaluatorAndStopCache(root.path, payload, false, preToolCallReplayable(runtimeEvent), evaluator, stopCache)
 	case HookHandlerMCPAwarePostToolUse:
 		return runMCPAfterResolvedWithEvaluator(root.path, payload, false, evaluator)
 	case HookHandlerStop:

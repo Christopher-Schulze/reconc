@@ -57,13 +57,14 @@ func runMCPBeforeResolved(root string, payloadBytes []byte, hostIdentified bool)
 }
 
 func runMCPBeforeResolvedWithEvaluator(root string, payloadBytes []byte, hostIdentified bool, evaluator *runtime.Evaluator) Result {
-	return runMCPBeforeResolvedWithEvaluatorAndStopCache(root, payloadBytes, hostIdentified, evaluator, nil)
+	return runMCPBeforeResolvedWithEvaluatorAndStopCache(root, payloadBytes, hostIdentified, true, evaluator, nil)
 }
 
 func runMCPBeforeResolvedWithEvaluatorAndStopCache(
 	root string,
 	payloadBytes []byte,
 	hostIdentified bool,
+	replayable bool,
 	evaluator *runtime.Evaluator,
 	stopCache *StopDecisionCache,
 ) Result {
@@ -75,7 +76,7 @@ func runMCPBeforeResolvedWithEvaluatorAndStopCache(
 		if hostIdentified {
 			return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): host event has no MCP identity"}
 		}
-		return runPreDecisionResolvedWithEvaluatorAndStopCache(root, payloadBytes, false, evaluator, stopCache)
+		return runPreDecisionResolvedWithEvaluatorAndStopCache(root, payloadBytes, false, replayable, evaluator, stopCache)
 	}
 	if decision, paused := pausedPreToolDecision(root, payload); paused {
 		return decision
@@ -86,7 +87,7 @@ func runMCPBeforeResolvedWithEvaluatorAndStopCache(
 	}
 	classification, classified := classifyMCP(contract, payload)
 	if !classified && !hostIdentified {
-		return runPreDecisionResolvedWithEvaluatorAndStopCache(root, payloadBytes, false, evaluator, stopCache)
+		return runPreDecisionResolvedWithEvaluatorAndStopCache(root, payloadBytes, false, replayable, evaluator, stopCache)
 	}
 	if !classified {
 		return handleUnclassifiedMCPBefore(root, contract, payload)

@@ -3434,6 +3434,21 @@ without a folded operational failure. Parse, IO, cancellation, lock/source,
 script-execution, approval, encoding, and unclassified failures cannot warm the
 cache. Once a route is known to be uncacheable, it performs no cache-only
 post-evaluation sample.
+A cached decision is keyed by the tool call's `tool_use_id`, so only a later
+event that repeats it can hit: Kimi's and Devin's permission requests and a
+custom runtime that maps the id. Claude Code's and Codex's permission requests
+carry no `tool_use_id`, nor do ZCode's or the OpenCode and Kilo adapters';
+Copilot payloads carry no call id, OMP's permission route is passive, and
+Cursor, Grok, Antigravity, DeepSeek Harness and Pi have no permission route.
+Claude Code repeats a PreToolUse call only when a hook deferred it in a
+non-interactive run that later resumes; that call is evaluated again. Pre-tool
+calls of those hosts skip identity sampling, lookup and publication and only
+evaluate. A one-shot hook without a worker cache verifies the sealed
+evidence chain once per call; evaluation and the publication resample reuse
+that verified prefix and only revalidate segment identities. On an Apple M1 a
+one-shot Claude Code pre-tool call over 16 maximal evidence segments measured
+752 ms, 315 MB and 1.46 million allocations per call before and 394 ms,
+165 MB and 0.76 million after (`BenchmarkOneShotUniquePreHook`).
 PreToolUse and PermissionRequest classify the parsed payload before preparing
 cache identities, so read and other non-command, non-write tools preserve their
 normal bookkeeping without loading policy sources or creating a decision cache.
@@ -3775,7 +3790,10 @@ files, 4 MiB per file, 32 MiB total reads, 50,000 applicability or reserved-dir
 walk entries, and 50 returned findings plus one explicit omitted-count marker.
 An unreadable or over-budget authority surface is an error and fails closed.
 Separate native-assurance rules in one policy observation share lazy module
-discovery, scoped module state, file facts, and the same aggregate read budget.
+discovery, scoped module state, and file facts, while each rule keeps its own
+file and read budget: a rule is charged for every file it lists or reads,
+including facts another rule already loaded, so its outcome never depends on
+rule order.
 Successful command evidence is converted once for that observation.
 Matching gates reuse one canonical path resolution and one bounded in-memory
 file snapshot per evaluation, so overlapping source gates do not reread the

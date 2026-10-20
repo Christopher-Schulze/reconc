@@ -38,6 +38,21 @@ func ClaudeWorktreeRoot(projectRoot, dir string) (string, error) {
 	return worktree, nil
 }
 
+// HasLinkedWorktrees reports whether root's repository registers a linked
+// worktree, so a caller can skip locating one when none exists. An unreadable
+// repository reports true and leaves the decision to LinkedWorktreeRoot.
+func HasLinkedWorktrees(root string) bool {
+	common, err := checkoutCommonDir(root)
+	if err != nil || common == "" {
+		return err != nil
+	}
+	info, err := os.Lstat(filepath.Join(common, "worktrees"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	return err != nil || info.IsDir()
+}
+
 // worktreePolicyGap explains why a linked worktree's policy does not keep
 // every rule enforced at root, or returns "" when it does: the worktree is its
 // own policy root and its compiled lockfile keeps every rule of root's

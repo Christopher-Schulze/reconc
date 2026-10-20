@@ -11,9 +11,10 @@ func TestReadBoundedChargesOpenedSnapshotOnce(t *testing.T) {
 	if err := os.WriteFile(path, []byte("proof"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	budget := newScanBudget()
+	state := newEvaluationState(nil, 1)
+	budget := state.budget
 	for i := 0; i < 2; i++ {
-		body, err := readBounded(path, budget)
+		body, err := state.read(path)
 		if err != nil || string(body) != "proof" {
 			t.Fatalf("read %d = %q, %v", i, body, err)
 		}

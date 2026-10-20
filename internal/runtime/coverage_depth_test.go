@@ -257,3 +257,8 @@ func TestScalarAndClaimHelpersCoverFallbacksAndWhitespace(t *testing.T) {
 		t.Fatalf("matchingClaims(empty expected) = %#v", got)
 	}
 }
+
+func matchingClaims(claims, expected []string) []string {
+	return matchingClaimsWithEvidence(nil, claims, expected)
+}
+

@@ -42,17 +42,38 @@ type preDecisionCache struct {
 	Stderr        string                 `json:"stderr,omitempty"`
 }
 
+// preToolCallReplayable reports whether the host routinely delivers this
+// pre-tool call's tool_use_id again, the only way a cached decision is ever
+// hit. Kimi's PermissionRequest repeats tool_call_id, Devin's repeats
+// tool_use_id, and a custom runtime may map it on both routes. The permission
+// requests of Claude Code and Codex carry none (Claude Code hooks reference;
+// Codex permission-request input schema); Claude Code repeats PreToolUse only
+// when a hook deferred the call in a non-interactive run that resumes, which
+// is evaluated again rather than making every call pay for the cache. ZCode's
+// and the OpenCode and Kilo adapters' permission requests carry no call id,
+// Copilot payloads have none, OMP's permission route is passive, and Cursor,
+// Grok, Antigravity, DeepSeek Harness and Pi have no permission route.
+func preToolCallReplayable(runtimeEvent string) bool {
+	switch normalizeRuntimeName(runtimeEvent) {
+	case "claude", "codex", "github-copilot", "cursor", "grok", "antigravity", "opencode", "kilo", "omp", "dsh", "pi", "zcode":
+		return false
+	}
+	return true
+}
+
 // runPreDecisionResolvedWithEvaluatorAndStopCache reuses a decision only
 // across identical tool-call identity, policy bytes, session-state bytes,
 // dependency snapshots, repository taint bytes, and the bounded repository
 // Git-alias snapshot. A cache hit samples before lookup and again after
 // reading the candidate. A miss is sampled again after evaluation, so a
 // concurrent evidence, policy, path, or alias mutation cannot validate or
-// warm a stale record.
+// warm a stale record. A call that no later event can replay (replayable
+// false) skips the cache and only evaluates.
 func runPreDecisionResolvedWithEvaluatorAndStopCache(
 	root string,
 	payloadBytes []byte,
 	permission bool,
+	replayable bool,
 	evaluator *runtime.Evaluator,
 	stopCache *StopDecisionCache,
 ) Result {
@@ -75,7 +96,16 @@ func runPreDecisionResolvedWithEvaluatorAndStopCache(
 			return adaptPreDecision(Result{ExitCode: 2, Stderr: reason}, permission)
 		}
 	}
-	inputs, cacheable := preDecisionInputsForPayloadWithEvaluatorAndStopCache(root, payload, evaluator, stopCache)
+	// A one-shot hook has no worker cache. A request-scoped one lets the
+	// evaluation and the publication resample reuse the chain this call
+	// verifies first; they only revalidate its segment identities.
+	if stopCache == nil {
+		stopCache = NewStopDecisionCache()
+	}
+	inputs, cacheable := preDecisionInputs{}, false
+	if replayable {
+		inputs, cacheable = preDecisionInputsForPayloadWithEvaluatorAndStopCache(root, payload, evaluator, stopCache)
+	}
 	// Approval-gated writes must reach the live pre-write path on every call.
 	// Reusing a claim-only decision here could skip receipt verification, and a
 	// receipt is deliberately consumed only after the final policy generation
@@ -160,19 +190,6 @@ func adaptPreDecision(decision Result, permission bool) Result {
 		return resultWithEncodingError(Result{ExitCode: 2}, err)
 	}
 	return Result{ExitCode: 0, Stdout: body}
-}
-
-func preDecisionKey(root string, payloadBytes []byte) (string, bool) {
-	payload, err := ParsePayload(payloadBytes)
-	if err != nil {
-		return "", false
-	}
-	return preDecisionKeyForPayload(root, payload)
-}
-
-func preDecisionKeyForPayload(root string, payload *HookPayload) (string, bool) {
-	inputs, ok := preDecisionInputsForPayload(root, payload)
-	return inputs.key, ok
 }
 
 type preDecisionInputs struct {

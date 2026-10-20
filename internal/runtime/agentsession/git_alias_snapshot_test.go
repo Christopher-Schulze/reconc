@@ -152,7 +152,7 @@ func TestPreDecisionReusesGitAliasSnapshotForShellAnalysis(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := []byte(`{"session_id":"alias-process-count","tool_use_id":"call-unknown","tool_name":"Bash","tool_input":{"command":"git reconc-unknown-subcommand"}}`)
-	result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload)
+	result := RunHookRequest(root, HookHandlerPreToolUse, "kimi-pre-tool-use", payload)
 	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "unknown git subcommand") {
 		t.Fatalf("unknown command result: %+v", result)
 	}

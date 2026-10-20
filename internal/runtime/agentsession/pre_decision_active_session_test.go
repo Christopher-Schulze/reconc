@@ -36,7 +36,7 @@ func TestPreDecisionCacheHitRefreshesActiveSession(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			result := runPreDecisionResolvedWithEvaluatorAndStopCache(state.RepoRoot, body, false, nil, nil)
+			result := runPreDecisionResolvedWithEvaluatorAndStopCache(state.RepoRoot, body, false, true, nil, nil)
 			if result.Stderr != decision.Stderr || result.ExitCode != decision.ExitCode {
 				t.Fatalf("fixture did not reuse its decision: %+v", result)
 			}

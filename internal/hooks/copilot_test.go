@@ -287,3 +287,23 @@ func TestGitHubCopilotPreToolUseFallbackDeniesWhenBinaryIsMissing(t *testing.T) 
 		t.Fatalf("missing binary did not produce explicit PreToolUse deny:\n%s", output)
 	}
 }
+
+func githubCopilotExpectedRoutes() (map[string]string, bool) {
+	platform, ok := PlatformForKind(KindGitHubCopilot)
+	if !ok {
+		return nil, false
+	}
+	routes := make(map[string]string, len(platform.Capabilities))
+	for _, capability := range platform.Capabilities {
+		for _, binding := range capability.Bindings {
+			if binding.Compatibility || binding.NativeEvent == "" || binding.RuntimeEvent == "" {
+				continue
+			}
+			if _, duplicate := routes[binding.NativeEvent]; duplicate {
+				return nil, false
+			}
+			routes[binding.NativeEvent] = binding.RuntimeEvent
+		}
+	}
+	return routes, len(routes) != 0
+}

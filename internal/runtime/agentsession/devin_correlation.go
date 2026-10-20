@@ -26,7 +26,7 @@ func devinToolDigest(payload *HookPayload) (string, error) {
 }
 
 func runDevinPreToolUseResolved(root string, body []byte, evaluator *runtime.Evaluator, stopCache *StopDecisionCache) Result {
-	result := runPreDecisionResolvedWithEvaluatorAndStopCache(root, body, false, evaluator, stopCache)
+	result := runPreDecisionResolvedWithEvaluatorAndStopCache(root, body, false, true, evaluator, stopCache)
 	payload, err := ParsePayload(body)
 	if err != nil || payload.ToolUseID == "" {
 		return Result{ExitCode: 2, Stderr: "reconc hook (Devin pre): missing bound tool call"}

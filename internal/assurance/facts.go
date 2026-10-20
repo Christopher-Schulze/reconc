@@ -48,6 +48,7 @@ type fileFacts struct {
 	path       string
 	bodyLoaded bool
 	bodyBytes  []byte
+	bodySize   int64
 	bodyErr    error
 
 	linesLoaded bool
@@ -84,36 +85,54 @@ func (state *evaluationState) fact(path string) *fileFacts {
 	return fact
 }
 
+// body reads the file once per evaluation and charges no budget, so analysis
+// workers may call it for facts the evaluation goroutine already loaded.
 func (fact *fileFacts) body(state *evaluationState) ([]byte, error) {
 	if fact.bodyLoaded {
 		return fact.bodyBytes, fact.bodyErr
 	}
 	fact.bodyLoaded = true
-	fact.bodyBytes, fact.bodyErr = readBounded(fact.path, state.budget)
+	fact.bodyBytes, fact.bodySize, fact.bodyErr = readBoundedSnapshot(fact.path)
 	if fact.bodyErr == nil {
 		state.stats.bodyReads.Add(1)
 	}
 	return fact.bodyBytes, fact.bodyErr
 }
 
-func (state *evaluationState) lines(path string) ([]string, error) {
-	fact := state.fact(path)
-	if fact.linesLoaded {
-		return fact.lines, fact.bodyErr
-	}
+// loadCharged loads the fact and charges it to the current rule's budget.
+// Charging is idempotent per budget, so a fact another rule already read
+// still counts against every rule that uses it.
+func (state *evaluationState) loadCharged(fact *fileFacts) ([]byte, error) {
 	body, err := fact.body(state)
 	if err != nil {
 		return nil, err
 	}
-	fact.linesLoaded = true
-	state.stats.lineBuilds.Add(1)
-	fact.lines = strings.Split(string(body), "\n")
+	if err := state.budget.observeFile(fact.path); err != nil {
+		return nil, err
+	}
+	if err := state.budget.observeBytesForFile(fact.path, fact.bodySize); err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+func (state *evaluationState) lines(path string) ([]string, error) {
+	fact := state.fact(path)
+	body, err := state.loadCharged(fact)
+	if err != nil {
+		return nil, err
+	}
+	if !fact.linesLoaded {
+		fact.linesLoaded = true
+		state.stats.lineBuilds.Add(1)
+		fact.lines = strings.Split(string(body), "\n")
+	}
 	return fact.lines, nil
 }
 
 func (state *evaluationState) packageJSONObject(path string) (map[string]json.RawMessage, error) {
 	fact := state.fact(path)
-	body, err := fact.body(state)
+	body, err := state.loadCharged(fact)
 	if err != nil {
 		return nil, err
 	}
@@ -131,6 +150,9 @@ func (state *evaluationState) packageJSONObject(path string) (map[string]json.Ra
 
 func (state *evaluationState) packageDocument(path string) (packageScriptDocument, error) {
 	fact := state.fact(path)
+	if _, err := state.loadCharged(fact); err != nil {
+		return packageScriptDocument{}, err
+	}
 	if fact.packageLoaded {
 		return fact.packageDoc, fact.packageErr
 	}
@@ -157,6 +179,9 @@ func (state *evaluationState) packageDocument(path string) (packageScriptDocumen
 
 func (state *evaluationState) goSyntax(file changedFile) (*token.FileSet, *ast.File, error) {
 	fact := state.fact(file.full)
+	if _, err := state.loadCharged(fact); err != nil {
+		return nil, nil, err
+	}
 	fact.loadGoSyntax(state, file.relative)
 	return fact.goFileSet, fact.goTree, fact.goSyntaxErr
 }
@@ -178,6 +203,9 @@ func (fact *fileFacts) loadGoSyntax(state *evaluationState, relative string) {
 
 func (state *evaluationState) goFormatMatches(file changedFile) (bool, error) {
 	fact := state.fact(file.full)
+	if _, err := state.loadCharged(fact); err != nil {
+		return false, err
+	}
 	fact.loadGoFormat(state, file.relative)
 	return fact.goFormatted, fact.goFormatErr
 }
@@ -218,7 +246,7 @@ func (state *evaluationState) prepareGoFacts(files []changedFile, syntax, format
 		}
 		seen[fact] = true
 		jobsToRun = append(jobsToRun, job{fact: fact, relative: file.relative})
-		if _, err := fact.body(state); err != nil {
+		if _, err := state.loadCharged(fact); err != nil {
 			break
 		}
 	}

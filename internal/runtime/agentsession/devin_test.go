@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -232,5 +233,27 @@ func TestPayloadLooksLikeDevin(t *testing.T) {
 	}
 	if PayloadLooksLikeDevin([]byte(`{"source":"claude"}`), t.TempDir()) {
 		t.Fatal("a foreign DEVIN_PROJECT_DIR must not suppress this repository's route")
+	}
+}
+
+func TestPayloadMarkedDevinMatchesASCIIMarkersWithoutCopying(t *testing.T) {
+	for _, test := range []struct {
+		payload string
+		want    bool
+	}{
+		{payload: `{"devin_event":"pre_tool_use"}`, want: true},
+		{payload: `{"source":"Devin CLI"}`, want: true},
+		{payload: `{"agent_runtime":"DEVIN"}`, want: true},
+		{payload: `{"tool_input":{"content":"devin is mentioned"}}`, want: false},
+		{payload: `{"source":"claude-code"}`, want: false},
+		{payload: ` `, want: false},
+	} {
+		if got := PayloadMarkedDevin([]byte(test.payload)); got != test.want {
+			t.Errorf("PayloadMarkedDevin(%s) = %v, want %v", test.payload, got, test.want)
+		}
+	}
+	large := []byte(`{"session_id":"s","tool_name":"Write","tool_input":{"content":"` + strings.Repeat("x", 1<<20) + `"}}`)
+	if allocations := testing.AllocsPerRun(10, func() { PayloadMarkedDevin(large) }); allocations != 0 {
+		t.Fatalf("a payload without a Devin marker allocated %.0f times", allocations)
 	}
 }

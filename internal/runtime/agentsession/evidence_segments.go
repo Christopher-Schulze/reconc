@@ -362,9 +362,13 @@ func loadCompleteSessionEvidenceWithCacheCapture(
 	return loadCompleteSessionEvidenceWithHooksCapture(repoRoot, state, cache, defaultEvidenceSegmentLoadHooks(), captured)
 }
 
+// readEvidenceSegmentSnapshot reads one sealed segment; tests count chain
+// loads through it.
+var readEvidenceSegmentSnapshot = boundedio.ReadRegularFileSnapshot
+
 func defaultEvidenceSegmentLoadHooks() evidenceSegmentLoadHooks {
 	return evidenceSegmentLoadHooks{
-		readSnapshot: boundedio.ReadRegularFileSnapshot,
+		readSnapshot: readEvidenceSegmentSnapshot,
 		lstat:        os.Lstat,
 		generation:   platformFileGeneration,
 	}

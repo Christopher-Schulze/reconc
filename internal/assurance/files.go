@@ -160,7 +160,7 @@ func changedGoFiles(root string, includes, excludes []string, exemptions []polic
 	baseKey := changedFilesKey(includes, excludes, exemptions, "")
 	cacheKey := changedFilesKey(includes, excludes, exemptions, ".go")
 	if cached, ok := state.changedFiles[cacheKey]; ok {
-		return cached, nil
+		return state.chargeChangedFiles(cached)
 	}
 	if base, ok := state.changedFiles[baseKey]; ok {
 		files := make([]changedFile, 0, len(base))
@@ -170,7 +170,7 @@ func changedGoFiles(root string, includes, excludes []string, exemptions []polic
 			}
 		}
 		state.changedFiles[cacheKey] = files
-		return files, nil
+		return state.chargeChangedFiles(files)
 	}
 	return changedFilesByExtension(root, includes, excludes, exemptions, ".go", state)
 }
@@ -181,7 +181,7 @@ func changedFilesByExtension(root string, includes, excludes []string, exemption
 	}
 	cacheKey := changedFilesKey(includes, excludes, exemptions, requiredExtension)
 	if cached, ok := state.changedFiles[cacheKey]; ok {
-		return cached, nil
+		return state.chargeChangedFiles(cached)
 	}
 	files := []changedFile{}
 	for changedIndex, changed := range state.changedPaths {
@@ -325,25 +325,32 @@ func (state *evaluationState) resolve(root, relative string) (resolvedPath, erro
 	return resolved, nil
 }
 
-func (state *evaluationState) read(path string) ([]byte, error) {
-	return state.fact(path).body(state)
+// chargeChangedFiles charges a cached changed-file list to the current
+// rule's budget, as the listing that produced it did.
+func (state *evaluationState) chargeChangedFiles(files []changedFile) ([]changedFile, error) {
+	for _, file := range files {
+		if err := state.budget.observeFile(file.full); err != nil {
+			return nil, err
+		}
+	}
+	return files, nil
 }
 
-func readBounded(path string, budget *scanBudget) ([]byte, error) {
+func (state *evaluationState) read(path string) ([]byte, error) {
+	return state.loadCharged(state.fact(path))
+}
+
+// readBoundedSnapshot returns the bytes and opened size of one regular file;
+// budgets charge that opened snapshot, not a pre-open stat.
+func readBoundedSnapshot(path string) ([]byte, int64, error) {
 	body, info, err := boundedio.ReadRegularFileSnapshot(path, maxFileBytes)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if info == nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("not a regular file: %s", path)
+		return nil, 0, fmt.Errorf("not a regular file: %s", path)
 	}
-	if err := budget.observeFile(path); err != nil {
-		return nil, err
-	}
-	if err := budget.observeBytesForFile(path, info.Size()); err != nil {
-		return nil, err
-	}
-	return body, nil
+	return body, info.Size(), nil
 }
 
 func readDirectoryEntries(path string, limit int) ([]os.DirEntry, error) {
