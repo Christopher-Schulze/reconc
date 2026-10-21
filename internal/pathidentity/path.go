@@ -13,6 +13,9 @@ import (
 
 const maxProspectiveResolverAncestors = 1 << 15
 
+// lstatPath observes one path for the resolver; tests count it.
+var lstatPath = os.Lstat
+
 // prospectiveAncestor records one inspected path: an existing object with
 // its identity and metadata, or, with nil info, a confirmed-missing path.
 type prospectiveAncestor struct {
@@ -22,10 +25,11 @@ type prospectiveAncestor struct {
 
 // ProspectiveResolver resolves a bounded batch of paths while reusing only
 // filesystem-confirmed observations. Each cached entry is Lstat'ed again
-// before reuse: an existing ancestor must keep its identity, its metadata, and
-// the spelling the operating system reports for it, and a missing ancestor
-// must still be missing, so a symlink, junction, rename of any ancestor,
-// creation, or metadata replacement cannot silently inherit an old result.
+// before reuse, once per call while WithListedParents runs: an existing
+// ancestor must keep its identity, its metadata, and the spelling the
+// operating system reports for it, and a missing ancestor must still be
+// missing, so a symlink, junction, rename of any ancestor, creation, or
+// metadata replacement cannot silently inherit an old result.
 // An existing non-symlink object derives its identity from its revalidated
 // parent directory instead of resolving every ancestor again.
 type ProspectiveResolver struct {
@@ -34,10 +38,11 @@ type ProspectiveResolver struct {
 	// so lookups skip the ancestor scan until one exists.
 	recordedMissing bool
 	spellings       storedSpellings
-	// listedParents and inspectedParents exist only while WithListedParents
-	// runs; they hold the directories that call already inspected.
-	listedParents    map[string]listedParent
-	inspectedParents map[string]os.FileInfo
+	// listedParents and observations exist only while WithListedParents
+	// runs; they hold the directories that call already inspected and the
+	// paths it already observed.
+	listedParents map[string]listedParent
+	observations  map[string]pathObservation
 	// verifiedSpellings exists only during WithConfirmedSpellings; it holds
 	// the reused identities that call already confirmed.
 	verifiedSpellings map[string]string
@@ -48,6 +53,13 @@ type ProspectiveResolver struct {
 type listedParent struct {
 	identity string
 	info     os.FileInfo
+}
+
+// pathObservation is one Lstat result held for a WithListedParents call: an
+// existing object's metadata, or the error that confirmed it missing.
+type pathObservation struct {
+	info os.FileInfo
+	err  error
 }
 
 // NewProspectiveResolver creates an empty evaluation-scoped resolver. It is
@@ -101,22 +113,22 @@ func (r *ProspectiveResolver) WithConfirmedSpellings(resolve func() error) error
 	return resolve()
 }
 
-// WithListedParents runs resolve with every parent directory inspected once
-// for the whole call instead of once per path, for bulk recorded evidence. A
-// regular file or directory stored under its exact name in an inspected
-// parent's listing takes that parent's identity plus the name without being
-// inspected itself; every other path resolves as Resolve does. A directory
-// replaced while the call runs can go unnoticed for its later paths in the
-// same call, so it is never used for a path that a decision will write.
-// Reused identities are confirmed once for the call, as WithConfirmedSpellings
-// does.
+// WithListedParents runs resolve with every path observed once for the
+// whole call instead of on every use, for bulk recorded evidence. A regular
+// file or directory stored under its exact name in an inspected parent's
+// listing takes that parent's identity plus the name without being inspected
+// itself; every other path resolves as Resolve does against the call's
+// observations. A path created, removed, or replaced while the call runs can
+// go unnoticed for its later paths in the same call, so it is never used for
+// a path that a decision will write. Reused identities are confirmed once for
+// the call, as WithConfirmedSpellings does.
 func (r *ProspectiveResolver) WithListedParents(resolve func() error) error {
 	if r == nil || r.listedParents != nil {
 		return resolve()
 	}
 	r.listedParents = make(map[string]listedParent)
-	r.inspectedParents = make(map[string]os.FileInfo)
-	defer func() { r.listedParents, r.inspectedParents = nil, nil }()
+	r.observations = make(map[string]pathObservation)
+	defer func() { r.listedParents, r.observations = nil, nil }()
 	return r.WithConfirmedSpellings(resolve)
 }
 
@@ -146,13 +158,13 @@ func (r *ProspectiveResolver) resolveAbsolute(path, absolute string) (string, er
 	cursor := r.skipConfirmedMissing(absolute)
 	for {
 		if cached, ok := r.ancestors[cursor]; ok && cached.info != nil {
-			current, err := os.Lstat(cursor)
+			current, err := r.lstat(cursor)
 			if err == nil && r.reusable(cursor, cached, current) {
 				return r.existingAncestorResult(cached.identity, absolute, cursor), nil
 			}
 			delete(r.ancestors, cursor)
 		}
-		info, statErr := os.Lstat(cursor)
+		info, statErr := r.lstat(cursor)
 		if statErr == nil {
 			resolved, resolveErr := r.resolveExisting(cursor, info)
 			if resolveErr != nil {
@@ -200,28 +212,36 @@ func (r *ProspectiveResolver) resolveListed(absolute string) (string, bool) {
 
 // inspectListedParent resolves a parent without the listing shortcut:
 // resolving it from its own parent's listing would list every ancestor up to
-// the root, including large shared directories.
+// the root, including large shared directories. A parent below an ancestor
+// that is still confirmed missing is missing too.
 func (r *ProspectiveResolver) inspectListedParent(directory string) listedParent {
+	if r.skipConfirmedMissing(directory) != directory {
+		return listedParent{}
+	}
 	identity, err := r.resolveAbsolute(directory, directory)
 	if err != nil {
 		return listedParent{}
 	}
-	info, err := os.Lstat(identity)
+	info, err := r.lstat(identity)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return listedParent{}
 	}
 	return listedParent{identity: identity, info: info}
 }
 
-// inspectParent observes a parent directory, once per WithListedParents call
-// and on every use otherwise.
-func (r *ProspectiveResolver) inspectParent(parent string) (os.FileInfo, error) {
-	if info, ok := r.inspectedParents[parent]; ok {
-		return info, nil
+// lstat observes path once per WithListedParents call and on every use
+// otherwise. A call holds only existing and confirmed-missing results, so any
+// other failure is observed again.
+func (r *ProspectiveResolver) lstat(path string) (os.FileInfo, error) {
+	if observed, ok := r.observations[path]; ok {
+		return observed.info, observed.err
 	}
-	info, err := os.Lstat(parent)
-	if err == nil && r.inspectedParents != nil {
-		r.inspectedParents[parent] = info
+	info, err := lstatPath(path)
+	if r.observations != nil && (err == nil || os.IsNotExist(err)) {
+		if len(r.observations) >= maxProspectiveResolverAncestors {
+			clear(r.observations)
+		}
+		r.observations[path] = pathObservation{info: info, err: err}
 	}
 	return info, err
 }
@@ -255,7 +275,7 @@ func (r *ProspectiveResolver) skipConfirmedMissing(absolute string) string {
 		if !ok || cached.info != nil {
 			continue
 		}
-		if _, err := os.Lstat(ancestor); !os.IsNotExist(err) {
+		if _, err := r.lstat(ancestor); !os.IsNotExist(err) {
 			delete(r.ancestors, ancestor)
 			return absolute
 		}
@@ -274,7 +294,7 @@ func (r *ProspectiveResolver) resolveExisting(path string, info os.FileInfo) (st
 		return ResolveExisting(path)
 	}
 	if cached, ok := r.ancestors[parent]; ok && cached.info != nil {
-		current, err := r.inspectParent(parent)
+		current, err := r.lstat(parent)
 		if err == nil && r.reusable(parent, cached, current) {
 			if identity, ok := r.spellings.compose(cached.identity, current, filepath.Base(path), info); ok {
 				return identity, nil
@@ -290,7 +310,7 @@ func (r *ProspectiveResolver) resolveExisting(path string, info os.FileInfo) (st
 	}
 	// The parent's metadata is captured before resolution, so a parent that
 	// changes during resolution fails the next revalidation.
-	parentInfo, parentErr := r.inspectParent(parent)
+	parentInfo, parentErr := r.lstat(parent)
 	resolved, parentProven, err := resolveExistingOSWithParent(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve filesystem identity %q: %w", path, err)

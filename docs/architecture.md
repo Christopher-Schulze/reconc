@@ -775,14 +775,17 @@ and byte-compares the notice before checksums and provenance are accepted.
     is never reused; a Linux identity keeps its requested spelling, which a
     renamed ancestor stops resolving. One bulk normalization pass confirms
     each reused identity once. Recorded read evidence is the one bulk
-    exception for inspection: while its set is normalized, each parent
-    directory is inspected once for the whole set, resolved like any other
-    directory rather than through its ancestors' listings, and on macOS a
-    regular file or directory stored under its exact name in that parent's
-    listing takes the parent's identity plus the name without its own
-    inspection. Symlinks, other spellings, and missing names resolve per path.
-    A directory replaced or renamed during one bulk pass can go unnoticed for
-    that pass's later paths; write paths keep the per-path revalidation.
+    exception for inspection: while its set is normalized, every path is
+    observed at most once for the whole set. Each parent directory is
+    resolved like any other directory rather than through its ancestors'
+    listings, a parent below a confirmed-missing ancestor is missing without
+    its own inspection, and on macOS a regular file or directory stored under
+    its exact name in that parent's listing takes the parent's identity plus
+    the name without its own inspection. Symlinks, other spellings, and
+    missing names resolve per path against the pass's observations. A path
+    created, removed, replaced, or renamed during one bulk pass can go
+    unnoticed for that pass's later paths; write paths keep the per-path
+    revalidation.
     Write-epoch keys use the same resolver and one pass over the write-path
     sequence, merging aliases by maximum epoch after normalized containment.
      Action predicate evaluation reuses one immutable materialized context

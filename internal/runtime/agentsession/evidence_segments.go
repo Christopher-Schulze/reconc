@@ -203,7 +203,14 @@ func evidenceSegmentsDir(repoRoot, sessionID string) string {
 }
 
 func evidenceSegmentPath(repoRoot, sessionID string, index uint64) string {
-	return filepath.Join(evidenceSegmentsDir(repoRoot, sessionID), fmt.Sprintf("%08d.json", index))
+	return evidenceSegmentFile(evidenceSegmentsDir(repoRoot, sessionID), index)
+}
+
+// evidenceSegmentFile names one segment in a segments directory that a chain
+// pass resolves once: resolving the project directory confirms the stored
+// spelling of the repository root, which costs file-system calls per path.
+func evidenceSegmentFile(directory string, index uint64) string {
+	return filepath.Join(directory, fmt.Sprintf("%08d.json", index))
 }
 
 // evidenceSegmentStart is the file index of the chain's first segment.
@@ -425,8 +432,9 @@ func mergedSessionEvidence(
 		startIndex = base + cached.count
 		verified = append(verified, cached.segments...)
 	}
+	directory := evidenceSegmentsDir(repoRoot, state.SessionID)
 	for index := startIndex; index < base+state.EvidenceSegmentCount; index++ {
-		path := evidenceSegmentPath(repoRoot, state.SessionID, index)
+		path := evidenceSegmentFile(directory, index)
 		body, identity, err := hooks.readSnapshot(path, maxEvidenceSegmentBytes)
 		if err != nil {
 			return SessionState{}, evidenceLoadFailure(cache, repoRoot, state,
@@ -458,7 +466,7 @@ func mergedSessionEvidence(
 			cause: errors.New("evidence segment chain head does not match session state"),
 		})
 	}
-	stable, cacheable := revalidateEvidenceSegments(verified, base, repoRoot, state.SessionID, hooks)
+	stable, cacheable := revalidateEvidenceSegments(verified, base, directory, hooks)
 	if !stable {
 		return SessionState{}, evidenceLoadFailure(cache, repoRoot, state,
 			errors.New("evidence segment identity changed during complete-chain load"))
@@ -524,14 +532,14 @@ func verifiedEvidencePrefixMatches(prefix verifiedEvidencePrefix, repoRoot, sess
 	if base == 0 {
 		base = 1
 	}
-	stable, cacheable := revalidateEvidenceSegments(prefix.segments, base, repoRoot, sessionID, hooks)
+	stable, cacheable := revalidateEvidenceSegments(prefix.segments, base, evidenceSegmentsDir(repoRoot, sessionID), hooks)
 	return stable && cacheable
 }
 
-func revalidateEvidenceSegments(segments []verifiedEvidenceSegment, base uint64, repoRoot, sessionID string, hooks evidenceSegmentLoadHooks) (bool, bool) {
+func revalidateEvidenceSegments(segments []verifiedEvidenceSegment, base uint64, directory string, hooks evidenceSegmentLoadHooks) (bool, bool) {
 	cacheable := true
 	for index, cached := range segments {
-		path := evidenceSegmentPath(repoRoot, sessionID, base+uint64(index))
+		path := evidenceSegmentFile(directory, base+uint64(index))
 		generation, stable, reliable := stableEvidenceSegmentGeneration(path, cached.identity, hooks)
 		if !stable {
 			return false, false

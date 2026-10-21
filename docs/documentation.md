@@ -3512,7 +3512,15 @@ evidence chain once per call; evaluation and the publication resample reuse
 that verified prefix and only revalidate segment identities. On an Apple M1 a
 one-shot Claude Code pre-tool call over 16 maximal evidence segments measured
 752 ms, 315 MB and 1.46 million allocations per call before and 394 ms,
-165 MB and 0.76 million after (`BenchmarkOneShotUniquePreHook`).
+165 MB and 0.76 million after (`BenchmarkOneShotUniquePreHook`). Observing
+each recorded read path at most once per normalization pass and resolving the
+segments directory once per chain pass cut its recorded file-system
+accesses from about 164,000 to about 600 per call and, in back-to-back runs
+on a loaded machine, its median from 604 ms, 199 MB and 0.88 million
+allocations to 343 ms, 118 MB and 0.30 million; a worker pre-tool call over
+16 segments
+went from 3.6 to 2.3 ms cold and from 2.6 to 1.7 ms warm
+(`BenchmarkWorkerPreHookVerifiedEvidencePrefix`).
 PreToolUse and PermissionRequest classify the parsed payload before preparing
 cache identities, so read and other non-command, non-write tools preserve their
 normal bookkeeping without loading policy sources or creating a decision cache.

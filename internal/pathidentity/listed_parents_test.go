@@ -28,6 +28,8 @@ func listedParentsFixture(t testing.TB) (string, []string) {
 		filepath.Join(root, "src", "pkg", "nested", "c.go"),
 		filepath.Join(root, "src", "pkg", "missing.go"),
 		filepath.Join(root, "src", "pkg", "gone", "deeper.go"),
+		filepath.Join(root, "src", "pkg", "gone", "sibling.go"),
+		filepath.Join(root, "src", "pkg", "gone", "more", "deepest.go"),
 		filepath.Join(root, "other", "Readme.md"),
 		filepath.Join(root, "other", "README.md"),
 	}
@@ -114,6 +116,55 @@ func TestWithListedParentsTrustEndsWithTheCall(t *testing.T) {
 	}
 	if after != want || after == before {
 		t.Fatalf("resolution after the listed call = %q (before %q), want the replacement %q", after, before, want)
+	}
+}
+
+// A bulk call observes each path at most once: recorded reads below shared
+// missing directories do not revalidate their ancestors for every path, and
+// a directory below a confirmed-missing ancestor is known missing without
+// being observed.
+func TestWithListedParentsObservesEachPathOnce(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "present.go"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{filepath.Join(root, "present.go")}
+	for directory := range 4 {
+		for file := range 64 {
+			paths = append(paths, filepath.Join(root, fmt.Sprintf("gone%d", directory), "read", fmt.Sprintf("%02d", file), "file.go"))
+		}
+	}
+	observed := map[string]int{}
+	original := lstatPath
+	lstatPath = func(path string) (os.FileInfo, error) {
+		observed[path]++
+		return original(path)
+	}
+	t.Cleanup(func() { lstatPath = original })
+	resolver := NewProspectiveResolver()
+	if err := resolver.WithListedParents(func() error {
+		for _, path := range paths {
+			if _, err := resolver.Resolve(path); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(observed) == 0 {
+		t.Fatal("the resolver observed no path")
+	}
+	for path, count := range observed {
+		if count > 1 {
+			t.Errorf("%s observed %d times in one call", path, count)
+		}
+	}
+	// The root, the present file, and the first path below each missing
+	// directory: its directory chain, the missing parent's identity, and
+	// the path itself.
+	if len(observed) > 2+4*4 {
+		t.Errorf("observed %d distinct paths for %d reads below 4 missing directories", len(observed), len(paths))
 	}
 }
 
