@@ -148,7 +148,7 @@ require_text "$root/Makefile" '$(GO) run ./scripts/build/reference-docs --root .
 require_text "$root/Makefile" "TEST_PARALLELISM ?= 2"
 require_text "$root/Makefile" "test-fast: check-test-parallelism"
 # shellcheck disable=SC2016 # Match the Make expression literally.
-require_text "$root/Makefile" '$(GO) test -p=$(TEST_PARALLELISM) $(PKG)'
+require_text "$root/Makefile" '$(GO) test -vet=off -p=$(TEST_PARALLELISM) $(PKG)'
 require_text "$root/Makefile" "make coverage           -- measure root and template coverage"
 require_text "$root/scripts/tests/coverage.sh" "root module coverage: %s%%"
 # shellcheck disable=SC2016 # Match the shell expression literally.
@@ -280,10 +280,10 @@ require_action "$release_workflow" "actions/attest-build-provenance"
   || fail "$release_workflow must provision pinned Go in all five Go jobs"
 [ "$(grep -Fc 'go-version-file: go.mod' "$release_workflow")" -eq 5 ] \
   || fail "$release_workflow must derive Go from go.mod in all five Go jobs"
-[ "$(grep -Fc 'fetch-depth: 0' "$release_workflow")" -eq 5 ] \
-  || fail "$release_workflow must fetch full history in all five Go jobs"
-[ "$(grep -Fc 'ref: ${{ inputs.tag }}' "$release_workflow")" -eq 5 ] \
-  || fail "$release_workflow must check out the release tag in all five Go jobs"
+[ "$(grep -Fc 'fetch-depth: 0' "$release_workflow")" -eq 6 ] \
+  || fail "$release_workflow must fetch full history in the preflight and all five Go jobs"
+[ "$(grep -Fc 'ref: ${{ inputs.tag }}' "$release_workflow")" -eq 6 ] \
+  || fail "$release_workflow must check out the release tag in the preflight and all five Go jobs"
 require_text "$ci_workflow" "uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0"
 [ "$(grep -Fc 'node-version: 24.18.0' "$ci_workflow")" -eq 2 ] \
   || fail "$ci_workflow must provision Node.js 24.18.0 in the two executable-test jobs"
@@ -322,8 +322,21 @@ verify_manual_dispatch_only "$release_workflow" \
   || fail "$release_workflow must be manual-dispatch only"
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" './scripts/build/resolve-version.sh'
+# shellcheck disable=SC2016 # Match the script expression literally.
+require_text "$root/scripts/release/verify-release-selection.sh" '[ "${GITHUB_REF:-}" = "refs/tags/$tag" ]'
+# shellcheck disable=SC2016 # Match the script expression literally.
+require_text "$root/scripts/release/verify-release-selection.sh" 'version=$("$root/scripts/build/resolve-version.sh" "$root")'
+[ "$(grep -Fc 'run: ./scripts/release/verify-release-selection.sh' "$release_workflow")" -eq 2 ] \
+  || fail "$release_workflow must verify the release selection in the preflight and the release job"
+expect_failure_reason "is not a stable reconc release tag" \
+  env RELEASE_TAG=reconc-v1.2 GITHUB_REF=refs/tags/reconc-v1.2 "$root/scripts/release/verify-release-selection.sh"
+expect_failure_reason "must run from refs/tags/reconc-v1.2.3" \
+  env RELEASE_TAG=reconc-v1.2.3 GITHUB_REF=refs/heads/main "$root/scripts/release/verify-release-selection.sh"
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
-require_text "$release_workflow" 'test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"'
+[ "$(grep -Fc './scripts/release/require-green-checks.sh "$(git rev-parse HEAD)"' "$release_workflow")" -eq 2 ] \
+  || fail "$release_workflow must require green checks in the preflight and the release job"
+[ "$(grep -Fc '    needs: [preflight]' "$release_workflow")" -eq 3 ] \
+  || fail "$release_workflow must start every gate job only after the preflight"
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" 'REPLACE_PUBLISHED: ${{ inputs.replace_published }}'
 require_text "$release_workflow" './scripts/release/publish-github-release.sh'
@@ -411,9 +424,9 @@ if grep -Eq 'pull-requests:[[:space:]]*write|issues:[[:space:]]*write' "$ci_work
 fi
 [ -f "$dependabot_config" ] || fail "bounded Dependabot configuration is missing"
 # shellcheck disable=SC2016 # Match the workflow shell expression literally.
-require_text "$release_workflow" './scripts/tests/go-test-shard.sh "$SHARD" 3 -p="$TEST_PARALLELISM" -race -count=1'
+require_text "$release_workflow" './scripts/tests/go-test-shard.sh "$SHARD" 3 -p="$TEST_PARALLELISM" -vet=off -race -count=1'
 # shellcheck disable=SC2016 # Match the workflow shell expression literally.
-require_text "$ci_workflow" './scripts/tests/go-test-shard.sh 1 1 -p="$TEST_PARALLELISM" -count=1'
+require_text "$ci_workflow" './scripts/tests/go-test-shard.sh 1 1 -p="$TEST_PARALLELISM" -vet=off -count=1'
 root_go_version=$(sed -n 's/^go //p' "$root/go.mod")
 template_go_version=$(sed -n 's/^go //p' "$root/harness/template/go.mod")
 [ "$root_go_version" = "1.27" ] \

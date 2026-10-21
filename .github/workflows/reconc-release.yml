@@ -73,10 +73,36 @@ jobs:
           "$artifact" --version
           "$artifact" --help >/dev/null
 
+  # A wrong tag or ref, missing release notes, or a commit without green CI
+  # fails here within seconds instead of after the long gate jobs.
+  preflight:
+    name: Release preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      checks: read
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      - name: Verify selected tag and source identity
+        run: ./scripts/release/verify-release-selection.sh
+
+      - name: Require green CI and CodeQL for the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/release/require-green-checks.sh "$(git rev-parse HEAD)"
+
   # Pre-release gate: the suites CI no longer runs on every commit run here
   # against the exact tag, before any artifact is built.
   gate-static:
     name: Release gate static checks
+    needs: [preflight]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -115,6 +141,7 @@ jobs:
 
   gate-race:
     name: Release gate race tests (${{ matrix.shard }}/3)
+    needs: [preflight]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -166,10 +193,11 @@ jobs:
       - name: Race tests
         env:
           SHARD: ${{ matrix.shard }}
-        run: ./scripts/tests/go-test-shard.sh "$SHARD" 3 -p="$TEST_PARALLELISM" -race -count=1
+        run: ./scripts/tests/go-test-shard.sh "$SHARD" 3 -p="$TEST_PARALLELISM" -vet=off -race -count=1
 
   gate-trust:
     name: Release gate trust
+    needs: [preflight]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -220,22 +248,7 @@ jobs:
             harness/template/go.sum
 
       - name: Verify selected tag and source identity
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: |
-          [[ "$RELEASE_TAG" =~ ^reconc-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-            printf 'Input %s is not a stable reconc release tag.\n' "$RELEASE_TAG" >&2
-            exit 1
-          }
-          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG" || {
-            printf 'Release workflow must run from refs/tags/%s, not %s.\n' "$RELEASE_TAG" "$GITHUB_REF" >&2
-            exit 1
-          }
-          ./scripts/build/resolve-version.sh
-          test -f ".github/releases/${RELEASE_TAG}.md" || {
-            printf 'Release notes are missing for %s.\n' "$RELEASE_TAG" >&2
-            exit 1
-          }
+        run: ./scripts/release/verify-release-selection.sh
 
       - name: Verify immutable schema publication
         run: |

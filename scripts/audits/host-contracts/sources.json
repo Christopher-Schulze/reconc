@@ -46,7 +46,7 @@
           "url": "https://code.claude.com/docs/en/hooks.md",
           "baseline_url": "https://code.claude.com/docs/en/hooks.md",
           "normalization": "markdown",
-          "sha256": "6988ea0fbc31b7987b8953592c4dc1065cbc428a73ac29944fb39315f6c4f109",
+          "sha256": "cd36b377d0c622ccfbba04f7213c9c1624a2510eeec863a64d8f8c1f8a65b2fb",
           "required_markers": [
             "PreToolUse",
             "SessionStart",
@@ -129,7 +129,7 @@
           "url": "https://learn.chatgpt.com/docs/hooks.md",
           "baseline_url": "https://learn.chatgpt.com/docs/hooks.md",
           "normalization": "markdown",
-          "sha256": "02c0e6c888ae1a94b6af691b4bc4b84c7dbb54beb61687529ef3be30c71418d2",
+          "sha256": "bf81c33aa1db980cd6505ac51aa2b671a3f16a8f3e6996bcb64a03672e06e364",
           "required_markers": [
             "PreToolUse",
             "SessionStart",
@@ -195,7 +195,7 @@
           "url": "https://cursor.com/docs/hooks",
           "baseline_url": "https://cursor.com/docs/hooks",
           "normalization": "markdown",
-          "sha256": "ff25c87283a2bb37014950d4fdfa2935878f7fc83fb9ec816c8c798c12d372d4",
+          "sha256": "8365067ead66615bd0f1c80b15072eb1a77f00c3b098554f935750faa26edcaf",
           "required_markers": [
             "preToolUse",
             "sessionStart",
@@ -228,7 +228,7 @@
           "url": "https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md",
           "baseline_url": "https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md",
           "normalization": "markdown",
-          "sha256": "44cfc6ff8a269b66908adf496e9e839406721989fe74d13af7d7c96ab325add2",
+          "sha256": "7d4367e05fc132648f4cf1f5e007ecc7c86e15bf13ccc38d150efcff2c4d3dac",
           "required_markers": [
             "PreToolUse",
             "SessionStart"
@@ -245,7 +245,7 @@
           "url": "https://docs.devin.ai/cli/extensibility/hooks/overview.md",
           "baseline_url": "https://docs.devin.ai/cli/extensibility/hooks/overview.md",
           "normalization": "markdown",
-          "sha256": "f7b62aafab90475a588aed5e34b4b27d6b3a036be5d455df669bd68ec55ea47c",
+          "sha256": "ff33f686240e98e69df9efbf05e7ab02a836f68b3f4f241dd7739c6fa96ea7f6",
           "required_markers": [
             ".devin/hooks.v1.json",
             "PreToolUse"
@@ -332,7 +332,7 @@
           "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/docs/subsystems/system-prompt.md",
           "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/687f282e8625c6b8d11ff58211a90524be2e4317/docs/subsystems/system-prompt.md",
           "normalization": "markdown",
-          "sha256": "c73a3ad7be3531effbde1245d06d1d118834db2d1e3b387e0040e948ff9114b4",
+          "sha256": "330ec69447b0f9807f693004d12eb9967eed8cdd47f546e4ed8e937265afd3ff",
           "required_markers": [
             "interface PromptContext",
             "context(context: PromptContext)"
@@ -430,7 +430,7 @@
           "url": "https://docs.github.com/en/copilot/reference/hooks-reference",
           "baseline_url": "https://docs.github.com/en/copilot/reference/hooks-reference",
           "normalization": "markdown",
-          "sha256": "00e0c78b18fe5b6632bba98fc40dc208fc7d3c437af081a9d26946c3ff1d6d2f",
+          "sha256": "29a3bd146f425314ee08f0b882acba78f6470873ae2fe4bda974b677ddee8661",
           "required_markers": [
             "preToolUse",
             "sessionStart",
@@ -467,7 +467,7 @@
           "url": "https://docs.x.ai/build/features/hooks",
           "baseline_url": "https://docs.x.ai/build/features/hooks",
           "normalization": "markdown",
-          "sha256": "be080611af782aa4944827b0921a5cd7075c66f0af105af848e91e8b296a08f8",
+          "sha256": "e194ae555ae067ef8eab1c511a8c1c558f1c430096ad8ca9506a5855d27f9da3",
           "required_markers": [
             "PreToolUse",
             "SessionStart"

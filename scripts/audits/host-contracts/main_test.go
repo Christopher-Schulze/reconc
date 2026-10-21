@@ -141,6 +141,9 @@ func TestNormalizeSource(t *testing.T) {
 		invalid                 bool
 	}{
 		{"markdown whitespace", " \r\n" + contract + "\t", "markdown", strings.TrimSpace(contract), false},
+		{"markdown code block", contract + "\r\n  ```json theme={null}  \n{\n  \"a  b\": [1,  2]\n}\t\n  ```\nNext   step.", "markdown",
+			strings.TrimSpace(contract) + "\n```json theme={null}\n{\n  \"a  b\": [1,  2]\n}\n```\nNext step.", false},
+		{"markdown unclosed code block", contract + "\n~~~\nif x:\n    y()", "markdown", strings.TrimSpace(contract) + "\n~~~\nif x:\n    y()", false},
 		{"source whitespace", " \n" + contract + " \r\n  next();\t\n", "source", strings.TrimRight(contract, " ") + "\n  next();", false},
 		{"HTML main", "<nav>navigation changes</nav><main><script>dynamic()</script><style>body{}</style><!-- generated --><p>" + contract + "</p>&amp;</main>", "html", strings.TrimSpace(contract) + " &", false},
 		{"error HTML", "<!doctype html><html>" + contract + "</html>", "source", "", true},
@@ -290,7 +293,11 @@ func TestSectionDigestIgnoresUnrelatedEdits(t *testing.T) {
 	}
 	original := page("Hooks let you automate work.", `"allow" or "deny"`, "About us. Privacy.")
 	sections := []sourceSection{{Start: "## Events", End: "## Footer"}}
-	contract, missing := contractSections([]byte(strings.Join(strings.Fields(original), " ")), sections)
+	normalized, err := normalizeSource([]byte(original), "markdown")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, missing := contractSections(normalized, sections)
 	if len(missing) != 0 {
 		t.Fatalf("missing sections: %v", missing)
 	}
@@ -332,7 +339,11 @@ func TestDocumentationContractDigestIgnoresOnlyMeaninglessPresentation(t *testin
 	page := func(output string) string { return "Intro text. ## Output " + output + " ## Footer About us." }
 	original := page("> \\[!NOTE]\nReturn `decision` when `status != 0`.\n| Field | Type |\n| --- | :--- |\n| `decision` | `string[]` |\n|---|---|\n```json\n{\"decision\": \"block\", \"note\": \"say \\\"hi\\\"\"}\n|-|\n```yaml\n```\nExit code 2 blocks the call; use `a\\|b` and \\*literal\\*.")
 	sections := []sourceSection{{Start: "## Output", End: "## Footer"}}
-	contract, missing := contractSections([]byte(strings.Join(strings.Fields(original), " ")), sections)
+	normalized, err := normalizeSource([]byte(original), "markdown")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, missing := contractSections(normalized, sections)
 	if len(missing) != 0 {
 		t.Fatalf("missing sections: %v", missing)
 	}
@@ -354,6 +365,11 @@ func TestDocumentationContractDigestIgnoresOnlyMeaninglessPresentation(t *testin
 		{"alignment colon", strings.Replace(original, ":---", "---", 1), "changed"},
 		{"space before punctuation", strings.Replace(original, "`status != 0`.", "`status != 0` .", 1), "changed"},
 		{"changed word", strings.Replace(original, "Exit code 2", "Exit code 1", 1), "changed"},
+		{"fence info attributes", strings.Replace(original, "```json\n", "```json theme={null}\n", 1), "unchanged"},
+		{"reflowed prose", strings.Replace(original, "Intro text. ## Output > ", "Intro text.\n\n## Output\n> ", 1), "unchanged"},
+		{"space inside a code string", strings.Replace(original, `"say \"hi\""`, `"say  \"hi\""`, 1), "changed"},
+		{"code indentation", strings.Replace(original, "\n{\"decision\"", "\n    {\"decision\"", 1), "changed"},
+		{"code line break", strings.Replace(original, `"block", "note"`, "\"block\",\n\"note\"", 1), "changed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if test.body == original {

@@ -3,6 +3,7 @@ package retention
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,7 +19,22 @@ import (
 // canonicalCaseCache memoizes CanonicalizePathCase per process: hook
 // invocations resolve the same repo root many times (state, report,
 // active-session, lock paths) and the directory walk would otherwise repeat.
+// Every hit is confirmed against the filesystem, so a long-lived worker
+// follows case-only renames instead of splitting one checkout's state.
 var canonicalCaseCache sync.Map
+
+// identityIsStoredSpelling marks platforms whose filesystem identity (macOS
+// F_GETPATH, the Windows final path name) spells every component as stored.
+var identityIsStoredSpelling = runtime.GOOS == "darwin" || runtime.GOOS == "windows"
+
+// canonicalCaseEntry is one memoized spelling. Where the identity is the
+// stored spelling, identity confirms a hit; elsewhere only paths whose every
+// component is case-sensitive are memoized and info confirms the same file.
+type canonicalCaseEntry struct {
+	canonical string
+	identity  string
+	info      os.FileInfo
+}
 
 const (
 	MaxSessionIDBytes  = 512
@@ -62,14 +78,79 @@ func CanonicalizePathCase(path string) string {
 		return path
 	}
 	if cached, ok := canonicalCaseCache.Load(path); ok {
-		return cached.(string)
+		if entry := cached.(canonicalCaseEntry); entry.current() {
+			return entry.canonical
+		}
+		canonicalCaseCache.Delete(path)
 	}
 	canonical := filepath.Clean(path)
 	if !storedSpellingIdentity(canonical) {
 		canonical = canonicalizePathCaseUncached(path)
 	}
-	canonicalCaseCache.Store(path, canonical)
+	if entry, ok := newCanonicalCaseEntry(canonical); ok {
+		canonicalCaseCache.Store(path, entry)
+	}
 	return canonical
+}
+
+// newCanonicalCaseEntry memoizes only existing paths: a missing path may
+// later appear with a different stored spelling.
+func newCanonicalCaseEntry(canonical string) (canonicalCaseEntry, bool) {
+	if identityIsStoredSpelling {
+		identity, err := pathidentity.ResolveExisting(canonical)
+		return canonicalCaseEntry{canonical: canonical, identity: identity}, err == nil
+	}
+	info, err := os.Stat(canonical)
+	if err != nil || !caseSensitiveComponents(canonical) {
+		return canonicalCaseEntry{}, false
+	}
+	return canonicalCaseEntry{canonical: canonical, info: info}, true
+}
+
+// current reports whether the memoized spelling is still the stored one.
+func (entry canonicalCaseEntry) current() bool {
+	if entry.info == nil {
+		return pathidentity.IdentityCurrent(entry.canonical, entry.identity)
+	}
+	info, err := os.Stat(entry.canonical)
+	return err == nil && os.SameFile(info, entry.info)
+}
+
+// caseSensitiveComponents reports whether no component of an existing path
+// is reachable through its swapped letter case, so no rename can give one
+// file two stored spellings across lookups.
+func caseSensitiveComponents(path string) bool {
+	volume := filepath.VolumeName(path)
+	parent := volume + string(filepath.Separator)
+	rest := strings.Trim(strings.TrimPrefix(path, volume), string(filepath.Separator))
+	if rest == "" {
+		return true
+	}
+	for _, component := range strings.Split(rest, string(filepath.Separator)) {
+		current := filepath.Join(parent, component)
+		if swapped := swapLetterCase(component); swapped != component {
+			variant, err := os.Lstat(filepath.Join(parent, swapped))
+			if err == nil {
+				info, err := os.Lstat(current)
+				if err != nil || os.SameFile(info, variant) {
+					return false
+				}
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return false
+			}
+		}
+		parent = current
+	}
+	return true
+}
+
+func swapLetterCase(value string) string {
+	return strings.Map(func(char rune) rune {
+		if unicode.IsUpper(char) {
+			return unicode.ToLower(char)
+		}
+		return unicode.ToUpper(char)
+	}, value)
 }
 
 // storedSpellingIdentity reports a path that already is its filesystem
@@ -78,7 +159,7 @@ func CanonicalizePathCase(path string) string {
 // the ancestor walk would return the path unchanged; it lists every ancestor
 // directory, which costs milliseconds under a large temporary directory.
 func storedSpellingIdentity(path string) bool {
-	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+	if !identityIsStoredSpelling {
 		return false
 	}
 	resolved, err := pathidentity.ResolveExisting(path)

@@ -33,6 +33,31 @@ func TestHookRuntimeDevinNativeShapeBlocksDeniedWrite(t *testing.T) {
 	}
 }
 
+// Devin reads a permission decision from a top-level decision field with an
+// optional reason; an allowed request prints nothing so Devin's normal prompt
+// stays in charge.
+func TestHookRuntimeDevinPermissionRequestUsesNativeDecisionShape(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	_, _, _ = runWithStdin(t, fmt.Sprintf(`{"hook_event_name":"SessionStart","session_id":"devin-permission-1","cwd":%q}`, repo),
+		"hook", "runtime", "devin-session-start", repo)
+	request := func(callID, path string) string {
+		return fmt.Sprintf(`{"hook_event_name":"PermissionRequest","session_id":"devin-permission-1","prompt_id":"turn-1","tool_use_id":%q,"cwd":%q,"tool_name":"edit","tool_input":{"file_path":%q}}`,
+			callID, repo, path)
+	}
+	stdout, stderr, code := runWithStdin(t, request("call-denied", "generated/blocked.go"),
+		"hook", "runtime", "devin-permission-request", repo)
+	var decision map[string]any
+	if code != 0 || json.Unmarshal([]byte(stdout), &decision) != nil || len(decision) != 2 ||
+		decision["decision"] != "block" || !strings.Contains(fmt.Sprint(decision["reason"]), "deny-gen") {
+		t.Fatalf("Devin PermissionRequest must return a top-level block decision, code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	stdout, stderr, code = runWithStdin(t, request("call-allowed", "src/allowed.go"),
+		"hook", "runtime", "devin-permission-request", repo)
+	if code != 0 || strings.TrimSpace(stdout) != "" {
+		t.Fatalf("an allowed Devin PermissionRequest must leave the prompt intact, code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
 func TestHookRuntimeOMPNativeShapeBlocksDeniedWrite(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	payload := fmt.Sprintf(`{

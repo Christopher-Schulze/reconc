@@ -18,11 +18,15 @@ func TestPGONearestRankPercentile(t *testing.T) {
 		python = "python3"
 	}
 	script := filepath.Join("..", "pgo_stats.py")
-	compile := exec.Command(python, "-m", "py_compile", script)
+	// Bytecode goes to a temporary file: a test must not write into the
+	// module, and a rewritten __pycache__ invalidates cached test results of
+	// packages that read the scripts tree.
+	compiled := filepath.Join(t.TempDir(), "pgo_stats.pyc")
+	compile := exec.Command(python, "-c", "import py_compile, sys; py_compile.compile(sys.argv[1], cfile=sys.argv[2], doraise=True)", script, compiled)
 	if output, err := compile.CombinedOutput(); err != nil {
 		t.Fatalf("py_compile pgo_stats.py: %v\n%s", err, output)
 	}
-	command := exec.Command(python, script)
+	command := exec.Command(python, "-B", script)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("pgo_stats.py: %v\n%s", err, output)
 	}

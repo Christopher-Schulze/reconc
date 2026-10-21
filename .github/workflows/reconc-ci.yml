@@ -108,7 +108,7 @@ jobs:
           (cd harness/template && go mod download)
 
       - name: Test
-        run: ./scripts/tests/go-test-shard.sh 1 1 -p="$TEST_PARALLELISM" -count=1
+        run: ./scripts/tests/go-test-shard.sh 1 1 -p="$TEST_PARALLELISM" -vet=off -count=1
 
       - name: Self-hosting golden path
         run: make self-host
@@ -158,7 +158,7 @@ jobs:
           (cd harness/template && go mod download)
 
       - name: Test
-        run: ./scripts/tests/go-test-shard.sh 1 1 -p="$TEST_PARALLELISM" -count=1
+        run: ./scripts/tests/go-test-shard.sh 1 1 -p="$TEST_PARALLELISM" -vet=off -count=1
 
       - name: Self-hosting golden path
         run: make self-host

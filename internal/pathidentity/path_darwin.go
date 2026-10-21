@@ -4,7 +4,6 @@ package pathidentity
 
 import (
 	"bytes"
-	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -38,22 +37,11 @@ func resolveExistingOSWithParent(path string) (resolved string, parentProven boo
 	if !info.IsDir() && !info.Mode().IsRegular() {
 		return filepath.Clean(evaluated), false, nil
 	}
-	file, err := os.OpenFile(evaluated, os.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	buffer, err := descriptorPathBuffer(evaluated, 0)
 	if err != nil {
 		return "", false, err
 	}
-	defer func() {
-		err = errors.Join(err, file.Close())
-	}()
-
-	buffer := make([]byte, unix.PathMax)
-	_, callErr := unix.FcntlInt(
-		file.Fd(),
-		unix.F_GETPATH,
-		int(uintptr(unsafe.Pointer(&buffer[0]))),
-	)
-	runtime.KeepAlive(buffer)
-	descriptorPath, descriptorOK := darwinDescriptorPath(evaluated, buffer, callErr)
+	descriptorPath, descriptorOK := darwinDescriptorPath(evaluated, buffer, nil)
 	if descriptorOK {
 		return descriptorPath, true, nil
 	}
@@ -94,21 +82,11 @@ func (s *storedSpellings) compose(parentIdentity string, parentInfo os.FileInfo,
 	if s.stores(parentIdentity, parentInfo, name) {
 		return evaluated, true
 	}
-	file, err := os.OpenFile(evaluated, os.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	buffer, err := descriptorPathBuffer(evaluated, unix.O_NOFOLLOW)
 	if err != nil {
 		return "", false
 	}
-	buffer := make([]byte, unix.PathMax)
-	_, callErr := unix.FcntlInt(
-		file.Fd(),
-		unix.F_GETPATH,
-		int(uintptr(unsafe.Pointer(&buffer[0]))),
-	)
-	runtime.KeepAlive(buffer)
-	if err := file.Close(); err != nil {
-		return "", false
-	}
-	return selectDarwinIdentity(evaluated, buffer, callErr), true
+	return selectDarwinIdentity(evaluated, buffer, nil), true
 }
 
 // stores reports whether directory, observed with info just before this call,
@@ -173,22 +151,46 @@ func spellingCurrent(path, identity string, info os.FileInfo) bool {
 	if !info.IsDir() && !info.Mode().IsRegular() {
 		return true
 	}
-	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	buffer, err := descriptorPathBuffer(path, 0)
 	if err != nil {
 		return false
 	}
+	descriptorPath, ok := darwinDescriptorPath(identity, buffer, nil)
+	return ok && descriptorPath == identity
+}
+
+// descriptorPathBuffer opens path read-only only to ask the kernel for its
+// descriptor path (F_GETPATH); a failed lookup returns an empty buffer, which
+// darwinDescriptorPath treats as unavailable. A raw descriptor reads no
+// content and bypasses os.Open, which go test records as reading a
+// directory's whole listing and would tie cached results of every caller to
+// the modification times of all its entries.
+func descriptorPathBuffer(path string, flags int) ([]byte, error) {
+	var descriptor int
+	for {
+		var err error
+		descriptor, err = unix.Open(path, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC|flags, 0)
+		if err == nil {
+			break
+		}
+		if err != unix.EINTR {
+			return nil, &os.PathError{Op: "open", Path: path, Err: err}
+		}
+	}
 	buffer := make([]byte, unix.PathMax)
 	_, callErr := unix.FcntlInt(
-		file.Fd(),
+		uintptr(descriptor),
 		unix.F_GETPATH,
 		int(uintptr(unsafe.Pointer(&buffer[0]))),
 	)
 	runtime.KeepAlive(buffer)
-	if err := file.Close(); err != nil {
-		return false
+	if err := unix.Close(descriptor); err != nil {
+		return nil, &os.PathError{Op: "close", Path: path, Err: err}
 	}
-	descriptorPath, ok := darwinDescriptorPath(identity, buffer, callErr)
-	return ok && descriptorPath == identity
+	if callErr != nil {
+		return nil, nil
+	}
+	return buffer, nil
 }
 
 func selectDarwinIdentity(evaluated string, buffer []byte, callErr error) string {

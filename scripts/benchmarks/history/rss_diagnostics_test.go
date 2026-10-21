@@ -1,7 +1,10 @@
 package main
 
 import (
+	"io"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -31,4 +34,24 @@ func TestRSSDiagnosticsReportKeepsEveryProcessPeak(t *testing.T) {
 	}
 	var nilCollector *rssCollector
 	nilCollector.record("./a", "BenchmarkY", []uint64{1}, 1)
+}
+
+// Single-root recording rejects a diagnostics path that names the result
+// file through any spelling, before any benchmark runs.
+func TestRecordRejectsDiagnosticsAliasingTheResult(t *testing.T) {
+	directory := t.TempDir()
+	t.Chdir(directory)
+	missingRoot := filepath.Join(directory, "missing-root")
+	absolute := filepath.Join(directory, "result.json")
+	for name, paths := range map[string][2]string{
+		"same spelling":     {"result.json", "result.json"},
+		"dot prefix":        {"result.json", "./result.json"},
+		"relative absolute": {"result.json", absolute},
+		"parent traversal":  {absolute, filepath.Join(directory, "nested", "..", "result.json")},
+	} {
+		err := run([]string{"record", "--root", missingRoot, "--output", paths[0], "--rss-diagnostics", paths[1]}, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), "distinct from --output") {
+			t.Fatalf("%s: aliased diagnostics error = %v", name, err)
+		}
+	}
 }

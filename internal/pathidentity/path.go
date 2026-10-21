@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -383,6 +384,23 @@ func ResolveExisting(path string) (string, error) {
 		return "", fmt.Errorf("resolve filesystem identity %q: %w", path, err)
 	}
 	return filepath.Clean(resolved), nil
+}
+
+// IdentityCurrent reports whether an existing directory or regular file
+// still resolves to identity, a value ResolveExisting returned for it. On
+// macOS and Windows one descriptor or handle lookup confirms the stored
+// spelling of every component, so a case-only rename of any of them makes
+// the identity stale without resolving each ancestor again.
+func IdentityCurrent(path, identity string) bool {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+		resolved, err := ResolveExisting(path)
+		return err == nil && resolved == identity
+	}
+	return spellingCurrent(path, identity, info)
 }
 
 // ResolveProspective resolves the longest existing ancestor of path to its

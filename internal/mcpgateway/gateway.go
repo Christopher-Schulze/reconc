@@ -55,6 +55,10 @@ type Gateway struct {
 	snapshot     PolicySnapshot
 	inspections  *actioninspect.EngineFactory
 
+	requestContextOnce   sync.Once
+	requestContextValues []action.RawContextValue
+	requestContextErr    error
+
 	process      *ownedProcess
 	downstream   Downstream
 	upstreamMu   sync.Mutex

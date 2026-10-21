@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"reconc.dev/reconc/internal/pathidentity"
 )
 
 func rejectAliasedComparisonOutput(output, baselinePath, resultPath string) error {
@@ -50,4 +52,11 @@ func sameExistingFile(left, right string) bool {
 		return false
 	}
 	return os.SameFile(leftInfo, rightInfo)
+}
+
+// distinctOutputPaths reports whether two output paths resolve to different
+// files; unresolvable paths count as aliases so recording fails closed.
+func distinctOutputPaths(left, right string) bool {
+	resolved, err := pathidentity.ResolveProspectiveBatch([]string{left, right})
+	return err == nil && resolved[0] != resolved[1] && !sameExistingFile(resolved[0], resolved[1])
 }

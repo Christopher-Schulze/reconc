@@ -25,8 +25,9 @@ var (
 	styleElement  = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</style\s*>`)
 	htmlComment   = regexp.MustCompile(`(?s)<!--.*?-->`)
 	htmlTag       = regexp.MustCompile(`<[^>]*>`)
-	// codeFence matches a code fence line: its marker run and info string.
-	codeFence = regexp.MustCompile("^(`{3,}|~{3,})([A-Za-z0-9_+.#-]*)$")
+	// codeFence matches a trimmed code fence line: its marker run and info
+	// string, which never contains a backtick after a backtick run.
+	codeFence = regexp.MustCompile("^(?:(`{3,})([^`]*)|(~{3,})(.*))$")
 	// delimiterCell and compactDelimiterRow match GFM table delimiter cells.
 	delimiterCell       = regexp.MustCompile(`^:?-+:?$`)
 	compactDelimiterRow = regexp.MustCompile(`^\|(:?-+:?\|)+$`)
@@ -42,35 +43,99 @@ func digest(body []byte) string {
 // contract additionally ignores only presentation the CommonMark and GFM
 // specifications define as meaningless: the info string of a fenced code
 // block, which is not rendered as content, and the number of hyphens in a
-// table delimiter cell. Escapes, operators, quoting, alignment colons, and
-// every other character stay significant.
+// table delimiter cell. Code block lines, escapes, operators, quoting,
+// alignment colons, and every other character stay significant.
 func contractDigest(contract []byte, mode string) string {
 	if mode != "markdown" {
 		return digest(contract)
 	}
-	tokens := strings.Fields(string(contract))
+	lines := strings.Split(string(contract), "\n")
 	open := ""
-	for index, token := range tokens {
-		fence := codeFence.FindStringSubmatch(token)
+	for index, line := range lines {
 		if open != "" {
-			// Code block content stays exact; a bare fence of the same kind
-			// and at least the opening length closes the block.
-			if fence != nil && fence[2] == "" && fence[1][0] == open[0] && len(fence[1]) >= len(open) {
+			if closesFence(line, open) {
 				open = ""
 			}
 			continue
 		}
-		if fence != nil {
-			open = fence[1]
-			tokens[index] = fence[1]
+		if marker, ok := fenceOpener(line); ok {
+			open = marker
+			lines[index] = marker
 			continue
 		}
+		lines[index] = normalizeDelimiterCells(line)
+	}
+	return digest([]byte(strings.Join(lines, "\n")))
+}
+
+// normalizeDelimiterCells rewrites table delimiter cells in one collapsed
+// prose line to three hyphens each.
+func normalizeDelimiterCells(line string) string {
+	tokens := strings.Split(line, " ")
+	for index, token := range tokens {
 		if compactDelimiterRow.MatchString(token) ||
 			delimiterCell.MatchString(token) && index > 0 && index+1 < len(tokens) && tokens[index-1] == "|" && tokens[index+1] == "|" {
 			tokens[index] = delimiterHyphens.ReplaceAllString(token, "---")
 		}
 	}
-	return digest([]byte(strings.Join(tokens, " ")))
+	return strings.Join(tokens, " ")
+}
+
+// fenceOpener reports the marker run of a code fence opening line.
+func fenceOpener(line string) (string, bool) {
+	match := codeFence.FindStringSubmatch(strings.TrimSpace(line))
+	if match == nil {
+		return "", false
+	}
+	return match[1] + match[3], true
+}
+
+// closesFence reports a bare fence of the opening kind and at least its
+// length, which ends a fenced code block.
+func closesFence(line, open string) bool {
+	match := codeFence.FindStringSubmatch(strings.TrimSpace(line))
+	if match == nil || strings.TrimSpace(match[2]+match[4]) != "" {
+		return false
+	}
+	marker := match[1] + match[3]
+	return marker[0] == open[0] && len(marker) >= len(open)
+}
+
+// normalizeMarkdown collapses whitespace in prose and keeps every fenced code
+// block line by line with its indentation, where whitespace such as JSON
+// string content or Python indentation is part of the contract. Each prose
+// run and each code line is one output line; trailing line whitespace and
+// the indentation of fence lines are dropped.
+func normalizeMarkdown(text string) string {
+	var output []string
+	var prose []string
+	flushProse := func() {
+		if words := strings.Fields(strings.Join(prose, " ")); len(words) > 0 {
+			output = append(output, strings.Join(words, " "))
+		}
+		prose = prose[:0]
+	}
+	open := ""
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimRight(line, " \t")
+		switch {
+		case open != "" && closesFence(line, open):
+			output = append(output, strings.TrimSpace(line))
+			open = ""
+		case open != "":
+			output = append(output, line)
+		default:
+			if marker, ok := fenceOpener(line); ok {
+				flushProse()
+				output = append(output, strings.TrimSpace(line))
+				open = marker
+				continue
+			}
+			prose = append(prose, line)
+		}
+	}
+	flushProse()
+	return strings.Join(output, "\n")
 }
 
 func sourceClient() *http.Client {
@@ -144,13 +209,16 @@ func normalizeSource(body []byte, mode string) ([]byte, error) {
 	} else if strings.Contains(strings.ToLower(text), "<!doctype html") || strings.Contains(strings.ToLower(text), "<html") {
 		return nil, errors.New("source returned HTML instead of the expected text contract")
 	}
-	if mode == "source" {
+	switch mode {
+	case "source":
 		lines := strings.Split(text, "\n")
 		for index := range lines {
 			lines[index] = strings.TrimRight(lines[index], " \t")
 		}
 		text = strings.TrimSpace(strings.Join(lines, "\n"))
-	} else {
+	case "markdown":
+		text = normalizeMarkdown(text)
+	default:
 		text = strings.Join(strings.Fields(text), " ")
 	}
 	if len(text) < 80 {

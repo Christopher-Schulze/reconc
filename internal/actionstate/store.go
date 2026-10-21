@@ -383,11 +383,25 @@ func publishPrivateFile(path string, body []byte) error {
 }
 
 func publishPrivateFileIfChanged(path string, body []byte) (bool, error) {
+	return publishPrivateFileWith(path, body, atomicfile.WritePrivateIfChanged)
+}
+
+// publishPrivateFileOrdered is publishPrivateFile with ordered syncs.
+func publishPrivateFileOrdered(path string, body []byte) error {
+	_, err := publishPrivateFileWith(path, body, atomicfile.WritePrivateOrderedIfChanged)
+	return err
+}
+
+func publishPrivateFileWith(
+	path string,
+	body []byte,
+	write func(string, []byte, os.FileMode) (atomicfile.PublicationResult, error),
+) (bool, error) {
 	directory := filepath.Dir(path)
 	if err := validatePrivateDirectory(directory); err != nil {
 		return false, fmt.Errorf("validate private publication directory: %w", err)
 	}
-	result, err := atomicfile.WritePrivateIfChanged(path, body, 0o600)
+	result, err := write(path, body, 0o600)
 	if err != nil {
 		return false, err
 	}

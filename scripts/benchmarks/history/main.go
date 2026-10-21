@@ -63,7 +63,7 @@ func runRecord(args []string, stdout io.Writer) error {
 		return err
 	}
 	if flags.NArg() != 0 || *output == "" || *count < 1 || *count > 20 || !validBenchtime(*benchtime) || !validRepetitions(*repetitions) ||
-		*rssDiagnostics != "" && filepath.Clean(*rssDiagnostics) == filepath.Clean(*output) {
+		*rssDiagnostics != "" && !distinctOutputPaths(*output, *rssDiagnostics) {
 		return errors.New("usage: history record --output PATH [--root PATH] [--go PATH] [--count 1..20] [--repetitions 1..5] [--benchtime VALUE] [--profile-dir PATH --profile-groups GROUP,...] [--rss-diagnostics PATH distinct from --output]")
 	}
 	profiles, err := profileOptionsFromFlags(*root, *profileDir, *profileGroups)

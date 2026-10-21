@@ -203,7 +203,7 @@ func (s *Store) publishCheckpointLocked(
 	if err != nil {
 		return err
 	}
-	if err := s.storage.PublishPrivateFile(checkpointFileName, body); err != nil {
+	if err := s.storage.PublishPrivateFileOrdered(checkpointFileName, body); err != nil {
 		return fmt.Errorf("publish action ledger checkpoint: %w", err)
 	}
 	generation, err := ledgerFileGeneration(s.checkpointPath)

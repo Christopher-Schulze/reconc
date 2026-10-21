@@ -29,6 +29,33 @@ var devinNativeEvents = newNativeEventRegistry(
 // reason without reflecting untrusted tool arguments or names into diagnostics.
 var ErrDevinUnsupportedTool = errors.New("unsupported Devin tool is blocked")
 
+// AdaptDevinResult translates Reconc's neutral PermissionRequest denial into
+// Devin's command-hook output contract, a top-level block decision with its
+// reason. Empty success output leaves Devin's normal permission prompt
+// intact; failures and every other Devin event keep the exit-code contract,
+// where exit code 2 blocks.
+func AdaptDevinResult(event string, result Result) Result {
+	if event != "devin-permission-request" || result.ExitCode != 0 || result.Err != nil {
+		return result
+	}
+	var envelope map[string]interface{}
+	if strings.TrimSpace(result.Stdout) == "" || json.Unmarshal([]byte(result.Stdout), &envelope) != nil {
+		result.Stdout = ""
+		return result
+	}
+	hookOutput, _ := envelope["hookSpecificOutput"].(map[string]interface{})
+	decision, _ := hookOutput["decision"].(map[string]interface{})
+	if strings.TrimSpace(cursorFirstString(decision, "behavior")) != "deny" {
+		result.Stdout = ""
+		return result
+	}
+	reason := boundHostReason(cursorFirstString(decision, "message"))
+	if reason == "" {
+		reason = "Reconc denied this Devin permission request."
+	}
+	return resultWithHookJSON(Result{ExitCode: 0, Stderr: result.Stderr}, map[string]string{"decision": "block", "reason": reason})
+}
+
 // NormalizeDevinPayload converts Devin CLI hook payloads into the internal
 // payload contract. The native session_id separates concurrent sessions in
 // one repository; prompt_id binds a tool call to its originating turn.

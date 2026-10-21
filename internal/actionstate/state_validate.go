@@ -255,9 +255,14 @@ func (s *Store) validateApprovalRecords(state State) error {
 	for _, reservation := range state.Reservations {
 		reservations[reservation.Identity] = reservation
 	}
-	terminals := make(map[string]TerminalCall, len(state.TerminalCalls))
-	for _, terminal := range state.TerminalCalls {
-		terminals[terminal.ReservationIdentity] = terminal
+	// Only approval transitions read terminal calls; without approvals the
+	// largest map of a long-running state is never needed.
+	var terminals map[string]TerminalCall
+	if len(state.Approvals) > 0 {
+		terminals = make(map[string]TerminalCall, len(state.TerminalCalls))
+		for _, terminal := range state.TerminalCalls {
+			terminals[terminal.ReservationIdentity] = terminal
+		}
 	}
 	budgets := make(map[string]BudgetRecord, len(state.Budgets))
 	for _, budget := range state.Budgets {

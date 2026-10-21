@@ -391,6 +391,9 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	case hooks.KindCursor:
 		result = agentsession.AdaptCursorResult(event, result)
 		timing.mark("cursor_adapt")
+	case hooks.KindDevinCLI:
+		result = agentsession.AdaptDevinResult(event, result)
+		timing.mark("devin_adapt")
 	case hooks.KindGitHubCopilot:
 		result = agentsession.AdaptGitHubCopilotResult(event, result)
 		timing.mark("copilot_adapt")

@@ -82,3 +82,33 @@ func TestResolveAfterAncestorCaseOnlyRenameUsesTheNewSpelling(t *testing.T) {
 		}
 	}
 }
+
+// A recorded identity stays current until any component is renamed, a
+// case-only rename included, or the object disappears.
+func TestIdentityCurrentDetectsRenamedComponents(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "Repo", "src")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	identity, err := ResolveExisting(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !IdentityCurrent(path, identity) {
+		t.Fatal("an unchanged path lost its identity")
+	}
+	renamed := filepath.Join(root, "REPO")
+	if err := os.Rename(filepath.Join(root, "Repo"), renamed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(path); err == nil && IdentityCurrent(path, identity) {
+		t.Fatal("a case-only ancestor rename kept the old identity")
+	}
+	if err := os.RemoveAll(renamed); err != nil {
+		t.Fatal(err)
+	}
+	if IdentityCurrent(path, identity) {
+		t.Fatal("a removed path kept its identity")
+	}
+}

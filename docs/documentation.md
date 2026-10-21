@@ -2479,9 +2479,11 @@ Requests are sequential, allowlisted HTTPS GETs with a 15-second deadline,
 at most two followed redirects, a 2 MiB decoded body limit, and a three-minute
 overall comparison deadline. API normalization preserves interior source
 whitespace while normalizing CRLF and trailing line whitespace. Markdown
-normalization collapses whitespace; HTML normalization removes scripts,
-styles, comments and tags, prefers the main element, decodes entities, then
-collapses whitespace. Sections and markers are matched in that normalized
+normalization collapses whitespace in prose and keeps every fenced code block
+line by line with its indentation, so whitespace inside code, such as a JSON
+string or Python indentation, stays part of the contract. HTML normalization
+removes scripts, styles, comments and tags, prefers the main element, decodes
+entities, then collapses whitespace. Sections and markers are matched in that normalized
 text, and the digest covers that exact section text. A markdown source
 additionally ignores only presentation that CommonMark and GFM define as
 meaningless outside code blocks: the info string of a code fence opener and
@@ -4063,7 +4065,10 @@ than all completed history. Unix device/inode/change-time and Windows volume,
 file ID, change-time, write-time, and attributes prevent restored modification
 times from making changed bytes look unchanged. Head publication precedes
 checkpoint publication inside the existing recoverable JSONL transaction;
-recovery fully verifies retained bytes before rebuilding either summary.
+recovery fully verifies retained bytes before rebuilding either summary. Both
+publications use ordered syncs (`F_BARRIERFSYNC` on macOS): the full sync of
+the transaction's journal removal makes them durable, and until then the
+journal makes recovery redo the commit.
 In-process append and recovery take one checkpoint mutex before the shared
 cross-process JSONL lock. Every checkpoint-cache read and publication therefore
 observes a complete file-bound cache generation, with no reverse lock order in
@@ -5709,7 +5714,9 @@ process, and MCP tool names. File writes and shell preflights use the policy
 gate for the native input it receives. `write_to_process`, `mcp_call_tool`,
 namespaced MCP, and unclassified names that reach the generated matcher are
 blocked until their exact execution and correlation envelopes are qualified.
-`get_output` and `kill_shell` remain passive. A successful post
+`get_output` and `kill_shell` remain passive. A denied `PermissionRequest`
+answers with Devin's top-level `{"decision":"block","reason":...}`; an allowed
+one prints nothing and leaves Devin's prompt in charge. A successful post
 callback contributes file evidence only when its session, turn, call, and
 input match one allowed PreToolUse; failed, rewritten, post-only, and duplicate
 callbacks contribute no successful file evidence. On the installed
@@ -6290,7 +6297,12 @@ stored only as one-way digests, so the scanner does not reintroduce them into
 the public tree. An intended worktree deletion is excluded from the current-tree
 scan, while the post-boundary history scan still examines every previously
 published blob. Tests construct every negative fixture from split strings and
-prove that each rule can fail.
+prove that each rule can fail. Each line runs a rule's expression only after a
+cheap necessary-condition check for it; an oracle test proves the filtered scan
+reports exactly what the unfiltered expressions report, Unicode case folding
+included. Changed paths of all post-boundary commits come from one
+`git diff-tree --stdin` process, and up to four workers scan historical blobs
+while the next one is read.
 
 The sole allowlist exception is history-scoped, owner-labelled, and bounded at
 commit `520dd9348c1d35acb581768c8979c29fbc025c2a`. Legacy public session trailers
@@ -6330,8 +6342,9 @@ CI checks:
   24.04 and once on macOS 15, each followed by the self-hosting golden path,
   plus the publication audit, formatting, and tidy once on Linux. Race
   detection, vet, pinned Staticcheck v0.8.2, pinned Govulncheck v1.7.0, and
-  release trust are release-only gates and do not run on every commit.
-  `scripts/tests/go-test-shard.sh` deals every package to exactly one shard,
+  release trust are release-only gates and do not run on every commit; every
+  test invocation passes `-vet=off` so `go test` skips its implicit vet
+  subset. `scripts/tests/go-test-shard.sh` deals every package to exactly one shard,
   with the slowest packages leading their own shards. Coverage is measured
   locally with `make coverage`
 - the `CI result` job succeeds only when the boundary checks and both test
@@ -6355,12 +6368,13 @@ CI checks:
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three
   bootstrap profiles, git pre-commit, and all fourteen agent runtimes
 - current-tree and post-boundary-history publication audit once in candidate CI
-- the Release workflow is the pre-release gate: it requires successful `CI
-  result` and Go CodeQL checks for the exact tagged commit, runs the
-  release-only gates against that tag (three Linux race shards, vet and
-  Staticcheck, release trust) before any artifact is built, and then
-  Govulncheck and the legacy hook generator check, which depend on release
-  time and tags
+- the Release workflow is the pre-release gate: a preflight job first
+  verifies the selected tag, ref, clean tagged commit, and release notes and
+  requires successful `CI result` and Go CodeQL checks for the exact tagged
+  commit within seconds; only then does it run the release-only gates
+  against that tag (three Linux race shards, vet and Staticcheck, release
+  trust) before any artifact is built, and then Govulncheck and the legacy
+  hook generator check, which depend on release time and tags
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;
   the trust gate validates pin shape and action identity without coupling
   updates to historical commit values

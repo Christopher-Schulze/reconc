@@ -26,7 +26,7 @@ func (g *Gateway) normalizedRequest(
 	payload json.RawMessage,
 	parsed *action.Value,
 ) (action.Request, error) {
-	requestContext, err := g.requestContext()
+	requestContext, err := g.operatorRequestContext()
 	if err != nil {
 		return action.Request{}, err
 	}
@@ -60,6 +60,16 @@ func (g *Gateway) normalizedRequest(
 		return action.NormalizeRequestWithPayload(raw, *parsed)
 	}
 	return action.NormalizeRequest(raw)
+}
+
+// operatorRequestContext builds the operator context of every request once:
+// the configuration never changes after construction, and normalization only
+// reads the shared values.
+func (g *Gateway) operatorRequestContext() ([]action.RawContextValue, error) {
+	g.requestContextOnce.Do(func() {
+		g.requestContextValues, g.requestContextErr = g.requestContext()
+	})
+	return g.requestContextValues, g.requestContextErr
 }
 
 func (g *Gateway) requestContext() ([]action.RawContextValue, error) {

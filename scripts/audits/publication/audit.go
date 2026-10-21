@@ -13,9 +13,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/boundedexec"
@@ -165,7 +167,6 @@ var forbiddenWordDigests = map[string]string{
 }
 
 var (
-	wordPattern        = regexp.MustCompile(`[A-Za-z0-9]+`)
 	privatePathPattern = regexp.MustCompile(
 		`(?i)(?:/(?:User` + `s|home)/[A-Za-z0-9._-]+(?:/[^\s"']*)?|/` +
 			`Volumes/[A-Za-z0-9._-]+(?:/[^\s"']*)?|[A-Z]:\\User` + `s\\[^\s"']+)`,
@@ -184,7 +185,69 @@ var (
 		`(?i)(?:^|/)(?:\.gitkeep|\.env|id_rsa|id_ed25519|credentials(?:\.json)?|secrets?\.(?:json|ya?ml)|[^/]+\.(?:pem|p12|pfx))$`,
 	)
 	transcriptPathPattern = regexp.MustCompile(`(?i)(?:^|/)(?:transcripts?|session-export)(?:/|\.|$)`)
+	privateKeyPattern     = regexp.MustCompile("-----BEGIN (?:RSA |OPENSSH |EC )?" + "PRIVATE KEY-----")
+	legacyTrailer         = "Claude" + "-Session:"
+	legacyTrailerPattern  = regexp.MustCompile(regexp.QuoteMeta(legacyTrailer))
 )
+
+// forbiddenWords keys forbiddenWordDigests by the binary digest the scan
+// computes, so no scanned word is hex-encoded. A malformed digest is left
+// out, and auditRepository then refuses to run.
+var forbiddenWords = func() map[[sha256.Size]byte]string {
+	words := make(map[[sha256.Size]byte]string, len(forbiddenWordDigests))
+	for encoded, label := range forbiddenWordDigests {
+		var key [sha256.Size]byte
+		if decoded, err := hex.DecodeString(encoded); err == nil && len(decoded) == sha256.Size {
+			copy(key[:], decoded)
+			words[key] = label
+		}
+	}
+	return words
+}()
+
+// textRule is one per-line content rule. mayMatch is a necessary condition
+// for pattern, read on the line and its ASCII-lowered copy, so the costly
+// expression runs only on the few lines that could match. Case-insensitive
+// rules test only needles without k or s, the two ASCII letters whose
+// Unicode simple folds (Kelvin sign, long s) leave ASCII.
+type textRule struct {
+	id       string
+	pattern  *regexp.Regexp
+	mayMatch func(line, lower []byte) bool
+	detail   string
+}
+
+var textRules = []textRule{
+	{id: "content/private-path", pattern: privatePathPattern, detail: "contains an absolute user or mounted-volume path",
+		mayMatch: func(_, lower []byte) bool {
+			return bytes.Contains(lower, []byte("/u")) || bytes.Contains(lower, []byte("/home/")) ||
+				bytes.Contains(lower, []byte("/vol")) || bytes.Contains(lower, []byte(":\\u"))
+		}},
+	{id: "content/session-url", pattern: sessionURLPattern, detail: "contains an agent session or share URL",
+		mayMatch: func(line, _ []byte) bool { return bytes.Contains(line, []byte("://")) }},
+	{id: "content/session-trailer", pattern: legacyTrailerPattern, detail: "contains a legacy agent-session commit trailer",
+		mayMatch: func(line, _ []byte) bool { return bytes.Contains(line, []byte(legacyTrailer)) }},
+	{id: "content/credential-url", pattern: credentialURLPattern, detail: "contains credentials embedded in a URL",
+		mayMatch: func(line, _ []byte) bool {
+			return bytes.Contains(line, []byte("://")) && bytes.IndexByte(line, '@') >= 0
+		}},
+	{id: "content/access-token", pattern: accessTokenPattern, detail: "contains a token-shaped credential",
+		mayMatch: func(line, _ []byte) bool {
+			for _, prefix := range []string{"AKIA", "ASIA", "AIza", "sk-", "xai-", "github_pat_"} {
+				if bytes.Contains(line, []byte(prefix)) {
+					return true
+				}
+			}
+			return bytes.Contains(line, []byte("gh")) && bytes.IndexByte(line, '_') >= 0
+		}},
+	{id: "content/key-assignment", pattern: keyAssignmentPattern, detail: "contains a literal secret assignment",
+		mayMatch: func(_, lower []byte) bool {
+			return bytes.Contains(lower, []byte("_api_")) || bytes.Contains(lower, []byte("_acce")) ||
+				bytes.Contains(lower, []byte("github_to"))
+		}},
+	{id: "content/private-key", pattern: privateKeyPattern, detail: "contains a private-key header",
+		mayMatch: func(line, _ []byte) bool { return bytes.Contains(line, []byte("PRIVATE KEY-----")) }},
+}
 
 func defaultAuditOptions() auditOptions {
 	return auditOptions{Root: ".", HistoryBoundary: legacyHistoryException.ThroughCommit, MaxFileBytes: defaultMaxFileBytes}
@@ -205,6 +268,9 @@ func auditRepository(ctx context.Context, options auditOptions) (auditReport, er
 		if strings.TrimSpace(legacyHistoryException.Owner) == "" || strings.TrimSpace(legacyHistoryException.Rationale) == "" {
 			return auditReport{}, errors.New("legacy history exception requires an owner and rationale")
 		}
+	}
+	if len(forbiddenWords) != len(forbiddenWordDigests) {
+		return auditReport{}, errors.New("forbidden word digest is malformed")
 	}
 	for _, exception := range historicalFindingExceptions {
 		if len(exception.BlobID) != 40 || exception.Rule == "" || exception.Line < 1 || strings.TrimSpace(exception.Owner) == "" || strings.TrimSpace(exception.Rationale) == "" {
@@ -341,7 +407,7 @@ func auditTrackedPath(root, relative string, maxBytes int64) []auditFinding {
 	default:
 		return append(findings, auditFinding{Rule: "path/irregular", Path: relative, Detail: "tracked path is neither a regular file nor a symbolic link"})
 	}
-	return append(findings, auditText(relative, string(body))...)
+	return append(findings, auditBytes(relative, body)...)
 }
 
 func auditPathName(path string) []auditFinding {
@@ -355,38 +421,68 @@ func auditPathName(path string) []auditFinding {
 	return findings
 }
 
+// auditText scans every line of body: each ASCII letter-digit word against
+// the forbidden-word digests, then each content rule. A line feed ends a
+// line and drops one carriage return before it.
 func auditText(path, body string) []auditFinding {
-	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
+	return auditBytes(path, []byte(body))
+}
+
+func auditBytes(path string, text []byte) []auditFinding {
 	findings := []auditFinding{}
-	privateKeyPattern := regexp.MustCompile("-----BEGIN (?:RSA |OPENSSH |EC )?" + "PRIVATE KEY-----")
-	legacyTrailerPattern := regexp.MustCompile(regexp.QuoteMeta("Claude" + "-Session:"))
-	for index, line := range lines {
-		lineNumber := index + 1
-		for _, word := range wordPattern.FindAllString(line, -1) {
-			digest := sha256.Sum256([]byte(strings.ToLower(word)))
-			if label, found := forbiddenWordDigests[hex.EncodeToString(digest[:])]; found {
-				findings = append(findings, auditFinding{Rule: "content/private-name", Path: path, Line: lineNumber, Detail: "contains " + label})
-			}
+	lower := make([]byte, 0, 256)
+	for lineNumber := 1; ; lineNumber++ {
+		end := bytes.IndexByte(text, '\n')
+		line := text
+		if end >= 0 {
+			line = bytes.TrimSuffix(text[:end], []byte{'\r'})
 		}
-		for _, rule := range []struct {
-			id      string
-			pattern *regexp.Regexp
-			detail  string
-		}{
-			{id: "content/private-path", pattern: privatePathPattern, detail: "contains an absolute user or mounted-volume path"},
-			{id: "content/session-url", pattern: sessionURLPattern, detail: "contains an agent session or share URL"},
-			{id: "content/session-trailer", pattern: legacyTrailerPattern, detail: "contains a legacy agent-session commit trailer"},
-			{id: "content/credential-url", pattern: credentialURLPattern, detail: "contains credentials embedded in a URL"},
-			{id: "content/access-token", pattern: accessTokenPattern, detail: "contains a token-shaped credential"},
-			{id: "content/key-assignment", pattern: keyAssignmentPattern, detail: "contains a literal secret assignment"},
-			{id: "content/private-key", pattern: privateKeyPattern, detail: "contains a private-key header"},
-		} {
-			if rule.pattern.MatchString(line) {
-				findings = append(findings, auditFinding{Rule: rule.id, Path: path, Line: lineNumber, Detail: rule.detail})
-			}
+		lower = asciiLower(lower[:0], line)
+		findings = appendLineFindings(findings, path, lineNumber, line, lower)
+		if end < 0 {
+			return findings
+		}
+		text = text[end+1:]
+	}
+}
+
+func appendLineFindings(findings []auditFinding, path string, lineNumber int, line, lower []byte) []auditFinding {
+	for start := 0; start < len(lower); {
+		if !isWordByte(lower[start]) {
+			start++
+			continue
+		}
+		end := start + 1
+		for end < len(lower) && isWordByte(lower[end]) {
+			end++
+		}
+		if label, found := forbiddenWords[sha256.Sum256(lower[start:end])]; found {
+			findings = append(findings, auditFinding{Rule: "content/private-name", Path: path, Line: lineNumber, Detail: "contains " + label})
+		}
+		start = end
+	}
+	for _, rule := range textRules {
+		if rule.mayMatch(line, lower) && rule.pattern.Match(line) {
+			findings = append(findings, auditFinding{Rule: rule.id, Path: path, Line: lineNumber, Detail: rule.detail})
 		}
 	}
 	return findings
+}
+
+// asciiLower appends line with ASCII upper-case letters lowered; every other
+// byte, including UTF-8 sequences, is kept.
+func asciiLower(destination, line []byte) []byte {
+	for _, value := range line {
+		if 'A' <= value && value <= 'Z' {
+			value += 'a' - 'A'
+		}
+		destination = append(destination, value)
+	}
+	return destination
+}
+
+func isWordByte(value byte) bool {
+	return 'a' <= value && value <= 'z' || '0' <= value && value <= '9'
 }
 
 func auditPostBoundaryHistory(ctx context.Context, root, boundary string, maxBytes int64) ([]auditFinding, int, int, error) {
@@ -413,44 +509,66 @@ func auditPostBoundaryHistory(ctx context.Context, root, boundary string, maxByt
 		count++
 		findings = append(findings, auditText("commit/"+commit, string(parts[index+1]))...)
 	}
-	for _, commit := range commits {
-		changedPaths, pathErr := gitOutput(
-			ctx,
-			root,
-			"diff-tree",
-			"--root",
-			"-m",
-			"--no-commit-id",
-			"--name-only",
-			"--diff-filter=ACMRTUXB",
-			"-r",
-			"-z",
-			commit,
-		)
-		if pathErr != nil {
-			return nil, 0, 0, pathErr
-		}
-		for _, rawPath := range bytes.Split(changedPaths, []byte{0}) {
-			if len(rawPath) == 0 {
-				continue
-			}
-			if !utf8.Valid(rawPath) {
-				findings = append(findings, auditFinding{Rule: "history/path-encoding", Path: "commit/" + commit, Detail: "changed path is not valid UTF-8"})
-				continue
-			}
-			path := string(rawPath)
-			for _, finding := range auditPathName(path) {
-				finding.Path = "commit/" + commit + "/" + path
-				findings = append(findings, finding)
-			}
-		}
+	pathFindings, err := auditChangedPathNames(ctx, root, commits)
+	if err != nil {
+		return nil, 0, 0, err
 	}
+	findings = append(findings, pathFindings...)
 	blobFindings, blobCount, err := auditPostBoundaryBlobs(ctx, root, boundary, maxBytes)
 	if err != nil {
 		return nil, 0, 0, err
 	}
 	findings = append(findings, blobFindings...)
 	return findings, count, blobCount, nil
+}
+
+// auditChangedPathNames checks every path each commit adds or modifies with
+// one git diff-tree --stdin process. With -z, diff-tree prints a commit's ID
+// before its paths, once per parent of a merge, in input order, and nothing
+// for a commit without such paths.
+func auditChangedPathNames(ctx context.Context, root string, commits []string) ([]auditFinding, error) {
+	if len(commits) == 0 {
+		return nil, nil
+	}
+	command := gitexec.CommandContext(ctx, root, nil, "diff-tree", "--stdin", "--root", "-m", "--name-only", "--diff-filter=ACMRTUXB", "-r", "-z")
+	command.Stdin = strings.NewReader(strings.Join(commits, "\n") + "\n")
+	body, err := boundedexec.Output(command, maxPublicationGitBytes)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return nil, fmt.Errorf("git diff-tree --stdin: %w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		return nil, fmt.Errorf("git diff-tree --stdin: %w", err)
+	}
+	position := make(map[string]int, len(commits))
+	for index, commit := range commits {
+		position[commit] = index
+	}
+	findings := []auditFinding{}
+	current := -1
+	for _, rawPath := range bytes.Split(body, []byte{0}) {
+		if len(rawPath) == 0 {
+			continue
+		}
+		if index, header := position[string(rawPath)]; header && index >= current {
+			current = index
+			continue
+		}
+		if current < 0 {
+			return nil, errors.New("git diff-tree --stdin printed a path before its commit")
+		}
+		commit := commits[current]
+		if !utf8.Valid(rawPath) {
+			findings = append(findings, auditFinding{Rule: "history/path-encoding", Path: "commit/" + commit, Detail: "changed path is not valid UTF-8"})
+			continue
+		}
+		path := string(rawPath)
+		for _, finding := range auditPathName(path) {
+			finding.Path = "commit/" + commit + "/" + path
+			findings = append(findings, finding)
+		}
+	}
+	return findings, nil
 }
 
 type gitObjectMetadata struct {
@@ -532,32 +650,55 @@ func auditGitBlobBatch(ctx context.Context, root string, objects []gitObjectMeta
 		return nil, fmt.Errorf("start git cat-file --batch: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	reader := bufio.NewReader(stdout)
-	findings := []auditFinding{}
+	// Scanning dominates the audit, so a few workers scan blobs while this
+	// goroutine reads the next one; at most workers+1 blobs are in memory.
+	workers := min(runtime.GOMAXPROCS(0), maxBlobScanWorkers)
+	blobs := make(chan gitBlob)
+	scanned := make([][]auditFinding, workers)
+	var group sync.WaitGroup
+	for worker := range workers {
+		group.Go(func() {
+			for blob := range blobs {
+				scanned[worker] = append(scanned[worker], auditBytes("history/blob/"+blob.id, blob.body)...)
+			}
+		})
+	}
+	abort := func(cause error) error {
+		close(blobs)
+		group.Wait()
+		return abortGitBlobBatch(command, stderr, cause)
+	}
 	for _, object := range objects {
 		header, readErr := reader.ReadString('\n')
 		if readErr != nil {
-			return nil, abortGitBlobBatch(command, stderr, fmt.Errorf("read header for %s: %w", object.ID, readErr))
+			return nil, abort(fmt.Errorf("read header for %s: %w", object.ID, readErr))
 		}
 		fields := strings.Fields(header)
 		if len(fields) != 3 || fields[0] != object.ID || fields[1] != "blob" {
-			return nil, abortGitBlobBatch(command, stderr, fmt.Errorf("unexpected Git blob header %q", strings.TrimSpace(header)))
+			return nil, abort(fmt.Errorf("unexpected Git blob header %q", strings.TrimSpace(header)))
 		}
 		size, parseErr := strconv.ParseInt(fields[2], 10, 64)
 		if parseErr != nil || size < 0 || size > maxPublicationGitBytes || size != object.Size {
-			return nil, abortGitBlobBatch(command, stderr, fmt.Errorf("git blob %s size changed during publication audit", object.ID))
+			return nil, abort(fmt.Errorf("git blob %s size changed during publication audit", object.ID))
 		}
 		blob := make([]byte, int(size))
 		if _, readErr := io.ReadFull(reader, blob); readErr != nil {
-			return nil, abortGitBlobBatch(command, stderr, fmt.Errorf("read Git blob %s: %w", object.ID, readErr))
+			return nil, abort(fmt.Errorf("read Git blob %s: %w", object.ID, readErr))
 		}
 		delimiter, readErr := reader.ReadByte()
 		if readErr != nil {
-			return nil, abortGitBlobBatch(command, stderr, fmt.Errorf("read delimiter for Git blob %s: %w", object.ID, readErr))
+			return nil, abort(fmt.Errorf("read delimiter for Git blob %s: %w", object.ID, readErr))
 		}
 		if delimiter != '\n' {
-			return nil, abortGitBlobBatch(command, stderr, fmt.Errorf("invalid delimiter after Git blob %s", object.ID))
+			return nil, abort(fmt.Errorf("invalid delimiter after Git blob %s", object.ID))
 		}
-		findings = append(findings, auditText("history/blob/"+object.ID, string(blob))...)
+		blobs <- gitBlob{id: object.ID, body: blob}
+	}
+	close(blobs)
+	group.Wait()
+	findings := []auditFinding{}
+	for _, workerFindings := range scanned {
+		findings = append(findings, workerFindings...)
 	}
 	if err := command.Wait(); err != nil {
 		return nil, fmt.Errorf("git cat-file --batch: %w: %s", err, strings.TrimSpace(stderr.String()))
@@ -566,6 +707,13 @@ func auditGitBlobBatch(ctx context.Context, root string, objects []gitObjectMeta
 		return nil, fmt.Errorf("git cat-file --batch stderr exceeded %d bytes", maxPublicationGitBytes)
 	}
 	return findings, nil
+}
+
+const maxBlobScanWorkers = 4
+
+type gitBlob struct {
+	id   string
+	body []byte
 }
 
 func abortGitBlobBatch(command *exec.Cmd, stderr *boundedexec.Buffer, cause error) error {

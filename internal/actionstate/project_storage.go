@@ -153,6 +153,18 @@ func (s PrivateProjectStorage) PublishPrivateFile(name string, body []byte) erro
 	return publishPrivateFile(path, body)
 }
 
+// PublishPrivateFileOrdered is PublishPrivateFile with ordered syncs, for a
+// file published inside a JSONL transaction commit: the full sync of the
+// journal removal makes it durable, and until then the journal makes
+// recovery redo the commit.
+func (s PrivateProjectStorage) PublishPrivateFileOrdered(name string, body []byte) error {
+	path, err := s.privateFilePath(name)
+	if err != nil {
+		return err
+	}
+	return publishPrivateFileOrdered(path, body)
+}
+
 // JSONLSecurityIdentity binds durable JSONL journals to Reconc's private-file
 // contract instead of treating modes alone as sufficient on Windows.
 func (s PrivateProjectStorage) JSONLSecurityIdentity() string {

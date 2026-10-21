@@ -352,6 +352,42 @@ func TestHookVerificationIsolationDoesNotMutateParentEnvironment(t *testing.T) {
 	}
 }
 
+// Verification works only in its disposable repository: run from inside a
+// user's checkout, it leaves that checkout's Git directory untouched.
+func TestHookVerificationLeavesTheCallersRepositoryUntouched(t *testing.T) {
+	caller := t.TempDir()
+	initGitRepo(t, caller)
+	if err := os.WriteFile(filepath.Join(caller, "tracked.txt"), []byte("tracked\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, caller, "add", "tracked.txt")
+	gitState := func() string {
+		var state strings.Builder
+		for _, path := range []string{".git", filepath.Join(".git", "index")} {
+			info, err := os.Stat(filepath.Join(caller, path))
+			if err != nil {
+				t.Fatal(err)
+			}
+			fmt.Fprintf(&state, "%s %d %s\n", path, info.Size(), info.ModTime().Format(time.RFC3339Nano))
+		}
+		return state.String()
+	}
+	before := gitState()
+	t.Chdir(caller)
+	all := hooks.VerificationSurfaces()
+	for _, surface := range []hooks.VerificationSurface{all[0], all[len(all)-1]} {
+		if _, err := runOfflineHookVerification(
+			hookVerifyOptions{host: surface.Kind, surface: surface.Surface, jsonOutput: true},
+			[]hooks.VerificationSurface{surface},
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if after := gitState(); after != before {
+		t.Fatalf("verification touched the caller's repository:\nbefore %safter  %s", before, after)
+	}
+}
+
 func TestHookVerificationEnvironmentIsMinimalAndPathSafe(t *testing.T) {
 	probeRoot := t.TempDir()
 	binDir := filepath.Join(probeRoot, "bin")

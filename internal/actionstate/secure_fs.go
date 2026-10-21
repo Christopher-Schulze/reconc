@@ -80,17 +80,19 @@ func readPrivateRegularFileSnapshot(path string, maxBytes int64) ([]byte, os.Fil
 			return err
 		}
 		identity = info
-		var readErr error
-		body, readErr = io.ReadAll(io.LimitReader(file, maxBytes+1))
-		if readErr != nil {
-			return readErr
-		}
-		if int64(len(body)) > maxBytes {
+		if info.Size() > maxBytes {
 			return fmt.Errorf("private file exceeds %d bytes", maxBytes)
 		}
-		if int64(len(body)) != info.Size() {
+		// One spare byte reveals a file that grew after the snapshot.
+		body = make([]byte, info.Size()+1)
+		read, readErr := io.ReadFull(file, body)
+		if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, io.EOF) {
+			return readErr
+		}
+		if int64(read) != info.Size() {
 			return fmt.Errorf("private file changed while reading")
 		}
+		body = body[:read]
 		return nil
 	})
 	if err != nil {

@@ -68,8 +68,9 @@ func OpenStore(storage actionstate.PrivateProjectStorage) (*Store, error) {
 			DirectoryMode: 0o700, FileMode: 0o600, JournalMode: 0o600,
 			LockTimeout: appendLockTimeout, Security: storage,
 		},
-		policy:      jsonl.Policy{MaxBytes: MaxLiveBytes, MaxArchives: MaxArchives},
-		publishHead: storage.PublishPrivateFile,
+		policy: jsonl.Policy{MaxBytes: MaxLiveBytes, MaxArchives: MaxArchives},
+		// Head and checkpoint are published only inside transaction commits.
+		publishHead: storage.PublishPrivateFileOrdered,
 	}
 	return store, nil
 }

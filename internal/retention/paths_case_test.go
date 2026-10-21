@@ -124,3 +124,56 @@ func TestCanonicalizePathCaseSkipsTheWalkForStoredSpellings(t *testing.T) {
 		t.Fatalf("case variant = %q after %d listings, want %q through the walk", got, reads, repo)
 	}
 }
+
+// Memoized spellings are confirmed against the filesystem on every hit, so a
+// long-lived process follows case-only renames and later-created paths with
+// one canonical spelling for every variant.
+func TestCanonicalizePathCaseFollowsCaseOnlyChanges(t *testing.T) {
+	base := t.TempDir()
+	old := filepath.Join(base, "Alpha")
+	renamed := filepath.Join(base, "ALPHA")
+	if err := os.Mkdir(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(renamed); err != nil {
+		t.Skip("case-sensitive volume")
+	}
+	if got := CanonicalizePathCase(old); got != old {
+		t.Fatalf("before rename = %q, want %q", got, old)
+	}
+	if err := os.Rename(old, renamed); err != nil {
+		t.Fatal(err)
+	}
+	for _, spelling := range []string{old, renamed} {
+		if got := CanonicalizePathCase(spelling); got != renamed {
+			t.Fatalf("after rename %q = %q, want %q", spelling, got, renamed)
+		}
+	}
+	missing := filepath.Join(base, "later")
+	if got := CanonicalizePathCase(missing); got != missing {
+		t.Fatalf("missing path = %q, want unchanged", got)
+	}
+	created := filepath.Join(base, "LATER")
+	if err := os.Mkdir(created, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := CanonicalizePathCase(missing); got != created {
+		t.Fatalf("after creation %q = %q, want %q", missing, got, created)
+	}
+	if caseSensitiveComponents(renamed) {
+		t.Fatal("a component reachable through its swapped case was reported case-sensitive")
+	}
+}
+
+// Off macOS and Windows a spelling is memoized only when no component is
+// reachable through its swapped case; the probe must match the volume.
+func TestCaseSensitiveComponentsMatchesTheVolume(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "Probe")
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := os.Stat(filepath.Join(filepath.Dir(path), "pROBE"))
+	if got, want := caseSensitiveComponents(path), err != nil; got != want {
+		t.Fatalf("case-sensitive components = %t, want %t (variant lookup: %v)", got, want, err)
+	}
+}

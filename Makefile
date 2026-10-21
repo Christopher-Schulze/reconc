@@ -39,7 +39,11 @@ BIN       := reconc
 PKG       := ./...
 BINDIR    := .build/bin
 DISTDIR   := dist
+# Export only a selected tag: an empty exported RELEASE_TAG would give every
+# make-driven go test a different test-cache key than a direct go test run.
+ifdef RELEASE_TAG
 export RELEASE_TAG
+endif
 PROVENANCE_PKG := reconc.dev/reconc/buildprovenance
 STATICCHECK_VERSION := v0.8.2
 TEST_PARALLELISM ?= 2
@@ -95,17 +99,18 @@ check-test-parallelism:
 test-fast: check-test-parallelism
 	$(MAKE) --no-print-directory fmt-check
 	$(MAKE) --no-print-directory reference-docs-check
-	$(GO) test -p=$(TEST_PARALLELISM) $(PKG)
-	(cd harness/template && $(GO) test -p=$(TEST_PARALLELISM) ./...)
+	$(GO) test -vet=off -p=$(TEST_PARALLELISM) $(PKG)
+	(cd harness/template && $(GO) test -vet=off -p=$(TEST_PARALLELISM) ./...)
 
 # The commit gate keeps every functional test and the publication audit and
 # lets Go reuse cached results of unchanged packages. Race detection, vet,
-# staticcheck, govulncheck, and release trust run only in release-check.
+# staticcheck, govulncheck, and release trust run only in release-check, so
+# every test run disables go test's implicit vet subset.
 test: check-test-parallelism
 	$(MAKE) --no-print-directory fmt-check
 	$(MAKE) --no-print-directory publication-audit
-	$(GO) test -p=$(TEST_PARALLELISM) $(PKG)
-	(cd harness/template && $(GO) test -p=$(TEST_PARALLELISM) ./...)
+	$(GO) test -vet=off -p=$(TEST_PARALLELISM) $(PKG)
+	(cd harness/template && $(GO) test -vet=off -p=$(TEST_PARALLELISM) ./...)
 
 GOVULNCHECK_VERSION := v1.7.0
 
@@ -120,8 +125,8 @@ release-check: check-test-parallelism
 	$(MAKE) --no-print-directory lint
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) $(PKG)
 	(cd harness/template && $(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...)
-	$(GO) test -p=$(TEST_PARALLELISM) -race -count=1 -timeout 20m $(PKG)
-	(cd harness/template && $(GO) test -p=$(TEST_PARALLELISM) -race -count=1 ./...)
+	$(GO) test -vet=off -p=$(TEST_PARALLELISM) -race -count=1 -timeout 20m $(PKG)
+	(cd harness/template && $(GO) test -vet=off -p=$(TEST_PARALLELISM) -race -count=1 ./...)
 	./scripts/tests/release-trust.sh
 	$(MAKE) --no-print-directory self-host
 
