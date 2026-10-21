@@ -74,6 +74,14 @@ func (g *Gateway) handleTool(
 	case <-g.ctx.Done():
 		return blockedGatewayResult(callID, action.ReasonShutdown)
 	}
+	// The wait for a call slot is unbounded, so the identity that enters the
+	// action state is issued after it: every reservation and approval of the
+	// call then lies within its timeouts of issuance, inside the admission
+	// window. The first identity only labels the blocked results above.
+	callID, err = g.state.NewCallID()
+	if err != nil {
+		return nil, fmt.Errorf("generate gateway call identity: %w", err)
+	}
 	contract, generation, exists := g.tool(sdkRequest.Params.Name)
 	if !exists || contract.ContractDigest != registered.ContractDigest {
 		return blockedGatewayResult(callID, action.ReasonToolContractStale)

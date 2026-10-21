@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -25,6 +26,8 @@ var (
 	styleElement  = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</style\s*>`)
 	htmlComment   = regexp.MustCompile(`(?s)<!--.*?-->`)
 	htmlTag       = regexp.MustCompile(`<[^>]*>`)
+	preElement    = regexp.MustCompile(`(?is)<pre\b[^>]*>(.*?)</pre\s*>`)
+	htmlLineBreak = regexp.MustCompile(`(?i)<br\s*/?>`)
 	// codeFence matches a trimmed code fence line: its marker run and info
 	// string, which never contains a backtick after a backtick run.
 	codeFence = regexp.MustCompile("^(?:(`{3,})([^`]*)|(~{3,})(.*))$")
@@ -61,6 +64,11 @@ func contractDigest(contract []byte, mode string) string {
 		if marker, ok := fenceOpener(line); ok {
 			open = marker
 			lines[index] = marker
+			continue
+		}
+		// Prose lines are trimmed; a line that starts with whitespace is an
+		// indented code line and stays exact.
+		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
 			continue
 		}
 		lines[index] = normalizeDelimiterCells(line)
@@ -101,21 +109,22 @@ func closesFence(line, open string) bool {
 	return marker[0] == open[0] && len(marker) >= len(open)
 }
 
-// normalizeMarkdown collapses whitespace in prose and keeps every fenced code
-// block line by line with its indentation, where whitespace such as JSON
-// string content or Python indentation is part of the contract. Each prose
-// run and each code line is one output line; trailing line whitespace and
-// the indentation of fence lines are dropped.
+// normalizeMarkdown collapses whitespace in prose and keeps code exact where
+// whitespace is content: fenced and indented code blocks line by line with
+// their indentation, and inline code spans with their spaces. Each prose run
+// and each code line is one output line; trailing line whitespace and the
+// indentation of fence lines are dropped.
 func normalizeMarkdown(text string) string {
 	var output []string
 	var prose []string
 	flushProse := func() {
-		if words := strings.Fields(strings.Join(prose, " ")); len(words) > 0 {
-			output = append(output, strings.Join(words, " "))
+		if collapsed := collapseProse(prose); collapsed != "" {
+			output = append(output, collapsed)
 		}
 		prose = prose[:0]
 	}
 	open := ""
+	afterBlank, indented := true, false
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimRight(line, " \t")
 		switch {
@@ -124,7 +133,16 @@ func normalizeMarkdown(text string) string {
 			open = ""
 		case open != "":
 			output = append(output, line)
+		case line == "":
+			// A blank line may continue an indented code block.
+			afterBlank = true
+			prose = append(prose, line)
+		case (afterBlank || indented) && indentedCodeLine(line):
+			flushProse()
+			output = append(output, line)
+			afterBlank, indented = false, true
 		default:
+			afterBlank, indented = false, false
 			if marker, ok := fenceOpener(line); ok {
 				flushProse()
 				output = append(output, strings.TrimSpace(line))
@@ -135,6 +153,119 @@ func normalizeMarkdown(text string) string {
 		}
 	}
 	flushProse()
+	return strings.Join(output, "\n")
+}
+
+// indentedCodeLine reports a line indented by at least four columns, counting
+// a tab as four, which CommonMark reads as indented code after a blank line.
+func indentedCodeLine(line string) bool {
+	columns := 0
+	for _, character := range line {
+		switch character {
+		case ' ':
+			columns++
+		case '\t':
+			columns += 4 - columns%4
+		default:
+			return columns >= 4
+		}
+		if columns >= 4 {
+			return true
+		}
+	}
+	return false
+}
+
+// collapseProse joins prose lines and collapses every whitespace run outside
+// inline code spans to one space. A code span keeps its spaces exactly; a line
+// end inside it reads as one space, as CommonMark renders it. Backtick runs
+// without a closing run of the same length are literal text.
+func collapseProse(lines []string) string {
+	trimmed := make([]string, len(lines))
+	for index, line := range lines {
+		trimmed[index] = strings.TrimSpace(line)
+	}
+	text := strings.Join(trimmed, "\n")
+	var out strings.Builder
+	pendingSpace := false
+	write := func(fragment string) {
+		if pendingSpace && out.Len() > 0 {
+			out.WriteByte(' ')
+		}
+		pendingSpace = false
+		out.WriteString(fragment)
+	}
+	for index := 0; index < len(text); {
+		if strings.HasPrefix(text[index:], "\\`") {
+			write(text[index : index+2])
+			index += 2
+			continue
+		}
+		if text[index] == '`' {
+			run := len(text[index:]) - len(strings.TrimLeft(text[index:], "`"))
+			if closing := closingBacktickRun(text, index+run, run); closing >= 0 {
+				write(strings.ReplaceAll(text[index:closing+run], "\n", " "))
+				index = closing + run
+				continue
+			}
+			write(text[index : index+run])
+			index += run
+			continue
+		}
+		character, size := utf8.DecodeRuneInString(text[index:])
+		if unicode.IsSpace(character) {
+			pendingSpace = true
+		} else {
+			write(text[index : index+size])
+		}
+		index += size
+	}
+	return out.String()
+}
+
+// closingBacktickRun returns the start of the first backtick run of exactly
+// length at or after from, or -1.
+func closingBacktickRun(text string, from, length int) int {
+	for index := from; index < len(text); {
+		if text[index] != '`' {
+			index++
+			continue
+		}
+		run := len(text[index:]) - len(strings.TrimLeft(text[index:], "`"))
+		if run == length {
+			return index
+		}
+		index += run
+	}
+	return -1
+}
+
+// normalizeHTML collapses whitespace in rendered prose and keeps every pre
+// element line by line with its indentation, where browsers render the
+// whitespace. Markup inside pre, such as highlighting spans, is removed
+// without inserting text.
+func normalizeHTML(text string) string {
+	var output []string
+	collapse := func(fragment string) {
+		if words := strings.Fields(html.UnescapeString(htmlTag.ReplaceAllString(fragment, " "))); len(words) > 0 {
+			output = append(output, strings.Join(words, " "))
+		}
+	}
+	last := 0
+	for _, match := range preElement.FindAllStringSubmatchIndex(text, -1) {
+		collapse(text[last:match[0]])
+		code := htmlLineBreak.ReplaceAllString(text[match[2]:match[3]], "\n")
+		code = html.UnescapeString(htmlTag.ReplaceAllString(code, ""))
+		lines := strings.Split(code, "\n")
+		for index := range lines {
+			lines[index] = strings.TrimRight(lines[index], " \t\r")
+		}
+		if code := strings.Trim(strings.Join(lines, "\n"), "\n"); code != "" {
+			output = append(output, code)
+		}
+		last = match[1]
+	}
+	collapse(text[last:])
 	return strings.Join(output, "\n")
 }
 
@@ -205,7 +336,6 @@ func normalizeSource(body []byte, mode string) ([]byte, error) {
 		if match := mainElement.FindStringSubmatch(text); len(match) == 2 {
 			text = match[1]
 		}
-		text = html.UnescapeString(htmlTag.ReplaceAllString(text, " "))
 	} else if strings.Contains(strings.ToLower(text), "<!doctype html") || strings.Contains(strings.ToLower(text), "<html") {
 		return nil, errors.New("source returned HTML instead of the expected text contract")
 	}
@@ -218,6 +348,8 @@ func normalizeSource(body []byte, mode string) ([]byte, error) {
 		text = strings.TrimSpace(strings.Join(lines, "\n"))
 	case "markdown":
 		text = normalizeMarkdown(text)
+	case "html":
+		text = normalizeHTML(text)
 	default:
 		text = strings.Join(strings.Fields(text), " ")
 	}

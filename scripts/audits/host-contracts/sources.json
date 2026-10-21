@@ -17,7 +17,7 @@
           "url": "https://antigravity.google/docs/hooks",
           "baseline_url": "https://antigravity.google/docs/hooks",
           "normalization": "html",
-          "sha256": "24e221224b1685c47a3c30093e9c56e4d07394334e488f989adc556d59638cb9",
+          "sha256": "af99c95b71dea31e3f2ffb6576c132218dc8d13d86cfde0bff04f0b4f9a2eb2f",
           "required_markers": [
             "PreToolUse",
             "PostToolUse",
@@ -402,7 +402,7 @@
           "url": "https://git-scm.com/docs/githooks",
           "baseline_url": "https://git-scm.com/docs/githooks",
           "normalization": "html",
-          "sha256": "5609dee73334aed4e1714a0d41e7df5c89421746aec07a600cb7926245e53045",
+          "sha256": "b3fbf37470ed84d46cd2311ac0f3896643fcbe863a4000fe70ed421dee6733cc",
           "required_markers": [
             "pre-commit",
             "GIT_DIR"
@@ -525,7 +525,7 @@
           "url": "https://moonshotai.github.io/kimi-code/en/customization/hooks",
           "baseline_url": "https://moonshotai.github.io/kimi-code/en/customization/hooks",
           "normalization": "html",
-          "sha256": "ba69499d8a5691a32bf081dfb59ba9800a8b08349551fe6c0a1e6d3429624961",
+          "sha256": "59bbfa5066c067fe593c1efd348ad1016dc6ce34ab7aea3318831da23c4040b3",
           "required_markers": [
             "PreToolUse",
             "SessionStart"
@@ -849,7 +849,7 @@
           "url": "https://zcode.z.ai/en/docs/hooks",
           "baseline_url": "https://zcode.z.ai/en/docs/hooks",
           "normalization": "html",
-          "sha256": "c6da5d335d83f10805bfd4d376e0ccca48476f8b26082635e8286b82904b5368",
+          "sha256": "f41973ec1a04a9f8196c16c82a38489d4902cb25855f72d9d2b6e447c6f7a8d6",
           "required_markers": [
             "PreToolUse",
             "SessionStart"

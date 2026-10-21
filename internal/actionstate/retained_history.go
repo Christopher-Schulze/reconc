@@ -7,7 +7,7 @@ import (
 )
 
 // StateAdmissionHeadroomBytes keeps room to finalize every active
-// reservation: a new reservation or pre-call approval is refused while the
+// reservation: a new reservation or approval is refused while the
 // encoded state plus this headroom would exceed MaxStateBytes. The refusal
 // clears once retained history ages out of the admission window.
 const StateAdmissionHeadroomBytes = 1 << 20

@@ -18,9 +18,9 @@ import (
 // key; only the MAC proves that this store issued it.
 const (
 	// CallIdentityAdmissionWindow bounds how long after issuance a call
-	// identity may first enter the state as a reservation or a pre-call
-	// approval. Retained history older than the window plus the skew can
-	// never be needed to reject a replay, so it is pruned.
+	// identity may enter the state as a new reservation or approval record.
+	// Retained history older than the window plus the skew can never be
+	// needed to reject a replay, so it is pruned.
 	CallIdentityAdmissionWindow = 15 * time.Minute
 	// CallIdentityClockSkew tolerates an issuing clock slightly ahead of the
 	// clock of the admitting transaction.

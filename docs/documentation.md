@@ -2479,11 +2479,15 @@ Requests are sequential, allowlisted HTTPS GETs with a 15-second deadline,
 at most two followed redirects, a 2 MiB decoded body limit, and a three-minute
 overall comparison deadline. API normalization preserves interior source
 whitespace while normalizing CRLF and trailing line whitespace. Markdown
-normalization collapses whitespace in prose and keeps every fenced code block
-line by line with its indentation, so whitespace inside code, such as a JSON
-string or Python indentation, stays part of the contract. HTML normalization
-removes scripts, styles, comments and tags, prefers the main element, decodes
-entities, then collapses whitespace. Sections and markers are matched in that normalized
+normalization collapses whitespace in prose and keeps code exact: fenced and
+indented code blocks line by line with their indentation, and inline code
+spans with their spaces, a line end inside a span reading as one space as
+CommonMark renders it. Whitespace inside code, such as a JSON string, a shell
+argument, or Python indentation, therefore stays part of the contract. HTML
+normalization removes scripts, styles, comments and tags, prefers the main
+element, decodes entities, keeps every pre element line by line with its
+indentation (markup inside it, such as highlighting, renders no text and is
+dropped), and collapses whitespace elsewhere. Sections and markers are matched in that normalized
 text, and the digest covers that exact section text. A markdown source
 additionally ignores only presentation that CommonMark and GFM define as
 meaningless outside code blocks: the info string of a code fence opener and
@@ -4081,18 +4085,20 @@ sorted state index; state schema and rendering remain unchanged.
 
 The action state issues every gateway call identity: `act_` and 26 base32
 characters carrying the issue second, 40 random bits, and a 50-bit keyed MAC
-over the repository identity and both fields. A call identity first enters the
-state, as a reservation or a pre-call approval, only when this state's key
-issued it and its issue second lies within 15 minutes before and 30 seconds
-after the trusted clock; every approval record requires a store-issued
-identity. Because the persisted trusted clock never moves backward, history
+over the repository identity and both fields. A new reservation or approval
+record admits a call identity only when this state's key issued it and its
+issue second lies within 15 minutes before and 30 seconds after the trusted
+clock. The gateway issues the identity once the call holds its concurrency
+slot, and every call ends within its 300-second maximum timeout, so a
+reservation, the approval wait of at most 120 seconds, and a resumed call stay
+within 12 minutes of issuance. Because the persisted trusted clock never moves backward, history
 for a call whose identity is older than that window can never be needed to
 reject a replay: each state transaction prunes such terminal calls unless a
 retained approval references their reservation, and finished approvals whose
 reservation is no longer active and whose request expired before the window.
 Pending approvals, active reservations, and budget records are never pruned,
 so retained history is bounded by the calls issued within the window. A new
-reservation or pre-call approval is refused while it would leave less than
+reservation or approval is refused while it would leave less than
 1 MiB below the 16 MiB state limit, and reservations plus terminal calls share
 the 65,536 terminal-record capacity, so every active reservation can always be
 finalized; the refusal clears as history leaves the window. State format 2

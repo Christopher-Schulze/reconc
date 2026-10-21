@@ -408,10 +408,11 @@ func TestIdentityUsesKeyMatchesTheKeyedIdentityContract(t *testing.T) {
 	}
 }
 
-// Over 100,000 calls at a steady rate, retained terminal history stays
-// bounded by the calls issued within the admission window and far below the
-// state size limit.
-func TestRetentionBoundsHistoryOverOneHundredThousandCalls(t *testing.T) {
+// The retention rule alone, applied in memory to 100,000 simulated terminal
+// records at a steady rate, keeps history bounded by the calls issued within
+// the admission window and far below the state size limit. Real store
+// transactions are covered by TestRetentionStaysBoundedAcrossRealTransactions.
+func TestRetentionRuleBoundsOneHundredThousandSimulatedCalls(t *testing.T) {
 	const (
 		calls          = 100_000
 		callsPerSecond = 5
@@ -444,5 +445,124 @@ func TestRetentionBoundsHistoryOverOneHundredThousandCalls(t *testing.T) {
 	body, err := encodeBoundedJSON(state, MaxStateBytes)
 	if err != nil || len(body) > MaxStateBytes-StateAdmissionHeadroomBytes {
 		t.Fatalf("retained history encodes to %d bytes: %v", len(body), err)
+	}
+}
+
+// issueBudgetFreePostResultApproval issues a post-result approval for the
+// budget-free call that input reserved.
+func issueBudgetFreePostResultApproval(
+	t testing.TB,
+	fixture *storeFixture,
+	input ReserveRequest,
+	authority issuedApprovalFixture,
+) (issuedApprovalFixture, error) {
+	t.Helper()
+	version, err := fixture.store.CurrentStateVersion(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := action.ParseJSON([]byte(`{"ok":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := input.Request
+	request.Phase, request.Arguments, request.Result, request.StateVersion = action.PhasePostResult, nil, &result, version
+	binding := ApprovalBinding{
+		Plan: fixture.plan, BudgetRequest: input.Request,
+		Context: fixture.context, Authority: fixture.authority, Server: fixture.server,
+		Evaluation: action.EvaluationInput{
+			Request: request, SourceIdentity: strings.Repeat("8", 64),
+			ContextIdentity: fixture.context.ContextIdentity, ExecutableDigest: fixture.server.ExecutableDigest,
+			Principal: fixture.context.Principal, CredentialLabels: credentialLabels(fixture.context.Credentials),
+			Budget:    absentBudgetSnapshot(version),
+			Approval:  action.ApprovalSnapshot{Status: action.ApprovalNone, Identity: "approval-none"},
+			Taint:     action.TaintSnapshot{Status: action.TaintClean, Identity: "taint-clean"},
+			Lifecycle: action.LifecycleActive, CachePolicyVersion: action.CacheIdentityVersion,
+		},
+	}
+	issue, err := fixture.store.IssueApproval(context.Background(), ApprovalIssueRequest{
+		Binding: binding, AuthorityPolicyID: "production-writes", TTL: 30 * time.Second,
+	})
+	return issuedApprovalFixture{binding: binding, issue: issue, registry: authority.registry, privateKey: authority.privateKey}, err
+}
+
+// A budget-free call has no reservation to prove it is still running, so
+// every approval for it, post-result included, is admitted only within the
+// call identity's window: a call whose finished approvals were pruned can
+// never receive a new one.
+func TestPrunedBudgetFreeCallCannotReceiveANewApproval(t *testing.T) {
+	fixture := newStoreFixture(t, nil)
+	callID := fixture.issuedCallID(t, "old")
+	input, reserved := fixture.reserve(t, callID)
+	pre := issueFixtureApproval(t, fixture, input, reserved)
+	_, err := consumeFixtureApproval(t, fixture, pre, actionapproval.DecisionReject)
+	requireStateCode(t, err, action.ReasonApprovalRejected)
+	post, err := issueBudgetFreePostResultApproval(t, fixture, input, pre)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = consumeFixtureApproval(t, fixture, post, actionapproval.DecisionReject)
+	requireStateCode(t, err, action.ReasonApprovalRejected)
+
+	fixture.advance(CallIdentityAdmissionWindow + CallIdentityClockSkew + time.Minute)
+	triggerInput, triggerReserved := fixture.reserve(t, fixture.issuedCallID(t, "trigger"))
+	issueFixtureApproval(t, fixture, triggerInput, triggerReserved)
+	state, _, err := fixture.store.loadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approvalRecordForCallPhase(state.Approvals, callID, action.PhasePreCall) != nil ||
+		approvalRecordForCallPhase(state.Approvals, callID, action.PhasePostResult) != nil {
+		t.Fatal("finished approvals past the window were retained")
+	}
+	_, err = issueBudgetFreePostResultApproval(t, fixture, input, pre)
+	requireStateCode(t, err, action.ReasonReservationIndeterminate)
+}
+
+// Real reserve and release transactions over twenty minutes of trusted time,
+// with the store reopened halfway, keep retained terminal calls bounded by
+// the calls issued within the admission window, and a pruned call stays
+// rejected.
+func TestRetentionStaysBoundedAcrossRealTransactions(t *testing.T) {
+	const (
+		calls   = 60
+		spacing = 20 * time.Second
+	)
+	fixture := admissionFixture(t)
+	first := ""
+	window := CallIdentityAdmissionWindow + CallIdentityClockSkew
+	bound := int(window/spacing) + 1
+	for index := range calls {
+		if index == calls/2 {
+			reopened, err := OpenStore(StoreOptions{
+				Home: fixture.home, Repository: fixture.store.repository, KeyLease: fixture.lease,
+				Clock: fixture.clock, OwnerID: "owner-primary",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture.store = reopened
+		}
+		callID, err := fixture.store.NewCallID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first == "" {
+			first = callID
+		}
+		fixture.reserveAndRelease(t, callID)
+		if retained := len(fixture.terminalCallIDs(t)); retained > bound {
+			t.Fatalf("call %d left %d terminal calls, bound %d", index, retained, bound)
+		}
+		fixture.advance(spacing)
+	}
+	ids := fixture.terminalCallIDs(t)
+	if ids[first] || len(ids) < bound-1 {
+		t.Fatalf("after %s of calls %d terminal calls remain, first pruned = %t", time.Duration(calls)*spacing, len(ids), !ids[first])
+	}
+	requireStateCode(t, fixture.tryReserve(t, first), action.ReasonReservationIndeterminate)
+	status, err := fixture.store.Status(context.Background())
+	if err != nil || status.TerminalCallCount != len(ids) {
+		t.Fatalf("status after reopening = %+v, %v", status, err)
 	}
 }

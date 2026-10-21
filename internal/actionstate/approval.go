@@ -388,17 +388,13 @@ func (s *Store) persistPendingApproval(
 	if approvalRecordForCallPhase(state.Approvals, request.CallID, request.Phase) != nil {
 		return ApprovalIssueResult{}, stateError(action.ReasonApprovalReplayed, "action call phase already has an approval record", nil)
 	}
-	// Approval records outlive their calls only within the admission window:
-	// every record needs a store-issued call identity, and a pre-call record
-	// is where an unreserved call first enters the state. A post-result
-	// record may follow a long-running call and is bound by its call phase.
-	if !s.issuedCallIdentity(request.CallID) {
-		return ApprovalIssueResult{}, stateError(action.ReasonIdentityUnavailable, "action call identity was not issued by this action state", nil)
-	}
-	if request.Phase == action.PhasePreCall {
-		if err := s.requireAdmissibleCallID(request.CallID, clock.Time); err != nil {
-			return ApprovalIssueResult{}, err
-		}
+	// A budget-free call has no reservation to prove it is still running, so
+	// every approval record, post-result included, is admitted only within
+	// the call identity's window; pruned approvals can then never be needed
+	// to reject a second one. The gateway bounds every call by its maximum
+	// timeout, which keeps a post-result approval well inside the window.
+	if err := s.requireAdmissibleCallID(request.CallID, clock.Time); err != nil {
+		return ApprovalIssueResult{}, err
 	}
 	next := cloneState(state)
 	if request.BudgetReservationID != "absent" {

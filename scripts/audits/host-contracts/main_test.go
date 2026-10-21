@@ -144,6 +144,12 @@ func TestNormalizeSource(t *testing.T) {
 		{"markdown code block", contract + "\r\n  ```json theme={null}  \n{\n  \"a  b\": [1,  2]\n}\t\n  ```\nNext   step.", "markdown",
 			strings.TrimSpace(contract) + "\n```json theme={null}\n{\n  \"a  b\": [1,  2]\n}\n```\nNext step.", false},
 		{"markdown unclosed code block", contract + "\n~~~\nif x:\n    y()", "markdown", strings.TrimSpace(contract) + "\n~~~\nif x:\n    y()", false},
+		{"markdown inline code", contract + "\nRun `echo \"a  b\"`   now,\n`x\ny` and \\`kept  `", "markdown",
+			strings.TrimSpace(contract) + " Run `echo \"a  b\"` now, `x y` and \\`kept `", false},
+		{"markdown indented code", contract + "\n\n    if x:\n        y()\n\n    z()\nAfter   text", "markdown",
+			strings.TrimSpace(contract) + "\n    if x:\n        y()\n    z()\nAfter text", false},
+		{"HTML pre", "<main><p>" + contract + "</p><pre><code><span>def</span> f():\n    return  1  </code></pre><p>after   text</p></main>", "html",
+			strings.TrimSpace(contract) + "\ndef f():\n    return  1\nafter text", false},
 		{"source whitespace", " \n" + contract + " \r\n  next();\t\n", "source", strings.TrimRight(contract, " ") + "\n  next();", false},
 		{"HTML main", "<nav>navigation changes</nav><main><script>dynamic()</script><style>body{}</style><!-- generated --><p>" + contract + "</p>&amp;</main>", "html", strings.TrimSpace(contract) + " &", false},
 		{"error HTML", "<!doctype html><html>" + contract + "</html>", "source", "", true},
@@ -370,6 +376,8 @@ func TestDocumentationContractDigestIgnoresOnlyMeaninglessPresentation(t *testin
 		{"space inside a code string", strings.Replace(original, `"say \"hi\""`, `"say  \"hi\""`, 1), "changed"},
 		{"code indentation", strings.Replace(original, "\n{\"decision\"", "\n    {\"decision\"", 1), "changed"},
 		{"code line break", strings.Replace(original, `"block", "note"`, "\"block\",\n\"note\"", 1), "changed"},
+		{"space inside inline code", strings.Replace(original, "`status != 0`", "`status  != 0`", 1), "changed"},
+		{"inline code reflow", strings.Replace(original, "Return `decision` when", "Return\n`decision`   when", 1), "unchanged"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if test.body == original {
@@ -392,6 +400,40 @@ func TestDocumentationContractDigestIgnoresOnlyMeaninglessPresentation(t *testin
 		bare := []byte(strings.Replace(string(contract), "```json", "```", 1))
 		if contractDigest(contract, mode) == contractDigest(bare, mode) {
 			t.Fatalf("a %s contract ignored a changed fence tag", mode)
+		}
+	}
+}
+
+// Whitespace inside code is content in every supported presentation: inline
+// code spans, indented code blocks, and HTML pre elements. Prose whitespace
+// and markup inside pre that renders no text are not.
+func TestCodeWhitespaceStaysPartOfTheContract(t *testing.T) {
+	digestOf := func(body, mode string) string {
+		normalized, err := normalizeSource([]byte(body), mode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return contractDigest(normalized, mode)
+	}
+	prose := strings.Repeat("Hooks run before tools. ", 4)
+	markdown := prose + "Run `echo \"a b\"` first.\n\n    if ready:\n        run()\n\nDone."
+	page := "<main><p>" + prose + "</p><pre><code>if ready:\n    run()</code></pre></main>"
+	for _, test := range []struct {
+		name, mode, base, variant string
+		same                      bool
+	}{
+		{"inline code spacing", "markdown", markdown, strings.Replace(markdown, `"a b"`, `"a  b"`, 1), false},
+		{"indented code indentation", "markdown", markdown, strings.Replace(markdown, "        run()", "      run()", 1), false},
+		{"prose reflow", "markdown", markdown, strings.Replace(markdown, "Hooks run before tools. ", "Hooks run\nbefore   tools. ", 1), true},
+		{"pre indentation", "html", page, strings.Replace(page, "    run()", "  run()", 1), false},
+		{"pre highlighting markup", "html", page, strings.Replace(page, "if ready:", `<span class="k">if</span> ready:`, 1), true},
+		{"HTML prose spacing", "html", page, strings.Replace(page, "Hooks run before", "Hooks  run\n before", 1), true},
+	} {
+		if test.base == test.variant {
+			t.Fatalf("%s: the variant did not change the source", test.name)
+		}
+		if same := digestOf(test.base, test.mode) == digestOf(test.variant, test.mode); same != test.same {
+			t.Fatalf("%s: equal digests = %t, want %t", test.name, same, test.same)
 		}
 	}
 }
