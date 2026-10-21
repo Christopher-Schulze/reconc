@@ -434,17 +434,17 @@ template_go_version=$(sed -n 's/^go //p' "$root/harness/template/go.mod")
 [ "$template_go_version" = "$root_go_version" ] \
   || fail "$root/harness/template/go.mod must match root Go version $root_go_version"
 require_text "$ci_workflow" "go mod tidy -diff"
-require_text "$root/Makefile" "STATICCHECK_VERSION := v0.8.2"
-require_text "$root/Makefile" "GOVULNCHECK_VERSION := v1.7.0"
-require_text "$release_workflow" "staticcheck@v0.8.2"
-require_text "$release_workflow" "govulncheck@v1.7.0"
+require_text "$root/Makefile" "STATICCHECK_VERSION := latest"
+require_text "$root/Makefile" "GOVULNCHECK_VERSION := latest"
+require_text "$release_workflow" "staticcheck@latest"
+require_text "$release_workflow" "govulncheck@latest"
 [ "$(grep -Fc 'make self-host' "$ci_workflow")" -eq 2 ] \
   || fail "$ci_workflow must self-host on Linux and macOS"
 require_text "$root/scripts/tests/self-hosting.sh" "--profile governed"
 require_text "$root/scripts/tests/self-hosting.sh" "--profile existing"
 require_text "$root/scripts/tests/self-hosting.sh" "--hook all"
-if grep -Fq 'staticcheck@latest' "$release_workflow"; then
-  fail "$release_workflow uses an unpinned staticcheck version"
+if grep -Eq '(staticcheck|govulncheck)@v[0-9]' "$release_workflow"; then
+  fail "$release_workflow pins an analysis tool instead of its newest release"
 fi
 bash -n "$root/scripts/release/publish-github-release.sh" \
   || fail "release publication helper has invalid Bash syntax"

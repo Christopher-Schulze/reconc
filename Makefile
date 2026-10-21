@@ -9,7 +9,7 @@
 #   make fmt-check          -- reject unformatted non-ignored Go sources
 #   make fmt                -- format all Go sources
 #   make vet                -- run go vet
-#   make lint               -- run pinned staticcheck
+#   make lint               -- run the newest staticcheck
 #   make coverage           -- measure root and template coverage
 #   make cover              -- measure coverage and write root/template HTML reports
 #   make fuzz               -- run every discovered Go fuzz target with a bounded budget
@@ -45,7 +45,8 @@ ifdef RELEASE_TAG
 export RELEASE_TAG
 endif
 PROVENANCE_PKG := reconc.dev/reconc/buildprovenance
-STATICCHECK_VERSION := v0.8.2
+# Staticcheck and Govulncheck always run at their newest release.
+STATICCHECK_VERSION := latest
 TEST_PARALLELISM ?= 2
 BENCHMARK_COUNT ?= 5
 BENCHMARK_BENCHTIME ?= 250ms
@@ -112,7 +113,7 @@ test: check-test-parallelism
 	$(GO) test -vet=off -p=$(TEST_PARALLELISM) $(PKG)
 	(cd harness/template && $(GO) test -vet=off -p=$(TEST_PARALLELISM) ./...)
 
-GOVULNCHECK_VERSION := v1.7.0
+GOVULNCHECK_VERSION := latest
 
 # The pre-release gate runs everything uncached before an explicitly
 # authorized release.

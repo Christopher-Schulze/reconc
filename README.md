@@ -1306,8 +1306,8 @@ Candidate CI runs root and portable-template tests on Ubuntu and macOS with
 self-hosting, formatting, tidy checks, one publication-boundary check,
 harness-pack parity, and Go CodeQL. The release workflow requires those
 results for the exact tagged commit and adds the release-only gates against
-the tag: race tests, Vet, pinned Staticcheck, pinned Govulncheck, and
-release-trust tests. GitHub Actions are allowlisted and commit-pinned, checkout
+the tag: race tests, Vet, Staticcheck and Govulncheck at their newest
+releases, and release-trust tests. GitHub Actions are allowlisted and commit-pinned, checkout
 credentials are not persisted, and release/publication jobs use full history
 where the post-boundary audit requires it. Windows implementation, tests, and
 release artifacts remain maintained; native checks are manual only through

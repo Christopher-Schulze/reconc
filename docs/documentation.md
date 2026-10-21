@@ -6389,7 +6389,7 @@ CI checks:
 - the commit gate: root-module and `harness/template` tests once on Ubuntu
   24.04 and once on macOS 15, each followed by the self-hosting golden path,
   plus the publication audit, formatting, and tidy once on Linux. Race
-  detection, vet, pinned Staticcheck v0.8.2, pinned Govulncheck v1.7.0, and
+  detection, vet, Staticcheck and Govulncheck at their newest releases, and
   release trust are release-only gates and do not run on every commit; every
   test invocation passes `-vet=off` so `go test` skips its implicit vet
   subset. On macOS the packages that record the most file accesses run their
@@ -6473,7 +6473,7 @@ Release:
   Staticcheck, release trust) passed for the exact tag, checks out that tag,
   and requires successful `CI result` and Go CodeQL checks for that commit, so
   formatting, tidy, Linux and macOS tests, publication, and self-hosting are
-  not repeated. It then runs pinned Govulncheck and the legacy hook generator
+  not repeated. It then runs the newest Govulncheck and the legacy hook generator
   registry check before building. Optional Windows smoke is independent and
   never blocks publication. The LangChain consumer proof runs locally only.
 - `make release RELEASE_TAG=reconc-vX.Y.Z` builds the exact flat release inventory from the selected existing tag.

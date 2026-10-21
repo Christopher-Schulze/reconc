@@ -136,8 +136,8 @@ jobs:
 
       - name: Staticcheck
         run: |
-          go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
-          (cd harness/template && go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...)
+          go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+          (cd harness/template && go run honnef.co/go/tools/cmd/staticcheck@latest ./...)
 
   gate-race:
     name: Release gate race tests (${{ matrix.shard }}/3)
@@ -272,8 +272,8 @@ jobs:
 
       - name: Verify release-only gates
         run: |
-          go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
-          (cd harness/template && go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...)
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+          (cd harness/template && go run golang.org/x/vuln/cmd/govulncheck@latest ./...)
           go run ./scripts/build/legacy-hook-generators --check
 
       - name: Build artifacts
