@@ -548,10 +548,14 @@ func capturePreDecisionDependencySnapshot(
 	now := time.Now()
 	// The pass inspects each parent directory once. A parent replaced during
 	// the pass cannot bind a stale identity: every path is resolved afresh
-	// right after its observation, and a mismatch fails the sample.
+	// right after its observation, and a mismatch fails the sample. A pass
+	// that the resolver repeats after a changed observation starts over.
 	resolver := pathidentity.NewProspectiveResolver()
 	observed := true
 	_ = resolver.WithListedParents(func() error {
+		snapshot.Paths = snapshot.Paths[:0]
+		totalBytes, validUntil, observed = 0, time.Time{}, true
+		metrics = preDecisionSampleMetrics{DependencyPaths: len(paths)}
 		for _, dependency := range paths {
 			identity, bytesRead, contentHashPasses, dependencyValidUntil, ok := observePreDecisionPath(root, resolver, dependency, now)
 			if !ok || totalBytes > maxPreDecisionDependencyBytes-bytesRead {

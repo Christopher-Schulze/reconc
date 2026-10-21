@@ -119,10 +119,11 @@ func TestWithListedParentsTrustEndsWithTheCall(t *testing.T) {
 	}
 }
 
-// A bulk call observes each path at most once: recorded reads below shared
-// missing directories do not revalidate their ancestors for every path, and
-// a directory below a confirmed-missing ancestor is known missing without
-// being observed.
+// A bulk call observes each path at most once while it resolves and
+// confirms each observation once when it ends: recorded reads below shared
+// missing directories do not revalidate their ancestors for every path, a
+// directory below a confirmed-missing ancestor is known missing without
+// being observed, and an unchanged file system needs no second run.
 func TestWithListedParentsObservesEachPathOnce(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "present.go"), nil, 0o644); err != nil {
@@ -135,14 +136,24 @@ func TestWithListedParentsObservesEachPathOnce(t *testing.T) {
 		}
 	}
 	observed := map[string]int{}
+	confirmed := map[string]int{}
+	resolving := false
 	original := lstatPath
 	lstatPath = func(path string) (os.FileInfo, error) {
-		observed[path]++
+		if resolving {
+			observed[path]++
+		} else {
+			confirmed[path]++
+		}
 		return original(path)
 	}
 	t.Cleanup(func() { lstatPath = original })
 	resolver := NewProspectiveResolver()
+	runs := 0
 	if err := resolver.WithListedParents(func() error {
+		runs++
+		resolving = true
+		defer func() { resolving = false }()
 		for _, path := range paths {
 			if _, err := resolver.Resolve(path); err != nil {
 				return err
@@ -152,6 +163,9 @@ func TestWithListedParentsObservesEachPathOnce(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if runs != 1 {
+		t.Fatalf("an unchanged file system took %d runs", runs)
+	}
 	if len(observed) == 0 {
 		t.Fatal("the resolver observed no path")
 	}
@@ -159,12 +173,67 @@ func TestWithListedParentsObservesEachPathOnce(t *testing.T) {
 		if count > 1 {
 			t.Errorf("%s observed %d times in one call", path, count)
 		}
+		if confirmed[path] != 1 {
+			t.Errorf("%s confirmed %d times when the call ended, want 1", path, confirmed[path])
+		}
+	}
+	if len(confirmed) != len(observed) {
+		t.Errorf("confirmed %d paths, observed %d", len(confirmed), len(observed))
 	}
 	// The root, the present file, and the first path below each missing
 	// directory: its directory chain, the missing parent's identity, and
 	// the path itself.
 	if len(observed) > 2+4*4 {
 		t.Errorf("observed %d distinct paths for %d reads below 4 missing directories", len(observed), len(paths))
+	}
+}
+
+// A missing parent that becomes a symlink while a bulk call runs leaves no
+// stale identity: the call notices the changed observation when it ends and
+// resolves its paths again, as Resolve would after the change.
+func TestWithListedParentsReresolvesAfterAnObservedPathChanges(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory symlink creation needs POSIX symlinks")
+	}
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{filepath.Join(root, "gone", "a.go"), filepath.Join(root, "gone", "b.go")}
+	resolver := NewProspectiveResolver()
+	var results []string
+	passes := 0
+	if err := resolver.WithListedParents(func() error {
+		passes++
+		results = results[:0]
+		for index, path := range paths {
+			identity, err := resolver.Resolve(path)
+			if err != nil {
+				return err
+			}
+			results = append(results, identity)
+			if passes == 1 && index == 0 {
+				if err := os.Symlink(target, filepath.Join(root, "gone")); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for index, path := range paths {
+		want, err := NewProspectiveResolver().Resolve(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if results[index] != want {
+			t.Errorf("bulk identity of %s = %q after the parent became a symlink, want %q", path, results[index], want)
+		}
+	}
+	if passes != 2 {
+		t.Fatalf("bulk call ran %d passes, want a second pass after the change", passes)
 	}
 }
 

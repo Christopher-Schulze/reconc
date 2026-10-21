@@ -25,11 +25,12 @@ type prospectiveAncestor struct {
 
 // ProspectiveResolver resolves a bounded batch of paths while reusing only
 // filesystem-confirmed observations. Each cached entry is Lstat'ed again
-// before reuse, once per call while WithListedParents runs: an existing
-// ancestor must keep its identity, its metadata, and the spelling the
-// operating system reports for it, and a missing ancestor must still be
-// missing, so a symlink, junction, rename of any ancestor, creation, or
-// metadata replacement cannot silently inherit an old result.
+// before reuse (while WithListedParents runs, once per call and once more
+// when the call ends): an existing ancestor must keep its identity, its
+// metadata, and the spelling the operating system reports for it, and a
+// missing ancestor must still be missing, so a symlink, junction, rename of
+// any ancestor, creation, or metadata replacement cannot silently inherit an
+// old result.
 // An existing non-symlink object derives its identity from its revalidated
 // parent directory instead of resolving every ancestor again.
 type ProspectiveResolver struct {
@@ -40,9 +41,11 @@ type ProspectiveResolver struct {
 	spellings       storedSpellings
 	// listedParents and observations exist only while WithListedParents
 	// runs; they hold the directories that call already inspected and the
-	// paths it already observed.
-	listedParents map[string]listedParent
-	observations  map[string]pathObservation
+	// paths it already observed. observationsFull records that a path went
+	// unrecorded because observations reached its bound.
+	listedParents    map[string]listedParent
+	observations     map[string]pathObservation
+	observationsFull bool
 	// verifiedSpellings exists only during WithConfirmedSpellings; it holds
 	// the reused identities that call already confirmed.
 	verifiedSpellings map[string]string
@@ -118,18 +121,62 @@ func (r *ProspectiveResolver) WithConfirmedSpellings(resolve func() error) error
 // file or directory stored under its exact name in an inspected parent's
 // listing takes that parent's identity plus the name without being inspected
 // itself; every other path resolves as Resolve does against the call's
-// observations. A path created, removed, or replaced while the call runs can
-// go unnoticed for its later paths in the same call, so it is never used for
-// a path that a decision will write. Reused identities are confirmed once for
-// the call, as WithConfirmedSpellings does.
+// observations. When resolve returns, every observation is taken again. If
+// any path was created, removed, or replaced meanwhile, resolve runs once
+// more with every path observed on every use, so no identity the call
+// returns rests on an observation that changed during the call; resolve must
+// therefore replace, never accumulate, its results. A directory replaced
+// during that second run can still go unnoticed for its later paths, so the
+// call is never used for a path that a decision will write. Reused
+// identities are confirmed once per run, as WithConfirmedSpellings does.
 func (r *ProspectiveResolver) WithListedParents(resolve func() error) error {
 	if r == nil || r.listedParents != nil {
 		return resolve()
 	}
+	current, err := r.listedRun(resolve, true)
+	if err != nil || current {
+		return err
+	}
+	_, err = r.listedRun(resolve, false)
+	return err
+}
+
+// listedRun runs resolve with listed parents. With observe, every path is
+// observed once for the run, and current reports whether every observation
+// still holds when resolve returns.
+func (r *ProspectiveResolver) listedRun(resolve func() error, observe bool) (current bool, err error) {
 	r.listedParents = make(map[string]listedParent)
-	r.observations = make(map[string]pathObservation)
-	defer func() { r.listedParents, r.observations = nil, nil }()
-	return r.WithConfirmedSpellings(resolve)
+	if observe {
+		r.observations = make(map[string]pathObservation)
+	}
+	defer func() { r.listedParents, r.observations, r.observationsFull = nil, nil, false }()
+	if err := r.WithConfirmedSpellings(resolve); err != nil {
+		return false, err
+	}
+	return r.observationsCurrent(), nil
+}
+
+// observationsCurrent reports whether every observation of the run still
+// holds: an existing path keeps its identity and metadata, and a missing path
+// is still missing. A run whose observations reached their bound cannot
+// prove that.
+func (r *ProspectiveResolver) observationsCurrent() bool {
+	if r.observationsFull {
+		return false
+	}
+	for path, observed := range r.observations {
+		info, err := lstatPath(path)
+		if observed.err != nil {
+			if !os.IsNotExist(err) {
+				return false
+			}
+			continue
+		}
+		if err != nil || !sameProspectiveAncestor(observed.info, info) {
+			return false
+		}
+	}
+	return true
 }
 
 // Resolve resolves one prospective path and revalidates every reused
@@ -229,9 +276,10 @@ func (r *ProspectiveResolver) inspectListedParent(directory string) listedParent
 	return listedParent{identity: identity, info: info}
 }
 
-// lstat observes path once per WithListedParents call and on every use
-// otherwise. A call holds only existing and confirmed-missing results, so any
-// other failure is observed again.
+// lstat observes path once per observing WithListedParents run and on every
+// use otherwise. A run holds only existing and confirmed-missing results, so
+// any other failure is observed again; past the bound a path is observed on
+// every use and the run can no longer prove its observations current.
 func (r *ProspectiveResolver) lstat(path string) (os.FileInfo, error) {
 	if observed, ok := r.observations[path]; ok {
 		return observed.info, observed.err
@@ -239,9 +287,10 @@ func (r *ProspectiveResolver) lstat(path string) (os.FileInfo, error) {
 	info, err := lstatPath(path)
 	if r.observations != nil && (err == nil || os.IsNotExist(err)) {
 		if len(r.observations) >= maxProspectiveResolverAncestors {
-			clear(r.observations)
+			r.observationsFull = true
+		} else {
+			r.observations[path] = pathObservation{info: info, err: err}
 		}
-		r.observations[path] = pathObservation{info: info, err: err}
 	}
 	return info, err
 }

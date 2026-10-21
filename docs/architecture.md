@@ -782,10 +782,14 @@ and byte-compares the notice before checksums and provenance are accepted.
     its own inspection, and on macOS a regular file or directory stored under
     its exact name in that parent's listing takes the parent's identity plus
     the name without its own inspection. Symlinks, other spellings, and
-    missing names resolve per path against the pass's observations. A path
-    created, removed, replaced, or renamed during one bulk pass can go
-    unnoticed for that pass's later paths; write paths keep the per-path
-    revalidation.
+    missing names resolve per path against the pass's observations. When the
+    pass ends, every observation is taken again; if a path was created,
+    removed, replaced, or renamed meanwhile, the pass runs once more with
+    every path observed on every use, so no returned identity rests on an
+    observation that changed during the pass. A directory replaced during
+    that second run can still go unnoticed for its later paths; write paths
+    keep the per-path revalidation, and the pre-decision sample additionally
+    re-resolves every dependency with a fresh resolver.
     Write-epoch keys use the same resolver and one pass over the write-path
     sequence, merging aliases by maximum epoch after normalized containment.
      Action predicate evaluation reuses one immutable materialized context
