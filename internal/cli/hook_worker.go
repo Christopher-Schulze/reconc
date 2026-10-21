@@ -331,6 +331,9 @@ func executeHookWorkerRequest(
 		response.Error = truncateUTF8(err.Error(), 4096)
 		return response, false
 	}
+	// The worker serves its requests one at a time, so each request carries
+	// its route's host budget the way a one-shot hook process does.
+	defer beginHookRequestBudget(request.Event)()
 	err = runHookRuntimeWithResolverEvaluatorAndStopCache(
 		[]string{request.Event, request.Repo},
 		bytes.NewReader(request.Payload),

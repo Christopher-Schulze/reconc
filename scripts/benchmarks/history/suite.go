@@ -56,12 +56,14 @@ type goEnvironment struct {
 	GOARCH    string `json:"GOARCH"`
 }
 
-func recordBenchmarksWithProfiles(root, goBinary string, parameters Parameters, profiles *profileOptions) (BenchmarkResult, error) {
+// recordBenchmarksWithProfiles records one root; diagnostics, when not nil,
+// receives every fixed-work process peak.
+func recordBenchmarksWithProfiles(root, goBinary string, parameters Parameters, profiles *profileOptions, diagnostics *rssCollector) (BenchmarkResult, error) {
 	environment, err := detectEnvironment(root, goBinary)
 	if err != nil {
 		return BenchmarkResult{}, err
 	}
-	groups, err := runSuite([]string{root}, goBinary, parameters)
+	groups, err := runSuite([]string{root}, goBinary, parameters, []*rssCollector{diagnostics})
 	if err != nil {
 		return BenchmarkResult{}, err
 	}
@@ -98,14 +100,16 @@ type packageMeasurements struct {
 	binarySHA256 string
 }
 
-func runSuite(roots []string, goBinary string, parameters Parameters) ([][]GroupResult, error) {
+// runSuite measures every root; diagnostics, when present, holds one
+// collector per root.
+func runSuite(roots []string, goBinary string, parameters Parameters, diagnostics []*rssCollector) ([][]GroupResult, error) {
 	byPackage, packages := benchmarkPackages()
 	all := make([]map[string]packageMeasurements, len(roots))
 	for index := range roots {
 		all[index] = make(map[string]packageMeasurements, len(packages))
 	}
 	for _, packageName := range packages {
-		measurements, err := runPackageBenchmarks(context.Background(), roots, goBinary, packageName, byPackage[packageName], parameters)
+		measurements, err := runPackageBenchmarks(context.Background(), roots, goBinary, packageName, byPackage[packageName], parameters, diagnostics)
 		if err != nil {
 			return nil, err
 		}
@@ -124,7 +128,7 @@ func runSuite(roots []string, goBinary string, parameters Parameters) ([][]Group
 	return groups, nil
 }
 
-func runPackageBenchmarks(parent context.Context, roots []string, goBinary, packageName string, names []string, parameters Parameters) (all []packageMeasurements, err error) {
+func runPackageBenchmarks(parent context.Context, roots []string, goBinary, packageName string, names []string, parameters Parameters, diagnostics []*rssCollector) (all []packageMeasurements, err error) {
 	if len(roots) < 1 || len(roots) > 2 {
 		return nil, errors.New("benchmark recording requires one or two source roots")
 	}
@@ -153,7 +157,11 @@ func runPackageBenchmarks(parent context.Context, roots []string, goBinary, pack
 	for sample := 0; sample < parameters.Count; sample++ {
 		for position := range roots {
 			index := (sample + position) % len(roots)
-			values, cpu, err := runCompiledPackageSamples(ctx, binaries[index], sentinel, packageName, names, one)
+			var collector *rssCollector
+			if index < len(diagnostics) {
+				collector = diagnostics[index]
+			}
+			values, cpu, err := runCompiledPackageSamples(ctx, binaries[index], sentinel, packageName, names, one, collector)
 			if err != nil {
 				return nil, fmt.Errorf("root %d package %s sample %d: %w", index, packageName, sample+1, err)
 			}
@@ -166,7 +174,7 @@ func runPackageBenchmarks(parent context.Context, roots []string, goBinary, pack
 	return all, nil
 }
 
-func runCompiledPackageSamples(parent context.Context, binary, sentinel benchmarkBinary, packageName string, names []string, parameters Parameters) (map[string][]MetricSample, []MetricSample, error) {
+func runCompiledPackageSamples(parent context.Context, binary, sentinel benchmarkBinary, packageName string, names []string, parameters Parameters, diagnostics *rssCollector) (map[string][]MetricSample, []MetricSample, error) {
 	patterns := benchmarkPatterns(names)
 	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	defer cancel()
@@ -202,7 +210,7 @@ func runCompiledPackageSamples(parent context.Context, binary, sentinel benchmar
 		if len(sample) != len(names) {
 			return nil, nil, fmt.Errorf("benchmark package %s sample %d emitted %v, want %v", packageName, sampleIndex+1, sortedBenchmarkNames(sample), names)
 		}
-		if err := applyMemorySamples(ctx, binary, packageName, parameters, sample, sampleIndex); err != nil {
+		if err := applyMemorySamples(ctx, binary, packageName, parameters, sample, sampleIndex, diagnostics); err != nil {
 			return nil, nil, err
 		}
 		for _, name := range names {
@@ -222,7 +230,9 @@ func runCompiledPackageSamples(parent context.Context, binary, sentinel benchmar
 // the sample keeps the lowest of those peaks: a garbage-collection spike in
 // one process is not a property of the workload, while an allocation every
 // process makes still is. The gate then compares the maximum over samples.
-func applyMemorySamples(ctx context.Context, binary benchmarkBinary, packageName string, parameters Parameters, timed map[string][]MetricSample, sampleIndex int) error {
+// diagnostics, when not nil, receives every process peak, so a peak the gate
+// discards stays visible.
+func applyMemorySamples(ctx context.Context, binary benchmarkBinary, packageName string, parameters Parameters, timed map[string][]MetricSample, sampleIndex int, diagnostics *rssCollector) error {
 	parameters.Benchtime = strconv.Itoa(memoryBenchmarkIterations) + "x"
 	repetitions := max(parameters.Repetitions, 1)
 	parameters.Repetitions = 1
@@ -231,6 +241,7 @@ func applyMemorySamples(ctx context.Context, binary benchmarkBinary, packageName
 			return fmt.Errorf("fixed-work RSS benchmark %s has duplicate, unmatched, or invalid measurements", name)
 		}
 		var peak uint64
+		peaks := make([]uint64, 0, repetitions)
 		for repetition := range repetitions {
 			memory, err := runBenchmarkSample(ctx, binary, packageName, benchmarkPatterns([]string{name})[0], parameters, sampleIndex)
 			if err != nil {
@@ -240,10 +251,12 @@ func applyMemorySamples(ctx context.Context, binary benchmarkBinary, packageName
 			if len(memory) != 1 || len(values) != 1 || values[0].Iterations != memoryBenchmarkIterations {
 				return fmt.Errorf("fixed-work RSS benchmark %s has duplicate, unmatched, or invalid measurements", name)
 			}
+			peaks = append(peaks, values[0].PeakRSSBytes)
 			if repetition == 0 || values[0].PeakRSSBytes < peak {
 				peak = values[0].PeakRSSBytes
 			}
 		}
+		diagnostics.record(packageName, name, peaks, peak)
 		timed[name][0].PeakRSSBytes = peak
 		timed[name][0].PeakRSSIterations = memoryBenchmarkIterations
 	}

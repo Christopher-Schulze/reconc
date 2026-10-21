@@ -17,7 +17,7 @@ func TestPackageBinariesAreReproducibleAcrossSourceRoots(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "order")
 	roots := []string{newPairedBenchmarkSource(t, log, "same"), newPairedBenchmarkSource(t, log, "same")}
 	parameters := Parameters{Count: 2, Benchtime: "1x", CPU: 1, Repetitions: 2}
-	measurements, err := runPackageBenchmarks(context.Background(), roots, "go", ".", []string{"BenchmarkPairContentDigest"}, parameters)
+	measurements, err := runPackageBenchmarks(context.Background(), roots, "go", ".", []string{"BenchmarkPairContentDigest"}, parameters, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

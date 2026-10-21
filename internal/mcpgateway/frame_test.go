@@ -24,7 +24,7 @@ func TestProtocolObserverBindsConcurrentRequestsToExactParameters(t *testing.T) 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			observer := newProtocolObserver()
-			first, err := observer.begin("tools/call", map[string]any{
+			first, err := observer.begin(t.Context(), "tools/call", map[string]any{
 				"name": "echo", "arguments": map[string]any{"value": "first"},
 			}, nil)
 			if err != nil {
@@ -38,7 +38,7 @@ func TestProtocolObserverBindsConcurrentRequestsToExactParameters(t *testing.T) 
 			}
 			secondReady := make(chan beginResult, 1)
 			go func() {
-				call, beginErr := observer.begin("tools/call", map[string]any{
+				call, beginErr := observer.begin(t.Context(), "tools/call", map[string]any{
 					"name": "echo", "arguments": map[string]any{"value": "second"},
 				}, nil)
 				secondReady <- beginResult{call: call, err: beginErr}
@@ -91,10 +91,43 @@ func TestProtocolObserverBindsConcurrentRequestsToExactParameters(t *testing.T) 
 	}
 }
 
+// A call waiting for the send slot of an earlier call that is not on the wire
+// yet stops at its own deadline instead of overrunning it before the SDK sees
+// the call; the observer stays usable.
+func TestProtocolObserverSendWaitHonorsTheCallerDeadline(t *testing.T) {
+	observer := newProtocolObserver()
+	first, err := observer.begin(t.Context(), "tools/call", map[string]any{"name": "first"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	waited := make(chan error, 1)
+	go func() {
+		call, beginErr := observer.begin(ctx, "tools/call", map[string]any{"name": "second"}, nil)
+		if beginErr == nil {
+			observer.cancel(call)
+		}
+		waited <- beginErr
+	}()
+	select {
+	case err := <-waited:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("send wait past the deadline = %v, want context.DeadlineExceeded", err)
+		}
+	case <-time.After(5 * time.Second):
+		observer.cancel(first)
+		t.Fatal("a call waited for the send slot past its deadline")
+	}
+	observer.cancel(first)
+	assertProtocolObserverIdle(t, observer)
+	assertProtocolObserverReusable(t, observer)
+}
+
 func TestProtocolObserverTimeoutConsumesPendingCall(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		observer := newProtocolObserver()
-		call, err := observer.begin("tools/list", map[string]any{"cursor": ""}, nil)
+		call, err := observer.begin(t.Context(), "tools/list", map[string]any{"cursor": ""}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -116,7 +149,7 @@ func TestProtocolObserverTimeoutConsumesPendingCall(t *testing.T) {
 
 func TestProtocolObserverCancellationConsumesBoundCall(t *testing.T) {
 	observer := newProtocolObserver()
-	call, err := observer.begin("tools/list", map[string]any{"cursor": "next"}, nil)
+	call, err := observer.begin(t.Context(), "tools/list", map[string]any{"cursor": "next"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +168,7 @@ func TestProtocolObserverCancellationConsumesBoundCall(t *testing.T) {
 func TestProtocolObserverMalformedResponseCompletesExactlyOnce(t *testing.T) {
 	observer := newProtocolObserver()
 	completed := 0
-	call, err := observer.begin("tools/call", map[string]any{
+	call, err := observer.begin(t.Context(), "tools/call", map[string]any{
 		"name": "echo", "arguments": map[string]any{},
 	}, func() { completed++ })
 	if err != nil {
@@ -190,7 +223,7 @@ func TestProtocolObserverCompletionConsumesStateBeforeConsumerErrors(t *testing.
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			observer := newProtocolObserver()
-			call, err := observer.begin("tools/list", map[string]any{"cursor": test.name}, nil)
+			call, err := observer.begin(t.Context(), "tools/list", map[string]any{"cursor": test.name}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -376,7 +409,7 @@ func assertProtocolObserverIdle(t *testing.T, observer *protocolObserver) {
 
 func assertProtocolObserverReusable(t *testing.T, observer *protocolObserver) {
 	t.Helper()
-	call, err := observer.begin("tools/list", map[string]any{"cursor": "reused"}, nil)
+	call, err := observer.begin(t.Context(), "tools/list", map[string]any{"cursor": "reused"}, nil)
 	if err != nil {
 		t.Fatalf("reuse observer: %v", err)
 	}

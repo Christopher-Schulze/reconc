@@ -6,12 +6,15 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/customruntime"
 	"reconc.dev/reconc/internal/hooks"
+	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
 func TestCustomRuntimeFixturesBridgePolicyEndToEnd(t *testing.T) {
@@ -183,4 +186,76 @@ func makeCustomRuntimeBridgeRepo(t *testing.T, fixture string) string {
 		t.Fatal(err)
 	}
 	return repo
+}
+
+// A custom runtime route's declared host timeout bounds its request, so a
+// policy script cannot run on past it.
+func TestCustomRuntimeBridgeBoundsTheRequestByTheRouteTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the slow policy script is a POSIX shell script")
+	}
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := makeCustomRuntimeBridgeRepo(t, "local-agent")
+	manifestPath := filepath.Join(repo, ".reconc", "runtimes", "local-agent.json")
+	body, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range manifest["routes"].([]any) {
+		if route := route.(map[string]any); route["host_event"] == "stop" {
+			route["timeout_seconds"] = 1
+		}
+	}
+	if body, err = json.Marshal(manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(repo, ".reconc", "scripts", "slow.sh")
+	if err := os.MkdirAll(filepath.Dir(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 5\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rules := "rules:\n  - id: slow-script\n    kind: require_script\n    when_paths: ['touched.txt']\n" +
+		"    script: '.reconc/scripts/slow.sh'\n    timeout_sec: 10\n    mode: block\n    message: slow script\n"
+	if err := os.WriteFile(filepath.Join(repo, "policies", "rules.yml"), []byte(rules), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "touched.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := runHookBridge([]string{"local-agent", "session-start", repo}, strings.NewReader(`{"context":{"session":"bridge-budget"}}`), &stdout, &stderr); err != nil {
+		t.Fatalf("session start: %v stdout=%s stderr=%s", err, stdout.String(), stderr.String())
+	}
+	if _, err := agentsession.MutateSessionState(repo, "bridge-budget", func(state agentsession.SessionState) agentsession.SessionState {
+		return agentsession.AppendWritePath(state, "touched.txt")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	started := time.Now()
+	err = runHookBridge([]string{"local-agent", "stop", repo}, strings.NewReader(`{"context":{"session":"bridge-budget"},"continuation":{"active":false}}`), &stdout, &stderr)
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Fatalf("custom runtime Stop ran %s past a 0.5 s request budget: %v stdout=%s", elapsed, err, stdout.String())
+	}
+	// A neutral response names no diagnostics; the Stop must fail closed.
+	var response customruntime.NeutralResponse
+	if decodeErr := json.Unmarshal(stdout.Bytes(), &response); decodeErr != nil {
+		t.Fatalf("decode response: %v stdout=%s", decodeErr, stdout.String())
+	}
+	if response.Decision == customruntime.DecisionAllow || response.ExitCode != 2 {
+		t.Fatalf("budget-exhausted custom runtime Stop = %+v (err %v), want it to fail closed", response, err)
+	}
 }

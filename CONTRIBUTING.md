@@ -69,18 +69,22 @@ Run the complete contributor gate before opening a pull request:
 ```bash
 make test
 make test-langchain
-make fuzz
-make coverage
-make vet
-make lint
 make self-host
-make publication-audit
+```
+
+Before a release, and only then, run the pre-release gate:
+
+```bash
+make release-check
 ```
 
 `make test-fast` checks formatting and both Go modules with the Go build cache
-enabled and rejects stale generated reference sections. `make test` covers the
-publication audit, root and portable-template race suites, and release-trust
-contract. `make test-langchain` builds the Go gateway and fixture, invokes them
+enabled and rejects stale generated reference sections. `make test` covers
+formatting, the publication audit, and cached tests of both modules.
+`make release-check` adds tidy, `make vet`, `make lint` (Staticcheck),
+Govulncheck, uncached root and portable-template race suites, the
+release-trust contract, and self-hosting; it runs only before a release.
+`make publication-audit` reruns the boundary scan on its own. `make test-langchain` builds the Go gateway and fixture, invokes them
 through LangChain's official pinned MCP adapter with no model or service, and
 denies runtime network access. Its Python environment is external test
 infrastructure, never a shipped Reconc dependency.

@@ -485,7 +485,7 @@ func (g *Gateway) consumePostApproval(
 	call.decision = decision
 	call.stateVersion = consumed.StateVersion
 	if decision.Decision == action.DecisionRequireApproval {
-		return g.forwardResult(ctx, call, decision, pending.rawResult)
+		return g.forwardResult(ctx, call, decision, pending.rawResult, nil)
 	}
 	return g.withholdResult(
 		ctx,
@@ -507,6 +507,7 @@ func (g *Gateway) refreshPostApprovalEvaluation(
 		stateVersion,
 		action.PhasePostResult,
 		pending.rawResult,
+		nil,
 	)
 	if err != nil {
 		return action.EvaluationInput{}, pending.decision, gatewayReason(err, action.ReasonInvalidRequest)

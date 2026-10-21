@@ -21,3 +21,10 @@ func reconcileMode(directory *os.Root, name string, _ *os.File, current, request
 	}
 	return true, nil
 }
+
+// syncReconciledMode cannot flush the change on Windows: the current file was
+// opened read-only for the identity-safe comparison, and FlushFileBuffers
+// needs write access, so the mode repair stays an uncertain publication.
+func syncReconciledMode(*os.File, publicationDurability) (bool, error) {
+	return false, nil
+}

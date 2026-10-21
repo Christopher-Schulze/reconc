@@ -21,8 +21,9 @@ type prospectiveAncestor struct {
 
 // ProspectiveResolver resolves a bounded batch of paths while reusing only
 // filesystem-confirmed observations. Each cached entry is Lstat'ed again
-// before reuse: an existing ancestor must keep its identity and metadata, and
-// a missing ancestor must still be missing, so a symlink, junction, rename,
+// before reuse: an existing ancestor must keep its identity, its metadata, and
+// the spelling the operating system reports for it, and a missing ancestor
+// must still be missing, so a symlink, junction, rename of any ancestor,
 // creation, or metadata replacement cannot silently inherit an old result.
 // An existing non-symlink object derives its identity from its revalidated
 // parent directory instead of resolving every ancestor again.
@@ -36,6 +37,9 @@ type ProspectiveResolver struct {
 	// runs; they hold the directories that call already inspected.
 	listedParents    map[string]listedParent
 	inspectedParents map[string]os.FileInfo
+	// verifiedSpellings exists only during WithConfirmedSpellings; it holds
+	// the reused identities that call already confirmed.
+	verifiedSpellings map[string]string
 }
 
 // listedParent is a directory inspected once during WithListedParents: its
@@ -60,20 +64,40 @@ func ResolveProspectiveBatch(paths []string) ([]string, error) {
 }
 
 // ResolveBatch resolves every input in order with this resolver's bounded
-// ancestor cache.
+// ancestor cache, as one WithConfirmedSpellings pass.
 func (r *ProspectiveResolver) ResolveBatch(paths []string) ([]string, error) {
 	if r == nil {
 		r = NewProspectiveResolver()
 	}
 	resolved := make([]string, 0, len(paths))
-	for _, path := range paths {
-		identity, err := r.Resolve(path)
-		if err != nil {
-			return nil, err
+	err := r.WithConfirmedSpellings(func() error {
+		for _, path := range paths {
+			identity, err := r.Resolve(path)
+			if err != nil {
+				return err
+			}
+			resolved = append(resolved, identity)
 		}
-		resolved = append(resolved, identity)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return resolved, nil
+}
+
+// WithConfirmedSpellings runs resolve with every reused identity confirmed
+// against the operating system once for the whole call instead of once per
+// path, for one pass over many paths. Each reuse still revalidates the
+// object's own metadata; a rename above it during the call can go unnoticed
+// for its later paths in the same call.
+func (r *ProspectiveResolver) WithConfirmedSpellings(resolve func() error) error {
+	if r == nil || r.verifiedSpellings != nil {
+		return resolve()
+	}
+	r.verifiedSpellings = make(map[string]string)
+	defer func() { r.verifiedSpellings = nil }()
+	return resolve()
 }
 
 // WithListedParents runs resolve with every parent directory inspected once
@@ -83,6 +107,8 @@ func (r *ProspectiveResolver) ResolveBatch(paths []string) ([]string, error) {
 // inspected itself; every other path resolves as Resolve does. A directory
 // replaced while the call runs can go unnoticed for its later paths in the
 // same call, so it is never used for a path that a decision will write.
+// Reused identities are confirmed once for the call, as WithConfirmedSpellings
+// does.
 func (r *ProspectiveResolver) WithListedParents(resolve func() error) error {
 	if r == nil || r.listedParents != nil {
 		return resolve()
@@ -90,7 +116,7 @@ func (r *ProspectiveResolver) WithListedParents(resolve func() error) error {
 	r.listedParents = make(map[string]listedParent)
 	r.inspectedParents = make(map[string]os.FileInfo)
 	defer func() { r.listedParents, r.inspectedParents = nil, nil }()
-	return resolve()
+	return r.WithConfirmedSpellings(resolve)
 }
 
 // Resolve resolves one prospective path and revalidates every reused
@@ -110,11 +136,17 @@ func (r *ProspectiveResolver) Resolve(path string) (string, error) {
 	if identity, ok := r.resolveListed(absolute); ok {
 		return identity, nil
 	}
+	return r.resolveAbsolute(path, absolute)
+}
+
+// resolveAbsolute walks from absolute to its deepest existing ancestor,
+// revalidating every reused observation; path names the request in errors.
+func (r *ProspectiveResolver) resolveAbsolute(path, absolute string) (string, error) {
 	cursor := r.skipConfirmedMissing(absolute)
 	for {
 		if cached, ok := r.ancestors[cursor]; ok && cached.info != nil {
 			current, err := os.Lstat(cursor)
-			if err == nil && sameProspectiveAncestor(cached.info, current) {
+			if err == nil && r.reusable(cursor, cached, current) {
 				return r.existingAncestorResult(cached.identity, absolute, cursor), nil
 			}
 			delete(r.ancestors, cursor)
@@ -165,8 +197,11 @@ func (r *ProspectiveResolver) resolveListed(absolute string) (string, bool) {
 	return filepath.Join(parent.identity, name), true
 }
 
+// inspectListedParent resolves a parent without the listing shortcut:
+// resolving it from its own parent's listing would list every ancestor up to
+// the root, including large shared directories.
 func (r *ProspectiveResolver) inspectListedParent(directory string) listedParent {
-	identity, err := r.Resolve(directory)
+	identity, err := r.resolveAbsolute(directory, directory)
 	if err != nil {
 		return listedParent{}
 	}
@@ -239,7 +274,7 @@ func (r *ProspectiveResolver) resolveExisting(path string, info os.FileInfo) (st
 	}
 	if cached, ok := r.ancestors[parent]; ok && cached.info != nil {
 		current, err := r.inspectParent(parent)
-		if err == nil && sameProspectiveAncestor(cached.info, current) {
+		if err == nil && r.reusable(parent, cached, current) {
 			if identity, ok := r.spellings.compose(cached.identity, current, filepath.Base(path), info); ok {
 				return identity, nil
 			}
@@ -264,6 +299,28 @@ func (r *ProspectiveResolver) resolveExisting(path string, info os.FileInfo) (st
 		r.remember(parent, prospectiveAncestor{identity: filepath.Dir(resolved), info: parentInfo})
 	}
 	return resolved, nil
+}
+
+// reusable reports whether a cached existing observation of path still
+// holds: the object keeps its identity and metadata, and the operating system
+// still spells it as the cached identity. A rename of any ancestor, including
+// a case-only one, changes that spelling without touching the object itself.
+// While WithConfirmedSpellings runs, an identity is confirmed once for the
+// call.
+func (r *ProspectiveResolver) reusable(path string, cached prospectiveAncestor, current os.FileInfo) bool {
+	if !sameProspectiveAncestor(cached.info, current) {
+		return false
+	}
+	if confirmed, ok := r.verifiedSpellings[path]; ok && confirmed == cached.identity {
+		return true
+	}
+	if !spellingCurrent(path, cached.identity, current) {
+		return false
+	}
+	if r.verifiedSpellings != nil {
+		r.verifiedSpellings[path] = cached.identity
+	}
+	return true
 }
 
 func (r *ProspectiveResolver) remember(path string, observation prospectiveAncestor) {

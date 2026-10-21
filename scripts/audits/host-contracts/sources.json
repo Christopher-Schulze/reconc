@@ -1,7 +1,7 @@
 {
   "schema": "reconc-host-contract-sources",
   "format_version": 2,
-  "reviewed_at": "2026-10-20",
+  "reviewed_at": "2026-10-21",
   "hosts": [
     {
       "host": "antigravity",
@@ -46,7 +46,7 @@
           "url": "https://code.claude.com/docs/en/hooks.md",
           "baseline_url": "https://code.claude.com/docs/en/hooks.md",
           "normalization": "markdown",
-          "sha256": "6c10154290bab0ac7597b6be3007ca1f33874f6efb702b10606933b52631a9f8",
+          "sha256": "6988ea0fbc31b7987b8953592c4dc1065cbc428a73ac29944fb39315f6c4f109",
           "required_markers": [
             "PreToolUse",
             "SessionStart",
@@ -129,7 +129,7 @@
           "url": "https://learn.chatgpt.com/docs/hooks.md",
           "baseline_url": "https://learn.chatgpt.com/docs/hooks.md",
           "normalization": "markdown",
-          "sha256": "fb42945030ecdbf72cbec2f673e84ba59aca82ff19df1e215ecb3a763a72d27d",
+          "sha256": "02c0e6c888ae1a94b6af691b4bc4b84c7dbb54beb61687529ef3be30c71418d2",
           "required_markers": [
             "PreToolUse",
             "SessionStart",
@@ -195,7 +195,7 @@
           "url": "https://cursor.com/docs/hooks",
           "baseline_url": "https://cursor.com/docs/hooks",
           "normalization": "markdown",
-          "sha256": "f4eb37e1fd3622f7e65ffb28c8455d412df1039813983f85de1bf21b35502b0c",
+          "sha256": "ff25c87283a2bb37014950d4fdfa2935878f7fc83fb9ec816c8c798c12d372d4",
           "required_markers": [
             "preToolUse",
             "sessionStart",
@@ -228,7 +228,7 @@
           "url": "https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md",
           "baseline_url": "https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md",
           "normalization": "markdown",
-          "sha256": "b9f684683d1dae3b95a568660998c5172c7ea6f4321ae07edc940eb1896b0e54",
+          "sha256": "44cfc6ff8a269b66908adf496e9e839406721989fe74d13af7d7c96ab325add2",
           "required_markers": [
             "PreToolUse",
             "SessionStart"
@@ -245,7 +245,7 @@
           "url": "https://docs.devin.ai/cli/extensibility/hooks/overview.md",
           "baseline_url": "https://docs.devin.ai/cli/extensibility/hooks/overview.md",
           "normalization": "markdown",
-          "sha256": "1374cdc07233429e82ec4b9364acb81428bc100dd520ad2d5a606b3a7d6ee6ba",
+          "sha256": "f7b62aafab90475a588aed5e34b4b27d6b3a036be5d455df669bd68ec55ea47c",
           "required_markers": [
             ".devin/hooks.v1.json",
             "PreToolUse"
@@ -332,7 +332,7 @@
           "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/docs/subsystems/system-prompt.md",
           "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/687f282e8625c6b8d11ff58211a90524be2e4317/docs/subsystems/system-prompt.md",
           "normalization": "markdown",
-          "sha256": "92b54a07955eb535f1e40e0444284d18d57e8729f87bfa7f1dec116d30886cd6",
+          "sha256": "c73a3ad7be3531effbde1245d06d1d118834db2d1e3b387e0040e948ff9114b4",
           "required_markers": [
             "interface PromptContext",
             "context(context: PromptContext)"
@@ -430,7 +430,7 @@
           "url": "https://docs.github.com/en/copilot/reference/hooks-reference",
           "baseline_url": "https://docs.github.com/en/copilot/reference/hooks-reference",
           "normalization": "markdown",
-          "sha256": "9fb5528da44ba4c35a18bf93077bcc723b1f5b986ee5baf49e3b2dea88451c32",
+          "sha256": "00e0c78b18fe5b6632bba98fc40dc208fc7d3c437af081a9d26946c3ff1d6d2f",
           "required_markers": [
             "preToolUse",
             "sessionStart",
@@ -467,7 +467,7 @@
           "url": "https://docs.x.ai/build/features/hooks",
           "baseline_url": "https://docs.x.ai/build/features/hooks",
           "normalization": "markdown",
-          "sha256": "5e87af6a90372b0b56b05eda2e491f27b3812fcfaaf9afa0ae4f15cfcf9b7506",
+          "sha256": "be080611af782aa4944827b0921a5cd7075c66f0af105af848e91e8b296a08f8",
           "required_markers": [
             "PreToolUse",
             "SessionStart"

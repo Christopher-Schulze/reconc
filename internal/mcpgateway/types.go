@@ -141,6 +141,8 @@ type ToolPage struct {
 type CallResult struct {
 	Canonical json.RawMessage
 	Protocol  string
+	// value is Canonical parsed, when the downstream already parsed it.
+	value *action.Value
 }
 
 type ProgressEvent struct {

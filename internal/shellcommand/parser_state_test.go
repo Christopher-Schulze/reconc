@@ -2,6 +2,7 @@ package shellcommand
 
 import (
 	"bytes"
+	"strings"
 	"sync"
 	"testing"
 
@@ -67,5 +68,34 @@ func TestInvocationsWithReasonIsSafeAcrossConcurrentAnalyses(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		t.Fatal(err)
+	}
+}
+
+// The analyses one hook request runs on a command share one parse of it; a
+// command above the sharing bound is parsed by each analysis.
+func TestAnalysesOfOneCommandShareOneParse(t *testing.T) {
+	previous := parseShellCommand
+	t.Cleanup(func() { parseShellCommand = previous })
+	parses := map[string]int{}
+	var mu sync.Mutex
+	parseShellCommand = func(state *parserState, command, name string) (*syntax.File, error) {
+		mu.Lock()
+		parses[command]++
+		mu.Unlock()
+		return previous(state, command, name)
+	}
+	analyze := func(command string) {
+		InvocationsWithReason(command, 16)
+		HasRedirect(command)
+		HasFileWriteRedirect(command)
+		StripTrailingRedirects(command)
+		LiteralWriteTargets(command, 16)
+	}
+	shared := "sort shared-parse-input.txt > shared-parse-output.txt"
+	analyze(shared)
+	large := "printf '%s' '" + strings.Repeat("x", recentParseMaxBytes) + "' > large-output.txt"
+	analyze(large)
+	if parses[shared] != 1 || parses[large] < 5 {
+		t.Fatalf("parses: shared command %d (want 1), command above the bound %d (want one per analysis)", parses[shared], parses[large])
 	}
 }

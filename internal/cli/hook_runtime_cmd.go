@@ -122,15 +122,24 @@ func runKimiCodeRuntime(args []string, stdout, stderr io.Writer) error {
 // fail-open per event, max payload size, depth limits, timeout).
 // runHookRuntime is the single enforcement point for those contracts.
 func runHookRuntime(args []string, stdout, stderr io.Writer) error {
-	// This process serves exactly one request, so its lock and Git waits end
-	// with the host's budget for the route, before the host kills the hook.
 	if len(args) > 0 {
-		if budget, ok := hooks.RuntimeEventTimeout(args[0]); ok {
-			agentsession.SetOneShotHookDeadline(time.Now().Add(hookWaitBudget(budget)))
-			defer agentsession.SetOneShotHookDeadline(time.Time{})
-		}
+		defer beginHookRequestBudget(args[0])()
 	}
 	return runHookRuntimeWithInput(args, os.Stdin, stdout, stderr)
+}
+
+// hookRouteTimeout is the host's time budget for a runtime event's route.
+var hookRouteTimeout = hooks.RuntimeEventTimeout
+
+// beginHookRequestBudget bounds the hook request this process serves next by
+// the host's budget for event, so its lock and Git waits and its policy
+// evaluation end before the host kills the hook. The returned call ends it.
+func beginHookRequestBudget(event string) (end func()) {
+	budget, ok := hookRouteTimeout(event)
+	if !ok {
+		return func() {}
+	}
+	return agentsession.BeginHookRequest(time.Now().Add(hookWaitBudget(budget)))
 }
 
 // hookWaitBudget keeps a tenth of the host budget, at least half a second, for

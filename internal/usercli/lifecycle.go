@@ -107,7 +107,7 @@ func Uninstall(ctx context.Context, currentVersion string, request UninstallRequ
 		return nil, err
 	}
 	report := lifecycleFromDiagnostic("uninstall", diagnostic)
-	if diagnostic.Blocking() || diagnostic.Owner == nil {
+	if diagnostic.BinaryBlocking() || diagnostic.Owner == nil {
 		report.Status = LifecycleRefused
 		report.NextAction = diagnostic.NextAction
 		return report, nil

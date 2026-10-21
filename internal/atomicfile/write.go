@@ -48,6 +48,13 @@ func WritePrivateOrderedIfChanged(path string, data []byte, mode os.FileMode) (P
 	return writeIfChanged(path, data, mode, PrivateParentMode, nil, durabilityOrdered)
 }
 
+// WriteOrderedIfChanged is WriteIfChanged with the ordered syncs of
+// WritePrivateOrderedIfChanged, for a publication that a later full sync on
+// the same file system makes durable.
+func WriteOrderedIfChanged(path string, data []byte, mode os.FileMode) (PublicationResult, error) {
+	return writeIfChanged(path, data, mode, PublicParentMode, nil, durabilityOrdered)
+}
+
 // WritePrivateCacheIfChanged is WritePrivateIfChanged for a disposable cache
 // whose loss on power failure costs only a recomputation: the publication
 // stays atomic and private but skips the file and directory syncs, which
@@ -73,6 +80,20 @@ func WritePreparedIfChanged(
 		return PublicationResult{}, errors.New("publication preparation callback is required")
 	}
 	return writeIfChanged(path, data, mode, PublicParentMode, prepare, durabilityFull)
+}
+
+// WritePreparedOrderedIfChanged is WritePreparedIfChanged with the ordered
+// syncs of WriteOrderedIfChanged.
+func WritePreparedOrderedIfChanged(
+	path string,
+	data []byte,
+	mode os.FileMode,
+	prepare func(string) error,
+) (PublicationResult, error) {
+	if prepare == nil {
+		return PublicationResult{}, errors.New("publication preparation callback is required")
+	}
+	return writeIfChanged(path, data, mode, PublicParentMode, prepare, durabilityOrdered)
 }
 
 // WriteIfCurrent publishes data only while path still has the exact bytes,
@@ -157,8 +178,12 @@ func reconcileExpectedMode(parent *boundParent, name, path string, file *os.File
 		return PublicationResult{}, errors.Join(err, file.Close())
 	}
 	changed, modeErr := reconcileMode(directory, name, file, info.Mode(), mode)
+	modeDurable := false
 	if changed {
 		result.markPublished()
+		var syncErr error
+		modeDurable, syncErr = syncReconciledMode(file, durabilityFull)
+		modeErr = errors.Join(modeErr, syncErr)
 	}
 	validationErr := validateCurrent(directory, name, info)
 	parentErr := parent.validate()
@@ -166,7 +191,7 @@ func reconcileExpectedMode(parent *boundParent, name, path string, file *os.File
 	if err := errors.Join(modeErr, validationErr, parentErr, closeErr); err != nil {
 		return result, fmt.Errorf("reconcile conditional mode for %s: %w", path, err)
 	}
-	if changed {
+	if modeDurable {
 		result.markDurable()
 	}
 	return result, nil
@@ -261,8 +286,12 @@ func writeIfChanged(
 				return PublicationResult{}, errors.Join(err, currentFile.Close())
 			}
 			modeChanged, modeErr := reconcileMode(directory, name, currentFile, currentInfo.Mode(), mode)
+			modeDurable := false
 			if modeChanged {
 				result.markPublished()
+				var syncErr error
+				modeDurable, syncErr = syncReconciledMode(currentFile, durability)
+				modeErr = errors.Join(modeErr, syncErr)
 			}
 			validationErr := validateCurrent(directory, name, currentInfo)
 			parentErr := parent.validate()
@@ -270,7 +299,7 @@ func writeIfChanged(
 			if err := errors.Join(modeErr, validationErr, parentErr, closeErr); err != nil {
 				return result, fmt.Errorf("reconcile mode for current %s: %w", path, err)
 			}
-			if modeChanged && durability == durabilityFull {
+			if modeDurable {
 				result.markDurable()
 			}
 			return result, nil
@@ -358,7 +387,7 @@ func writeIfChanged(
 func syncTemporary(file *os.File, durability publicationDurability) error {
 	switch durability {
 	case durabilityFull:
-		return file.Sync()
+		return syncFile(file)
 	case durabilityOrdered:
 		return syncFileOrdered(file)
 	default:

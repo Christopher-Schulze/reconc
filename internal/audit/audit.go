@@ -1037,7 +1037,9 @@ func writeChainHeadValue(repoRoot string, head chainHead) error {
 		return fmt.Errorf("audit: marshal detached head: %w", err)
 	}
 	body = append(body, '\n')
-	if _, err := atomicfile.WritePreparedIfChanged(
+	// Only append-transaction commits write the head; the full sync of the
+	// journal removal that follows each commit makes it durable.
+	if _, err := atomicfile.WritePreparedOrderedIfChanged(
 		filepath.Join(repoRoot, AuditHeadRelative), body, 0o600, secureAuditPublication,
 	); err != nil {
 		return fmt.Errorf("audit: write detached head: %w", err)

@@ -797,7 +797,13 @@ creating, repairing, chmodding, or rewriting state. When state is absent it
 creates nothing. A concurrently appearing lock triggers receipt-generation
 revalidation without executing the diagnostic callback twice. Status is `healthy`, `unowned`,
 `stale`, `shadowed`, `ambiguous`, or `invalid`; all except `healthy` and a
-single deterministic legacy `unowned` installation exit 1. `--global` cannot
+single deterministic legacy `unowned` installation exit 1. Every failed check
+is reflected in that status. A receipt-owned skill that no longer matches its
+receipt, modified or removed, fails `skill-installation` and makes an
+otherwise healthy installation `stale` with the targeted
+`reconc install-cli --skill-only` repair; a skill that was never installed
+remains a warning. Update, uninstall, init, and bootstrap gate on the binary
+installation alone and judge the skill themselves. `--global` cannot
 be combined with `--deep` or a repository operand. Classification is
 monotonic: PATH shadowing or ambiguity adds its check detail but never replaces
 a more severe stale-receipt or invalid-ownership result and remediation.

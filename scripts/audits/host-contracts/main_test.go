@@ -294,7 +294,7 @@ func TestSectionDigestIgnoresUnrelatedEdits(t *testing.T) {
 	if len(missing) != 0 {
 		t.Fatalf("missing sections: %v", missing)
 	}
-	expected := digest(contract)
+	expected := contractDigest(contract, "markdown")
 	for _, test := range []struct {
 		name, body, want string
 		missing          []string
@@ -320,5 +320,62 @@ func TestSectionDigestIgnoresUnrelatedEdits(t *testing.T) {
 				t.Fatalf("comparison: %+v", result)
 			}
 		})
+	}
+}
+
+// A documentation contract ignores only presentation the markdown
+// specifications define as meaningless: a fenced code block's info string and
+// the number of hyphens in a table delimiter cell. Every other character,
+// including escapes, operators, type syntax, quoting, and alignment colons,
+// still turns the source red. Source code stays pinned by its exact text.
+func TestDocumentationContractDigestIgnoresOnlyMeaninglessPresentation(t *testing.T) {
+	page := func(output string) string { return "Intro text. ## Output " + output + " ## Footer About us." }
+	original := page("> \\[!NOTE]\nReturn `decision` when `status != 0`.\n| Field | Type |\n| --- | :--- |\n| `decision` | `string[]` |\n|---|---|\n```json\n{\"decision\": \"block\", \"note\": \"say \\\"hi\\\"\"}\n|-|\n```yaml\n```\nExit code 2 blocks the call; use `a\\|b` and \\*literal\\*.")
+	sections := []sourceSection{{Start: "## Output", End: "## Footer"}}
+	contract, missing := contractSections([]byte(strings.Join(strings.Fields(original), " ")), sections)
+	if len(missing) != 0 {
+		t.Fatalf("missing sections: %v", missing)
+	}
+	expected := contractDigest(contract, "markdown")
+	for _, test := range []struct{ name, body, want string }{
+		{"fence without language", strings.Replace(original, "```json", "```", 1), "unchanged"},
+		{"fence with another language", strings.Replace(original, "```json", "```jsonc", 1), "unchanged"},
+		{"shorter delimiter cells", strings.Replace(original, "| --- | :--- |", "| - | :- |", 1), "unchanged"},
+		{"compact delimiter row", strings.Replace(original, "|---|---|", "|-|-----|", 1), "unchanged"},
+		{"hyphens inside a code block", strings.Replace(original, "\n|-|\n", "\n|--|\n", 1), "changed"},
+		{"fence-like text inside a code block", strings.Replace(original, "```yaml", "```", 1), "changed"},
+		{"comparison operator", strings.Replace(original, "!= 0", "== 0", 1), "changed"},
+		{"array type", strings.Replace(original, "`string[]`", "`string`", 1), "changed"},
+		{"quoted value", strings.Replace(original, `"block"`, "block", 1), "changed"},
+		{"escaped quote in code", strings.Replace(original, `\"hi\"`, `"hi"`, 1), "changed"},
+		{"escaped pipe in code", strings.Replace(original, "`a\\|b`", "`a|b`", 1), "changed"},
+		{"escaped emphasis", strings.Replace(original, "\\*literal\\*", "*literal*", 1), "changed"},
+		{"escaped alert marker", strings.Replace(original, "\\[!NOTE]", "[!NOTE]", 1), "changed"},
+		{"alignment colon", strings.Replace(original, ":---", "---", 1), "changed"},
+		{"space before punctuation", strings.Replace(original, "`status != 0`.", "`status != 0` .", 1), "changed"},
+		{"changed word", strings.Replace(original, "Exit code 2", "Exit code 1", 1), "changed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.body == original {
+				t.Fatal("the variant did not change the page")
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if _, err := io.WriteString(w, test.body); err != nil {
+					t.Error(err)
+				}
+			}))
+			defer server.Close()
+			probe := sourceProbe{ID: "hooks", URL: server.URL, Normalization: "markdown", SHA256: expected,
+				RequiredMarkers: []string{"decision"}, Sections: sections}
+			if result := compareSource(context.Background(), sourceClient(), "test-host", probe); result.Status != test.want {
+				t.Fatalf("comparison: %+v, want %s", result, test.want)
+			}
+		})
+	}
+	for _, mode := range []string{"source", "html"} {
+		bare := []byte(strings.Replace(string(contract), "```json", "```", 1))
+		if contractDigest(contract, mode) == contractDigest(bare, mode) {
+			t.Fatalf("a %s contract ignored a changed fence tag", mode)
+		}
 	}
 }

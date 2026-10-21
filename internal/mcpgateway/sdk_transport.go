@@ -79,7 +79,7 @@ func (d *sdkDownstream) ListTools(ctx context.Context, cursor string) (ToolPage,
 		return ToolPage{}, fmt.Errorf("downstream MCP session is unavailable")
 	}
 	params := &mcp.ListToolsParams{Cursor: cursor}
-	call, err := d.observer.begin("tools/list", params, nil)
+	call, err := d.observer.begin(ctx, "tools/list", params, nil)
 	if err != nil {
 		return ToolPage{}, err
 	}
@@ -120,7 +120,7 @@ func (d *sdkDownstream) CallTool(
 		params.SetProgressToken(progressToken)
 		defer d.unregisterProgress(progressToken)
 	}
-	call, err := d.observer.begin("tools/call", params, func() {
+	call, err := d.observer.begin(ctx, "tools/call", params, func() {
 		d.unregisterProgress(progressToken)
 	})
 	if err != nil {
@@ -146,7 +146,7 @@ func (d *sdkDownstream) CallTool(
 	if err != nil {
 		return CallResult{}, fmt.Errorf("canonicalize downstream tool result: %w", err)
 	}
-	return CallResult{Canonical: canonical, Protocol: d.protocol}, nil
+	return CallResult{Canonical: canonical, Protocol: d.protocol, value: &value}, nil
 }
 
 func (d *sdkDownstream) registerProgress(sink ProgressSink) (string, error) {

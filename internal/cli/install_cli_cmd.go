@@ -99,7 +99,7 @@ func ensureCurrentUserCLI(command string, version string) error {
 	if err != nil {
 		return userCLICommandError(command, "diagnose user CLI: "+err.Error())
 	}
-	if diagnostic.Status == usercli.DiagnosticHealthy || callableReceiptOwnedCLI(diagnostic) {
+	if diagnostic.BinaryStatus() == usercli.DiagnosticHealthy || callableReceiptOwnedCLI(diagnostic) {
 		return nil
 	}
 	if reason := directInstallReplacementRefusal(diagnostic); reason != "" {
@@ -121,7 +121,7 @@ func ensureCurrentUserCLI(command string, version string) error {
 // replace (or downgrade) it and rewrite its receipt; `reconc update` and
 // `reconc install-cli` remain the explicit ways to change it.
 func callableReceiptOwnedCLI(diagnostic *usercli.GlobalDiagnostic) bool {
-	if diagnostic == nil || diagnostic.Status != usercli.DiagnosticStale || !diagnostic.ReceiptValid || !diagnostic.ChecksumIdentity {
+	if diagnostic == nil || diagnostic.BinaryStatus() != usercli.DiagnosticStale || !diagnostic.ReceiptValid || !diagnostic.ChecksumIdentity {
 		return false
 	}
 	if diagnostic.BinaryPath == nil || diagnostic.ResolvedPath == nil {

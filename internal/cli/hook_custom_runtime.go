@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/customruntime"
@@ -146,6 +147,7 @@ func conformanceCapabilities(values []customruntime.ConformanceCapability) []str
 }
 
 func runHookBridge(args []string, input io.Reader, stdout, stderr io.Writer) error {
+	started := time.Now()
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
 		fmt.Fprintln(stdout, "Usage: reconc hook bridge <runtime> <host-event> [repo]   (reads host JSON from stdin)")
 		return nil
@@ -189,6 +191,9 @@ func runHookBridge(args []string, input io.Reader, stdout, stderr io.Writer) err
 	if !ok {
 		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook bridge: runtime %q has no host event %q", manifest.Runtime(), hostEvent)}
 	}
+	// The route's declared host timeout bounds this request from the start of
+	// the bridge, as a built-in route's budget bounds a hook process.
+	defer agentsession.BeginHookRequest(started.Add(hookWaitBudget(time.Duration(route.TimeoutSeconds) * time.Second)))()
 	if reasons := route.DegradedReasons(); len(reasons) > 0 {
 		return writeCustomRuntimeResponse(manifest, route, customruntime.BuildResponse(manifest, route, 0, "", "", nil, false), stdout)
 	}

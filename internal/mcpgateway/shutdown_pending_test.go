@@ -431,7 +431,7 @@ func prepareDetachedPendingApprovals(
 			)),
 		}
 		call, response := gateway.prepareCall(
-			context.Background(), wire, contract, generation, callID, arguments,
+			context.Background(), wire, contract, generation, callID, arguments, nil,
 			gatewayProtocolCurrent,
 		)
 		if phase == action.PhasePreCall {

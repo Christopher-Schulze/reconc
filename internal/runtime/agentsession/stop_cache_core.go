@@ -220,10 +220,11 @@ func runStopPolicyCheckLockedAttempt(
 		return stopPolicyCheckResult{}, err
 	}
 	state = currentState
-	gitSnapshot := stopPolicyGitSnapshotFor(repoRoot)
-	beforeSnapshot := captureStopPolicyBoundarySnapshot(
-		stopCaptureBeforeEvaluation, repoRoot, state, initialEvidenceRevision, taskSnapshot, gitSnapshot, scanCache,
+	beforeSnapshot := captureStopPolicyBoundaryWithGit(
+		stopCaptureBeforeEvaluation, repoRoot, state, initialEvidenceRevision, taskSnapshot,
+		observeStopPolicyGit(repoRoot), scanCache,
 	)
+	gitSnapshot := beforeSnapshot.Git
 	if report, ok := cache.readStableReportWithSnapshot(repoRoot, state, taskSnapshot, gitSnapshot, scanCache, &beforeSnapshot); ok {
 		current, _, loadErr := loadCurrentStopPolicyStateWithRevisionCacheAndLoaded(
 			repoRoot, state.SessionID, cache, loadedEvidence,
@@ -345,10 +346,12 @@ func runStopPolicyCheckLockedAttempt(
 	cacheInputsStable := false
 	var postFingerprintInput stopPolicyFingerprintInput
 	if cacheable && fingerprint != "" && reportHash != "" {
-		if currentTaskSnapshot, captureErr := captureStopTaskSnapshot(repoRoot); captureErr == nil {
-			postGitSnapshot := stopPolicyGitSnapshotFor(repoRoot)
-			afterSnapshot := captureStopPolicyBoundarySnapshot(
-				stopCaptureAfterEvaluation, repoRoot, state, initialEvidenceRevision, currentTaskSnapshot, postGitSnapshot, scanCache,
+		postGit := observeStopPolicyGit(repoRoot)
+		if currentTaskSnapshot, captureErr := captureStopTaskSnapshot(repoRoot); captureErr != nil {
+			<-postGit
+		} else {
+			afterSnapshot := captureStopPolicyBoundaryWithGit(
+				stopCaptureAfterEvaluation, repoRoot, state, initialEvidenceRevision, currentTaskSnapshot, postGit, scanCache,
 			)
 			postFingerprintInput = stopPolicyFingerprintInputForSnapshotWithScan(
 				repoRoot, state, afterSnapshot.Git, afterSnapshot.Task, afterSnapshot.generationCapture(), scanCache,
@@ -584,12 +587,15 @@ func stopScopeWritePathsToUncommitted(repoRoot string, writePaths []string, snap
 	}
 	out := make([]string, 0, len(writePaths))
 	scope := stopRepoPaths{repoRoot: repoRoot, prospective: pathidentity.NewProspectiveResolver()}
-	for _, writePath := range writePaths {
-		rel := scope.relPosix(writePath)
-		if rel == "" || stopPathDirtyOrUnderDirtyDir(rel, dirty) {
-			out = append(out, writePath)
+	_ = scope.prospective.WithConfirmedSpellings(func() error {
+		for _, writePath := range writePaths {
+			rel := scope.relPosix(writePath)
+			if rel == "" || stopPathDirtyOrUnderDirtyDir(rel, dirty) {
+				out = append(out, writePath)
+			}
 		}
-	}
+		return nil
+	})
 	return out
 }
 

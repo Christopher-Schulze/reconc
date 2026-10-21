@@ -44,3 +44,9 @@ func existingAliasesOS(string) []string {
 func aliasComparisonKey(path string) string {
 	return path
 }
+
+// spellingCurrent has nothing to confirm: a Unix identity keeps the
+// requested spelling, and a renamed ancestor fails the inode revalidation.
+func spellingCurrent(string, string, os.FileInfo) bool {
+	return true
+}

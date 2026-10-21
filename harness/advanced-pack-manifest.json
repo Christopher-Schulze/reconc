@@ -557,8 +557,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.githooks/pre-commit",
       "mode": 493,
-      "size": 2856,
-      "sha256": "3ad2c5182121699891bce34c3e51306c2b0ce78c678abbeb6f3a6cb782b3e191",
+      "size": 3378,
+      "sha256": "4c3e554c7ca6e81070b3b9bc6432e527929d349ab9aa6a572858c16e837e9cbc",
       "ownership": "pack-file"
     },
     {
@@ -870,6 +870,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 911965,
-  "digest": "a6e2910e45460928e19b153130eddec8262824a7d100658be623736890b0b6f8"
+  "total_bytes": 912487,
+  "digest": "94d995d0770eea383b987e5d002e188d6003cfc8c9a61309b5cbe209803ea20a"
 }

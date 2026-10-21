@@ -188,3 +188,50 @@ func environmentMap(entries []string) map[string]string {
 	}
 	return environment
 }
+
+func TestIndexFileNamesTheIndexGitCommandsRead(t *testing.T) {
+	repository := createGitInspectionRepository(t, "tracked.txt", "one\n")
+	gitDir, err := filepath.EvalSymlinks(filepath.Join(repository, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(repository, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if index, ok := IndexFile(filepath.Join(repository, "sub")); !ok || index != filepath.Join(gitDir, "index") {
+		t.Fatalf("checkout index = %q, %t", index, ok)
+	}
+	worktree := filepath.Join(t.TempDir(), "linked")
+	runGitInspectionTest(t, repository, "worktree", "add", "--quiet", worktree)
+	index, ok := IndexFile(worktree)
+	if !ok || filepath.Dir(filepath.Dir(index)) != filepath.Join(gitDir, "worktrees") || filepath.Base(index) != "index" {
+		t.Fatalf("linked worktree index = %q, %t", index, ok)
+	}
+	before, err := os.ReadFile(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(worktree, "added.txt"), []byte("added\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGitInspectionTest(t, worktree, "add", "--", "added.txt")
+	if after, err := os.ReadFile(index); err != nil || string(after) == string(before) {
+		t.Fatalf("staging in the linked worktree did not change %s: %v", index, err)
+	}
+	commitIndex := filepath.Join(gitDir, "index.lock")
+	if err := os.WriteFile(commitIndex, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_INDEX_FILE", commitIndex)
+	if index, ok := IndexFile(repository); !ok || index != commitIndex {
+		t.Fatalf("commit hook index = %q, %t", index, ok)
+	}
+	foreign := filepath.Join(t.TempDir(), "index")
+	if err := os.WriteFile(foreign, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_INDEX_FILE", foreign)
+	if index, ok := IndexFile(repository); !ok || index != filepath.Join(gitDir, "index") {
+		t.Fatalf("foreign GIT_INDEX_FILE index = %q, %t", index, ok)
+	}
+}

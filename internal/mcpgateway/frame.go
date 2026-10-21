@@ -32,7 +32,9 @@ type pendingProtocolCall struct {
 }
 
 type protocolObserver struct {
-	sendMu         sync.Mutex
+	// sendSlot holds one token from begin until the observed call is on the
+	// wire or cancelled; a waiting caller gives up at its own deadline.
+	sendSlot       chan struct{}
 	mu             sync.Mutex
 	pending        map[string][]*pendingProtocolCall
 	pendingMethods map[string]int
@@ -41,6 +43,7 @@ type protocolObserver struct {
 
 func newProtocolObserver() *protocolObserver {
 	return &protocolObserver{
+		sendSlot:       make(chan struct{}, 1),
 		pending:        make(map[string][]*pendingProtocolCall),
 		pendingMethods: make(map[string]int),
 		byID:           make(map[string]*pendingProtocolCall),
@@ -48,6 +51,7 @@ func newProtocolObserver() *protocolObserver {
 }
 
 func (o *protocolObserver) begin(
+	ctx context.Context,
 	method string,
 	params any,
 	completed func(),
@@ -64,7 +68,11 @@ func (o *protocolObserver) begin(
 	call := &pendingProtocolCall{
 		request: request, response: make(chan observedResponse, 1), completed: completed,
 	}
-	o.sendMu.Lock()
+	select {
+	case o.sendSlot <- struct{}{}:
+	case <-ctx.Done():
+		return nil, fmt.Errorf("wait to send observed %s: %w", method, ctx.Err())
+	}
 	o.mu.Lock()
 	o.pending[request] = append(o.pending[request], call)
 	o.pendingMethods[method]++
@@ -104,7 +112,7 @@ func (o *protocolObserver) cancel(call *pendingProtocolCall) {
 	}
 	o.mu.Unlock()
 	if releaseSend {
-		o.sendMu.Unlock()
+		<-o.sendSlot
 	}
 }
 
@@ -157,7 +165,7 @@ func (o *protocolObserver) outboundFrame(frame validatedFrame) error {
 	}
 	o.byID[id] = call
 	o.mu.Unlock()
-	o.sendMu.Unlock()
+	<-o.sendSlot
 	return nil
 }
 

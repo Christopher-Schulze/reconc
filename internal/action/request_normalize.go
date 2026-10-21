@@ -12,11 +12,23 @@ import (
 )
 
 func NormalizeRequest(raw RawRequest) (Request, error) {
+	return normalizeRequest(raw, nil)
+}
+
+// NormalizeRequestWithPayload is NormalizeRequest for a caller that already
+// parsed the phase payload in raw: payload must be the value those bytes
+// parse to. It skips the second parse; the byte budget, the phase shape, and
+// the validating clone stay as they are.
+func NormalizeRequestWithPayload(raw RawRequest, payload Value) (Request, error) {
+	return normalizeRequest(raw, &payload)
+}
+
+func normalizeRequest(raw RawRequest, parsed *Value) (Request, error) {
 	if err := validateRawValueBudget(raw); err != nil {
 		return Request{}, err
 	}
 	request := requestMetadata(raw)
-	if err := parseRawPhase(&request, raw); err != nil {
+	if err := parseRawPhase(&request, raw, parsed); err != nil {
 		return Request{}, err
 	}
 	context, err := normalizeRawContext(raw.Context)
@@ -61,15 +73,15 @@ func requestMetadata(raw RawRequest) Request {
 	}
 }
 
-func parseRawPhase(request *Request, raw RawRequest) error {
+func parseRawPhase(request *Request, raw RawRequest, parsed *Value) error {
 	var err error
 	switch raw.Phase {
 	case PhasePreCall:
-		request.Arguments, err = parseRawRequestValue(raw.Arguments, true)
+		request.Arguments, err = parseRawRequestValue(raw.Arguments, true, parsed)
 	case PhasePostResult:
-		request.Result, err = parseRawRequestValue(raw.Result, false)
+		request.Result, err = parseRawRequestValue(raw.Result, false, parsed)
 	case PhaseProgress:
-		request.Progress, err = parseRawRequestValue(raw.Progress, false)
+		request.Progress, err = parseRawRequestValue(raw.Progress, false, parsed)
 	case PhaseObservation:
 		if len(raw.Arguments) != 0 || len(raw.Result) != 0 || len(raw.Progress) != 0 {
 			err = &RequestError{Code: ReasonUnsupportedPhase, Message: "observation requests cannot carry phase payloads"}
@@ -88,9 +100,16 @@ func parseRawPhase(request *Request, raw RawRequest) error {
 	return nil
 }
 
-func parseRawRequestValue(raw json.RawMessage, object bool) (*Value, error) {
+func parseRawRequestValue(raw json.RawMessage, object bool, parsed *Value) (*Value, error) {
 	if len(raw) == 0 {
 		return nil, &RequestError{Code: ReasonInvalidRequest, Message: "required phase payload is absent"}
+	}
+	if parsed != nil {
+		if object && parsed.Kind() != ValueObject {
+			return nil, &RequestError{Code: ReasonInvalidRequest, Message: "arguments must contain one object"}
+		}
+		value := *parsed
+		return &value, nil
 	}
 	var (
 		value Value

@@ -116,7 +116,7 @@ func TestOrdinaryDenialLedgerUsesActualCommittedConsumption(t *testing.T) {
 			t.Fatal(err)
 		}
 		wire := upstreamWireCall{id: json.RawMessage(fmt.Sprint(index + 1)), params: json.RawMessage(`{"name":"echo","arguments":{"value":"denied"}}`)}
-		call, response := gateway.prepareCall(context.Background(), wire, contract, generation, callID, json.RawMessage(`{"value":"denied"}`), gatewayProtocolCurrent)
+		call, response := gateway.prepareCall(context.Background(), wire, contract, generation, callID, json.RawMessage(`{"value":"denied"}`), nil, gatewayProtocolCurrent)
 		if call != nil || response == nil {
 			t.Fatal("denied tool call became dispatchable")
 		}

@@ -193,6 +193,7 @@ type stopPolicyScanCache struct {
 	mutated          bool
 	dirtyIdentities  map[string]stopCachedDirtyIdentity
 	policyIdentities map[string]stopCachedPolicyIdentity
+	indexListing     *stopIndexListing
 	metrics          stopPolicyAttemptMetrics
 }
 

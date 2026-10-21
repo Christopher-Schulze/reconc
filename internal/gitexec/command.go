@@ -98,6 +98,20 @@ func hermeticEnvironment(directory string, objects *ObjectDirectories) []string 
 	return environment
 }
 
+// IndexFile returns the index file that Git commands created for directory
+// read: the commit index a running commit hook names, otherwise the index in
+// the Git directory of the checkout that contains directory.
+func IndexFile(directory string) (string, bool) {
+	if index, ok := commitIndexFile(directory); ok {
+		return index, true
+	}
+	_, gitDir, ok := enclosingRepositoryGitDir(directory)
+	if !ok {
+		return "", false
+	}
+	return filepath.Join(gitDir, "index"), true
+}
+
 // commitIndexFile keeps the one ambient redirection Git itself applies while
 // running hooks: `git commit -a`, `-i`, `-o` and pathspec commits stage into a
 // temporary index named by GIT_INDEX_FILE, and that index, not .git/index, is

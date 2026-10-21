@@ -3,7 +3,8 @@
 # Targets:
 #   make build              -- build the reconc binary for the host OS/arch
 #   make test-fast          -- run cached root/template tests with bounded package parallelism
-#   make test               -- run all tests uncached with -race
+#   make test               -- commit gate: formatting, publication audit, cached root/template tests
+#   make release-check      -- pre-release gate: tidy, vet, staticcheck, govulncheck, uncached race suites, release trust, self-hosting
 #   make test-langchain     -- run the pinned disposable LangChain proof
 #   make fmt-check          -- reject unformatted non-ignored Go sources
 #   make fmt                -- format all Go sources
@@ -46,6 +47,7 @@ BENCHMARK_COUNT ?= 5
 BENCHMARK_BENCHTIME ?= 250ms
 BENCHMARK_REPETITIONS ?= 3
 BENCHMARK_RESULT ?= .build/benchmarks/current.json
+BENCHMARK_RSS_DIAGNOSTICS ?= .build/benchmarks/rss-diagnostics.json
 BENCHMARK_COMPARISON ?= .build/benchmarks/comparison.json
 BENCHMARK_BASELINE ?= scripts/benchmarks/baseline.json
 BENCHMARK_PROFILE_DIR ?= .build/profiles/current
@@ -64,7 +66,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test-fast test test-langchain test-release-trust self-host publication-audit harness-pack-check reference-docs reference-docs-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices skill checksums verify-release bench benchmark-record benchmark-profile benchmark-pgo benchmark-compare benchmark-baseline check-test-parallelism
+.PHONY: build test-fast test release-check test-langchain test-release-trust self-host publication-audit harness-pack-check reference-docs reference-docs-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices skill checksums verify-release bench benchmark-record benchmark-profile benchmark-pgo benchmark-compare benchmark-baseline check-test-parallelism
 
 build: check-build-identity
 	@mkdir -p $(BINDIR)
@@ -96,12 +98,32 @@ test-fast: check-test-parallelism
 	$(GO) test -p=$(TEST_PARALLELISM) $(PKG)
 	(cd harness/template && $(GO) test -p=$(TEST_PARALLELISM) ./...)
 
+# The commit gate keeps every functional test and the publication audit and
+# lets Go reuse cached results of unchanged packages. Race detection, vet,
+# staticcheck, govulncheck, and release trust run only in release-check.
 test: check-test-parallelism
 	$(MAKE) --no-print-directory fmt-check
 	$(MAKE) --no-print-directory publication-audit
+	$(GO) test -p=$(TEST_PARALLELISM) $(PKG)
+	(cd harness/template && $(GO) test -p=$(TEST_PARALLELISM) ./...)
+
+GOVULNCHECK_VERSION := v1.7.0
+
+# The pre-release gate runs everything uncached before an explicitly
+# authorized release.
+release-check: check-test-parallelism
+	$(MAKE) --no-print-directory fmt-check
+	$(MAKE) --no-print-directory publication-audit
+	$(GO) mod tidy -diff
+	(cd harness/template && $(GO) mod tidy -diff)
+	$(MAKE) --no-print-directory vet
+	$(MAKE) --no-print-directory lint
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) $(PKG)
+	(cd harness/template && $(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...)
 	$(GO) test -p=$(TEST_PARALLELISM) -race -count=1 -timeout 20m $(PKG)
 	(cd harness/template && $(GO) test -p=$(TEST_PARALLELISM) -race -count=1 ./...)
 	./scripts/tests/release-trust.sh
+	$(MAKE) --no-print-directory self-host
 
 test-release-trust:
 	./scripts/tests/release-trust.sh
@@ -158,10 +180,10 @@ bench:
 	$(GO) test -run '^$$' -bench . -benchmem -benchtime=1000x $(PKG)
 
 benchmark-record:
-	$(GO) run ./scripts/benchmarks/history record --root . --count $(BENCHMARK_COUNT) --repetitions $(BENCHMARK_REPETITIONS) --benchtime $(BENCHMARK_BENCHTIME) --output $(BENCHMARK_RESULT)
+	$(GO) run ./scripts/benchmarks/history record --root . --count $(BENCHMARK_COUNT) --repetitions $(BENCHMARK_REPETITIONS) --benchtime $(BENCHMARK_BENCHTIME) --output $(BENCHMARK_RESULT) --rss-diagnostics $(BENCHMARK_RSS_DIAGNOSTICS)
 
 benchmark-profile:
-	$(GO) run ./scripts/benchmarks/history record --root . --count $(BENCHMARK_COUNT) --repetitions $(BENCHMARK_REPETITIONS) --benchtime $(BENCHMARK_BENCHTIME) --output $(BENCHMARK_RESULT) --profile-dir $(BENCHMARK_PROFILE_DIR) --profile-groups "$(BENCHMARK_PROFILE_GROUPS)"
+	$(GO) run ./scripts/benchmarks/history record --root . --count $(BENCHMARK_COUNT) --repetitions $(BENCHMARK_REPETITIONS) --benchtime $(BENCHMARK_BENCHTIME) --output $(BENCHMARK_RESULT) --rss-diagnostics $(BENCHMARK_RSS_DIAGNOSTICS) --profile-dir $(BENCHMARK_PROFILE_DIR) --profile-groups "$(BENCHMARK_PROFILE_GROUPS)"
 
 benchmark-pgo:
 	GO="$(GO)" ./scripts/benchmarks/pgo.sh --root . --profile "$(BENCHMARK_PGO_PROFILE)" --output-dir "$(BENCHMARK_PGO_DIR)"

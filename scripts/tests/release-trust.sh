@@ -270,21 +270,27 @@ require_action "$codeql_workflow" "github/codeql-action/init"
 require_action "$codeql_workflow" "github/codeql-action/analyze"
 require_action "$ci_workflow" "actions/setup-node"
 require_action "$release_workflow" "actions/attest-build-provenance"
-[ "$(grep -Fc 'uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0' "$ci_workflow")" -eq 5 ] \
-  || fail "$ci_workflow must provision pinned Go in all five Go jobs"
-[ "$(grep -Fc 'go-version-file: go.mod' "$ci_workflow")" -eq 5 ] \
-  || fail "$ci_workflow must derive Go from go.mod in all five Go jobs"
-[ "$(grep -Fc 'fetch-depth: 0' "$ci_workflow")" -eq 5 ] \
-  || fail "$ci_workflow must fetch full history in all five Go jobs"
-[ "$(grep -Fc 'fetch-depth: 0' "$release_workflow")" -eq 2 ] \
-  || fail "$release_workflow must fetch full history in both release jobs"
+[ "$(grep -Fc 'uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0' "$ci_workflow")" -eq 4 ] \
+  || fail "$ci_workflow must provision pinned Go in all four Go jobs"
+[ "$(grep -Fc 'go-version-file: go.mod' "$ci_workflow")" -eq 4 ] \
+  || fail "$ci_workflow must derive Go from go.mod in all four Go jobs"
+[ "$(grep -Fc 'fetch-depth: 0' "$ci_workflow")" -eq 4 ] \
+  || fail "$ci_workflow must fetch full history in all four Go jobs"
+[ "$(grep -Fc 'uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0' "$release_workflow")" -eq 5 ] \
+  || fail "$release_workflow must provision pinned Go in all five Go jobs"
+[ "$(grep -Fc 'go-version-file: go.mod' "$release_workflow")" -eq 5 ] \
+  || fail "$release_workflow must derive Go from go.mod in all five Go jobs"
+[ "$(grep -Fc 'fetch-depth: 0' "$release_workflow")" -eq 5 ] \
+  || fail "$release_workflow must fetch full history in all five Go jobs"
+[ "$(grep -Fc 'ref: ${{ inputs.tag }}' "$release_workflow")" -eq 5 ] \
+  || fail "$release_workflow must check out the release tag in all five Go jobs"
 require_text "$ci_workflow" "uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0"
 [ "$(grep -Fc 'node-version: 24.18.0' "$ci_workflow")" -eq 2 ] \
   || fail "$ci_workflow must provision Node.js 24.18.0 in the two executable-test jobs"
 [ "$(grep -Fc 'package-manager-cache: false' "$ci_workflow")" -eq 2 ] \
   || fail "$ci_workflow must disable implicit package-manager caching in the executable-test jobs"
-if grep -Eq 'setup-node|Set up Bun|BUN_VERSION|go test' "$release_workflow"; then
-  fail "$release_workflow repeats test suites that CI already ran on the release commit"
+if grep -Eq 'go-test-shard\.sh 1 1|make self-host|make test' "$release_workflow"; then
+  fail "$release_workflow repeats commit-gate suites that CI already ran on the release commit"
 fi
 bun_integrity='sha512-aB6GVd42x1Y5ie1K16SF+oLGtgSkwX9hgoDdIW88pjvfTccU8F1vfpoOt34QLv0dZ1v3XimtaxPlZUG81Gx9Zg=='
 require_text "$ci_workflow" "BUN_VERSION: 1.3.14"
@@ -327,7 +333,20 @@ require_text "$release_workflow" './scripts/release/require-green-checks.sh "$(g
 require_text "$release_workflow" "  checks: read"
 require_text "$release_workflow" "go run ./scripts/build/legacy-hook-generators --check"
 require_text "$ci_workflow" "    name: CI result"
-require_text "$ci_workflow" "    needs: [checks, race, macos, release-trust]"
+require_text "$ci_workflow" "    needs: [checks, linux, macos]"
+require_text "$release_workflow" "    needs: [gate-static, gate-race, gate-trust]"
+require_text "$release_workflow" "run: ./scripts/tests/release-trust.sh"
+# shellcheck disable=SC2016 # Match the workflow expression literally.
+[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must install only the verified Bun tarball in the race gate"
+for gate in "go vet ./..." "-race" "go mod tidy -diff"; do
+  if [ "$gate" = "go mod tidy -diff" ]; then
+    require_text "$ci_workflow" "$gate"
+  else
+    grep -Fq -- "$gate" "$ci_workflow" && fail "$ci_workflow runs the release-only gate $gate on every commit"
+    require_text "$release_workflow" "$gate"
+  fi
+done
 require_text "$root/scripts/release/require-green-checks.sh" 'for check in "CI result" "Go security analysis"; do'
 for workflow in "$ci_workflow" "$release_workflow"; do
   awk '
@@ -392,7 +411,7 @@ if grep -Eq 'pull-requests:[[:space:]]*write|issues:[[:space:]]*write' "$ci_work
 fi
 [ -f "$dependabot_config" ] || fail "bounded Dependabot configuration is missing"
 # shellcheck disable=SC2016 # Match the workflow shell expression literally.
-require_text "$ci_workflow" './scripts/tests/go-test-shard.sh "$SHARD" 3 -p="$TEST_PARALLELISM" -race -count=1'
+require_text "$release_workflow" './scripts/tests/go-test-shard.sh "$SHARD" 3 -p="$TEST_PARALLELISM" -race -count=1'
 # shellcheck disable=SC2016 # Match the workflow shell expression literally.
 require_text "$ci_workflow" './scripts/tests/go-test-shard.sh 1 1 -p="$TEST_PARALLELISM" -count=1'
 root_go_version=$(sed -n 's/^go //p' "$root/go.mod")
@@ -402,17 +421,17 @@ template_go_version=$(sed -n 's/^go //p' "$root/harness/template/go.mod")
 [ "$template_go_version" = "$root_go_version" ] \
   || fail "$root/harness/template/go.mod must match root Go version $root_go_version"
 require_text "$ci_workflow" "go mod tidy -diff"
-require_text "$ci_workflow" "govulncheck@v1.7.0"
 require_text "$root/Makefile" "STATICCHECK_VERSION := v0.8.2"
-require_text "$ci_workflow" "staticcheck@v0.8.2"
+require_text "$root/Makefile" "GOVULNCHECK_VERSION := v1.7.0"
+require_text "$release_workflow" "staticcheck@v0.8.2"
 require_text "$release_workflow" "govulncheck@v1.7.0"
 [ "$(grep -Fc 'make self-host' "$ci_workflow")" -eq 2 ] \
   || fail "$ci_workflow must self-host on Linux and macOS"
 require_text "$root/scripts/tests/self-hosting.sh" "--profile governed"
 require_text "$root/scripts/tests/self-hosting.sh" "--profile existing"
 require_text "$root/scripts/tests/self-hosting.sh" "--hook all"
-if grep -Fq 'staticcheck@latest' "$ci_workflow"; then
-  fail "$ci_workflow uses an unpinned staticcheck version"
+if grep -Fq 'staticcheck@latest' "$release_workflow"; then
+  fail "$release_workflow uses an unpinned staticcheck version"
 fi
 bash -n "$root/scripts/release/publish-github-release.sh" \
   || fail "release publication helper has invalid Bash syntax"

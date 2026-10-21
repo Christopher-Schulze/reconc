@@ -25,11 +25,52 @@ var (
 	styleElement  = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</style\s*>`)
 	htmlComment   = regexp.MustCompile(`(?s)<!--.*?-->`)
 	htmlTag       = regexp.MustCompile(`<[^>]*>`)
+	// codeFence matches a code fence line: its marker run and info string.
+	codeFence = regexp.MustCompile("^(`{3,}|~{3,})([A-Za-z0-9_+.#-]*)$")
+	// delimiterCell and compactDelimiterRow match GFM table delimiter cells.
+	delimiterCell       = regexp.MustCompile(`^:?-+:?$`)
+	compactDelimiterRow = regexp.MustCompile(`^\|(:?-+:?\|)+$`)
+	delimiterHyphens    = regexp.MustCompile(`-+`)
 )
 
 func digest(body []byte) string {
 	value := sha256.Sum256(body)
 	return hex.EncodeToString(value[:])
+}
+
+// contractDigest pins a source's contract by its normalized text. A markdown
+// contract additionally ignores only presentation the CommonMark and GFM
+// specifications define as meaningless: the info string of a fenced code
+// block, which is not rendered as content, and the number of hyphens in a
+// table delimiter cell. Escapes, operators, quoting, alignment colons, and
+// every other character stay significant.
+func contractDigest(contract []byte, mode string) string {
+	if mode != "markdown" {
+		return digest(contract)
+	}
+	tokens := strings.Fields(string(contract))
+	open := ""
+	for index, token := range tokens {
+		fence := codeFence.FindStringSubmatch(token)
+		if open != "" {
+			// Code block content stays exact; a bare fence of the same kind
+			// and at least the opening length closes the block.
+			if fence != nil && fence[2] == "" && fence[1][0] == open[0] && len(fence[1]) >= len(open) {
+				open = ""
+			}
+			continue
+		}
+		if fence != nil {
+			open = fence[1]
+			tokens[index] = fence[1]
+			continue
+		}
+		if compactDelimiterRow.MatchString(token) ||
+			delimiterCell.MatchString(token) && index > 0 && index+1 < len(tokens) && tokens[index-1] == "|" && tokens[index+1] == "|" {
+			tokens[index] = delimiterHyphens.ReplaceAllString(token, "---")
+		}
+	}
+	return digest([]byte(strings.Join(tokens, " ")))
 }
 
 func sourceClient() *http.Client {
@@ -123,11 +164,13 @@ func compareSource(ctx context.Context, client *http.Client, host string, source
 		BaselineURL: source.BaselineURL, ExpectedSHA256: source.SHA256}
 	body, err := fetchSource(ctx, client, source)
 	if err != nil {
-		completeComparison(&row, nil, err)
+		completeComparison(&row, nil, err, digest)
 		return row
 	}
 	contract, missing := contractSections(body, source.Sections)
-	completeComparison(&row, contract, nil)
+	completeComparison(&row, contract, nil, func(contract []byte) string {
+		return contractDigest(contract, source.Normalization)
+	})
 	for _, marker := range source.RequiredMarkers {
 		if !bytes.Contains(contract, []byte(marker)) {
 			missing = append(missing, marker)

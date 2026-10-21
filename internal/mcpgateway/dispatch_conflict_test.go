@@ -46,7 +46,7 @@ func (l *dispatchConflictLoader) Load(ctx context.Context, repository string) (P
 	if err != nil {
 		return PolicySnapshot{}, err
 	}
-	request, err := l.gateway.normalizedRequest(snapshot, contract, callID, version, action.PhasePreCall, json.RawMessage(`{"value":"competitor"}`))
+	request, err := l.gateway.normalizedRequest(snapshot, contract, callID, version, action.PhasePreCall, json.RawMessage(`{"value":"competitor"}`), nil)
 	if err != nil {
 		return PolicySnapshot{}, err
 	}
@@ -146,7 +146,7 @@ func TestGatewayDispatchConflictFailuresReleaseWithoutDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			call, response := gateway.prepareCall(ctx, upstreamWireCall{id: json.RawMessage(`1`), params: json.RawMessage(`{"name":"echo","arguments":{"value":"blocked"}}`)}, contract, generation, callID, json.RawMessage(`{"value":"blocked"}`), gatewayProtocolCurrent)
+			call, response := gateway.prepareCall(ctx, upstreamWireCall{id: json.RawMessage(`1`), params: json.RawMessage(`{"name":"echo","arguments":{"value":"blocked"}}`)}, contract, generation, callID, json.RawMessage(`{"value":"blocked"}`), nil, gatewayProtocolCurrent)
 			if call != nil || response == nil || !response.IsError {
 				t.Fatalf("unsafe retry became dispatchable: %+v, %+v", call, response)
 			}

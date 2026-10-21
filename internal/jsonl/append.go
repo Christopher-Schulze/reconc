@@ -359,7 +359,12 @@ func appendNormalizedLockedWithLayout(
 		len(journal.Backups) > 0 && journal.Backups[0].Existed {
 		appendLayout.FileMode = os.FileMode(journal.Backups[0].Mode)
 	}
-	if err := appendRecordWithLayout(path, record, appendLayout, policy.MaxBytes); err != nil {
+	recordHooks := appendOpenHooks{}
+	if journal != nil {
+		// The full sync of the final journal removal makes the record durable.
+		recordHooks.sync = jsonlOrderedSync
+	}
+	if err := appendRecordWithLayoutHooks(path, record, appendLayout, policy.MaxBytes, recordHooks); err != nil {
 		return rollbackAppendErrorWithLayout(path, layout, journal, err)
 	}
 	if journal != nil {
@@ -406,6 +411,7 @@ func appendRecordWithLayout(path string, record []byte, layout Layout, maximum i
 type appendOpenHooks struct {
 	afterInspect func(missing bool) error
 	write        func(io.Writer, []byte) error
+	sync         func(*os.File) error
 }
 
 func appendRecordWithLayoutHooks(path string, record []byte, layout Layout, maximum int64, hooks appendOpenHooks) (resultErr error) {
@@ -461,8 +467,12 @@ func appendRecordWithLayoutHooks(path string, record []byte, layout Layout, maxi
 	if hooks.write != nil {
 		write = hooks.write
 	}
+	syncRecord := (*os.File).Sync
+	if hooks.sync != nil {
+		syncRecord = hooks.sync
+	}
 	writeErr := write(file, record)
-	syncErr := file.Sync()
+	syncErr := syncRecord(file)
 	if writeErr != nil || syncErr != nil {
 		// A short or failed write would glue the next record onto a torn
 		// fragment that readers then reject. The append lock is still held,

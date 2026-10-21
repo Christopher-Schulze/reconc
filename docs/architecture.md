@@ -768,13 +768,20 @@ and byte-compares the notice before checksums and provenance are accepted.
     case-only rename alters, confirmed-missing ancestors must still be
     missing, and existing non-symlinks derive their identity from a
     revalidated parent; missing suffixes are never trusted from string state
-    alone. Recorded read evidence is the one bulk exception: while its set is
-    normalized, each parent directory is inspected once for the whole set, and
-    on macOS a regular file or directory stored under its exact name in that
-    parent's listing takes the parent's identity plus the name without its
-    own inspection. Symlinks, other spellings, and missing names resolve
-    per path. A directory replaced during that one pass can go unnoticed for
-    its later reads; write paths keep the per-path revalidation.
+    alone. A reused identity must also still be the path the operating system
+    reports for the object, its descriptor path on macOS and its final handle
+    path on Windows, so a rename of any ancestor, including a case-only one,
+    is never reused; a Linux identity keeps its requested spelling, which a
+    renamed ancestor stops resolving. One bulk normalization pass confirms
+    each reused identity once. Recorded read evidence is the one bulk
+    exception for inspection: while its set is normalized, each parent
+    directory is inspected once for the whole set, resolved like any other
+    directory rather than through its ancestors' listings, and on macOS a
+    regular file or directory stored under its exact name in that parent's
+    listing takes the parent's identity plus the name without its own
+    inspection. Symlinks, other spellings, and missing names resolve per path.
+    A directory replaced or renamed during one bulk pass can go unnoticed for
+    that pass's later paths; write paths keep the per-path revalidation.
     Write-epoch keys use the same resolver and one pass over the write-path
     sequence, merging aliases by maximum epoch after normalized containment.
      Action predicate evaluation reuses one immutable materialized context
@@ -1332,7 +1339,10 @@ identity is revalidated before mutation and after publication; a component
 that becomes a symlink, non-directory, or different inode fails closed.
 Existing targets are opened as non-symlink regular files. Byte comparison and
 mode reconciliation use that opened file, then revalidate its path identity,
-so a substituted symlink target is never chmodded. Public writes create
+so a substituted symlink target is never chmodded. A mode-only repair syncs
+that descriptor before it reports a durable publication; Windows cannot flush
+the read-only descriptor and reports the repair as published but uncertain.
+Public writes create
 missing parents with `0755`; state-bearing callers use the explicit private
 API and create them with `0700`. On Unix, each newly created component is
 committed by syncing its already bound parent before traversal continues. The
@@ -1351,6 +1361,12 @@ ordered publication: on macOS their file and directory syncs issue
 `F_BARRIERFSYNC`, which keeps write order without flushing the device cache,
 so a power failure can lose the newest version but never keeps a state whose
 segments or command texts were lost. Other platforms sync them fully.
+JSONL appends that run under an append journal, which covers every audit and
+action-ledger transaction and every rotating append, sync their journal states
+and record the same ordered way, as does the audit detached-head commit. The
+full directory sync of the final journal removal flushes the device cache with
+them, so a returned append stays durable while a transaction that does not
+rotate pays one full flush instead of one per step.
 Disposable caches skip both syncs and are read as misses when missing or
 malformed.
 
@@ -1641,8 +1657,9 @@ process-independent no-op persistence benchmark
 `BenchmarkDuplicateSessionMutation` measured 256,433 ns/op, 16,496 B/op, and
 176 allocs/op in the same run. Normal audit append uses a bounded tail record
 plus the detached chain head instead of replaying every retained entry;
-`BenchmarkAuditAppendRetainedChain` measured 34,346,403 ns/op with no retained
-entries and 33,281,819 ns/op with 200 retained entries over three iterations.
+`BenchmarkAuditAppendRetainedChain` measured 10,756,353 ns/op with no retained
+entries and 9,966,729 ns/op with 200 retained entries on an Apple M1 on
+2026-10-21, each the median of three 30-iteration runs.
 These are reproducible observations, not latency contracts. The routine paths
 start no Git process; fsync-backed state, pointer, decision-log, and audit
 durability dominate the remaining cost.

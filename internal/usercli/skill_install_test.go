@@ -341,8 +341,12 @@ func TestGlobalDoctorSeparatesSkillIntegrityFromBinaryReadiness(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if diagnostic.Status != DiagnosticHealthy || !diagnostic.ChecksumIdentity {
+		if diagnostic.BinaryStatus() != DiagnosticHealthy || diagnostic.BinaryBlocking() || !diagnostic.ChecksumIdentity {
 			t.Fatalf("skill changed binary diagnosis: %+v", diagnostic)
+		}
+		// A failed owned skill is a failed doctor result; its binary stays ready.
+		if wantStatus := map[string]DiagnosticStatus{"pass": DiagnosticHealthy, "fail": DiagnosticStale}[want]; diagnostic.Status != wantStatus || diagnostic.Blocking() != (want == "fail") {
+			t.Fatalf("doctor status with a %s skill check = %s (blocking %t), want %s", want, diagnostic.Status, diagnostic.Blocking(), wantStatus)
 		}
 		for _, item := range diagnostic.Checks {
 			if item.Name == "skill-installation" {
@@ -472,6 +476,34 @@ func TestSkillReceiptRejectsManifestDigestContradictingFiles(t *testing.T) {
 	}
 }
 
+// A skill that was deliberately not installed is optional: doctor warns and
+// the installation stays healthy.
+func TestGlobalDoctorKeepsAnUninstalledSkillAWarning(t *testing.T) {
+	installDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv("RECONC_INSTALL_DIR", installDir)
+	t.Setenv("PATH", installDir)
+	if _, err := InstallCurrentWithReceipt("", InstallOptions{Version: "test", SkillMode: SkillSkip}); err != nil {
+		t.Fatal(err)
+	}
+	diagnostic, err := DiagnoseGlobal("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill := ""
+	for _, item := range diagnostic.Checks {
+		if item.Name == "skill-installation" {
+			skill = item.Status
+		}
+	}
+	if skill != "warn" || diagnostic.Status != DiagnosticHealthy || diagnostic.Blocking() {
+		t.Fatalf("doctor without an installed skill: skill=%q status=%s blocking=%t", skill, diagnostic.Status, diagnostic.Blocking())
+	}
+}
+
 func TestGlobalDoctorNamesSkillRepairWhenOwnedSkillFails(t *testing.T) {
 	for _, damage := range []string{"modified", "removed"} {
 		t.Run(damage, func(t *testing.T) {
@@ -498,9 +530,10 @@ func TestGlobalDoctorNamesSkillRepairWhenOwnedSkillFails(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if diagnostic.Status != DiagnosticHealthy || !strings.Contains(diagnostic.NextAction, "reconc install-cli --skill-only") ||
+			if diagnostic.Status != DiagnosticStale || !diagnostic.Blocking() || diagnostic.BinaryStatus() != DiagnosticHealthy ||
+				!strings.Contains(diagnostic.NextAction, "reconc install-cli --skill-only") ||
 				len(diagnostic.Actions) != 1 || diagnostic.Actions[0].Command != "reconc install-cli --skill-only" {
-				t.Fatalf("doctor with a %s owned skill: status=%s next=%q actions=%+v", damage, diagnostic.Status, diagnostic.NextAction, diagnostic.Actions)
+				t.Fatalf("doctor with a %s owned skill: status=%s binary=%s next=%q actions=%+v", damage, diagnostic.Status, diagnostic.BinaryStatus(), diagnostic.NextAction, diagnostic.Actions)
 			}
 		})
 	}

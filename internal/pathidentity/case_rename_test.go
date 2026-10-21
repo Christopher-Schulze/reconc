@@ -43,3 +43,42 @@ func TestResolveAfterCaseOnlyRenameUsesTheNewSpelling(t *testing.T) {
 		}
 	}
 }
+
+// A case-only rename of a directory two levels above a path changes none of
+// the path's own metadata or its parent's, so a reused observation is checked
+// against the spelling the operating system reports now.
+func TestResolveAfterAncestorCaseOnlyRenameUsesTheNewSpelling(t *testing.T) {
+	root, err := ResolveExisting(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "Docs", "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.md", "b.md"} {
+		if err := os.WriteFile(filepath.Join(root, "Docs", "sub", name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(root, "docs")); err != nil {
+		t.Skip("the temporary file system is case-sensitive")
+	}
+	resolver := NewProspectiveResolver()
+	for _, name := range []string{"a.md", "b.md"} {
+		if got, err := resolver.Resolve(filepath.Join(root, "docs", "sub", name)); err != nil || got != filepath.Join(root, "Docs", "sub", name) {
+			t.Fatalf("resolution of %s before the rename = %q, %v", name, got, err)
+		}
+	}
+	if err := os.Rename(filepath.Join(root, "Docs"), filepath.Join(root, "docs")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "sub", "c.md"), []byte("c"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.md", "c.md", filepath.Join("..", "sub", "b.md")} {
+		requested := filepath.Join(root, "docs", "sub", name)
+		if got, err := resolver.Resolve(requested); err != nil || got != filepath.Clean(requested) {
+			t.Fatalf("resolution of %s after an ancestor case-only rename = %q, %v; want %q", requested, got, err, filepath.Clean(requested))
+		}
+	}
+}

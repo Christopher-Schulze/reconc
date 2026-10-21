@@ -186,3 +186,19 @@ func TestHookLivenessFastPathRejectsSymlinkMarker(t *testing.T) {
 		t.Fatalf("symlink marker error = %v", err)
 	}
 }
+
+func readPreDecisionCache(root string, payloadBytes []byte, expectedKey string) (Result, bool) {
+	payload, err := ParsePayload(payloadBytes)
+	if err != nil {
+		return Result{}, false
+	}
+	return readPreDecisionCacheForPayload(root, payload, expectedKey)
+}
+
+func readPreDecisionCacheForPayload(root string, payload *HookPayload, expectedKey string) (Result, bool) {
+	inputs, ok := preDecisionInputsForPayload(root, payload)
+	if !ok || inputs.key != expectedKey {
+		return Result{}, false
+	}
+	return readPreDecisionCacheForInputs(root, payload, inputs)
+}

@@ -1,3 +1,5 @@
+//go:build !windows
+
 package usercli
 
 // verifiedInstallProvenance turns a provenance claim from the installer's

@@ -729,6 +729,97 @@ func TestWritePrivateCacheIfChangedPublishesWithoutSyncing(t *testing.T) {
 	}
 }
 
+// A mode-only repair is durable only after its descriptor syncs the changed
+// metadata. Windows cannot flush the read-only descriptor the comparison
+// opened, so there the repair stays an uncertain publication.
+func TestModeOnlyRepairIsDurableOnlyAfterItsSync(t *testing.T) {
+	previous := syncFile
+	t.Cleanup(func() { syncFile = previous })
+	syncs := 0
+	syncFile = func(file *os.File) error {
+		syncs++
+		return previous(file)
+	}
+	data := []byte("same\n")
+	for _, test := range []struct {
+		name  string
+		write func(path string) (PublicationResult, error)
+	}{
+		{name: "if-changed", write: func(path string) (PublicationResult, error) {
+			return WriteIfChanged(path, data, 0o400)
+		}},
+		{name: "if-current", write: func(path string) (PublicationResult, error) {
+			info, err := os.Lstat(path)
+			if err != nil {
+				return PublicationResult{}, err
+			}
+			return WriteIfCurrent(path, data, 0o400, ExpectedCurrent{Data: data, Info: info, Exists: true})
+		}},
+	} {
+		path := filepath.Join(t.TempDir(), "state.json")
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		syncs = 0
+		written, err := test.write(path)
+		wantOutcome, wantSyncs := PublicationDurablyPublished, 1
+		if runtime.GOOS == "windows" {
+			wantOutcome, wantSyncs = PublicationPublishedUncertain, 0
+		}
+		if err != nil || !written.Changed || written.Outcome != wantOutcome || syncs != wantSyncs {
+			t.Fatalf("%s mode-only repair = %+v, %v after %d file syncs; want outcome %d after %d", test.name, written, err, syncs, wantOutcome, wantSyncs)
+		}
+	}
+}
+
+func TestPublicOrderedPublicationsUseOrderedSyncs(t *testing.T) {
+	previousFull, previousOrdered := syncParentDir, syncParentDirOrdered
+	t.Cleanup(func() { syncParentDir, syncParentDirOrdered = previousFull, previousOrdered })
+	fullSyncs, orderedSyncs := 0, 0
+	syncParentDir = func(directory *os.Root) error {
+		fullSyncs++
+		return previousFull(directory)
+	}
+	syncParentDirOrdered = func(directory *os.Root) error {
+		orderedSyncs++
+		return previousOrdered(directory)
+	}
+	var prepared []string
+	for _, test := range []struct {
+		name  string
+		write func(path string, data []byte) (PublicationResult, error)
+	}{
+		{name: "plain", write: func(path string, data []byte) (PublicationResult, error) {
+			return WriteOrderedIfChanged(path, data, 0o600)
+		}},
+		{name: "prepared", write: func(path string, data []byte) (PublicationResult, error) {
+			return WritePreparedOrderedIfChanged(path, data, 0o600, func(target string) error {
+				prepared = append(prepared, filepath.Base(target))
+				return nil
+			})
+		}},
+	} {
+		fullSyncs, orderedSyncs = 0, 0
+		path := filepath.Join(t.TempDir(), "head.json")
+		written, err := test.write(path, []byte("ordered\n"))
+		if err != nil || !written.Changed || written.Outcome != PublicationPublishedUncertain || fullSyncs != 0 || orderedSyncs != 1 {
+			t.Fatalf("%s ordered write = %+v, %v after %d full and %d ordered directory syncs; want one ordered, non-durable publication", test.name, written, err, fullSyncs, orderedSyncs)
+		}
+		if body, err := os.ReadFile(path); err != nil || string(body) != "ordered\n" {
+			t.Fatalf("%s ordered contents = %q, %v", test.name, body, err)
+		}
+		if info, err := os.Stat(path); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
+			t.Fatalf("%s ordered mode = %v, %v", test.name, info, err)
+		}
+	}
+	if len(prepared) != 1 || prepared[0] == "head.json" {
+		t.Fatalf("prepared targets = %v; want the temporary file prepared before publication", prepared)
+	}
+	if _, err := WritePreparedOrderedIfChanged(filepath.Join(t.TempDir(), "head.json"), []byte("x\n"), 0o600, nil); err == nil {
+		t.Fatal("ordered prepared publication accepted a nil preparation callback")
+	}
+}
+
 func TestWritePrivateOrderedIfChangedUsesOrderedSyncs(t *testing.T) {
 	previousFull, previousOrdered := syncParentDir, syncParentDirOrdered
 	t.Cleanup(func() { syncParentDir, syncParentDirOrdered = previousFull, previousOrdered })

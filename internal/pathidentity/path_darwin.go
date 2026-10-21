@@ -159,6 +159,38 @@ func readDirectoryNames(directory string) map[string]fs.FileMode {
 	return names
 }
 
+// spellingCurrent reports whether path still has identity as its descriptor
+// path. Like resolution, it opens only directories and regular files; other
+// objects keep their evaluated spelling and have nothing to confirm.
+func spellingCurrent(path, identity string, info os.FileInfo) bool {
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Stat(path)
+		if err != nil {
+			return false
+		}
+		info = target
+	}
+	if !info.IsDir() && !info.Mode().IsRegular() {
+		return true
+	}
+	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return false
+	}
+	buffer := make([]byte, unix.PathMax)
+	_, callErr := unix.FcntlInt(
+		file.Fd(),
+		unix.F_GETPATH,
+		int(uintptr(unsafe.Pointer(&buffer[0]))),
+	)
+	runtime.KeepAlive(buffer)
+	if err := file.Close(); err != nil {
+		return false
+	}
+	descriptorPath, ok := darwinDescriptorPath(identity, buffer, callErr)
+	return ok && descriptorPath == identity
+}
+
 func selectDarwinIdentity(evaluated string, buffer []byte, callErr error) string {
 	if descriptorPath, ok := darwinDescriptorPath(evaluated, buffer, callErr); ok {
 		return descriptorPath

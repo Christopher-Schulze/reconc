@@ -21,7 +21,8 @@ this root, and docs/comments should not depend on any external source tree.
   `golang.org/x/term`, `golang.org/x/text`, `gopkg.in/yaml.v3`, and
   `mvdan.cc/sh/v3`
 - Fast test loop: `make test-fast` (cached root and portable-template tests with bounded package parallelism)
-- Complete test gate: `make test` (publication audit, uncached race suites, and release trust)
+- Commit gate: `make test` (formatting, publication audit, and cached tests of both modules)
+- Pre-release gate, only when a release is made: `make release-check` (tidy, vet, staticcheck, govulncheck, uncached race suites, release trust, and self-hosting)
 - Coverage measurement: `make coverage` (whole-module root and portable-template profiles for review evidence)
 - Entry point: `cmd/reconc/main.go`
 
@@ -30,8 +31,7 @@ this root, and docs/comments should not depend on any external source tree.
 ```bash
 make test-fast
 make test
-make vet
-make lint
+make release-check
 make coverage
 make build
 go run ./cmd/reconc --help

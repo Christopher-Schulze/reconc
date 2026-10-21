@@ -56,7 +56,7 @@ func BenchmarkMemory(b *testing.B) {
 			case "canceled":
 				cancel()
 			}
-			err = applyMemorySamples(ctx, binary, ".", parameters, timed, 0)
+			err = applyMemorySamples(ctx, binary, ".", parameters, timed, 0, nil)
 			if name != "valid" {
 				if err == nil || (name == "canceled" && !errors.Is(err, context.Canceled)) {
 					t.Fatalf("%s memory execution = %v", name, err)
@@ -148,7 +148,7 @@ func BenchmarkSmall(b *testing.B) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := applyMemorySamples(context.Background(), binary, ".", parameters, timed, 0); err != nil {
+	if err := applyMemorySamples(context.Background(), binary, ".", parameters, timed, 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	large, small := timed["BenchmarkLarge"][0].PeakRSSBytes, timed["BenchmarkSmall"][0].PeakRSSBytes
@@ -210,11 +210,23 @@ func BenchmarkTransient(b *testing.B) {
 	if err := os.Remove(marker); err != nil {
 		t.Fatal(err)
 	}
-	if err := applyMemorySamples(context.Background(), binary, ".", parameters, timed, 0); err != nil {
+	diagnostics := newRSSCollector()
+	if err := applyMemorySamples(context.Background(), binary, ".", parameters, timed, 0, diagnostics); err != nil {
 		t.Fatal(err)
 	}
 	steady, transient := timed["BenchmarkSteady"][0].PeakRSSBytes, timed["BenchmarkTransient"][0].PeakRSSBytes
 	if steady < 512<<20 || transient >= 256<<20 {
 		t.Fatalf("fixed-work peaks: steady=%d transient=%d", steady, transient)
+	}
+	// The discarded spike stays visible in the separate diagnostics report.
+	report := diagnostics.report(BenchmarkResult{SuiteVersion: suiteVersion, Parameters: parameters})
+	if len(report.Benchmarks) != 2 || report.Benchmarks[1].Name != "BenchmarkTransient" {
+		t.Fatalf("diagnostics benchmarks = %+v", report.Benchmarks)
+	}
+	spiked := report.Benchmarks[1]
+	peaks := spiked.Samples[0].ProcessPeakRSSBytes
+	if len(peaks) != 3 || peaks[0] < 256<<20 || spiked.Samples[0].KeptPeakRSSBytes != transient ||
+		spiked.GatedPeakRSSBytes != transient || spiked.HighestProcessPeakRSSBytes != peaks[0] {
+		t.Fatalf("diagnostics lost the discarded process peak: %+v", spiked)
 	}
 }

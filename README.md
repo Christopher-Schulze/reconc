@@ -1269,8 +1269,9 @@ reconc <command> --help
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, change scope,
 verification requirements, and the pull-request checklist. Run `make test`,
-`make test-langchain`, `make fuzz`, `make coverage`, `make vet`, `make lint`,
-`make self-host`, and `make publication-audit` before proposing a change.
+`make test-langchain`, and `make self-host` before proposing a change;
+`make release-check` runs the race, vet, Staticcheck, and Govulncheck gates
+only before a release.
 `make coverage` measures
 the complete root and portable-template modules with cross-package
 instrumentation and reports the measured percentages without enforcing a fixed
@@ -1301,11 +1302,12 @@ remote asset name, size, and SHA-256 digest must match the local release
 inventory before publication; every published release SBOM is regenerated and
 byte-verified before its checksum and build provenance are published.
 
-Candidate CI runs root and portable-template race tests on Ubuntu and normal
-tests on macOS in parallel shards, formatting, tidy checks, Vet, pinned
-Staticcheck, pinned Govulncheck, release-trust tests, one publication-boundary
-check, harness-pack parity, and Go CodeQL. The release workflow requires those
-results for the exact tagged commit instead of repeating them. GitHub Actions are allowlisted and commit-pinned, checkout
+Candidate CI runs root and portable-template tests on Ubuntu and macOS with
+self-hosting, formatting, tidy checks, one publication-boundary check,
+harness-pack parity, and Go CodeQL. The release workflow requires those
+results for the exact tagged commit and adds the release-only gates against
+the tag: race tests, Vet, pinned Staticcheck, pinned Govulncheck, and
+release-trust tests. GitHub Actions are allowlisted and commit-pinned, checkout
 credentials are not persisted, and release/publication jobs use full history
 where the post-boundary audit requires it. Windows implementation, tests, and
 release artifacts remain maintained; native checks are manual only through

@@ -30,10 +30,6 @@ func assertPrivateFileSecurity(t *testing.T, path string, _ os.FileMode) {
 	}
 }
 
-func driftPrivateDirectorySecurity(t *testing.T, path string, _ os.FileMode) {
-	unprotectPrivateDACL(t, path)
-}
-
 func driftPrivateFileSecurity(t *testing.T, path string, _ os.FileMode) {
 	unprotectPrivateDACL(t, path)
 }

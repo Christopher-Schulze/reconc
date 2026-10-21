@@ -213,11 +213,29 @@ for reconc_dir in "$repo/tools/reconc/dist" "$repo/dist"; do
   fi
 done
 
-if command -v reconc >/dev/null 2>&1; then
-  path_reconc="$(command -v reconc)"
-  if reconc_candidate_trusted "$path_reconc"; then
-    run_reconc_hook "$path_reconc"
-  fi
+find_path_reconc() {
+  path_reconc=""
+  reconc_path_rest="${PATH:-}"
+  [ -n "$reconc_path_rest" ] || return 1
+  reconc_path_rest="$reconc_path_rest:"
+  while [ -n "$reconc_path_rest" ]; do
+    path_reconc="${reconc_path_rest%%:*}"
+    reconc_path_rest="${reconc_path_rest#*:}"
+    path_reconc="${path_reconc:-.}/reconc"
+    if [ -f "$path_reconc" ] && [ -x "$path_reconc" ]; then
+      return 0
+    fi
+    if [ "${OS:-}" = "Windows_NT" ] && [ -f "$path_reconc.exe" ] && [ -x "$path_reconc.exe" ]; then
+      path_reconc="$path_reconc.exe"
+      return 0
+    fi
+  done
+  path_reconc=""
+  return 1
+}
+
+if find_path_reconc && reconc_candidate_trusted "$path_reconc"; then
+  run_reconc_hook "$path_reconc"
 fi
 
 if [ "$event" = "grok-pre-tool-use" ] || [ "$event" = "grok-stop" ]; then

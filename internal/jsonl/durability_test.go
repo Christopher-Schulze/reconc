@@ -75,6 +75,44 @@ func TestJSONLRotationDurabilityCrashPointsRecoverIdempotently(t *testing.T) {
 	}
 }
 
+// A journaled append syncs its record with the ordered barrier and becomes
+// durable through the full sync of its final journal removal; a plain append,
+// which no later sync covers, never uses the ordered barrier.
+func TestJournaledAppendOrdersItsRecordBeforeTheFinalFullSync(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	policy := Policy{MaxBytes: 1024, MaxArchives: 1}
+	if err := Append(path, []byte("created"), policy); err != nil {
+		t.Fatal(err)
+	}
+	originalDirectory, originalOrdered := jsonlDirectorySync, jsonlOrderedSync
+	t.Cleanup(func() { jsonlDirectorySync, jsonlOrderedSync = originalDirectory, originalOrdered })
+	var syncs []string
+	jsonlDirectorySync = func(directory *os.Root) error {
+		syncs = append(syncs, "full-directory")
+		return originalDirectory(directory)
+	}
+	jsonlOrderedSync = func(file *os.File) error {
+		syncs = append(syncs, "ordered-record")
+		return originalOrdered(file)
+	}
+	if err := Append(path, []byte("plain"), policy); err != nil || len(syncs) != 0 {
+		t.Fatalf("plain append = %v with syncs %v; want only its own full record sync", err, syncs)
+	}
+	err := AppendTransaction(path, policy, func() ([]byte, error) {
+		return []byte("journaled"), nil
+	}, func() error {
+		syncs = append(syncs, "commit")
+		return nil
+	})
+	if want := []string{"ordered-record", "commit", "full-directory"}; err != nil || strings.Join(syncs, ",") != strings.Join(want, ",") {
+		t.Fatalf("journaled append = %v with syncs %v; want %v", err, syncs, want)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || string(body) != "created\nplain\njournaled\n" {
+		t.Fatalf("live file = %q, %v", body, err)
+	}
+}
+
 func TestJSONLLiveCreationRequiresParentDurability(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	original := jsonlDirectorySync

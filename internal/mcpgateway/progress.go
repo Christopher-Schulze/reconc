@@ -339,6 +339,7 @@ func (g *Gateway) progressRequest(
 		call.stateVersion,
 		action.PhaseProgress,
 		payload,
+		nil,
 	)
 }
 

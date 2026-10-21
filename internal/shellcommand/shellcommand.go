@@ -7,6 +7,7 @@ package shellcommand
 import (
 	"strconv"
 	"strings"
+	"sync"
 
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -68,7 +69,8 @@ type CompiledExpectation struct {
 // The dependency documents that Parser.Parse may be reused after a parse has
 // finished, but not concurrently. Keeping the state local instead of pooling
 // it also prevents parser-internal source buffers and AST allocation batches
-// from outliving the command analysis that created them.
+// from outliving the command analysis that created them; only the bounded
+// recentParses trees do.
 type parserState struct {
 	parser *syntax.Parser
 }
@@ -77,8 +79,72 @@ func newParserState() parserState {
 	return parserState{parser: syntax.NewParser(syntax.Variant(syntax.LangBash))}
 }
 
-func (state *parserState) parse(command, name string) (*syntax.File, error) {
+var parseShellCommand = func(state *parserState, command, name string) (*syntax.File, error) {
 	return state.parser.Parse(strings.NewReader(command), name)
+}
+
+// parse shares one parse of a command across the analyses a hook request runs
+// on it, which otherwise each parse the same text. A shared tree is read-only:
+// every analysis only walks or prints it.
+func (state *parserState) parse(command, name string) (*syntax.File, error) {
+	if len(command) > recentParseMaxBytes {
+		return parseShellCommand(state, command, name)
+	}
+	if parsed, ok := recentParses.lookup(command); ok {
+		return parsed.file, parsed.err
+	}
+	file, err := parseShellCommand(state, command, name)
+	recentParses.store(parsedCommand{command: command, file: file, err: err})
+	return file, err
+}
+
+// recentParseMaxBytes and recentParseEntries bound the syntax trees that
+// outlive their analysis in recentParses.
+const (
+	recentParseMaxBytes = 64 << 10
+	recentParseEntries  = 4
+)
+
+var recentParses parseCache
+
+type parsedCommand struct {
+	command string
+	file    *syntax.File
+	err     error
+}
+
+// parseCache keeps the most recently used parses, newest first.
+type parseCache struct {
+	mu      sync.Mutex
+	entries []parsedCommand
+}
+
+func (cache *parseCache) lookup(command string) (parsedCommand, bool) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	for index, entry := range cache.entries {
+		if entry.command == command {
+			copy(cache.entries[1:index+1], cache.entries[:index])
+			cache.entries[0] = entry
+			return entry, true
+		}
+	}
+	return parsedCommand{}, false
+}
+
+func (cache *parseCache) store(parsed parsedCommand) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	for _, entry := range cache.entries {
+		if entry.command == parsed.command {
+			return
+		}
+	}
+	if len(cache.entries) < recentParseEntries {
+		cache.entries = append(cache.entries, parsedCommand{})
+	}
+	copy(cache.entries[1:], cache.entries[:len(cache.entries)-1])
+	cache.entries[0] = parsed
 }
 
 // CompileExpectation parses one expected command once using the supplied

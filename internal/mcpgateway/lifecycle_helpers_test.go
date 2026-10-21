@@ -38,7 +38,7 @@ func TestGatewayFinalizeIssuedApprovalPersistsTerminalState(t *testing.T) {
 	params := json.RawMessage(`{"name":"echo","arguments":{"value":"finalize-helper"}}`)
 	call, response := harness.gateway.prepareCall(
 		context.Background(), upstreamWireCall{id: json.RawMessage(`1`), params: params},
-		contract, generation, callID, arguments, actionapproval.MCPProtocolVersion,
+		contract, generation, callID, arguments, nil, actionapproval.MCPProtocolVersion,
 	)
 	if call != nil || response == nil {
 		t.Fatalf("approval preparation = call %#v, response %#v", call, response)
@@ -91,7 +91,7 @@ func TestGatewayReleaseReservationRetriesCurrentStateVersion(t *testing.T) {
 	}
 	request, err := harness.gateway.normalizedRequest(
 		harness.gateway.snapshot, contract, callID, staleVersion,
-		action.PhasePreCall, json.RawMessage(`{"value":"release-helper"}`),
+		action.PhasePreCall, json.RawMessage(`{"value":"release-helper"}`), nil,
 	)
 	if err != nil {
 		t.Fatal(err)

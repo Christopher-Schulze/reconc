@@ -30,7 +30,7 @@ func TestPostResultFailurePathsWithholdWithoutRawContent(t *testing.T) {
 		harness, call := preparedGatewayCall(t)
 		raw := json.RawMessage(`{"content":[{"type":"text","text":"private-normalized-result"}]}`)
 		request, err := harness.gateway.normalizedRequest(
-			call.snapshot, call.contract, call.callID, call.stateVersion, action.PhasePostResult, raw,
+			call.snapshot, call.contract, call.callID, call.stateVersion, action.PhasePostResult, raw, nil,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -114,7 +114,7 @@ func preparedGatewayCallWithPlan(
 		),
 	}
 	call, response := harness.gateway.prepareCall(
-		context.Background(), wire, contract, generation, callID, arguments, gatewayProtocolCurrent,
+		context.Background(), wire, contract, generation, callID, arguments, nil, gatewayProtocolCurrent,
 	)
 	if response != nil || call == nil {
 		body, _ := json.Marshal(response)

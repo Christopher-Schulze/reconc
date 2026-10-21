@@ -124,3 +124,10 @@ func normalizeWindowsFinalPath(path string) string {
 func aliasComparisonKey(path string) string {
 	return strings.ToLower(filepath.Clean(path))
 }
+
+// spellingCurrent reports whether path still resolves to identity: a Windows
+// identity is the full handle path, which a rename of any ancestor changes.
+func spellingCurrent(path, identity string, _ os.FileInfo) bool {
+	resolved, err := resolveExistingOS(path)
+	return err == nil && filepath.Clean(resolved) == identity
+}

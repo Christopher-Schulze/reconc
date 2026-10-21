@@ -58,17 +58,23 @@ func runRecord(args []string, stdout io.Writer) error {
 	repetitions := flags.Int("repetitions", defaultBenchmarkRepetitions, "internal Go benchmark repetitions per sample")
 	profileDir := flags.String("profile-dir", "", "optional empty directory for bounded pprof/trace artifacts")
 	profileGroups := flags.String("profile-groups", "", "comma-separated benchmark groups to profile")
+	rssDiagnostics := flags.String("rss-diagnostics", "", "optional path for the report of every fixed-work RSS process peak")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || *output == "" || *count < 1 || *count > 20 || !validBenchtime(*benchtime) || !validRepetitions(*repetitions) {
-		return errors.New("usage: history record --output PATH [--root PATH] [--go PATH] [--count 1..20] [--repetitions 1..5] [--benchtime VALUE] [--profile-dir PATH --profile-groups GROUP,...]")
+	if flags.NArg() != 0 || *output == "" || *count < 1 || *count > 20 || !validBenchtime(*benchtime) || !validRepetitions(*repetitions) ||
+		*rssDiagnostics != "" && filepath.Clean(*rssDiagnostics) == filepath.Clean(*output) {
+		return errors.New("usage: history record --output PATH [--root PATH] [--go PATH] [--count 1..20] [--repetitions 1..5] [--benchtime VALUE] [--profile-dir PATH --profile-groups GROUP,...] [--rss-diagnostics PATH distinct from --output]")
 	}
 	profiles, err := profileOptionsFromFlags(*root, *profileDir, *profileGroups)
 	if err != nil {
 		return err
 	}
-	result, err := recordBenchmarksWithProfiles(*root, *goBinary, Parameters{Count: *count, Benchtime: *benchtime, CPU: 1, Repetitions: *repetitions}, profiles)
+	var diagnostics *rssCollector
+	if *rssDiagnostics != "" {
+		diagnostics = newRSSCollector()
+	}
+	result, err := recordBenchmarksWithProfiles(*root, *goBinary, Parameters{Count: *count, Benchtime: *benchtime, CPU: 1, Repetitions: *repetitions}, profiles, diagnostics)
 	if err != nil {
 		return err
 	}
@@ -76,7 +82,17 @@ func runRecord(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return publishContract(*output, body, stdout)
+	if err := publishContract(*output, body, stdout); err != nil {
+		return err
+	}
+	if diagnostics == nil {
+		return nil
+	}
+	report, err := encodeContract(diagnostics.report(result))
+	if err != nil {
+		return err
+	}
+	return publishContract(*rssDiagnostics, report, stdout)
 }
 
 func runCompare(args []string, stdout io.Writer) error {

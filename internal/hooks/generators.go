@@ -41,11 +41,9 @@ for reconc_dir in "$repo_root/tools/reconc/dist" "$repo_root/dist"; do
     fi
 done
 
-if command -v reconc >/dev/null 2>&1; then
-    path_reconc="$(command -v reconc)"
-    if reconc_candidate_trusted "$path_reconc"; then
-        exec "$path_reconc" ci "$repo_root" --staged
-    fi
+` + shellPathLookup() + `
+if find_path_reconc && reconc_candidate_trusted "$path_reconc"; then
+    exec "$path_reconc" ci "$repo_root" --staged
 fi
 
 echo "reconc pre-commit hook: no executable Reconc binary found" >&2

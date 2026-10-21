@@ -24,6 +24,7 @@ func (g *Gateway) normalizedRequest(
 	stateVersion string,
 	phase action.Phase,
 	payload json.RawMessage,
+	parsed *action.Value,
 ) (action.Request, error) {
 	requestContext, err := g.requestContext()
 	if err != nil {
@@ -54,6 +55,9 @@ func (g *Gateway) normalizedRequest(
 		raw.Result = payload
 	case action.PhaseProgress:
 		raw.Progress = payload
+	}
+	if parsed != nil {
+		return action.NormalizeRequestWithPayload(raw, *parsed)
 	}
 	return action.NormalizeRequest(raw)
 }

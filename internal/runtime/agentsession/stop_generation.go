@@ -119,6 +119,36 @@ func captureStopPolicyBoundarySnapshot(
 	)
 }
 
+// stopPolicyGitObservation is one Git snapshot taken on its own goroutine,
+// so boundary work that does not depend on it runs while Git scans the
+// worktree.
+type stopPolicyGitObservation <-chan stopPolicyGitSnapshot
+
+func observeStopPolicyGit(root string) stopPolicyGitObservation {
+	observed := make(chan stopPolicyGitSnapshot, 1)
+	go func() { observed <- stopPolicyGitSnapshotFor(root) }()
+	return observed
+}
+
+// captureStopPolicyBoundaryWithGit captures a boundary while its Git
+// observation runs: the boundary's policy-source and lock identities do not
+// depend on Git, so the Stop waits for the slower side instead of both.
+func captureStopPolicyBoundaryWithGit(
+	boundary stopPolicyCaptureBoundary,
+	root string,
+	state SessionState,
+	evidenceRevision string,
+	taskSnapshot stopTaskSnapshot,
+	git stopPolicyGitObservation,
+	scanCache *stopPolicyScanCache,
+) stopPolicyAttemptSnapshot {
+	snapshot := captureStopPolicyBoundarySnapshot(
+		boundary, root, state, evidenceRevision, taskSnapshot, stopPolicyGitSnapshot{}, scanCache,
+	)
+	snapshot.Git = <-git
+	return snapshot
+}
+
 func captureStopPolicyAttemptSnapshotWithSourceIdentityAtBoundary(
 	boundary stopPolicyCaptureBoundary,
 	root string,
@@ -228,7 +258,7 @@ func captureStopRepositoryGenerationWithIdentityAndScan(
 		return stopGenerationCapture{}, false
 	}
 	paths := dirtyPathsFromStatus(gitSnapshot.Status)
-	indexEntries := gitIndexEntries(root, indexedDirtyPaths(paths, gitSnapshot.Status))
+	indexEntries := gitIndexEntriesWithScan(root, indexedDirtyPaths(paths, gitSnapshot.Status), scanCache)
 	dirty := make([]stopDirtyPathGeneration, 0, len(paths))
 	for _, path := range paths {
 		indexEntry := indexEntries[path]

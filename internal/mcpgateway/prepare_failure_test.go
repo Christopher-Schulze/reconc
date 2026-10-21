@@ -121,6 +121,7 @@ func TestPrepareCallFailsClosedAndReleasesSetupReservations(t *testing.T) {
 				generation,
 				callID,
 				json.RawMessage(`{"value":"setup-failure"}`),
+				nil,
 				gatewayProtocolCurrent,
 			)
 			restore()

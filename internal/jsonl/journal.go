@@ -614,7 +614,9 @@ func writeAppendJournalWithLayout(path string, layout Layout, journal appendJour
 	if err := layout.validateLockLease(); err != nil {
 		return err
 	}
-	result, err := atomicfile.WriteIfChanged(layout.JournalPath, body, layout.JournalMode)
+	// Journal states need only their order: the transaction ends with the
+	// journal removal, whose full sync makes every state before it durable.
+	result, err := atomicfile.WriteOrderedIfChanged(layout.JournalPath, body, layout.JournalMode)
 	if err != nil {
 		return fmt.Errorf("write JSONL append journal: %w", err)
 	}
@@ -907,6 +909,9 @@ func truncateRegularFileWithLayout(path string, size, maximum int64, layout Layo
 	return validateLayoutSecurityFile(layout, path, maximum)
 }
 
+// finishAppendJournalWithLayout ends a transaction. The full directory sync
+// of the journal removal is its durability point: on macOS it flushes the
+// device cache and with it every ordered write the transaction issued.
 func finishAppendJournalWithLayout(path string, layout Layout, journal appendJournal) error {
 	if err := layout.validateLockLease(); err != nil {
 		return err

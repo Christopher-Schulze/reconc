@@ -93,7 +93,7 @@ func compareCatalog(ctx context.Context, root string, catalog sourceCatalog, ups
 		for _, fixture := range host.Fixtures {
 			row := comparison{Host: host.Host, Surface: fixture.Path, Kind: "fixture", ExpectedSHA256: fixture.SHA256}
 			body, err := boundedio.ReadRegularFile(filepath.Join(root, filepath.FromSlash(fixture.Path)), maxSourceBytes)
-			completeComparison(&row, body, err)
+			completeComparison(&row, body, err, digest)
 			result.add(row)
 		}
 		if !upstream {
@@ -126,7 +126,7 @@ func showContract(ctx context.Context, catalog sourceCatalog, name string, stdou
 				fmt.Fprintf(stderr, "missing contract markers: %q\n", missing)
 				return 2
 			}
-			fmt.Fprintf(stdout, "%s\nsha256 %s\n", contract, digest(contract))
+			fmt.Fprintf(stdout, "%s\nsha256 %s\n", contract, contractDigest(contract, source.Normalization))
 			return 0
 		}
 	}
@@ -140,12 +140,14 @@ func (r *report) add(row comparison) {
 	r.Results = append(r.Results, row)
 }
 
-func completeComparison(row *comparison, body []byte, err error) {
+// completeComparison pins body with pin: fixtures by their exact bytes,
+// upstream sources by their contract digest.
+func completeComparison(row *comparison, body []byte, err error, pin func([]byte) string) {
 	if err != nil {
 		row.Status, row.Error = "unavailable", err.Error()
 		return
 	}
-	row.ActualSHA256 = digest(body)
+	row.ActualSHA256 = pin(body)
 	row.Status = "unchanged"
 	if row.ActualSHA256 != row.ExpectedSHA256 {
 		row.Status = "changed"

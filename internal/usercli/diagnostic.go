@@ -66,13 +66,38 @@ type GlobalDiagnostic struct {
 	Checks            []DiagnosticCheck  `json:"checks"`
 	Actions           []DiagnosticAction `json:"actions"`
 	NextAction        string             `json:"next_action"`
+	// binaryStatus is Status before the receipt-owned skill is judged.
+	binaryStatus DiagnosticStatus
 }
 
+// Blocking reports whether `doctor --global` fails: every status except
+// healthy and a deterministic legacy unowned installation.
 func (report *GlobalDiagnostic) Blocking() bool {
 	if report == nil {
 		return true
 	}
-	switch report.Status {
+	return blockingDiagnosticStatus(report.Status)
+}
+
+// BinaryStatus is the status of the binary installation alone. Update,
+// uninstall, and init gate on it and judge the owned skill themselves.
+func (report *GlobalDiagnostic) BinaryStatus() DiagnosticStatus {
+	if report.binaryStatus == "" {
+		return report.Status
+	}
+	return report.binaryStatus
+}
+
+// BinaryBlocking is Blocking for BinaryStatus.
+func (report *GlobalDiagnostic) BinaryBlocking() bool {
+	if report == nil {
+		return true
+	}
+	return blockingDiagnosticStatus(report.BinaryStatus())
+}
+
+func blockingDiagnosticStatus(status DiagnosticStatus) bool {
+	switch status {
 	case DiagnosticHealthy, DiagnosticUnowned:
 		return false
 	default:
@@ -211,9 +236,12 @@ func diagnoseGlobalUnlocked(version string, paths receiptPaths) (*GlobalDiagnost
 	if len(candidates) > 1 && !report.ReceiptValid {
 		report.promoteStatus(DiagnosticAmbiguous)
 	}
+	report.binaryStatus = report.Status
 	report.NextAction, report.Actions = diagnosticRemediation(report)
 	if skillRepair != "" && report.Status == DiagnosticHealthy {
-		// The binary is healthy; the owned skill is the one thing to repair.
+		// The binary is healthy; the receipt-owned skill no longer matches
+		// its receipt and is the one thing to repair.
+		report.promoteStatus(DiagnosticStale)
 		report.NextAction = skillRepair
 		report.Actions = []DiagnosticAction{{
 			Kind: "repair-skill", Command: "reconc install-cli --skill-only",

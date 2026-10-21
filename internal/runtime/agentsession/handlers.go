@@ -1020,12 +1020,13 @@ func runPreCommandPolicyCheckWithEvaluator(evaluator *runtime.Evaluator, paths *
 
 // hookEvaluationContext shares paths (nil gives the check its own resolver)
 // and has the evaluator drop absolute read evidence outside the repository,
-// which the hooks record for reads anywhere on disk.
+// which the hooks record for reads anywhere on disk. It ends with the hook
+// request's budget, so a policy script stops with the request.
 func hookEvaluationContext(paths *pathidentity.ProspectiveResolver) context.Context {
 	if paths == nil {
 		paths = pathidentity.NewProspectiveResolver()
 	}
-	return runtime.WithForeignReadPathsDropped(runtime.WithProspectiveResolver(context.Background(), paths))
+	return runtime.WithForeignReadPathsDropped(runtime.WithProspectiveResolver(hookRequestContext(), paths))
 }
 
 // filterRepoScopedReadPaths keeps relative read paths and the absolute ones
@@ -1037,11 +1038,14 @@ func filterRepoScopedReadPaths(repoRoot string, paths []string, prospective *pat
 	}
 	scope := readEvidenceScope{repoRoot: repoRoot, prospective: prospective}
 	out := make([]string, 0, len(paths))
-	for _, path := range paths {
-		if scope.contains(path) {
-			out = append(out, path)
+	_ = prospective.WithConfirmedSpellings(func() error {
+		for _, path := range paths {
+			if scope.contains(path) {
+				out = append(out, path)
+			}
 		}
-	}
+		return nil
+	})
 	return out
 }
 

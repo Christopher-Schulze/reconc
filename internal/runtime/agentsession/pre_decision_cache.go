@@ -546,18 +546,30 @@ func capturePreDecisionDependencySnapshot(
 	var validUntil time.Time
 	metrics := preDecisionSampleMetrics{DependencyPaths: len(paths)}
 	now := time.Now()
-	for _, dependency := range paths {
-		identity, bytesRead, contentHashPasses, dependencyValidUntil, ok := observePreDecisionPath(root, dependency, now)
-		if !ok || totalBytes > maxPreDecisionDependencyBytes-bytesRead {
-			return preDecisionDependencySnapshot{}, time.Time{}, preDecisionSampleMetrics{}, false
+	// The pass inspects each parent directory once. A parent replaced during
+	// the pass cannot bind a stale identity: every path is resolved afresh
+	// right after its observation, and a mismatch fails the sample.
+	resolver := pathidentity.NewProspectiveResolver()
+	observed := true
+	_ = resolver.WithListedParents(func() error {
+		for _, dependency := range paths {
+			identity, bytesRead, contentHashPasses, dependencyValidUntil, ok := observePreDecisionPath(root, resolver, dependency, now)
+			if !ok || totalBytes > maxPreDecisionDependencyBytes-bytesRead {
+				observed = false
+				return nil
+			}
+			totalBytes += bytesRead
+			metrics.ContentHashPasses += contentHashPasses
+			metrics.ContentHashBytes += bytesRead
+			snapshot.Paths = append(snapshot.Paths, identity)
+			if !dependencyValidUntil.IsZero() && (validUntil.IsZero() || dependencyValidUntil.Before(validUntil)) {
+				validUntil = dependencyValidUntil
+			}
 		}
-		totalBytes += bytesRead
-		metrics.ContentHashPasses += contentHashPasses
-		metrics.ContentHashBytes += bytesRead
-		snapshot.Paths = append(snapshot.Paths, identity)
-		if !dependencyValidUntil.IsZero() && (validUntil.IsZero() || dependencyValidUntil.Before(validUntil)) {
-			validUntil = dependencyValidUntil
-		}
+		return nil
+	})
+	if !observed {
+		return preDecisionDependencySnapshot{}, time.Time{}, preDecisionSampleMetrics{}, false
 	}
 	if snapshot.identity() == "" {
 		return preDecisionDependencySnapshot{}, time.Time{}, preDecisionSampleMetrics{}, false
@@ -611,14 +623,18 @@ func mergePreDecisionFreshness(current, added []int) []int {
 	return merged
 }
 
+// observePreDecisionPath resolves the dependency through the pass's resolver;
+// preDecisionPathStable then resolves it afresh, so the observation binds the
+// identity the filesystem reports after it.
 func observePreDecisionPath(
 	root string,
+	resolver *pathidentity.ProspectiveResolver,
 	dependency preDecisionDependencyRequest,
 	now time.Time,
 ) (preDecisionPathIdentity, int64, int, time.Time, bool) {
 	raw := dependency.path
 	candidate := preDecisionPathCandidate(root, raw)
-	resolved, err := pathidentity.ResolveProspective(candidate)
+	resolved, err := resolver.Resolve(candidate)
 	if err != nil {
 		return preDecisionPathIdentity{}, 0, 0, time.Time{}, false
 	}

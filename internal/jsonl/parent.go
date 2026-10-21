@@ -19,6 +19,8 @@ type jsonlParent struct {
 
 var jsonlDirectorySync = atomicfile.SyncDirectory
 
+var jsonlOrderedSync = atomicfile.SyncOrdered
+
 func openJSONLParent(path string) (*jsonlParent, error) {
 	directory := filepath.Dir(path)
 	before, err := os.Lstat(directory)

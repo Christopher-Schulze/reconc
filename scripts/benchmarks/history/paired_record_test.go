@@ -26,7 +26,7 @@ func TestPairedPackageRecordsRealAlternatingSources(t *testing.T) {
 				benchmark = "BenchmarkMissing"
 			}
 			parameters := Parameters{Count: 2, Benchtime: "1x", CPU: 1, Repetitions: 1}
-			measurements, err := runPackageBenchmarks(ctx, roots[:], "go", ".", []string{benchmark}, parameters)
+			measurements, err := runPackageBenchmarks(ctx, roots[:], "go", ".", []string{benchmark}, parameters, nil)
 			if name != "complete" {
 				if err == nil || (name == "canceled" && !errors.Is(err, context.Canceled)) {
 					t.Fatalf("%s execution error = %v", name, err)
@@ -132,7 +132,7 @@ func TestPairedOutputsPreserveExistingEvidence(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := validatePairedOutputs(outputs); (err == nil) != (name == "distinct") {
+			if err := validatePairedOutputs(outputs[:]); (err == nil) != (name == "distinct") {
 				t.Fatalf("%s output validation = %v", name, err)
 			}
 			if name == "existing" {
@@ -148,4 +148,32 @@ func TestPairedCommandRejectsIncompleteFlagsBeforeRecording(t *testing.T) {
 			t.Fatalf("incomplete paired invocation accepted: %v", args)
 		}
 	}
+}
+
+// Paired recording writes optional RSS diagnostics only to new paths distinct
+// from both results and from each other.
+func TestPairedRSSDiagnosticsUseDistinctNewPaths(t *testing.T) {
+	directory := t.TempDir()
+	path := func(name string) string { return filepath.Join(directory, name) }
+	base := []string{"--baseline-root", directory, "--reference", path("reference.json"),
+		"--baseline-output", path("baseline.json"), "--output", path("current.json")}
+	options, err := parsePairedRecordOptions(append(base, "--rss-diagnostics", path("rss.json"), "--baseline-rss-diagnostics", path("baseline-rss.json")))
+	if err != nil || options.diagnostics != [2]string{path("baseline-rss.json"), path("rss.json")} {
+		t.Fatalf("distinct diagnostics = %+v, %v", options.diagnostics, err)
+	}
+	for name, extra := range map[string][]string{
+		"same as a result":   {"--rss-diagnostics", path("current.json")},
+		"same as each other": {"--rss-diagnostics", path("rss.json"), "--baseline-rss-diagnostics", path("rss.json")},
+	} {
+		if _, err := parsePairedRecordOptions(append(append([]string{}, base...), extra...)); err == nil {
+			t.Fatalf("%s: diagnostics path accepted", name)
+		}
+	}
+	if err := os.WriteFile(path("existing.json"), []byte("retained evidence\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parsePairedRecordOptions(append(append([]string{}, base...), "--rss-diagnostics", path("existing.json"))); err == nil {
+		t.Fatal("an existing diagnostics file was accepted")
+	}
+	assertFileBytes(t, path("existing.json"), []byte("retained evidence\n"))
 }

@@ -14,6 +14,7 @@ import (
 type pairedRecordOptions struct {
 	roots         [2]string
 	outputs       [2]string
+	diagnostics   [2]string
 	goBinary      string
 	referencePath string
 	profiles      *profileOptions
@@ -31,15 +32,24 @@ func parsePairedRecordOptions(args []string) (pairedRecordOptions, error) {
 	baselineOutput := flags.String("baseline-output", "", "new baseline result path")
 	profileDir := flags.String("profile-dir", "", "optional empty directory for bounded profiles")
 	profileGroups := flags.String("profile-groups", "", "comma-separated benchmark groups to profile")
+	diagnostics := flags.String("rss-diagnostics", "", "optional new candidate RSS process-peak report path")
+	baselineDiagnostics := flags.String("baseline-rss-diagnostics", "", "optional new baseline RSS process-peak report path")
 	if err := flags.Parse(args); err != nil {
 		return options, err
 	}
 	if flags.NArg() != 0 || *baselineRoot == "" || *referencePath == "" || *output == "" || *baselineOutput == "" {
-		return options, errors.New("usage: history record-pair --baseline-root PATH --reference PATH --baseline-output PATH --output PATH [--root PATH] [--go PATH] [--profile-dir PATH --profile-groups GROUP,...]")
+		return options, errors.New("usage: history record-pair --baseline-root PATH --reference PATH --baseline-output PATH --output PATH [--root PATH] [--go PATH] [--profile-dir PATH --profile-groups GROUP,...] [--rss-diagnostics PATH] [--baseline-rss-diagnostics PATH]")
 	}
 	options = pairedRecordOptions{roots: [2]string{*baselineRoot, *root},
-		outputs: [2]string{*baselineOutput, *output}, goBinary: *goBinary, referencePath: *referencePath}
-	if err := validatePairedOutputs(options.outputs); err != nil {
+		outputs: [2]string{*baselineOutput, *output}, diagnostics: [2]string{*baselineDiagnostics, *diagnostics},
+		goBinary: *goBinary, referencePath: *referencePath}
+	paths := options.outputs[:]
+	for _, path := range options.diagnostics {
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+	if err := validatePairedOutputs(paths); err != nil {
 		return options, err
 	}
 	var err error
@@ -56,7 +66,13 @@ func runRecordPair(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	results, err := recordPairedBenchmarks(options.roots, options.goBinary, reference)
+	var collectors [2]*rssCollector
+	for index, path := range options.diagnostics {
+		if path != "" {
+			collectors[index] = newRSSCollector()
+		}
+	}
+	results, err := recordPairedBenchmarks(options.roots, options.goBinary, reference, collectors)
 	if err != nil {
 		return err
 	}
@@ -68,6 +84,16 @@ func runRecordPair(args []string, stdout io.Writer) error {
 		if err := publishContract(options.outputs[index], body, stdout); err != nil {
 			return err
 		}
+		if collectors[index] == nil {
+			continue
+		}
+		report, err := encodeContract(collectors[index].report(result))
+		if err != nil {
+			return err
+		}
+		if err := publishContract(options.diagnostics[index], report, stdout); err != nil {
+			return err
+		}
 	}
 	if options.profiles != nil {
 		return runProfiles(options.roots[1], options.goBinary, reference.Result.Parameters, results[1].Environment, *options.profiles)
@@ -75,7 +101,7 @@ func runRecordPair(args []string, stdout io.Writer) error {
 	return nil
 }
 
-func validatePairedOutputs(outputs [2]string) error {
+func validatePairedOutputs(outputs []string) error {
 	for _, path := range outputs {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			if err != nil {
@@ -84,17 +110,23 @@ func validatePairedOutputs(outputs [2]string) error {
 			return errors.New("paired result outputs must be new files")
 		}
 	}
-	absolute, err := pathidentity.ResolveProspectiveBatch(outputs[:])
+	absolute, err := pathidentity.ResolveProspectiveBatch(outputs)
 	if err != nil {
 		return err
 	}
-	if absolute[0] == absolute[1] {
-		return errors.New("paired result outputs must be distinct")
+	seen := make(map[string]bool, len(absolute))
+	for _, path := range absolute {
+		if seen[path] {
+			return errors.New("paired result outputs must be distinct")
+		}
+		seen[path] = true
 	}
 	return nil
 }
 
-func recordPairedBenchmarks(roots [2]string, goBinary string, reference BenchmarkBaseline) ([2]BenchmarkResult, error) {
+// recordPairedBenchmarks records the baseline and candidate roots; each
+// non-nil collector receives its root's fixed-work process peaks.
+func recordPairedBenchmarks(roots [2]string, goBinary string, reference BenchmarkBaseline, diagnostics [2]*rssCollector) ([2]BenchmarkResult, error) {
 	var results [2]BenchmarkResult
 	if err := validateBaseline(reference); err != nil {
 		return results, err
@@ -110,7 +142,7 @@ func recordPairedBenchmarks(roots [2]string, goBinary string, reference Benchmar
 	if err := validatePairedEnvironments(reference, results); err != nil {
 		return results, err
 	}
-	groups, err := runSuite(roots[:], goBinary, reference.Result.Parameters)
+	groups, err := runSuite(roots[:], goBinary, reference.Result.Parameters, diagnostics[:])
 	if err != nil {
 		return results, err
 	}

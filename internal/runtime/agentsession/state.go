@@ -53,35 +53,53 @@ const StateRootEnv = "RECONC_CLAUDE_STATE_DIR"
 
 const agentSessionLockTimeout = 30 * time.Second
 
-// oneShotHookDeadline bounds every lock and Git wait of a one-shot hook
-// process by its host's route budget, in Unix nanoseconds. Only that process
-// sets it, once, before its single request; the hook worker and in-process
-// callers keep zero and the per-wait defaults.
-var oneShotHookDeadline atomic.Int64
+// hookRequest bounds the hook request this process is serving by its host's
+// route budget. A process serves one hook request at a time, the one-shot
+// CLI its single request and the hook worker its requests in order, so the
+// bound is process state; in-process callers without a bound keep the
+// per-wait defaults.
+var hookRequest atomic.Pointer[hookRequestBound]
 
-// SetOneShotHookDeadline sets the wait deadline of this one-shot hook
-// process; the zero time removes it.
-func SetOneShotHookDeadline(deadline time.Time) {
-	if deadline.IsZero() {
-		oneShotHookDeadline.Store(0)
-		return
-	}
-	oneShotHookDeadline.Store(deadline.UnixNano())
+type hookRequestBound struct {
+	ctx      context.Context
+	deadline time.Time
 }
 
-// boundedWait shortens one lock or Git wait to the remaining one-shot budget.
+// BeginHookRequest bounds the hook request this process serves next by
+// deadline: lock and Git waits end at it and the policy evaluation, policy
+// scripts included, is cancelled at it. The returned call ends the bound.
+func BeginHookRequest(deadline time.Time) (end func()) {
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	bound := &hookRequestBound{ctx: ctx, deadline: deadline}
+	hookRequest.Store(bound)
+	return func() {
+		hookRequest.CompareAndSwap(bound, nil)
+		cancel()
+	}
+}
+
+// hookRequestContext is the context of the bounded hook request, if any.
+func hookRequestContext() context.Context {
+	if bound := hookRequest.Load(); bound != nil {
+		return bound.ctx
+	}
+	return context.Background()
+}
+
+// boundedWait shortens one lock or Git wait to the remaining request budget.
 func boundedWait(timeout time.Duration) time.Duration {
-	deadline := oneShotHookDeadline.Load()
-	if deadline == 0 {
+	bound := hookRequest.Load()
+	if bound == nil {
 		return timeout
 	}
-	return max(min(timeout, time.Until(time.Unix(0, deadline))), time.Millisecond)
+	return max(min(timeout, time.Until(bound.deadline)), time.Millisecond)
 }
 
-// oneShotHookBudgetElapsed reports whether this one-shot hook's budget ran out.
-func oneShotHookBudgetElapsed() bool {
-	deadline := oneShotHookDeadline.Load()
-	return deadline != 0 && !time.Now().Before(time.Unix(0, deadline))
+// hookRequestBudgetElapsed reports whether the bounded request's budget ran
+// out.
+func hookRequestBudgetElapsed() bool {
+	bound := hookRequest.Load()
+	return bound != nil && bound.ctx.Err() != nil
 }
 
 // CommandResult mirrors the evaluator's runtime.CommandResult but we

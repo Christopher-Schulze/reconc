@@ -229,7 +229,7 @@ func gitDirtyFiles(repoRoot string, status string) []gitDirtyFile {
 
 func gitDirtyFilesWithScan(repoRoot string, status string, scanCache *stopPolicyScanCache) []gitDirtyFile {
 	paths := dirtyPathsFromStatus(status)
-	indexEntries := gitIndexEntries(repoRoot, indexedDirtyPaths(paths, status))
+	indexEntries := gitIndexEntriesWithScan(repoRoot, indexedDirtyPaths(paths, status), scanCache)
 	files := make([]gitDirtyFile, 0, len(paths))
 	for _, path := range paths {
 		indexEntry := indexEntries[path]
@@ -372,6 +372,94 @@ func gitIndexEntries(repoRoot string, paths []string) map[string]string {
 	}
 	flush()
 	return entries
+}
+
+// maxReusedIndexBytes bounds the index a Stop attempt keeps to reuse a
+// listing; reading a larger index twice costs about as much as listing it.
+const maxReusedIndexBytes = 4 << 20
+
+// stopIndexListing is one index listing of a Stop attempt together with the
+// index snapshot Git listed. A listing of the same literal paths depends only
+// on that index, so the attempt reuses it while the index keeps the snapshot.
+type stopIndexListing struct {
+	index   gitIndexSnapshot
+	paths   string
+	entries map[string]string
+}
+
+// gitIndexSnapshot is the index bytes together with the file generation they
+// were read under. Git replaces the index by rename, which gives it a new
+// inode, and any in-place write changes its change time, so two equal
+// snapshots prove the index stayed the same file between them.
+type gitIndexSnapshot struct {
+	generation string
+	body       []byte
+}
+
+func (snapshot gitIndexSnapshot) equal(other gitIndexSnapshot) bool {
+	return snapshot.generation == other.generation && bytes.Equal(snapshot.body, other.body)
+}
+
+// gitIndexEntriesWithScan lists the index entries of paths once per attempt
+// for the same index. The index is snapshotted before and after a listing,
+// and only a listing both snapshots agree on is kept, so a kept listing is
+// never bound to an index Git may not have read, even when another index was
+// swapped in and the old bytes restored during the listing.
+func gitIndexEntriesWithScan(repoRoot string, paths []string, scanCache *stopPolicyScanCache) map[string]string {
+	if scanCache == nil || len(paths) == 0 {
+		return gitIndexEntries(repoRoot, paths)
+	}
+	key := strings.Join(paths, "\x00")
+	before, readable := readReusableGitIndex(repoRoot)
+	if listing := scanCache.indexListing; readable && listing != nil && listing.paths == key && listing.index.equal(before) {
+		return listing.entries
+	}
+	entries := gitIndexEntries(repoRoot, paths)
+	if !readable || gitIndexEntriesFailed(entries) {
+		return entries
+	}
+	if after, ok := readReusableGitIndex(repoRoot); ok && after.equal(before) {
+		scanCache.indexListing = &stopIndexListing{index: before, paths: key, entries: entries}
+	}
+	return entries
+}
+
+// readReusableGitIndex reads the index between two generation samples, so
+// its bytes belong to the generation it reports.
+func readReusableGitIndex(repoRoot string) (gitIndexSnapshot, bool) {
+	path, ok := gitexec.IndexFile(repoRoot)
+	if !ok {
+		return gitIndexSnapshot{}, false
+	}
+	generation, ok := gitIndexGeneration(path)
+	if !ok {
+		return gitIndexSnapshot{}, false
+	}
+	body, err := boundedio.ReadRegularFile(path, maxReusedIndexBytes)
+	if err != nil {
+		return gitIndexSnapshot{}, false
+	}
+	if after, ok := gitIndexGeneration(path); !ok || after != generation {
+		return gitIndexSnapshot{}, false
+	}
+	return gitIndexSnapshot{generation: generation, body: body}, true
+}
+
+func gitIndexGeneration(path string) (string, bool) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	return platformFileGeneration(path, info)
+}
+
+func gitIndexEntriesFailed(entries map[string]string) bool {
+	for _, entry := range entries {
+		if strings.HasPrefix(entry, "error:") {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeGitIndexEntries(entries map[string]string, repoRoot string, paths []string) {

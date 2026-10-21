@@ -24,13 +24,14 @@ env:
   TEST_PARALLELISM: 4
 
 jobs:
-  # One complete pass of the suite is spread over parallel jobs: static checks,
-  # three Linux race shards, one macOS job, and release trust with Linux
-  # self-hosting. "CI result" is the single required check over all of them.
-  # macOS stays one job: hosted macOS runners are scarce, and a second runner
-  # request usually waits longer in the queue than the job runs.
+  # The commit gate runs every functional test once per platform plus the
+  # publication audit: boundary checks, one Linux job, and one macOS job, each
+  # platform with the self-hosting golden path. Race detection, vet,
+  # Staticcheck, Govulncheck, and release trust run in the Release workflow
+  # before publication. "CI result" is the single required check over all of
+  # them. macOS stays one job: hosted macOS runners are scarce.
   checks:
-    name: Static checks
+    name: Boundary checks
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -65,29 +66,10 @@ jobs:
           go mod tidy -diff
           (cd harness/template && go mod tidy -diff)
 
-      - name: Vet
-        run: |
-          go vet ./...
-          (cd harness/template && go vet ./...)
-
-      - name: Vulnerability scan
-        run: |
-          go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
-          (cd harness/template && go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...)
-
-      - name: Staticcheck
-        run: |
-          go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
-          (cd harness/template && go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...)
-
-  race:
-    name: Go checks (ubuntu-24.04, ${{ matrix.shard }}/3)
+  linux:
+    name: Go checks (ubuntu-24.04)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -125,10 +107,11 @@ jobs:
           go mod download
           (cd harness/template && go mod download)
 
-      - name: Race tests
-        env:
-          SHARD: ${{ matrix.shard }}
-        run: ./scripts/tests/go-test-shard.sh "$SHARD" 3 -p="$TEST_PARALLELISM" -race -count=1
+      - name: Test
+        run: ./scripts/tests/go-test-shard.sh 1 1 -p="$TEST_PARALLELISM" -count=1
+
+      - name: Self-hosting golden path
+        run: make self-host
 
   macos:
     name: Go checks (macos-15)
@@ -216,36 +199,10 @@ jobs:
           "$artifact" --version
           "$artifact" --help >/dev/null
 
-  release-trust:
-    name: Release trust
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            harness/template/go.sum
-
-      - name: Verify release and installer failure paths
-        run: ./scripts/tests/release-trust.sh
-
-      - name: Self-hosting golden path
-        run: make self-host
-
   result:
     name: CI result
     if: ${{ always() }}
-    needs: [checks, race, macos, release-trust]
+    needs: [checks, linux, macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:

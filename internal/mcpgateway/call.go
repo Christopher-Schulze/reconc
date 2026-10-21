@@ -106,7 +106,7 @@ func (g *Gateway) startCall(
 	callCtx, cancel := g.callContext(ctx)
 	defer cancel()
 	call, response := g.prepareCall(
-		callCtx, wire, contract, generation, callID, arguments, sdkRequest.ProtocolVersion(),
+		callCtx, wire, contract, generation, callID, arguments, &value, sdkRequest.ProtocolVersion(),
 	)
 	if response != nil || call == nil {
 		return response, nil
@@ -140,6 +140,7 @@ func (g *Gateway) prepareCall(
 	generation uint64,
 	callID string,
 	arguments json.RawMessage,
+	argumentsValue *action.Value,
 	upstreamProtocol string,
 ) (*gatewayCall, *mcp.CallToolResult) {
 	snapshot, err := g.freshSnapshot(ctx)
@@ -163,7 +164,7 @@ func (g *Gateway) prepareCall(
 		)
 	}
 	request, err := g.normalizedRequest(
-		snapshot, contract, callID, stateVersion, action.PhasePreCall, arguments,
+		snapshot, contract, callID, stateVersion, action.PhasePreCall, arguments, argumentsValue,
 	)
 	if err != nil {
 		return nil, blockedGatewayResultValue(callID, gatewayReason(err, action.ReasonInvalidRequest))

@@ -124,6 +124,7 @@ func (g *Gateway) finishCall(
 		stateVersion,
 		action.PhasePostResult,
 		downstream.Canonical,
+		downstream.value,
 	)
 	if normalizeErr == nil {
 		call.ledger.setResult(postRequest)
@@ -430,7 +431,7 @@ func (g *Gateway) inspectAndDeliver(
 	call.decision = decision
 	call.stateVersion = postRequest.StateVersion
 	if decision.Decision == action.DecisionAllow || decision.Decision == action.DecisionWarn {
-		return g.forwardResult(ctx, call, decision, raw)
+		return g.forwardResult(ctx, call, decision, raw, postRequest.Result)
 	}
 	if decision.Decision == action.DecisionRequireApproval {
 		return g.requestPostApproval(ctx, call, raw)
@@ -497,12 +498,16 @@ func (g *Gateway) forwardResult(
 	call *gatewayCall,
 	decision action.EvaluationResult,
 	raw json.RawMessage,
+	parsed *action.Value,
 ) (*mcp.CallToolResult, error) {
-	value, err := action.ParseObjectJSON(raw)
-	if err != nil {
-		return g.withholdUnnormalizedPostFailure(ctx, call, action.ReasonProtocolError)
+	if parsed == nil {
+		value, err := action.ParseObjectJSON(raw)
+		if err != nil {
+			return g.withholdUnnormalizedPostFailure(ctx, call, action.ReasonProtocolError)
+		}
+		parsed = &value
 	}
-	items, err := countValueItems(value, 0)
+	items, err := countValueItems(*parsed, 0)
 	if err != nil {
 		return g.withholdUnnormalizedPostFailure(ctx, call, action.ReasonLimitExceeded)
 	}

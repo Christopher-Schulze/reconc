@@ -230,7 +230,7 @@ partial audit, run-log, checksum, release, or provenance snapshot.
 | Action content inspection | Canonical action values are capped at 8 MiB, strings at 4 MiB, nesting at 32, and JSON items at 65,536. Output schemas are capped at 1 MiB and 8,192 items, MCP results at 4,096 content blocks, decoded binary blocks at 3 MiB, and inspection at 500 ms pre-call, 1 second post-result, or 250 ms progress. |
 | Action policy evaluation | The MCP gateway starts its 500 ms evaluation context before input normalization and cache lookup. Preparation, selectors, condition nodes, inspection and budget candidates, repository-effect traces, result assembly, and glob matching observe that context; glob programs poll at most every 64 bounded work steps. Deadline or caller cancellation wins at the final publication checkpoint, fails closed, and is never cached. Each operation between checkpoints remains independently bounded by the action input, plan, trace, regex, or matcher limits. |
 | Action decision ledger | Each typed payload-free record is capped at 64 KiB, the live file and each of two archives at 4 MiB, the detached head at 8 KiB, and the authenticated incremental checkpoint at 16 MiB. Appends use a ten-second private cross-process transaction boundary; queries return records only after the retained chain, archives, and detached head verify. |
-| MCP gateway | Protocol frames and results are capped at 10 MiB, arguments at 8 MiB, discovery at 512 tools across 64 pages and 8 MiB aggregate metadata, concurrent calls and pending approvals at four each, progress at 128 events and 1 MiB per call, retained child stderr at 256 KiB, and serialized operator diagnostics at 4 KiB per line. One Go 1.27 `jsontext` pass validates framing and extracts borrowed envelope fields for observers and progress routing before the SDK consumes the original bytes. Escaping fields are cloned, transformed bytes alone are revalidated, and cleared reader/writer buffers are retained only through 256 KiB. Discovery charges and validates each page before requesting the next, retains only canonical contracts, and therefore holds at most the aggregate catalog plus one bounded in-flight page instead of all raw pages. Every in-flight call observes both its request context and gateway shutdown. Shutdown attempts every detached pending approval in stable call order before the bounded call drain, aggregates safe call-and-phase failures, and reports failures from both stages. Failed shutdown finalization retains only the structured retry state, zeroes detached wire buffers, and is retried by a later `Close` before the identity-key lease is released. A persisted terminal approval remains finalized across retries even when denial-count capacity is exhausted; that secondary condition is written to operator diagnostics after durable cleanup, never treated as an uncommitted mutation. Pure user cancellation is graceful only when no independent cleanup failure occurred; joined cleanup failures remain non-zero at the CLI boundary. Every observed SDK call consumes its pending or request-ID state on completion, cancellation, timeout, or response failure, so no terminal path retains the serialized send lease. Tool icons are limited to 32 fully decoded self-contained PNG or JPEG data URIs, 48 KiB each, 2,048 pixels per side, and 4,194,304 pixels; remote URLs and decompression bombs fail closed. Tool `_meta` is absent or empty because extension semantics are not enforced. Definitions, frames, progress, stderr, and results are validated or inspected before exposure. |
+| MCP gateway | Protocol frames and results are capped at 10 MiB, arguments at 8 MiB, discovery at 512 tools across 64 pages and 8 MiB aggregate metadata, concurrent calls and pending approvals at four each, progress at 128 events and 1 MiB per call, retained child stderr at 256 KiB, and serialized operator diagnostics at 4 KiB per line. One Go 1.27 `jsontext` pass validates framing and extracts borrowed envelope fields for observers and progress routing before the SDK consumes the original bytes. Escaping fields are cloned, transformed bytes alone are revalidated, and cleared reader/writer buffers are retained only through 256 KiB. Discovery charges and validates each page before requesting the next, retains only canonical contracts, and therefore holds at most the aggregate catalog plus one bounded in-flight page instead of all raw pages. Every in-flight call observes both its request context and gateway shutdown. Shutdown attempts every detached pending approval in stable call order before the bounded call drain, aggregates safe call-and-phase failures, and reports failures from both stages. Failed shutdown finalization retains only the structured retry state, zeroes detached wire buffers, and is retried by a later `Close` before the identity-key lease is released. A persisted terminal approval remains finalized across retries even when denial-count capacity is exhausted; that secondary condition is written to operator diagnostics after durable cleanup, never treated as an uncommitted mutation. Pure user cancellation is graceful only when no independent cleanup failure occurred; joined cleanup failures remain non-zero at the CLI boundary. Every observed SDK call consumes its pending or request-ID state on completion, cancellation, timeout, or response failure, so no terminal path retains the serialized send lease, and a call waiting for that lease stops at its own deadline or cancellation before it reaches the SDK. Tool icons are limited to 32 fully decoded self-contained PNG or JPEG data URIs, 48 KiB each, 2,048 pixels per side, and 4,194,304 pixels; remote URLs and decompression bombs fail closed. Tool `_meta` is absent or empty because extension semantics are not enforced. Definitions, frames, progress, stderr, and results are validated or inspected before exposure. Call arguments and downstream results are parsed once: request normalization and result forwarding reuse the value parsed while canonicalizing them instead of parsing the canonical bytes again, which halves normalization cost for large payloads. |
 | Auxiliary commands and release inventory | Git, Go, attestation, offline-hook, TASK utility, generated-reference, SBOM, and publication-audit subprocesses use purpose-specific 64 KiB to 64 MiB output ceilings and fail on overflow. Command-proof Git, runtime Git, repository-sync Git, and Grok inspection share one concurrency-safe retained-prefix sink with independent stdout/stderr accounting and caller-specific overflow diagnostics. Release assets are hashed as stable non-symlink regular-file streams, release directories stop after the declared inventory ceiling, and committed manifests, archives, and SBOMs use strict bounded reads. |
 
 Best-effort detection is best-effort only about recommendations, not about
@@ -261,6 +261,7 @@ Common commands:
 ```bash
 make test-fast
 make test
+make release-check
 make test-langchain
 make fuzz
 make vet
@@ -279,9 +280,12 @@ make publication-audit
 The canonical Make targets cover both the root Go module and
 `harness/template`. `make test-fast` rejects unformatted non-ignored Go sources
 and runs cached normal tests in both modules for a short edit-feedback loop.
-`make test` runs the real-repository publication audit once, then runs uncached
-race suites in both modules and the release-trust failure-path checks. Both
-targets cap package-level parallelism at two by default so an 8 GB development
+`make test` is the commit gate: formatting, the real-repository publication
+audit, and cached normal tests in both modules. `make release-check` is the
+separate pre-release gate, run only when a release is made: tidy, vet,
+Staticcheck, Govulncheck, uncached race suites in both modules, the
+release-trust failure-path checks, and self-hosting. All targets cap
+package-level parallelism at two by default so an 8 GB development
 machine remains responsive; `TEST_PARALLELISM` accepts a different positive
 integer for larger hosts. The publication CLI contract test uses a
 bounded temporary Git fixture instead of rescanning the real repository under
@@ -339,6 +343,17 @@ peaks, because a garbage-collection spike in one process is not a property of
 the workload while an allocation every process makes is. One spiking sample
 of five, at identical bytes per operation, failed the gate on unchanged code
 (28 to 32 MiB typical, 60 and 162 MiB single spikes).
+Known open limitation: because the gate compares the lowest peak of each
+sample's processes, a peak that only some processes reach, including a real
+sporadic memory problem, does not fail it. The separate RSS diagnostics report
+keeps every such peak visible: `history record --rss-diagnostics PATH` and
+`history record-pair --rss-diagnostics PATH --baseline-rss-diagnostics PATH`
+write `reconc.benchmark-rss-diagnostics/v1` with, per benchmark and sample,
+every process peak in repetition order and the peak the sample keeps, plus the
+gated peak and the highest process peak. `make benchmark-record` writes it to
+`.build/benchmarks/rss-diagnostics.json`, and the `reconc-benchmarks` workflow
+retains candidate and baseline reports with its evidence. The report changes
+neither the result, baseline, and comparison formats nor the gate.
 RSS comes only from these fixed-work processes; time and per-operation allocation
 metrics remain from the timed pass. Every workload sample records
 `peak_rss_iterations=64`, distinct from its timed `iterations`. The Go benchmark
@@ -408,8 +423,8 @@ identities are rechecked after measurement. The workflow then compares against
 a generated runner baseline with the unchanged checked tolerances. Source or
 parameter drift fails before comparison; hardware and
 toolchain compatibility remain mandatory between the two new measurements.
-It keeps both results, the generated baseline, comparison, and profile directory
-under `.build/benchmarks/`, so the manifest, CPU, heap, blocking, mutex, and trace
+It keeps both results, both RSS diagnostics reports, the generated baseline,
+comparison, and profile directory under `.build/benchmarks/`, so the manifest, CPU, heap, blocking, mutex, and trace
 artifacts are uploaded together even when a benchmark step fails. The job has a
 30-minute bound and treats profile failures as job failures.
 
@@ -477,6 +492,7 @@ Make targets:
 make build
 make test-fast
 make test
+make release-check
 make test-langchain
 make fuzz
 make vet
@@ -860,7 +876,12 @@ candidates remain visible where platform command resolution would continue.
 Target and resolved-binary checksum failures are explicit structured failures,
 never aliases for `current=false`. It reports `healthy`,
 `unowned`, `stale`, `shadowed`, `ambiguous`, or `invalid` plus exactly one
-ownership-aware remediation. Malformed receipts, checksum drift, conflicting
+ownership-aware remediation. Every failed check is reflected in that status
+and exit code: a receipt-owned skill that is modified or removed makes an
+otherwise healthy installation `stale` with the targeted
+`reconc install-cli --skill-only` repair, while a skill that was never
+installed remains a warning. Lifecycle commands gate on the binary
+installation alone. Malformed receipts, checksum drift, conflicting
 owners, and ambiguous legacy installations fail closed. The JSON contracts are
 `schemas/v1/installation-receipt.schema.json` and
 `schemas/v1/global-diagnostic.schema.json`. Update check, update apply, and
@@ -2460,8 +2481,15 @@ overall comparison deadline. API normalization preserves interior source
 whitespace while normalizing CRLF and trailing line whitespace. Markdown
 normalization collapses whitespace; HTML normalization removes scripts,
 styles, comments and tags, prefers the main element, decodes entities, then
-collapses whitespace. Editorial changes inside a contract section can still
-trigger review. A digest change is a review signal, not proof of a breaking
+collapses whitespace. Sections and markers are matched in that normalized
+text, and the digest covers that exact section text. A markdown source
+additionally ignores only presentation that CommonMark and GFM define as
+meaningless outside code blocks: the info string of a code fence opener and
+the number of hyphens in a table delimiter cell. Code block content, escapes,
+operators such as `!=` and `==`, type syntax such as `string[]`, quoting,
+alignment colons, and spacing around punctuation stay significant, so a
+renderer change outside those two cases still requires review. Editorial
+changes inside a contract section can therefore still trigger review. A digest change is a review signal, not proof of a breaking
 API change.
 Unmonitored implementation changes cannot be inferred from these probes.
 
@@ -3483,6 +3511,12 @@ normal bookkeeping without loading policy sources or creating a decision cache.
 Command and write decisions obtain the validated source digest from the
 operation's evaluator-owned immutable runtime plan; the independent post-read
 and post-evaluation resamples remain in place to detect concurrent changes.
+Each identity sample inspects every dependency parent directory once and
+resolves dependencies from those listings, then resolves every dependency
+afresh right after observing it; a parent replaced during the sample changes
+that fresh identity and fails the sample instead of binding a stale one. In an
+interleaved comparison a replayable-host miss with 16 dependencies took 17 %
+less time and one with 255 dependencies 21 % less.
 On an Apple M1 with Go `1.26.5`, the focused irrelevant-route benchmark
 measured 564,962 ns/op, 118,983 B/op, and 986 allocations for the former
 identity-preparation path versus 14.70 ns/op, 0 B/op, and 0 allocations after
@@ -3531,9 +3565,12 @@ words; any `&`, `|`, `<`, `>`, `^`, `%`, quote, or parenthesis in the text is
 
 Each bounded shell analysis owns one non-concurrent `mvdan` parser and reuses it
 across nested command parsing and redirect validation. The parser is discarded
-when that analysis returns, so its AST and input buffers do not outlive the
-documented analysis/cache lifetime. Concurrent callers own separate parser
-states.
+when that analysis returns. The analyses of one hook request (invocations,
+redirects, write targets, success prefixes) share one read-only parse of the
+same command text through a process cache of the four most recent commands up
+to 64 KiB each, so a pre-tool command is parsed once instead of once per
+analysis; larger commands are parsed by each analysis and never retained.
+Concurrent callers own separate parser states and only share finished trees.
 
 A stale compiled lockfile blocks gated work, because policy cannot be enforced
 from a lockfile that no longer describes its sources. The block does not seal
@@ -5342,14 +5379,18 @@ blanket timeout. Claude, Codex, GitHub Copilot, Cursor, Devin, Antigravity, Grok
 and ZCode generators emit those host timeouts; OpenCode, Kilo Code, OMP, and Pi
 enforce them inside their adapters. OMP uses a 29-second internal Stop budget
 so its fail-closed response is returned before the host's 30-second
-extension-handler deadline. A one-shot `reconc hook runtime` process bounds
-every session, Stop-report, run-state, evidence-taint, and MCP-audit lock
-wait and every Git call of the session runtime by the
-same route budget, keeping a tenth of it, at least half a second, to report:
-when another Reconc process holds a lock or Git does not answer in time, the
-hook returns its own diagnostic, and a blocking route blocks, before the host
-kills it. The persistent hook worker keeps the per-wait defaults because its
-adapters enforce the budget.
+extension-handler deadline. Every hook request is bounded by the same route
+budget, keeping a tenth of it, at least half a second, to report: a one-shot
+`reconc hook runtime` process bounds its single request, the persistent hook
+worker each request it serves in order, and `reconc hook bridge` its request
+by the custom runtime route's declared `timeout_seconds`, measured from the
+bridge's start. The bound ends every session, Stop-report, run-state,
+evidence-taint, and MCP-audit lock wait and every Git call of the session
+runtime, and it cancels the policy evaluation, policy scripts included. When
+another Reconc process holds a lock, Git does not answer, or a policy script
+does not finish in time, the hook returns its own diagnostic naming those
+causes, and a blocking route blocks, before the host kills it; a custom
+runtime's neutral response fails closed without diagnostics.
 Each runtime route caps combined process output at 8 KiB, including the one-byte
 terminal newline emitted for each non-empty stdout or stderr stream. Exact-limit
 decision JSON therefore reaches worker and one-shot capture intact; an envelope
@@ -6042,6 +6083,16 @@ The attempt also keeps complete typed before/evaluation/after identity
 snapshots for Git, TASK state, policy sources, session evidence, and report
 bindings; equality checks compare those phase snapshots rather than mixing
 individual fields captured at different times.
+Each boundary's Git status runs on its own goroutine while the boundary's
+policy-source identity and TASK state, which do not depend on Git, are
+captured, so a boundary waits for the slower side rather than for both. Index
+entries of dirty tracked paths are listed once per attempt: the
+post-evaluation fingerprint reuses that listing while the index file Git reads
+keeps the exact bytes and file generation (device, inode, and change time; on
+Windows file ID and change time) it had before and after the listing, for
+indexes up to 4 MiB. An index swapped and restored during the listing changes
+its generation even when its bytes return, so it and any other index are
+listed again.
 
 A stored report additionally carries the instant its own inputs stop describing
 it. `require_fresh_file` can turn a clean report stale from wall-clock time
@@ -6275,17 +6326,16 @@ GitHub workflows:
 
 CI checks:
 
-- root-module and `harness/template` race tests on Ubuntu 24.04 in three
-  parallel shards and normal tests on macOS 15 in one job, because hosted
-  macOS runners are scarce and a second runner request usually waits longer
-  than the job runs;
+- the commit gate: root-module and `harness/template` tests once on Ubuntu
+  24.04 and once on macOS 15, each followed by the self-hosting golden path,
+  plus the publication audit, formatting, and tidy once on Linux. Race
+  detection, vet, pinned Staticcheck v0.8.2, pinned Govulncheck v1.7.0, and
+  release trust are release-only gates and do not run on every commit.
   `scripts/tests/go-test-shard.sh` deals every package to exactly one shard,
-  with the slowest packages leading their own shards. The publication audit,
-  formatting, tidy, vet, pinned Govulncheck v1.7.0, and pinned Staticcheck
-  v0.8.2 run once on Linux in parallel. Coverage is measured locally with
-  `make coverage`
-- the `CI result` job succeeds only when static checks, every test shard, and
-  release trust succeeded; it and Go CodeQL are the required checks
+  with the slowest packages leading their own shards. Coverage is measured
+  locally with `make coverage`
+- the `CI result` job succeeds only when the boundary checks and both test
+  jobs succeeded; it and Go CodeQL are the required checks
 - CodeQL analyzes Go on every push, pull request, and weekly schedule; its job
   always reports, but a push or pull request that changes only Markdown,
   `docs/`, or `.github/releases/` skips the analysis of unchanged code
@@ -6300,14 +6350,17 @@ CI checks:
   exact `bun@1.3.14`, compares the tarball's npm SRI against the committed
   SHA-512 value, installs only that verified tarball, and checks the runtime
   version before executing OpenCode, Kilo Code, OMP, and Pi adapter contracts
-- every CI job that executes Go provisions the SHA-pinned `actions/setup-go`
-  action from `go.mod`, including the isolated release-trust job
+- every CI and release job that executes Go provisions the SHA-pinned
+  `actions/setup-go` action from `go.mod`, including the release gate jobs
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three
   bootstrap profiles, git pre-commit, and all fourteen agent runtimes
 - current-tree and post-boundary-history publication audit once in candidate CI
-- the Release workflow repeats no suite: it requires successful `CI result` and
-  Go CodeQL checks for the exact tagged commit, then runs only Govulncheck and
-  the legacy hook generator check, which depend on release time and tags
+- the Release workflow is the pre-release gate: it requires successful `CI
+  result` and Go CodeQL checks for the exact tagged commit, runs the
+  release-only gates against that tag (three Linux race shards, vet and
+  Staticcheck, release trust) before any artifact is built, and then
+  Govulncheck and the legacy hook generator check, which depend on release
+  time and tags
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;
   the trust gate validates pin shape and action identity without coupling
   updates to historical commit values
@@ -6351,9 +6404,10 @@ Release:
   `-f replace_published=true`; requesting replacement when no release exists
   also fails. Existing drafts remain resumable without expanding authority.
 - The explicitly selected tag must use stable semantic versioning, identify clean HEAD, and have committed release notes. Source code contains no assigned release version.
-- The macOS artifact job checks out the exact tag and requires successful
-  `CI result` and Go CodeQL checks for that commit, so formatting, tidy, vet,
-  Staticcheck, race and macOS tests, publication, trust, and self-hosting are
+- The macOS artifact job runs only after the release gate jobs (race, vet and
+  Staticcheck, release trust) passed for the exact tag, checks out that tag,
+  and requires successful `CI result` and Go CodeQL checks for that commit, so
+  formatting, tidy, Linux and macOS tests, publication, and self-hosting are
   not repeated. It then runs pinned Govulncheck and the legacy hook generator
   registry check before building. Optional Windows smoke is independent and
   never blocks publication. The LangChain consumer proof runs locally only.

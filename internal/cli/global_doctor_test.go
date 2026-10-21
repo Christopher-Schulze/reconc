@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,6 +45,39 @@ func TestGlobalDoctorJSONAndTextShareHealthyOwnershipTruth(t *testing.T) {
 	if !strings.Contains(text, "Status: healthy") || !strings.Contains(text, "Owner: source") ||
 		strings.Count(text, "Next:") != 1 {
 		t.Fatalf("global doctor text = %q", text)
+	}
+}
+
+// A failed check is a failed diagnosis: a modified receipt-owned skill makes
+// doctor exit 1 with a non-healthy status and keeps its targeted repair.
+func TestGlobalDoctorFailsForAModifiedOwnedSkill(t *testing.T) {
+	installDirectory := t.TempDir()
+	skillDirectory := filepath.Join(t.TempDir(), "reconc")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv("RECONC_INSTALL_DIR", installDirectory)
+	t.Setenv("PATH", installDirectory)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"install-cli", "--skill-dir", skillDirectory, "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatalf("install-cli: %v stderr=%s", err, stderr.String())
+	}
+	if err := os.WriteFile(filepath.Join(skillDirectory, "SKILL.md"), []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	err := Run([]string{"doctor", "--global", "--json"}, "test", &stdout, &stderr)
+	var cliErr *CLIError
+	if !errors.As(err, &cliErr) || cliErr.ExitCode != 1 {
+		t.Fatalf("global doctor with a modified owned skill = %v, want exit 1", err)
+	}
+	var report usercli.GlobalDiagnostic
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("decode global doctor: %v\n%s", err, stdout.String())
+	}
+	if report.Status != usercli.DiagnosticStale || len(report.Actions) != 1 ||
+		report.Actions[0].Command != "reconc install-cli --skill-only" {
+		t.Fatalf("global doctor JSON = status %s actions %+v next %q", report.Status, report.Actions, report.NextAction)
 	}
 }
 

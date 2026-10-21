@@ -320,8 +320,13 @@ func normalizeEvaluationInputWithRootResolver(root string, inputs ExecutionInput
 	}); err != nil {
 		return normalizedEvaluationInputSet{}, err
 	}
-	writes, epochs, err := normalizeWritesAndEpochsWithResolver(inputs.WritePaths, inputs.WriteEpochs, paths.resolvedRoot, paths.prospective)
-	if err != nil {
+	var writes []string
+	var epochs map[string]uint64
+	if err := paths.prospective.WithConfirmedSpellings(func() error {
+		var normalizeErr error
+		writes, epochs, normalizeErr = normalizeWritesAndEpochsWithResolver(inputs.WritePaths, inputs.WriteEpochs, paths.resolvedRoot, paths.prospective)
+		return normalizeErr
+	}); err != nil {
 		return normalizedEvaluationInputSet{}, err
 	}
 	normalized := finishInputNormalization(inputs, reads, writes, epochs)
