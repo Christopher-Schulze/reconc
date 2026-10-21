@@ -15,6 +15,7 @@ package testtemp
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"strings"
@@ -55,14 +56,37 @@ func writesTestLog(arguments []string) bool {
 // Main runs a package's tests under UseShortRoot and returns the exit code,
 // which is nonzero when the root cannot be created or removed.
 func Main(testingMain *testing.M) int {
-	cleanup, err := UseShortRoot()
+	return MainWithSetup(testingMain, func() (func() error, error) { return nil, nil })
+}
+
+// MainWithSetup runs setup under UseShortRoot, then the package's tests, and
+// returns the exit code. setup returns its cleanup as soon as it has created
+// anything, together with an error when it fails part way. That cleanup and
+// the short root run on every path, so a failed setup leaves nothing behind,
+// and any failure makes the exit code nonzero.
+func MainWithSetup(testingMain *testing.M, setup func() (cleanup func() error, err error)) int {
+	return mainWithSetup(UseShortRoot, setup, testingMain.Run, os.Stderr)
+}
+
+func mainWithSetup(useRoot, setup func() (func() error, error), run func() int, diagnostics io.Writer) int {
+	removeRoot, err := useRoot()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(diagnostics, err)
 		return 1
 	}
-	exitCode := testingMain.Run()
-	if err := cleanup(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	exitCode := 1
+	cleanup, err := setup()
+	if err != nil {
+		fmt.Fprintln(diagnostics, err)
+	} else {
+		exitCode = run()
+	}
+	var cleanupErr error
+	if cleanup != nil {
+		cleanupErr = cleanup()
+	}
+	if err := errors.Join(cleanupErr, removeRoot()); err != nil {
+		fmt.Fprintln(diagnostics, err)
 		if exitCode == 0 {
 			exitCode = 1
 		}

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -50,41 +49,37 @@ func TestMain(testingMain *testing.M) {
 	}
 	if parent := stagedParentDirectory(name); parent != "" {
 		state, err := os.MkdirTemp(parent, "child-*")
+		if err == nil {
+			err = configureCLITestProcess(source, parent, state)
+		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		configureCLITestProcess(source, parent, state)
 		os.Exit(testingMain.Run())
 	}
-	removeTemporaryRoot, err := testtemp.UseShortRoot()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	os.Exit(testtemp.MainWithSetup(testingMain, func() (func() error, error) {
+		return stageCLITestBinary(source, name)
+	}))
+}
+
+// stageCLITestBinary copies the test binary as name into a fresh directory
+// that the package's tests use as staged CLI and state; the returned cleanup
+// removes that directory.
+func stageCLITestBinary(source, name string) (cleanup func() error, err error) {
 	directory, err := os.MkdirTemp("", "reconc-cli-test-*")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return nil, err
 	}
+	cleanup = func() error { return os.RemoveAll(directory) }
 	body, err := os.ReadFile(source)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return cleanup, err
 	}
 	if err := os.WriteFile(filepath.Join(directory, name), body, 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return cleanup, err
 	}
-	configureCLITestProcess(source, directory, directory)
-	exitCode := testingMain.Run()
-	if err := errors.Join(os.RemoveAll(directory), removeTemporaryRoot()); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		if exitCode == 0 {
-			exitCode = 1
-		}
-	}
-	os.Exit(exitCode)
+	return cleanup, configureCLITestProcess(source, directory, directory)
 }
 
 // stagedParentDirectory returns the parent's staged directory when this
@@ -102,7 +97,7 @@ func stagedParentDirectory(name string) string {
 
 // configureCLITestProcess puts the staged binary on PATH and points Reconc
 // and host state at state, a directory owned by this process.
-func configureCLITestProcess(source, staged, state string) {
+func configureCLITestProcess(source, staged, state string) error {
 	stagedCLITestDirectory = staged
 	values := map[string]string{
 		"RECONC_INSTALL_DIR": staged,
@@ -111,8 +106,7 @@ func configureCLITestProcess(source, staged, state string) {
 	}
 	for name, value := range values {
 		if err := os.Setenv(name, value); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
 	}
 	newHookVerificationChildCommand = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
@@ -127,6 +121,7 @@ func configureCLITestProcess(source, staged, state string) {
 	dshVerificationWorker = func() (string, error) {
 		return stageDSHVerificationWorker(staged)
 	}
+	return nil
 }
 
 // The generated DSH extension executes its worker directly, which the test

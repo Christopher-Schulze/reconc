@@ -1,8 +1,6 @@
 package bootstrap
 
 import (
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,34 +13,23 @@ import (
 // installs provides. Verification treats a wrapper that resolves no runnable
 // binary as degraded; tests of a missing CLI replace PATH themselves.
 func TestMain(testingMain *testing.M) {
-	removeTemporaryRoot, err := testtemp.UseShortRoot()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	os.Exit(testtemp.MainWithSetup(testingMain, stageReconcOnPath))
+}
+
+// stageReconcOnPath writes the executable reconc into a fresh directory and
+// prepends it to PATH; the returned cleanup removes that directory.
+func stageReconcOnPath() (cleanup func() error, err error) {
 	directory, err := os.MkdirTemp("", "reconc-bootstrap-test-*")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return nil, err
 	}
+	cleanup = func() error { return os.RemoveAll(directory) }
 	name := "reconc"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
 	if err := os.WriteFile(filepath.Join(directory, name), []byte("#!/bin/sh\nexit 2\n"), 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return cleanup, err
 	}
-	if err := os.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	exitCode := testingMain.Run()
-	if err := errors.Join(os.RemoveAll(directory), removeTemporaryRoot()); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		if exitCode == 0 {
-			exitCode = 1
-		}
-	}
-	os.Exit(exitCode)
+	return cleanup, os.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
