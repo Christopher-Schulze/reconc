@@ -6376,7 +6376,10 @@ CI checks:
   detection, vet, pinned Staticcheck v0.8.2, pinned Govulncheck v1.7.0, and
   release trust are release-only gates and do not run on every commit; every
   test invocation passes `-vet=off` so `go test` skips its implicit vet
-  subset. `scripts/tests/go-test-shard.sh` deals every package to exactly one shard,
+  subset. On macOS the packages that record the most file accesses run their
+  tests under a short private temporary directory (`internal/testtemp`), so
+  the cached-result lookup, which resolves every recorded path, stays cheap
+  without changing the cache key. `scripts/tests/go-test-shard.sh` deals every package to exactly one shard,
   with the slowest packages leading their own shards. Coverage is measured
   locally with `make coverage`
 - the `CI result` job succeeds only when the boundary checks and both test

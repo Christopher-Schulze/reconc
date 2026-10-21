@@ -167,6 +167,7 @@ internal/
   stackdetect/    shared bounded manifest/source stack discovery; path-only admission for assurance module manifests
   tasklifecycle/  typed TASK profiles + recoverable state transactions
   templates/      bundled rule-shape templates (embed.FS) + user overlays
+  testtemp/       test-only: short private TMPDIR on macOS so go test's cache lookup stays cheap
   tui/            dependency-free terminal dashboard
   usercli/        atomic running-build install + exact bare-command PATH verification
   yamlbound/      shared bounded YAML mapping admission before generic materialization

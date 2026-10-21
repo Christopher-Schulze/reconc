@@ -1,17 +1,25 @@
 package bootstrap
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"reconc.dev/reconc/internal/testtemp"
 )
 
 // TestMain puts one executable reconc on PATH, as the user CLI that apply
 // installs provides. Verification treats a wrapper that resolves no runnable
 // binary as degraded; tests of a missing CLI replace PATH themselves.
 func TestMain(testingMain *testing.M) {
+	removeTemporaryRoot, err := testtemp.UseShortRoot()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	directory, err := os.MkdirTemp("", "reconc-bootstrap-test-*")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -30,7 +38,7 @@ func TestMain(testingMain *testing.M) {
 		os.Exit(1)
 	}
 	exitCode := testingMain.Run()
-	if err := os.RemoveAll(directory); err != nil {
+	if err := errors.Join(os.RemoveAll(directory), removeTemporaryRoot()); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		if exitCode == 0 {
 			exitCode = 1
