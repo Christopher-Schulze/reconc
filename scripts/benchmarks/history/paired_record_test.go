@@ -39,8 +39,12 @@ func TestPairedPackageRecordsRealAlternatingSources(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Each source runs the timed pass, then the RSS warmup and 64-operation pass.
-			assertFileBytes(t, log, []byte("baseline\nbaseline\nbaseline\ncandidate\ncandidate\ncandidate\ncandidate\ncandidate\ncandidate\nbaseline\nbaseline\nbaseline\n"))
+			// Each source sample runs the timed pass, then the warmup and
+			// 64-operation pass in each fixed-work RSS process; the sources
+			// alternate their order between samples.
+			baselineSample := strings.Repeat("baseline\n", 1+2*memoryBenchmarkRepetitions)
+			candidateSample := strings.Repeat("candidate\n", 1+2*memoryBenchmarkRepetitions)
+			assertFileBytes(t, log, []byte(baselineSample+candidateSample+candidateSample+baselineSample))
 			for index := range roots {
 				measurement := measurements[index]
 				if len(measurement.samples) != 1 || len(measurement.samples[benchmark]) != 2 || len(measurement.cpu) != 2 || !validBinarySHA256(measurement.binarySHA256) {

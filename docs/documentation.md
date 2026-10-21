@@ -332,25 +332,27 @@ prepared command matching and evidence, source freshness, write-epoch batching,
 and end-to-end hook-worker and long-session evidence workloads. Each package's
 source variants and shared CPU sentinel are compiled before its sample loop;
 sampling directly executes those binaries from the package source directory.
-Result/baseline v6 retain the package executable SHA-256, and comparison v8
+Result/baseline v7 retain the package executable SHA-256, and comparison v8
 retains both identities. Builds use `-trimpath` except for the historical CLI
 transport workload, which resolves its module through `runtime.Caller` and
 builds its child CLI during benchmark setup. That package's identity includes
 source paths. After the closing CPU sentinel, a separate pass executes each
-benchmark alone with `-test.benchtime=64x`, once per internal repetition and
-each time in a fresh process; the sample keeps the lowest of those process
-peaks, because a garbage-collection spike in one process is not a property of
-the workload while an allocation every process makes is. One spiking sample
-of five, at identical bytes per operation, failed the gate on unchanged code
-(28 to 32 MiB typical, 60 and 162 MiB single spikes).
-Known open limitation: because the gate compares the lowest peak of each
-sample's processes, a peak that only some processes reach, including a real
-sporadic memory problem, does not fail it. The separate RSS diagnostics report
-keeps every such peak visible: `history record --rss-diagnostics PATH` and
-`history record-pair --rss-diagnostics PATH --baseline-rss-diagnostics PATH`
-write `reconc.benchmark-rss-diagnostics/v1` with, per benchmark and sample,
-every process peak in repetition order and the peak the sample keeps, plus the
-gated peak and the highest process peak. `make benchmark-record` writes it to
+benchmark alone with `-test.benchtime=64x` in five fresh processes per sample,
+independent of the internal timed repetitions. The package's benchmarks take
+turns, so one burst of machine load reaches fewer of a benchmark's five
+processes. The sample keeps the median of the five process peaks: a
+garbage-collection spike in a minority of processes is not a property of the
+workload, while an allocation that most processes make is. One spiking process
+at identical bytes per operation failed the earlier maximum gate on unchanged
+code (28 to 32 MiB typical, 60 and 162 MiB single spikes). A real memory
+problem that appears in at least three of a sample's five processes fails the
+gate; one that appears in fewer stays below it and is visible only in the
+separate RSS diagnostics report, because process RSS cannot separate so rare
+an effect from garbage-collection noise. `history record --rss-diagnostics PATH`
+and `history record-pair --rss-diagnostics PATH --baseline-rss-diagnostics PATH`
+write `reconc.benchmark-rss-diagnostics/v2` with, per benchmark and sample,
+every process peak in execution order and the median peak the sample keeps,
+plus the gated peak and the highest process peak. `make benchmark-record` writes it to
 `.build/benchmarks/rss-diagnostics.json`, and the `reconc-benchmarks` workflow
 retains candidate and baseline reports with its evidence. The report changes
 neither the result, baseline, and comparison formats nor the gate.
@@ -362,39 +364,41 @@ and platform-accounted child usage, rather than the outer Go driver, so one
 benchmark's allocation is never charged to the others of its package; it is
 not a per-operation or retained-cache measurement. The gate compares the
 maximum of all per-sample peaks with the configured tolerance. A sample whose
-every process exceeds it remains a regression; measurement noise requires
-investigation rather than replacing the peak contract with a median. On Linux
+median process exceeds it remains a regression; noise across samples requires
+investigation rather than replacing that maximum with a median over samples. On Linux
 a child's peak starts at its parent's high-water mark, so the measuring
 process must stay small.
 Unsupported platform RSS remains zero.
 Compilation and sampling share bounded package deadlines; output is limited
 to 16 MiB per stream, binary size is limited to 512 MiB for streamed hashing,
 and private build directories are removed after recording. Binary identity never bypasses a
-regression. Historical v4 Go-driver and v5 precompiled timed-process RSS
-measurements remain readable and comparable within their respective formats;
-mixed measurement formats are rejected. Refresh requires an actual v6
-measurement. The parser accepts direct benchmark text and also
-reconstructs historical lines split across Go JSON output events. Baseline and
+regression. Historical v4 Go-driver, v5 precompiled timed-process RSS, and v6
+lowest-of-repetitions fixed-work RSS measurements remain readable and
+comparable within their respective formats; mixed measurement formats are
+rejected. Refresh requires an actual v7 measurement. The parser accepts
+direct benchmark text and also reconstructs historical lines split across Go
+JSON output events. Baseline and
 comparison contracts require the same Go toolchain, OS, architecture, CPU
 identity, sample count, and benchmark parameters; incompatible runs emit a
 failed comparison report instead of passing. The baseline must reference a
 clean source tree. Intentional checked-baseline refresh uses
 `make benchmark-baseline` and requires `CONFIRM_BENCHMARK_BASELINE=1`.
-The checked `scripts/benchmarks/baseline.json` is a real v6 result from clean
+The checked `scripts/benchmarks/baseline.json` is a real v7 result from clean
 commit `13bbfedb040b33d0ead5fd9ef3d6a7141911978c`, recorded with Go
-1.27.1 on darwin/arm64 Apple M1 using five samples, three internal repetitions,
+1.27.3 on darwin/arm64 Apple M1 using five samples, three internal repetitions,
 and 250 ms per sample. It covers all 19 groups and 24 targets with the same
-seven tolerances as the prior reference. The byte-preserved v4 reference is
-`scripts/benchmarks/baseline-v4.json`; it remains available for historical
-same-format comparisons, not as the default for new v6 records. The checked
+seven tolerances as the prior reference. The byte-preserved v6 and v4
+references are `scripts/benchmarks/baseline-v6.json` and
+`scripts/benchmarks/baseline-v4.json`; they remain available for historical
+same-format comparisons, not as the default for new v7 records. The checked
 reference is a machine-specific regression yardstick, not a cross-machine
 latency guarantee.
 The tooling command `baseline-commit --baseline PATH` validates the complete
 baseline and emits only its full immutable Git commit. The optional
 `baseline --reference PATH --result PATH --output PATH --refresh` mode creates
-a new runner-local v6 baseline from a clean v6 measurement of that exact commit and
+a new runner-local v7 baseline from a clean v7 measurement of that exact commit and
 the same parameters. It preserves every reference tolerance, rejects an existing
-output, and never refreshes the checked baseline implicitly. A historical v4/v5
+output, and never refreshes the checked baseline implicitly. A historical v4/v5/v6
 reference can supply its source and tolerances for this actual remeasurement;
 its old process measurements are never relabeled.
 

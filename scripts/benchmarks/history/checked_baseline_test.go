@@ -33,12 +33,17 @@ func TestCheckedBaselineMatchesCurrentSuite(t *testing.T) {
 	}
 }
 
-func TestHistoricalV4BaselineRemainsReadable(t *testing.T) {
-	baseline, err := readBaseline(filepath.Join("..", "baseline-v4.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if baseline.FormatVersion != legacyBaselineFormat || baseline.Result.FormatVersion != legacyResultFormat {
-		t.Fatalf("historical baseline was relabeled: %s, %s", baseline.FormatVersion, baseline.Result.FormatVersion)
+func TestHistoricalBaselinesRemainReadable(t *testing.T) {
+	for _, historical := range []struct{ file, baselineFormat, resultFormat string }{
+		{"baseline-v4.json", legacyBaselineFormat, legacyResultFormat},
+		{"baseline-v6.json", lowestPeakBaselineFormat, lowestPeakResultFormat},
+	} {
+		baseline, err := readBaseline(filepath.Join("..", historical.file))
+		if err != nil {
+			t.Fatalf("%s: %v", historical.file, err)
+		}
+		if baseline.FormatVersion != historical.baselineFormat || baseline.Result.FormatVersion != historical.resultFormat {
+			t.Fatalf("historical baseline %s was relabeled: %s, %s", historical.file, baseline.FormatVersion, baseline.Result.FormatVersion)
+		}
 	}
 }

@@ -2,13 +2,14 @@ package main
 
 import "sort"
 
-const rssDiagnosticsFormat = "reconc.benchmark-rss-diagnostics/v1"
+const rssDiagnosticsFormat = "reconc.benchmark-rss-diagnostics/v2"
 
 // RSSDiagnostics lists every fixed-work process peak behind one recorded
-// result. The memory gate compares, per sample, the lowest peak of the
-// sample's repeated processes (see applyMemorySamples), so a peak that only
-// some processes reach does not fail it. This separate report keeps such
-// peaks visible without changing the result, baseline, or comparison formats.
+// result. The memory gate compares, per sample, the median peak of the
+// sample's repeated processes (see applyMemorySamples), so a peak that only a
+// minority of processes reach does not fail it. This separate report keeps
+// such peaks visible without changing the result, baseline, or comparison
+// formats.
 type RSSDiagnostics struct {
 	FormatVersion string                    `json:"format_version"`
 	SuiteVersion  string                    `json:"suite_version"`
@@ -29,7 +30,7 @@ type RSSBenchmarkDiagnostics struct {
 }
 
 // RSSSampleDiagnostics holds one sample's process peaks in repetition order
-// and the lowest of them, which the sample keeps.
+// and their median, which the sample keeps.
 type RSSSampleDiagnostics struct {
 	ProcessPeakRSSBytes []uint64 `json:"process_peak_rss_bytes"`
 	KeptPeakRSSBytes    uint64   `json:"kept_peak_rss_bytes"`

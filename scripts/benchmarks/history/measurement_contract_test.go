@@ -16,6 +16,14 @@ func historicalResult() BenchmarkResult {
 	return result
 }
 
+// lowestPeakResult is a fixed-work measurement whose samples kept the lowest
+// process peak.
+func lowestPeakResult() BenchmarkResult {
+	result := syntheticResult()
+	result.FormatVersion = lowestPeakResultFormat
+	return result
+}
+
 func historicalCompiledResult() BenchmarkResult {
 	result := syntheticResult()
 	result.FormatVersion = compiledResultFormat
@@ -34,7 +42,7 @@ func historicalCompiledResult() BenchmarkResult {
 }
 
 func TestMeasurementFormatsPreserveHistoricalComparisons(t *testing.T) {
-	for _, name := range []string{"historical", "historical compiled", "fixed-work", "mixed", "mixed compiled", "same binary regression"} {
+	for _, name := range []string{"historical", "historical compiled", "historical lowest peak", "fixed-work", "mixed", "mixed compiled", "mixed lowest peak", "same binary regression"} {
 		t.Run(name, func(t *testing.T) {
 			baseline, err := refreshBaseline(syntheticResult())
 			if err != nil {
@@ -53,6 +61,12 @@ func TestMeasurementFormatsPreserveHistoricalComparisons(t *testing.T) {
 			if name == "historical compiled" {
 				current = historicalCompiledResult()
 			}
+			if name == "historical lowest peak" || name == "mixed lowest peak" {
+				baseline.FormatVersion, baseline.Result = lowestPeakBaselineFormat, lowestPeakResult()
+			}
+			if name == "historical lowest peak" {
+				current = lowestPeakResult()
+			}
 			if name == "same binary regression" {
 				setTargetNS(&current, 100)
 			}
@@ -61,7 +75,7 @@ func TestMeasurementFormatsPreserveHistoricalComparisons(t *testing.T) {
 				t.Fatalf("comparison lost measurement methods: %+v", report)
 			}
 			switch name {
-			case "mixed", "mixed compiled":
+			case "mixed", "mixed compiled", "mixed lowest peak":
 				if err == nil || report.Compatible || report.Passed || !strings.Contains(strings.Join(report.CompatibilityIssues, ";"), "measurement format") {
 					t.Fatalf("mixed measurement methods accepted: %+v, %v", report, err)
 				}

@@ -29,8 +29,9 @@ func TestPackageBinariesAreReproducibleAcrossSourceRoots(t *testing.T) {
 			t.Fatalf("internal repetitions were not collapsed: %+v", measurement)
 		}
 	}
-	// Four source samples: two timed repetitions plus two RSS warmup/repetition pairs.
-	assertFileBytes(t, log, []byte(strings.Repeat("same\n", 24)))
+	// Four source samples: two timed repetitions plus a warmup/fixed-work pair
+	// in each of the fixed-work RSS processes.
+	assertFileBytes(t, log, []byte(strings.Repeat("same\n", 4*(2+2*memoryBenchmarkRepetitions))))
 }
 
 func TestDirectBinaryUsesPackageDirectoryWithoutRecompiling(t *testing.T) {

@@ -17,23 +17,28 @@ import (
 )
 
 const (
-	legacyResultFormat     = "reconc.benchmark-result/v4"
-	legacyBaselineFormat   = "reconc.benchmark-baseline/v4"
-	compiledResultFormat   = "reconc.benchmark-result/v5"
-	compiledBaselineFormat = "reconc.benchmark-baseline/v5"
-	resultFormat           = "reconc.benchmark-result/v6"
-	baselineFormat         = "reconc.benchmark-baseline/v6"
-	comparisonFormat       = "reconc.benchmark-comparison/v8"
-	profileFormat          = "reconc.benchmark-profile/v1"
-	suiteVersion           = "reconc.performance-history/v10"
-	cpuSentinelName        = "BenchmarkReconcCPUSentinel"
-	maxContractBytes       = 4 << 20
-	maxProfileBytes        = 64 << 20
+	legacyResultFormat       = "reconc.benchmark-result/v4"
+	legacyBaselineFormat     = "reconc.benchmark-baseline/v4"
+	compiledResultFormat     = "reconc.benchmark-result/v5"
+	compiledBaselineFormat   = "reconc.benchmark-baseline/v5"
+	lowestPeakResultFormat   = "reconc.benchmark-result/v6"
+	lowestPeakBaselineFormat = "reconc.benchmark-baseline/v6"
+	resultFormat             = "reconc.benchmark-result/v7"
+	baselineFormat           = "reconc.benchmark-baseline/v7"
+	comparisonFormat         = "reconc.benchmark-comparison/v8"
+	profileFormat            = "reconc.benchmark-profile/v1"
+	suiteVersion             = "reconc.performance-history/v10"
+	cpuSentinelName          = "BenchmarkReconcCPUSentinel"
+	maxContractBytes         = 4 << 20
+	maxProfileBytes          = 64 << 20
 
 	defaultBenchmarkRepetitions = 3
 	minBenchmarkRepetitions     = 1
 	maxBenchmarkRepetitions     = 5
 	memoryBenchmarkIterations   = 64
+	// memoryBenchmarkRepetitions is the odd number of fresh fixed-work
+	// processes per sample whose median peak the sample keeps.
+	memoryBenchmarkRepetitions = 5
 )
 
 type Environment struct {
@@ -248,10 +253,12 @@ func decodeStrict(body []byte, target any) error {
 }
 
 func validateBaseline(baseline BenchmarkBaseline) error {
-	if baseline.FormatVersion != baselineFormat && baseline.FormatVersion != legacyBaselineFormat && baseline.FormatVersion != compiledBaselineFormat {
+	if baseline.FormatVersion != baselineFormat && baseline.FormatVersion != lowestPeakBaselineFormat &&
+		baseline.FormatVersion != legacyBaselineFormat && baseline.FormatVersion != compiledBaselineFormat {
 		return fmt.Errorf("unsupported benchmark baseline format %q", baseline.FormatVersion)
 	}
 	if baseline.FormatVersion == baselineFormat && baseline.Result.FormatVersion != resultFormat ||
+		baseline.FormatVersion == lowestPeakBaselineFormat && baseline.Result.FormatVersion != lowestPeakResultFormat ||
 		baseline.FormatVersion == compiledBaselineFormat && baseline.Result.FormatVersion != compiledResultFormat ||
 		baseline.FormatVersion == legacyBaselineFormat && baseline.Result.FormatVersion != legacyResultFormat {
 		return errors.New("benchmark baseline and result measurement formats differ")
@@ -349,7 +356,8 @@ func validateProfileManifest(manifest ProfileManifest) error {
 }
 
 func validateResult(result BenchmarkResult) error {
-	if (result.FormatVersion != resultFormat && result.FormatVersion != legacyResultFormat && result.FormatVersion != compiledResultFormat) || result.SuiteVersion != suiteVersion {
+	if (result.FormatVersion != resultFormat && result.FormatVersion != lowestPeakResultFormat &&
+		result.FormatVersion != legacyResultFormat && result.FormatVersion != compiledResultFormat) || result.SuiteVersion != suiteVersion {
 		return errors.New("benchmark result format or suite is unsupported")
 	}
 	if result.Environment.GoVersion == "" || result.Environment.GOOS == "" || result.Environment.GOARCH == "" ||
@@ -384,7 +392,7 @@ func validateResult(result BenchmarkResult) error {
 			return fmt.Errorf("calibration %s: %w", spec.Calibration, err)
 		}
 		var memoryIterations uint64
-		if result.FormatVersion == resultFormat {
+		if result.FormatVersion == resultFormat || result.FormatVersion == lowestPeakResultFormat {
 			memoryIterations = memoryBenchmarkIterations
 		}
 		if err := validateMemoryIterations(group.Calibration, memoryIterations); err != nil {
