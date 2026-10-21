@@ -59,6 +59,13 @@ test oracle. Production schema validation uses
 - Do not add runtime network calls.
 - Put behavior in internal packages; keep `cmd/reconc/main.go` thin.
 - Update tests and user-facing docs with behavior changes.
+- `docs/documentation.md` and the supporting docs describe the product as it
+  currently stands, in detail and in present tense: every feature, how it is
+  solved, and how it works. Never write benchmark results, before/after
+  numbers, TASK or review references, probe or session notes, work protocols,
+  or version-by-version history into them; measurements belong in the TASK
+  record and release history in `.github/releases/`. Commit messages for
+  documentation corrections stay neutral and never explain removed content.
 - Preserve Windows implementation and test definitions and develop them to the
   best available knowledge. Never run automatic or long Windows test suites.
   Only explicitly requested Windows smoke checks may run, with a hard two-minute

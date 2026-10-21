@@ -20,7 +20,7 @@ Requirements:
 - Go 1.27
 - macOS 13 Ventura or later when developing on macOS
 - Git and a POSIX shell
-- Bun 1.3.14 only for the executable OpenCode, Kilo Code, Oh My Pi, and Pi adapter tests
+- Bun 1.3.14 only for the executable OpenCode, Kilo Code, Oh My Pi, DeepSeek Harness, and Pi adapter tests
 - Python 3.13.14 only for the hash-pinned disposable LangChain MCP interoperability test
 
 Build and inspect the CLI:
@@ -123,8 +123,10 @@ when the answer is "none." Do not commit generated build output, mutable
 `.reconc/` runtime state, credentials, private repository material, or session
 data.
 
-Releases are maintainer-owned. Do not move or replace published tags or release
-assets; release changes belong to a future version and its explicit release
+Releases are maintainer-owned. Only the maintainer's explicit instruction
+assigns a release version to a chosen commit or authorizes replacing a
+published release. Do not move published tags or replace release assets
+without that exact authorization; publication uses the explicit release
 workflow.
 
 By submitting a contribution, you agree that it may be distributed under the

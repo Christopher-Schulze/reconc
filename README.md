@@ -663,8 +663,11 @@ Complete embedded public harness rollout:
 reconc init . --profile advanced --no-hooks --json
 ```
 
-Init atomically installs the exact running build as the stable user CLI, then
-refuses before repository writes unless bare `reconc` resolves to it. It
+Init preserves an intact receipt-owned CLI that bare `reconc` resolves to,
+even when it differs from the running build. It installs the running build
+when no callable owned CLI exists, but refuses to replace a valid direct
+release installation and instead names `reconc update` or the release installer.
+Before repository writes, the CLI must be callable through PATH. Init
 performs inspect, selection, plan, apply, receipt publication, and verification
 through the same bootstrap engine. `bootstrap inspect|profiles|plan|apply|
 verify|remove` remains the transparent lower-level interface for operators who
@@ -875,9 +878,9 @@ remediation. Native `tool_call` and `user_bash` interception fail closed.
 Tool-result, lifecycle, compaction, and shutdown observations fail open. Pi's
 `project_trust` veto decides whether the project is trusted at all, not whether
 one tool call is permitted, so Reconc reads that saved decision rather than
-answering it. Pi exposes no per-call permission event, MCP discriminator,
-post-`user_bash` result, or synchronous Stop gate, and Reconc does not invent
-those capabilities.
+answering it. Pi exposes no per-call permission event, MCP discriminator, or
+post-`user_bash` result. The awaited Stop gate requires Pi 1.x;
+older hosts use the bounded asynchronous continuation described above.
 
 ZCode snapshots workspace hooks from `.zcode/config.json` at session start.
 `reconc hook install zcode .` preserves unrelated top-level and hook settings,
@@ -1220,8 +1223,8 @@ and git-ignore policy.
   kinds, presets, templates, and hooks.
 - source-planning files such as `docs/tasks.md`, `docs/tasks/`,
   `docs/todo.md`, `docs/todo/`, and `CHANGELOG.md` are ignored by default.
-  The tracked task board and explicitly published task details are exceptions;
-  ignored private historical files remain unpublished.
+  This source repository's task board and task details remain local and
+  unpublished.
 
 This source-repository ignore policy does not change the product contract:
 governed target repositories still receive and commit their own TASK control

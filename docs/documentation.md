@@ -365,16 +365,11 @@ identity, sample count, and benchmark parameters; incompatible runs emit a
 failed comparison report instead of passing. The baseline must reference a
 clean source tree. Intentional checked-baseline refresh uses
 `make benchmark-baseline` and requires `CONFIRM_BENCHMARK_BASELINE=1`.
-The checked `scripts/benchmarks/baseline.json` is a real v7 result from clean
-commit `13bbfedb040b33d0ead5fd9ef3d6a7141911978c`, recorded with Go
-1.27.3 on darwin/arm64 Apple M1 using five samples, three internal repetitions,
-and 250 ms per sample. It covers all 19 groups and 24 targets with seven
-tolerances. The byte-preserved v6 and v4
-references are `scripts/benchmarks/baseline-v6.json` and
-`scripts/benchmarks/baseline-v4.json`; they remain available for historical
-same-format comparisons, not as the default for new v7 records. The checked
-reference is a machine-specific regression yardstick, not a cross-machine
-latency guarantee.
+The default checked reference is `scripts/benchmarks/baseline.json` in v7
+format. Its source commit, environment, parameters, measurements, and tolerances
+are recorded in the artifact. The v6 and v4 compatibility references are
+`scripts/benchmarks/baseline-v6.json` and
+`scripts/benchmarks/baseline-v4.json`; each supports same-format comparisons.
 The tooling command `baseline-commit --baseline PATH` validates the complete
 baseline and emits only its full immutable Git commit. The optional
 `baseline --reference PATH --result PATH --output PATH --refresh` mode creates
