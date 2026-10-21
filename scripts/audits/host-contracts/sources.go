@@ -79,14 +79,26 @@ func contractDigest(contract []byte, mode string) string {
 // normalizeDelimiterCells rewrites table delimiter cells in one collapsed
 // prose line to three hyphens each.
 func normalizeDelimiterCells(line string) string {
+	spans := codeSpanRanges(line)
 	tokens := strings.Split(line, " ")
+	var out strings.Builder
+	offset := 0
 	for index, token := range tokens {
-		if compactDelimiterRow.MatchString(token) ||
-			delimiterCell.MatchString(token) && index > 0 && index+1 < len(tokens) && tokens[index-1] == "|" && tokens[index+1] == "|" {
-			tokens[index] = delimiterHyphens.ReplaceAllString(token, "---")
+		if index > 0 {
+			out.WriteByte(' ')
 		}
+		inCode := false
+		for _, span := range spans {
+			inCode = inCode || offset < span[1] && span[0] < offset+len(token)
+		}
+		if !inCode && (compactDelimiterRow.MatchString(token) ||
+			delimiterCell.MatchString(token) && index > 0 && index+1 < len(tokens) && tokens[index-1] == "|" && tokens[index+1] == "|") {
+			token = delimiterHyphens.ReplaceAllString(token, "---")
+		}
+		out.WriteString(token)
+		offset += len(token) + 1
 	}
-	return strings.Join(tokens, " ")
+	return out.String()
 }
 
 // fenceOpener reports the marker run of a code fence opening line.
@@ -109,14 +121,16 @@ func closesFence(line, open string) bool {
 	return marker[0] == open[0] && len(marker) >= len(open)
 }
 
-// normalizeMarkdown collapses whitespace in prose and keeps code exact where
-// whitespace is content: fenced and indented code blocks line by line with
-// their indentation, and inline code spans with their spaces. Each prose run
-// and each code line is one output line; trailing line whitespace and the
-// indentation of fence lines are dropped.
+// normalizeMarkdown collapses whitespace in prose and keeps code exactly as
+// written: fenced and indented code blocks line by line, including trailing
+// whitespace and blank lines inside them, and inline code spans with their
+// spaces. Each prose run and each code line is one output line; only fence
+// lines, which carry no content, are trimmed.
 func normalizeMarkdown(text string) string {
 	var output []string
 	var prose []string
+	// Blank lines belong to an indented code block only when code follows.
+	var pendingBlank []string
 	flushProse := func() {
 		if collapsed := collapseProse(prose); collapsed != "" {
 			output = append(output, collapsed)
@@ -126,26 +140,31 @@ func normalizeMarkdown(text string) string {
 	open := ""
 	afterBlank, indented := true, false
 	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimRight(line, " \t")
+		trimmed := strings.TrimRight(line, " \t")
 		switch {
-		case open != "" && closesFence(line, open):
-			output = append(output, strings.TrimSpace(line))
+		case open != "" && closesFence(trimmed, open):
+			output = append(output, strings.TrimSpace(trimmed))
 			open = ""
 		case open != "":
 			output = append(output, line)
-		case line == "":
-			// A blank line may continue an indented code block.
+		case trimmed == "":
 			afterBlank = true
-			prose = append(prose, line)
-		case (afterBlank || indented) && indentedCodeLine(line):
+			if indented {
+				pendingBlank = append(pendingBlank, line)
+			}
+			prose = append(prose, "")
+		case (afterBlank || indented) && indentedCodeLine(trimmed):
 			flushProse()
+			output = append(output, pendingBlank...)
 			output = append(output, line)
+			pendingBlank = pendingBlank[:0]
 			afterBlank, indented = false, true
 		default:
+			pendingBlank = pendingBlank[:0]
 			afterBlank, indented = false, false
-			if marker, ok := fenceOpener(line); ok {
+			if marker, ok := fenceOpener(trimmed); ok {
 				flushProse()
-				output = append(output, strings.TrimSpace(line))
+				output = append(output, strings.TrimSpace(trimmed))
 				open = marker
 				continue
 			}
@@ -176,16 +195,32 @@ func indentedCodeLine(line string) bool {
 	return false
 }
 
-// collapseProse joins prose lines and collapses every whitespace run outside
-// inline code spans to one space. A code span keeps its spaces exactly; a line
-// end inside it reads as one space, as CommonMark renders it. Backtick runs
-// without a closing run of the same length are literal text.
+// collapseProse joins the paragraphs of a prose run with single spaces and
+// collapses every whitespace run outside inline code spans to one space. As
+// CommonMark parses a paragraph, each line loses its leading whitespace and a
+// code span keeps its spaces exactly, a line end inside it reading as one
+// space. Backtick runs without a closing run of the same length are literal.
 func collapseProse(lines []string) string {
-	trimmed := make([]string, len(lines))
-	for index, line := range lines {
-		trimmed[index] = strings.TrimSpace(line)
+	var paragraphs []string
+	var current []string
+	flush := func() {
+		if collapsed := collapseParagraph(strings.Join(current, "\n")); collapsed != "" {
+			paragraphs = append(paragraphs, collapsed)
+		}
+		current = current[:0]
 	}
-	text := strings.Join(trimmed, "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			flush()
+			continue
+		}
+		current = append(current, strings.TrimLeft(line, " \t"))
+	}
+	flush()
+	return strings.Join(paragraphs, " ")
+}
+
+func collapseParagraph(text string) string {
 	var out strings.Builder
 	pendingSpace := false
 	write := func(fragment string) {
@@ -195,21 +230,12 @@ func collapseProse(lines []string) string {
 		pendingSpace = false
 		out.WriteString(fragment)
 	}
+	spans := codeSpanRanges(text)
 	for index := 0; index < len(text); {
-		if strings.HasPrefix(text[index:], "\\`") {
-			write(text[index : index+2])
-			index += 2
-			continue
-		}
-		if text[index] == '`' {
-			run := len(text[index:]) - len(strings.TrimLeft(text[index:], "`"))
-			if closing := closingBacktickRun(text, index+run, run); closing >= 0 {
-				write(strings.ReplaceAll(text[index:closing+run], "\n", " "))
-				index = closing + run
-				continue
-			}
-			write(text[index : index+run])
-			index += run
+		if len(spans) > 0 && spans[0][0] == index {
+			write(strings.ReplaceAll(text[spans[0][0]:spans[0][1]], "\n", " "))
+			index = spans[0][1]
+			spans = spans[1:]
 			continue
 		}
 		character, size := utf8.DecodeRuneInString(text[index:])
@@ -221,6 +247,34 @@ func collapseProse(lines []string) string {
 		index += size
 	}
 	return out.String()
+}
+
+// codeSpanRanges returns the byte ranges of the inline code spans in text,
+// backticks included. A backslash-escaped backtick opens no span, and a
+// backtick run without a closing run of the same length is literal text.
+func codeSpanRanges(text string) [][2]int {
+	var spans [][2]int
+	for index := 0; index < len(text); {
+		// Escaped backslashes form pairs; only an unpaired backslash
+		// escapes the following backtick.
+		if text[index] == '\\' && index+1 < len(text) &&
+			(text[index+1] == '\\' || text[index+1] == '`') {
+			index += 2
+			continue
+		}
+		if text[index] != '`' {
+			index++
+			continue
+		}
+		run := len(text[index:]) - len(strings.TrimLeft(text[index:], "`"))
+		if closing := closingBacktickRun(text, index+run, run); closing >= 0 {
+			spans = append(spans, [2]int{index, closing + run})
+			index = closing + run
+			continue
+		}
+		index += run
+	}
+	return spans
 }
 
 // closingBacktickRun returns the start of the first backtick run of exactly
@@ -240,10 +294,11 @@ func closingBacktickRun(text string, from, length int) int {
 	return -1
 }
 
-// normalizeHTML collapses whitespace in rendered prose and keeps every pre
-// element line by line with its indentation, where browsers render the
-// whitespace. Markup inside pre, such as highlighting spans, is removed
-// without inserting text.
+// normalizeHTML collapses whitespace in rendered prose and keeps the text of
+// every pre element exactly, where browsers render all whitespace. Markup
+// inside pre, such as highlighting spans, renders no text and is removed;
+// the one line feed that HTML ignores right after the pre start tag is
+// dropped.
 func normalizeHTML(text string) string {
 	var output []string
 	collapse := func(fragment string) {
@@ -254,13 +309,8 @@ func normalizeHTML(text string) string {
 	last := 0
 	for _, match := range preElement.FindAllStringSubmatchIndex(text, -1) {
 		collapse(text[last:match[0]])
-		code := htmlLineBreak.ReplaceAllString(text[match[2]:match[3]], "\n")
-		code = html.UnescapeString(htmlTag.ReplaceAllString(code, ""))
-		lines := strings.Split(code, "\n")
-		for index := range lines {
-			lines[index] = strings.TrimRight(lines[index], " \t\r")
-		}
-		if code := strings.Trim(strings.Join(lines, "\n"), "\n"); code != "" {
+		code := htmlLineBreak.ReplaceAllString(strings.TrimPrefix(text[match[2]:match[3]], "\n"), "\n")
+		if code = html.UnescapeString(htmlTag.ReplaceAllString(code, "")); code != "" {
 			output = append(output, code)
 		}
 		last = match[1]
@@ -341,11 +391,7 @@ func normalizeSource(body []byte, mode string) ([]byte, error) {
 	}
 	switch mode {
 	case "source":
-		lines := strings.Split(text, "\n")
-		for index := range lines {
-			lines[index] = strings.TrimRight(lines[index], " \t")
-		}
-		text = strings.TrimSpace(strings.Join(lines, "\n"))
+		// Source code stays exact apart from CRLF line endings.
 	case "markdown":
 		text = normalizeMarkdown(text)
 	case "html":

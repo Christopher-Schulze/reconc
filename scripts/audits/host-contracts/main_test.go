@@ -142,15 +142,15 @@ func TestNormalizeSource(t *testing.T) {
 	}{
 		{"markdown whitespace", " \r\n" + contract + "\t", "markdown", strings.TrimSpace(contract), false},
 		{"markdown code block", contract + "\r\n  ```json theme={null}  \n{\n  \"a  b\": [1,  2]\n}\t\n  ```\nNext   step.", "markdown",
-			strings.TrimSpace(contract) + "\n```json theme={null}\n{\n  \"a  b\": [1,  2]\n}\n```\nNext step.", false},
+			strings.TrimSpace(contract) + "\n```json theme={null}\n{\n  \"a  b\": [1,  2]\n}\t\n```\nNext step.", false},
 		{"markdown unclosed code block", contract + "\n~~~\nif x:\n    y()", "markdown", strings.TrimSpace(contract) + "\n~~~\nif x:\n    y()", false},
 		{"markdown inline code", contract + "\nRun `echo \"a  b\"`   now,\n`x\ny` and \\`kept  `", "markdown",
 			strings.TrimSpace(contract) + " Run `echo \"a  b\"` now, `x y` and \\`kept `", false},
 		{"markdown indented code", contract + "\n\n    if x:\n        y()\n\n    z()\nAfter   text", "markdown",
-			strings.TrimSpace(contract) + "\n    if x:\n        y()\n    z()\nAfter text", false},
+			strings.TrimSpace(contract) + "\n    if x:\n        y()\n\n    z()\nAfter text", false},
 		{"HTML pre", "<main><p>" + contract + "</p><pre><code><span>def</span> f():\n    return  1  </code></pre><p>after   text</p></main>", "html",
-			strings.TrimSpace(contract) + "\ndef f():\n    return  1\nafter text", false},
-		{"source whitespace", " \n" + contract + " \r\n  next();\t\n", "source", strings.TrimRight(contract, " ") + "\n  next();", false},
+			strings.TrimSpace(contract) + "\ndef f():\n    return  1  \nafter text", false},
+		{"source exact apart from CRLF", " \n" + contract + " \r\n  next();\t\n", "source", " \n" + contract + " \n  next();\t\n", false},
 		{"HTML main", "<nav>navigation changes</nav><main><script>dynamic()</script><style>body{}</style><!-- generated --><p>" + contract + "</p>&amp;</main>", "html", strings.TrimSpace(contract) + " &", false},
 		{"error HTML", "<!doctype html><html>" + contract + "</html>", "source", "", true},
 		{"short", "error", "markdown", "", true},
@@ -404,6 +404,47 @@ func TestDocumentationContractDigestIgnoresOnlyMeaninglessPresentation(t *testin
 	}
 }
 
+// An escaped backslash leaves the following backtick free to open a code
+// span; an unpaired backslash escapes it and leaves ordinary prose.
+func TestCodeSpansRespectEscapedBackslashes(t *testing.T) {
+	prose := strings.Repeat("Hooks run before tools. ", 4)
+	for _, test := range []struct {
+		name        string
+		backslashes int
+	}{
+		{"none", 0},
+		{"single", 1},
+		{"double", 2},
+		{"triple", 3},
+		{"four", 4},
+		{"five", 5},
+		{"six", 6},
+	} {
+		for _, content := range []struct{ name, base, variant string }{
+			{"argument spaces", `echo "a b"`, `echo "a  b"`},
+			{"pipe hyphens", "a | -- | b", "a | --- | b"},
+		} {
+			t.Run(test.name+"/"+content.name, func(t *testing.T) {
+				prefix := prose + strings.Repeat("\\", test.backslashes) + "`"
+				base, err := normalizeSource([]byte(prefix+content.base+"`"), "markdown")
+				if err != nil {
+					t.Fatal(err)
+				}
+				variant, err := normalizeSource([]byte(prefix+content.variant+"`"), "markdown")
+				if err != nil {
+					t.Fatal(err)
+				}
+				// Pairs escape themselves; only an odd final backslash
+				// escapes the opener, leaving ordinary prose to normalize.
+				wantSame := test.backslashes%2 != 0
+				if same := contractDigest(base, "markdown") == contractDigest(variant, "markdown"); same != wantSame {
+					t.Fatalf("%d backslashes: equal digests = %t, want %t", test.backslashes, same, wantSame)
+				}
+			})
+		}
+	}
+}
+
 // Whitespace inside code is content in every supported presentation: inline
 // code spans, indented code blocks, and HTML pre elements. Prose whitespace
 // and markup inside pre that renders no text are not.
@@ -428,6 +469,19 @@ func TestCodeWhitespaceStaysPartOfTheContract(t *testing.T) {
 		{"pre indentation", "html", page, strings.Replace(page, "    run()", "  run()", 1), false},
 		{"pre highlighting markup", "html", page, strings.Replace(page, "if ready:", `<span class="k">if</span> ready:`, 1), true},
 		{"HTML prose spacing", "html", page, strings.Replace(page, "Hooks run before", "Hooks  run\n before", 1), true},
+		{"fenced literal trailing spaces", "markdown", prose + "\n\n```python\nvalue = \"\"\"a \nb\"\"\"\n```",
+			prose + "\n\n```python\nvalue = \"\"\"a  \nb\"\"\"\n```", false},
+		{"indented literal blank line", "markdown", prose + "\n\n    value = \"\"\"a\n\n    b\"\"\"",
+			prose + "\n\n    value = \"\"\"a\n    b\"\"\"", false},
+		{"HTML literal trailing spaces", "html", "<main><p>" + prose + "</p><pre><code>value = \"\"\"a \nb\"\"\"</code></pre></main>",
+			"<main><p>" + prose + "</p><pre><code>value = \"\"\"a  \nb\"\"\"</code></pre></main>", false},
+		// CommonMark keeps spaces before a line end inside a code span and
+		// strips the leading whitespace of every paragraph line.
+		{"inline spaces before a line end", "markdown", prose + "Run `echo \"a \nb\"`", prose + "Run `echo \"a  \nb\"`", false},
+		{"inline continuation indentation", "markdown", prose + "Run `echo \"a\n b\"`", prose + "Run `echo \"a\n  b\"`", true},
+		{"pipe hyphens inside inline code", "markdown", prose + "Value `a | -- | b`", prose + "Value `a | --- | b`", false},
+		{"table delimiter hyphens", "markdown", prose + "\n\n| a | b |\n| -- | --- |", prose + "\n\n| a | b |\n| --- | - |", true},
+		{"source trailing spaces", "source", prose + "\nvalue = \"\"\"a \nb\"\"\"", prose + "\nvalue = \"\"\"a  \nb\"\"\"", false},
 	} {
 		if test.base == test.variant {
 			t.Fatalf("%s: the variant did not change the source", test.name)

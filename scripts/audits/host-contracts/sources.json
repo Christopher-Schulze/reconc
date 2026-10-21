@@ -46,7 +46,7 @@
           "url": "https://code.claude.com/docs/en/hooks.md",
           "baseline_url": "https://code.claude.com/docs/en/hooks.md",
           "normalization": "markdown",
-          "sha256": "cd36b377d0c622ccfbba04f7213c9c1624a2510eeec863a64d8f8c1f8a65b2fb",
+          "sha256": "7ca1871602c8b7d4b80e3b7aa2ff4dde913cb363970e19717f9128e573a8f58c",
           "required_markers": [
             "PreToolUse",
             "SessionStart",
@@ -129,7 +129,7 @@
           "url": "https://learn.chatgpt.com/docs/hooks.md",
           "baseline_url": "https://learn.chatgpt.com/docs/hooks.md",
           "normalization": "markdown",
-          "sha256": "bf81c33aa1db980cd6505ac51aa2b671a3f16a8f3e6996bcb64a03672e06e364",
+          "sha256": "3652a56ba277b60264d1dc20298bce8d5c7ddf0ceab54b0e90a569b133f5a5c7",
           "required_markers": [
             "PreToolUse",
             "SessionStart",
@@ -160,7 +160,7 @@
           "url": "https://raw.githubusercontent.com/openai/codex/HEAD/codex-rs/hooks/src/types.rs",
           "baseline_url": "https://raw.githubusercontent.com/openai/codex/7c073196a1673a0b248b2e5edfb7548d2c2290ac/codex-rs/hooks/src/types.rs",
           "normalization": "source",
-          "sha256": "93740169e666a1b198c8b8775d030bda3ab6f99f8d78959555b7040007d07314",
+          "sha256": "41b039489c4b1e33b58b1905d012e59447d9c3bd60432cc9a79ad6f14de8549c",
           "required_markers": [
             "pub struct HookPayload",
             "pub enum HookEvent"
@@ -195,7 +195,7 @@
           "url": "https://cursor.com/docs/hooks",
           "baseline_url": "https://cursor.com/docs/hooks",
           "normalization": "markdown",
-          "sha256": "8365067ead66615bd0f1c80b15072eb1a77f00c3b098554f935750faa26edcaf",
+          "sha256": "5ccc32e0652aa12996567af700a7b71719ff0d7f4e1ceb1458363514c6633921",
           "required_markers": [
             "preToolUse",
             "sessionStart",
@@ -245,7 +245,7 @@
           "url": "https://docs.devin.ai/cli/extensibility/hooks/overview.md",
           "baseline_url": "https://docs.devin.ai/cli/extensibility/hooks/overview.md",
           "normalization": "markdown",
-          "sha256": "ff33f686240e98e69df9efbf05e7ab02a836f68b3f4f241dd7739c6fa96ea7f6",
+          "sha256": "f2a6c9da8774d329d21eaa35c9400e73b5c4420ccadaccd31187dc91a5cc4b52",
           "required_markers": [
             ".devin/hooks.v1.json",
             "PreToolUse"
@@ -273,7 +273,7 @@
           "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/packages/core/agent/src/runtime-types.ts",
           "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent/src/runtime-types.ts",
           "normalization": "source",
-          "sha256": "bc582a340bf85e5b66fa59678ff76a2eb1a282a24b1118c55fc6ea97986fd412",
+          "sha256": "371822e550b2d7257e2e4199ddd66696497dd922bd2b2b2fb8cee79a3becc5fe",
           "required_markers": [
             "'agent/pre-step'",
             "'agent/turn-stopping'"
@@ -430,7 +430,7 @@
           "url": "https://docs.github.com/en/copilot/reference/hooks-reference",
           "baseline_url": "https://docs.github.com/en/copilot/reference/hooks-reference",
           "normalization": "markdown",
-          "sha256": "29a3bd146f425314ee08f0b882acba78f6470873ae2fe4bda974b677ddee8661",
+          "sha256": "9d95f8abcf88f2bb9ec6b77a2f3e5b4cf6d723b3703aca401e00c12a6b79923e",
           "required_markers": [
             "preToolUse",
             "sessionStart",
@@ -498,7 +498,7 @@
           "url": "https://raw.githubusercontent.com/Kilo-Org/kilocode/HEAD/packages/plugin/src/index.ts",
           "baseline_url": "https://raw.githubusercontent.com/Kilo-Org/kilocode/e1841b3c7b02cc58504bc25311ffe52c6077b75b/packages/plugin/src/index.ts",
           "normalization": "source",
-          "sha256": "ad1149686db587530fe73a33a31e035131b13cdea5ae6b19803a199e8961fd02",
+          "sha256": "9f1d834f3a41d6f044433948a7008192b3e40c49316643e2f610e6b2f21e971c",
           "required_markers": [
             "tool.execute.before",
             "tool.execute.after"
@@ -641,7 +641,7 @@
           "url": "https://raw.githubusercontent.com/anomalyco/opencode/HEAD/packages/core/src/plugin/module.ts",
           "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/c7ddff776c59426e7dd63fe5a0d2a348864592ba/packages/core/src/plugin/module.ts",
           "normalization": "source",
-          "sha256": "27cb0f547b33fb973e0c5e72c60ee100b4e29a23e91d7e4ccaaf4465d86c9dc9",
+          "sha256": "644d4aeab961851dea27183058f798f2ca5f8d7ad1aea117a392a0ba1ccd38ac",
           "required_markers": [
             "id: Schema.String",
             "setup: Schema.declare",
@@ -713,7 +713,7 @@
           "url": "https://raw.githubusercontent.com/anomalyco/opencode/v1/packages/plugin/src/index.ts",
           "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/a1f604bbe0285c1e43f00a2568c8aa19f0fb02ff/packages/plugin/src/index.ts",
           "normalization": "source",
-          "sha256": "ad1149686db587530fe73a33a31e035131b13cdea5ae6b19803a199e8961fd02",
+          "sha256": "9f1d834f3a41d6f044433948a7008192b3e40c49316643e2f610e6b2f21e971c",
           "required_markers": [
             "tool.execute.before",
             "tool.execute.after"
@@ -849,7 +849,7 @@
           "url": "https://zcode.z.ai/en/docs/hooks",
           "baseline_url": "https://zcode.z.ai/en/docs/hooks",
           "normalization": "html",
-          "sha256": "f41973ec1a04a9f8196c16c82a38489d4902cb25855f72d9d2b6e447c6f7a8d6",
+          "sha256": "0fbcf7e2c9d62a37e4550e0811ea18e1d345cdbfca1aef9497e824237825a788",
           "required_markers": [
             "PreToolUse",
             "SessionStart"

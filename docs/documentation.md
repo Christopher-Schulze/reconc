@@ -2477,21 +2477,23 @@ build the checker when exact exit codes are needed.
 
 Requests are sequential, allowlisted HTTPS GETs with a 15-second deadline,
 at most two followed redirects, a 2 MiB decoded body limit, and a three-minute
-overall comparison deadline. API normalization preserves interior source
-whitespace while normalizing CRLF and trailing line whitespace. Markdown
-normalization collapses whitespace in prose and keeps code exact: fenced and
-indented code blocks line by line with their indentation, and inline code
-spans with their spaces, a line end inside a span reading as one space as
-CommonMark renders it. Whitespace inside code, such as a JSON string, a shell
-argument, or Python indentation, therefore stays part of the contract. HTML
-normalization removes scripts, styles, comments and tags, prefers the main
-element, decodes entities, keeps every pre element line by line with its
-indentation (markup inside it, such as highlighting, renders no text and is
-dropped), and collapses whitespace elsewhere. Sections and markers are matched in that normalized
+overall comparison deadline. Normalization never changes code. Source files
+stay exact apart from CRLF line endings. Markdown normalization collapses
+whitespace in prose and keeps fenced and indented code blocks exactly as
+written, including trailing whitespace and blank lines inside them; inline
+code spans keep their spaces as CommonMark renders them (a paragraph line
+loses its leading whitespace, a line end inside a span reads as one space, and
+spaces before it remain). HTML normalization removes scripts, styles,
+comments and tags, prefers the main element, decodes entities, keeps the text
+of every pre element exactly (markup inside it, such as highlighting, renders
+no text and is dropped, as is the line feed HTML ignores after the pre start
+tag), and collapses whitespace elsewhere. Whitespace inside code, such as a
+JSON string, a shell argument, a multiline literal, or Python indentation,
+therefore stays part of the contract. Sections and markers are matched in that normalized
 text, and the digest covers that exact section text. A markdown source
 additionally ignores only presentation that CommonMark and GFM define as
-meaningless outside code blocks: the info string of a code fence opener and
-the number of hyphens in a table delimiter cell. Code block content, escapes,
+meaningless outside code: the info string of a code fence opener and the
+number of hyphens in a table delimiter cell, never inside an inline code span. Code block content, escapes,
 operators such as `!=` and `==`, type syntax such as `string[]`, quoting,
 alignment colons, and spacing around punctuation stay significant, so a
 renderer change outside those two cases still requires review. Editorial
