@@ -820,7 +820,15 @@ and byte-compares the notice before checksums and provenance are accepted.
      compiles the plan without re-reading and re-digesting the sources, as a
      warm evaluator reuses its cached plan; any mismatch or untrusted record
      takes the full validation. The record is an unsynced cache written only
-     into the existing private directory.
+     into the existing private directory. An evaluation entry that has just
+     discovered the repository hands that discovery to the validation of a
+     cached or persisted plan instead of discovering the sources a second
+     time; the publication observation after a compile still discovers on its
+     own. Policy discovery and include expansion read each directory that
+     several patterns share once per expansion. Separate evaluation entries
+     of one hook request still validate separately: the pre-decision cache
+     samples before and after its evaluation so a concurrent policy change
+     cannot validate or warm a stale record.
      Runtime evidence/report collections use a local membership map plus an
      ordered slice, preserving first-seen output while avoiding quadratic
      duplicate scans at bounded high cardinalities.

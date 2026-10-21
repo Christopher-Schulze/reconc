@@ -10,6 +10,50 @@ import (
 	"testing"
 )
 
+// Policy discovery reads policies/ once for both fragment patterns, and an
+// include expansion reads a directory its patterns share once while keeping
+// one match list per pattern.
+func TestPolicyGlobsReadASharedDirectoryOnce(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "policies"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.yml", "b.yaml", "notes.txt"} {
+		if err := os.WriteFile(filepath.Join(root, "policies", name), []byte("rules: []\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reads := map[string]int{}
+	original := readPolicyDirectory
+	readPolicyDirectory = func(path string, maxEntries int) ([]os.DirEntry, error) {
+		reads[path]++
+		return original(path, maxEntries)
+	}
+	t.Cleanup(func() { readPolicyDirectory = original })
+	discovery, err := DiscoverPolicyRepo(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(discovery.PolicyPaths, ",") != "policies/a.yml,policies/b.yaml" {
+		t.Fatalf("policy paths = %#v", discovery.PolicyPaths)
+	}
+	if got := reads[filepath.Join(root, "policies")]; got != 1 {
+		t.Fatalf("discovery read policies/ %d times, want 1", got)
+	}
+	clear(reads)
+	expanded, err := ExpandPolicyIncludePatternsWithContext(context.Background(), root, []string{"policies/*.yaml", "policies/*.yml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(expanded) != 2 || len(expanded[0]) != 1 || filepath.Base(expanded[0][0]) != "b.yaml" ||
+		len(expanded[1]) != 1 || filepath.Base(expanded[1][0]) != "a.yml" {
+		t.Fatalf("expanded = %#v", expanded)
+	}
+	if got := reads[filepath.Join(root, "policies")]; got != 1 {
+		t.Fatalf("expansion read policies/ %d times, want 1", got)
+	}
+}
+
 func TestBoundedPolicyGlobHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

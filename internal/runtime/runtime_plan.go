@@ -70,15 +70,18 @@ type runtimePlanCacheEntry struct {
 }
 
 type runtimePlanLoad struct {
-	done     chan struct{}
-	ctx      context.Context
-	cancel   context.CancelFunc
-	plan     *runtimePlan
-	err      error
-	callers  int
-	gen      uint64
-	joinable bool
-	finished bool
+	done   chan struct{}
+	ctx    context.Context
+	cancel context.CancelFunc
+	// discovery is the creating caller's discovery of the root, or nil; a
+	// validation of an existing plan reuses it.
+	discovery *ingest.DiscoveryResult
+	plan      *runtimePlan
+	err       error
+	callers   int
+	gen       uint64
+	joinable  bool
+	finished  bool
 }
 
 type runtimePlanLoadStage uint8
@@ -152,6 +155,13 @@ func (e *Evaluator) loadFreshRuntimePlan(root string) (*runtimePlan, error) {
 }
 
 func (e *Evaluator) loadFreshRuntimePlanWithContext(ctx context.Context, root string) (*runtimePlan, error) {
+	return e.loadFreshRuntimePlanWithDiscovery(ctx, root, nil)
+}
+
+// loadFreshRuntimePlanWithDiscovery loads the plan of root; discovery, when
+// not nil, is the caller's discovery of root for this evaluation, which the
+// validation of an existing plan reuses instead of discovering again.
+func (e *Evaluator) loadFreshRuntimePlanWithDiscovery(ctx context.Context, root string, discovery *ingest.DiscoveryResult) (*runtimePlan, error) {
 	if ctx == nil {
 		return nil, context.Canceled
 	}
@@ -161,7 +171,7 @@ func (e *Evaluator) loadFreshRuntimePlanWithContext(ctx context.Context, root st
 	if e == nil {
 		e = NewEvaluator()
 	}
-	plan, err := e.loadRuntimePlanWithContext(ctx, root)
+	plan, err := e.loadRuntimePlanWithDiscovery(ctx, root, discovery)
 	if err != nil {
 		if runtimePlanCallerAbort(err) {
 			return nil, err
@@ -172,6 +182,10 @@ func (e *Evaluator) loadFreshRuntimePlanWithContext(ctx context.Context, root st
 }
 
 func (e *Evaluator) loadRuntimePlanWithContext(ctx context.Context, root string) (*runtimePlan, error) {
+	return e.loadRuntimePlanWithDiscovery(ctx, root, nil)
+}
+
+func (e *Evaluator) loadRuntimePlanWithDiscovery(ctx context.Context, root string, discovery *ingest.DiscoveryResult) (*runtimePlan, error) {
 	if ctx == nil {
 		return nil, context.Canceled
 	}
@@ -222,7 +236,8 @@ func (e *Evaluator) loadRuntimePlanWithContext(ctx context.Context, root string)
 	e.loadSeq++
 	loadCtx, loadCancel := context.WithCancel(context.Background())
 	active := &runtimePlanLoad{
-		done: make(chan struct{}), ctx: loadCtx, cancel: loadCancel, callers: 1, gen: e.loadSeq, joinable: true,
+		done: make(chan struct{}), ctx: loadCtx, cancel: loadCancel, discovery: discovery,
+		callers: 1, gen: e.loadSeq, joinable: true,
 	}
 	e.loads[root] = active
 	gen := active.gen
@@ -234,7 +249,7 @@ func (e *Evaluator) loadRuntimePlanWithContext(ctx context.Context, root string)
 
 func (e *Evaluator) runRuntimePlanLoad(root string, active *runtimePlanLoad, slots chan struct{}) {
 	defer func() { <-slots }()
-	active.plan, active.err = e.loadRuntimePlanOwned(active.ctx, root, active.gen)
+	active.plan, active.err = e.loadRuntimePlanOwned(active.ctx, root, active.gen, active.discovery)
 	e.mu.Lock()
 	if current, ok := e.loads[root]; ok && current == active {
 		delete(e.loads, root)
@@ -305,7 +320,7 @@ func runtimePlanCallerAbort(err error) bool {
 	return err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
 }
 
-func (e *Evaluator) loadRuntimePlanOwned(ctx context.Context, root string, gen uint64) (*runtimePlan, error) {
+func (e *Evaluator) loadRuntimePlanOwned(ctx context.Context, root string, gen uint64, discovery *ingest.DiscoveryResult) (*runtimePlan, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -323,7 +338,7 @@ func (e *Evaluator) loadRuntimePlanOwned(ctx context.Context, root string, gen u
 	if cachedOK {
 		if cached.lockHash == lockHash && cached.freshnessValid {
 			e.runCacheObserveHook(root, gen)
-			freshness, freshnessErr := observeRuntimeSourceFreshnessWithStatsContext(ctx, root, cached.plan, nil)
+			freshness, freshnessErr := observeRuntimeSourceFreshnessWithStatsContext(ctx, root, cached.plan, discovery, nil)
 			if freshnessErr == nil && freshness == cached.freshness {
 				e.mu.Lock()
 				e.useSerial++
@@ -345,7 +360,7 @@ func (e *Evaluator) loadRuntimePlanOwned(ctx context.Context, root string, gen u
 			e.invalidateRuntimePlanFrom(root, gen)
 		}
 	}
-	if plan, freshness, ok, err := e.planFromPersistedFreshness(ctx, root, data, lockHash); err != nil {
+	if plan, freshness, ok, err := e.planFromPersistedFreshness(ctx, root, data, lockHash, discovery); err != nil {
 		return nil, err
 	} else if ok {
 		e.cacheRuntimePlan(root, runtimePlanCacheEntry{
@@ -421,7 +436,7 @@ func (e *Evaluator) loadRuntimePlanOwned(ctx context.Context, root string, gen u
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	publicationFreshness, err := observeRuntimeSourceFreshnessWithStatsContext(ctx, root, plan, e.loadStats)
+	publicationFreshness, err := observeRuntimeSourceFreshnessWithStatsContext(ctx, root, plan, nil, e.loadStats)
 	if err != nil || publicationFreshness != freshness {
 		if runtimePlanCallerAbort(err) {
 			return nil, err

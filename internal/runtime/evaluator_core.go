@@ -287,7 +287,7 @@ func (e *Evaluator) AssertRuleByIDContext(lifecycle context.Context, startPath, 
 	}
 	root := discovery.RepoRoot
 
-	plan, err := e.loadFreshRuntimePlanWithContext(lifecycle, root)
+	plan, err := e.loadFreshRuntimePlanWithDiscovery(lifecycle, root, &discovery)
 	if err != nil {
 		return nil, err
 	}
@@ -462,7 +462,7 @@ func (e *Evaluator) checkRepoPolicy(ctx context.Context, startPath string, input
 	}
 	root := discovery.RepoRoot
 
-	plan, err := e.loadFreshRuntimePlanWithContext(ctx, root)
+	plan, err := e.loadFreshRuntimePlanWithDiscovery(ctx, root, &discovery)
 	if err != nil {
 		return nil, err
 	}

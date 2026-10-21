@@ -251,7 +251,7 @@ func (e *Evaluator) CheckRepoPolicyWithMetrics(startPath string, inputs Executio
 	if !discovery.Discovered {
 		return nil, EvaluationMetrics{}, fmt.Errorf("no policy markers discovered")
 	}
-	plan, err := e.loadFreshRuntimePlan(discovery.RepoRoot)
+	plan, err := e.loadFreshRuntimePlanWithDiscovery(context.Background(), discovery.RepoRoot, &discovery)
 	if err != nil {
 		return nil, EvaluationMetrics{}, err
 	}
@@ -273,7 +273,7 @@ func (e *Evaluator) CurrentCompiledPolicyEvaluator(startPath string) (*CompiledP
 	if !discovery.Discovered {
 		return nil, "", fmt.Errorf("no policy markers discovered")
 	}
-	plan, err := e.loadFreshRuntimePlan(discovery.RepoRoot)
+	plan, err := e.loadFreshRuntimePlanWithDiscovery(context.Background(), discovery.RepoRoot, &discovery)
 	if err != nil {
 		return nil, "", err
 	}

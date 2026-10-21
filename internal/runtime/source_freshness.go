@@ -93,7 +93,14 @@ type sourceFreshnessHasher struct {
 	strings [256]byte
 }
 
-func observeRuntimeSourceFreshnessWithStatsContext(ctx context.Context, root string, plan *runtimePlan, stats *sourceFreshnessStats) ([sha256.Size]byte, error) {
+// discoverFreshnessSources discovers the policy sources of a plan
+// validation; tests count it.
+var discoverFreshnessSources = ingest.DiscoverPolicyRepoWithContext
+
+// observeRuntimeSourceFreshnessWithStatsContext observes the sources of plan
+// under root. discovery, when it is the caller's discovery of root made for
+// the same validation, spares discovering the sources again.
+func observeRuntimeSourceFreshnessWithStatsContext(ctx context.Context, root string, plan *runtimePlan, discovery *ingest.DiscoveryResult, stats *sourceFreshnessStats) ([sha256.Size]byte, error) {
 	if ctx == nil {
 		return [sha256.Size]byte{}, context.Canceled
 	}
@@ -106,11 +113,14 @@ func observeRuntimeSourceFreshnessWithStatsContext(ctx context.Context, root str
 	if err := templates.ValidateCurrentDependencies(plan.templateDependencies); err != nil {
 		return [sha256.Size]byte{}, err
 	}
-	discovery, err := ingest.DiscoverPolicyRepoWithContext(ctx, root)
-	if err != nil {
-		return [sha256.Size]byte{}, err
+	if discovery == nil || filepath.Clean(discovery.RepoRoot) != filepath.Clean(root) {
+		discovered, err := discoverFreshnessSources(ctx, root)
+		if err != nil {
+			return [sha256.Size]byte{}, err
+		}
+		discovery = &discovered
 	}
-	return observeSourceFreshnessWithContext(ctx, root, plan.sources, discovery, plan.sourceFreshness, nil, stats)
+	return observeSourceFreshnessWithContext(ctx, root, plan.sources, *discovery, plan.sourceFreshness, nil, stats)
 }
 
 func observeRuntimeSourceFreshnessFromBundleWithStatsContext(
@@ -243,18 +253,21 @@ func observeSourceFreshnessWithContext(
 		addFile(files, filepath.Join(root, filepath.FromSlash(rel)))
 	}
 	for _, include := range recipe.includes {
+		includePatterns = append(includePatterns, include.pattern)
+	}
+	// One expansion reads a directory that several includes share once.
+	expanded, err := ingest.ExpandPolicyIncludePatternsWithContext(ctx, root, includePatterns)
+	if err != nil {
+		return [sha256.Size]byte{}, fmt.Errorf("expand freshness patterns: %w", err)
+	}
+	for index, include := range recipe.includes {
 		if err := ctx.Err(); err != nil {
 			return [sha256.Size]byte{}, err
 		}
-		includePatterns = append(includePatterns, include.pattern)
 		if filepath.Clean(include.base) != filepath.Clean(root) {
 			addDirectory(directories, include.base)
 		}
-		matches, err := ingest.ExpandPolicyIncludePatternWithContext(ctx, root, include.pattern)
-		if err != nil {
-			return [sha256.Size]byte{}, fmt.Errorf("expand freshness pattern %s: %w", include.pattern, err)
-		}
-		for _, match := range matches {
+		for _, match := range expanded[index] {
 			if err := ctx.Err(); err != nil {
 				return [sha256.Size]byte{}, err
 			}

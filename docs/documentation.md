@@ -3524,7 +3524,11 @@ on a loaded machine, its median from 604 ms, 199 MB and 0.88 million
 allocations to 343 ms, 118 MB and 0.30 million; a worker pre-tool call over
 16 segments
 went from 3.6 to 2.3 ms cold and from 2.6 to 1.7 ms warm
-(`BenchmarkWorkerPreHookVerifiedEvidencePrefix`).
+(`BenchmarkWorkerPreHookVerifiedEvidencePrefix`). Validating each plan
+against the discovery its evaluation entry just made, and reading
+`policies/` once for both fragment patterns, then took that call from 396
+to 344 file-system accesses and from 1.84 to 1.60 ms cold and 1.39 to
+1.21 ms warm on a quieter machine.
 PreToolUse and PermissionRequest classify the parsed payload before preparing
 cache identities, so read and other non-command, non-write tools preserve their
 normal bookkeeping without loading policy sources or creating a decision cache.

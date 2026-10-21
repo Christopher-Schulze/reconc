@@ -12,7 +12,44 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/ingest"
 )
+
+// An evaluation that discovered its repository validates the plan against
+// that discovery instead of discovering the sources again, for a warm cached
+// plan and for a persisted one-shot validation alike.
+func TestPlanValidationReusesTheEntryDiscovery(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	record := filepath.Join(t.TempDir(), "plan-freshness.json")
+	locate := func(string) string { return record }
+	warm := NewEvaluatorWithPlanFreshnessFile(locate)
+	if _, err := warm.CheckRepoPolicy(repo, Empty()); err != nil {
+		t.Fatal(err)
+	}
+	var discoveries int
+	original := discoverFreshnessSources
+	discoverFreshnessSources = func(ctx context.Context, start string) (ingest.DiscoveryResult, error) {
+		discoveries++
+		return original(ctx, start)
+	}
+	t.Cleanup(func() { discoverFreshnessSources = original })
+	for _, validation := range []struct {
+		name      string
+		evaluator *Evaluator
+	}{{"warm", warm}, {"persisted", NewEvaluatorWithPlanFreshnessFile(locate)}} {
+		discoveries = 0
+		if _, err := validation.evaluator.CheckRepoPolicy(repo, Empty()); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := validation.evaluator.CurrentCompiledPolicyEvaluator(repo); err != nil {
+			t.Fatal(err)
+		}
+		if discoveries != 0 {
+			t.Fatalf("%s validation discovered the sources %d more times", validation.name, discoveries)
+		}
+	}
+}
 
 func TestRuntimePlanFreshnessDetectsSourceSetChanges(t *testing.T) {
 	withRECONCHome(t)
@@ -495,7 +532,7 @@ func observeRuntimeSourceFreshness(root string, plan *runtimePlan) ([sha256.Size
 }
 
 func observeRuntimeSourceFreshnessWithStats(root string, plan *runtimePlan, stats *sourceFreshnessStats) ([sha256.Size]byte, error) {
-	return observeRuntimeSourceFreshnessWithStatsContext(context.Background(), root, plan, stats)
+	return observeRuntimeSourceFreshnessWithStatsContext(context.Background(), root, plan, nil, stats)
 }
 
 func observeFreshnessFile(path string, totalBytes *int64, copyBuffer []byte) (freshnessFile, error) {

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"encoding/json/jsontext"
@@ -497,7 +498,7 @@ func (e *Evaluator) ValidatePolicyLockfile(startPath string) error {
 		}
 		return fmt.Errorf("%s", warning)
 	}
-	_, err = e.loadFreshRuntimePlan(discovery.RepoRoot)
+	_, err = e.loadFreshRuntimePlanWithDiscovery(context.Background(), discovery.RepoRoot, &discovery)
 	return err
 }
 
@@ -517,7 +518,7 @@ func (e *Evaluator) LoadActionPlan(startPath string) (action.Plan, error) {
 	if !discovery.Discovered {
 		return action.Plan{}, fmt.Errorf("no policy markers discovered")
 	}
-	plan, err := e.loadFreshRuntimePlan(discovery.RepoRoot)
+	plan, err := e.loadFreshRuntimePlanWithDiscovery(context.Background(), discovery.RepoRoot, &discovery)
 	if err != nil {
 		return action.Plan{}, err
 	}
@@ -540,7 +541,7 @@ func (e *Evaluator) LoadMCPPolicy(startPath string) (*policy.MCPPolicy, error) {
 	if !discovery.Discovered {
 		return nil, fmt.Errorf("no policy markers discovered")
 	}
-	plan, err := e.loadFreshRuntimePlan(discovery.RepoRoot)
+	plan, err := e.loadFreshRuntimePlanWithDiscovery(context.Background(), discovery.RepoRoot, &discovery)
 	if err != nil {
 		return nil, err
 	}

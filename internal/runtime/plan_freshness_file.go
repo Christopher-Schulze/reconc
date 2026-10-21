@@ -11,6 +11,7 @@ import (
 
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
+	"reconc.dev/reconc/internal/ingest"
 )
 
 const (
@@ -46,7 +47,8 @@ func NewEvaluatorWithPlanFreshnessFile(locate func(root string) string) *Evaluat
 // validation is persisted and whose sources still have the recorded content.
 // Every mismatch, unreadable record, or compile failure is a miss that leaves
 // the full validation to report it; only caller cancellation is returned.
-func (e *Evaluator) planFromPersistedFreshness(ctx context.Context, root string, data []byte, lockHash [sha256.Size]byte) (*runtimePlan, [sha256.Size]byte, bool, error) {
+// discovery is the caller's discovery of root, or nil.
+func (e *Evaluator) planFromPersistedFreshness(ctx context.Context, root string, data []byte, lockHash [sha256.Size]byte, discovery *ingest.DiscoveryResult) (*runtimePlan, [sha256.Size]byte, bool, error) {
 	var none [sha256.Size]byte
 	record, ok := e.readPlanFreshness(root, lockHash)
 	if !ok {
@@ -65,7 +67,7 @@ func (e *Evaluator) planFromPersistedFreshness(ctx context.Context, root string,
 	if err != nil {
 		return nil, none, false, nil
 	}
-	freshness, err := observeRuntimeSourceFreshnessWithStatsContext(ctx, root, plan, e.loadStats)
+	freshness, err := observeRuntimeSourceFreshnessWithStatsContext(ctx, root, plan, discovery, e.loadStats)
 	if runtimePlanCallerAbort(err) {
 		return nil, none, false, err
 	}

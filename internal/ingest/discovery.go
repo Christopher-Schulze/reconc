@@ -264,25 +264,20 @@ func isRegularFile(path string) bool {
 }
 
 // listPolicyFragmentsWithContext returns the repo-relative (POSIX-style) paths
-// of every file matching DefaultPolicyGlobs under dir. Sorted for deterministic
-// output and bounded by the caller context between filesystem operations.
+// of every regular file matching DefaultPolicyGlobs under dir. Sorted for
+// deterministic output and bounded by the caller context between filesystem
+// operations; the patterns share one listing of their directory.
 func listPolicyFragmentsWithContext(ctx context.Context, dir string) ([]string, error) {
 	if ctx == nil {
 		return nil, context.Canceled
 	}
+	expanded, err := boundedPolicyGlobsWithContext(ctx, dir, DefaultPolicyGlobs)
+	if err != nil {
+		return nil, err
+	}
 	seen := map[string]struct{}{}
-	for _, pattern := range DefaultPolicyGlobs {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		matches, err := boundedPolicyGlobWithContext(ctx, dir, pattern)
-		if err != nil {
-			return nil, err
-		}
+	for _, matches := range expanded {
 		for _, m := range matches {
-			if !isRegularFile(m) {
-				continue
-			}
 			rel, err := filepath.Rel(dir, m)
 			if err != nil {
 				continue

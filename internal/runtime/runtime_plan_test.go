@@ -889,7 +889,7 @@ func TestRuntimePlanDeadlineExceededOwnedLoadKeepsValidatedCache(t *testing.T) {
 	}
 	deadline, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
-	if _, err := evaluator.loadRuntimePlanOwned(deadline, repo, 1); !stderrors.Is(err, context.DeadlineExceeded) {
+	if _, err := evaluator.loadRuntimePlanOwned(deadline, repo, 1, nil); !stderrors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expired owned load error = %v", err)
 	}
 	second, err := evaluator.loadRuntimePlanWithContext(context.Background(), repo)
