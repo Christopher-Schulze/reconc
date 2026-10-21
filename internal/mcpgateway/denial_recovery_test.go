@@ -111,7 +111,7 @@ func TestOrdinaryDenialLedgerUsesActualCommittedConsumption(t *testing.T) {
 		t.Fatal("echo contract missing")
 	}
 	for index := 0; index < 3; index++ {
-		callID, err := actionstate.NewRandomCallID()
+		callID, err := gateway.state.NewCallID()
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -3,6 +3,7 @@ package actionstate
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"time"
 
@@ -374,8 +375,10 @@ func removeReservationAndRecord(state *State, index int, terminal TerminalCall) 
 		return stateError(action.ReasonStateUnavailable, "terminal call record capacity is exhausted", nil)
 	}
 	state.Reservations = append(state.Reservations[:index], state.Reservations[index+1:]...)
-	state.TerminalCalls = append(state.TerminalCalls, terminal)
-	sort.Slice(state.TerminalCalls, func(i, j int) bool { return state.TerminalCalls[i].CallID < state.TerminalCalls[j].CallID })
+	position := sort.Search(len(state.TerminalCalls), func(index int) bool {
+		return state.TerminalCalls[index].CallID >= terminal.CallID
+	})
+	state.TerminalCalls = slices.Insert(state.TerminalCalls, position, terminal)
 	return nil
 }
 

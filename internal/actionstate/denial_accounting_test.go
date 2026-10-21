@@ -17,7 +17,7 @@ func TestApprovalDenialAccountingRetainsPartialMultiBudgetConsumption(t *testing
 		storeBudget("second", action.BudgetLimits{CallCount: 8, DeniedCount: 2, ApprovalCount: 8}, action.BudgetResetNever),
 	})
 	for index, character := range []string{"a", "b"} {
-		input, reserved := fixture.reserve(t, callID(character))
+		input, reserved := fixture.reserve(t, fixture.issuedCallID(t, character))
 		issued := issueFixtureApproval(t, fixture, input, reserved)
 		request := ApprovalFinalizeRequest{RequestState: issued.issue.RequestState, ExpectedStateVersion: issued.issue.StateVersion, Status: actionapproval.StatusCancelled}
 		outcome, err := fixture.store.FinalizeApproval(context.Background(), request)
@@ -62,7 +62,7 @@ func TestExpiredApprovalRecoveryRetainsDenialAccounting(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget("expiry", action.BudgetLimits{CallCount: 4, DeniedCount: 1}, action.BudgetResetNever)})
 	requests := make([]ApprovalFinalizeRequest, 0, 2)
 	for _, suffix := range []string{"e", "f"} {
-		input, reserved := fixture.reserve(t, callID(suffix))
+		input, reserved := fixture.reserve(t, fixture.issuedCallID(t, suffix))
 		issued := issueFixtureApproval(t, fixture, input, reserved)
 		requests = append(requests, ApprovalFinalizeRequest{
 			RequestState: issued.issue.RequestState, ExpectedStateVersion: issued.issue.StateVersion, Status: actionapproval.StatusCancelled,
@@ -93,7 +93,7 @@ func TestExpiredApprovalRecoveryRetainsDenialAccounting(t *testing.T) {
 
 func TestLegacyApprovalWithoutDenialAccountingRemainsReadable(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget("legacy", action.BudgetLimits{CallCount: 2, DeniedCount: 1}, action.BudgetResetNever)})
-	input, reserved := fixture.reserve(t, callID("c"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "c"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	request := ApprovalFinalizeRequest{RequestState: issued.issue.RequestState, ExpectedStateVersion: issued.issue.StateVersion, Status: actionapproval.StatusCancelled}
 	if _, err := fixture.store.FinalizeApproval(context.Background(), request); err != nil {
@@ -131,7 +131,7 @@ func TestLegacyApprovalWithoutDenialAccountingRemainsReadable(t *testing.T) {
 
 func TestApprovalDenialAccountingValidationAndCloneIsolation(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget("validation", action.BudgetLimits{CallCount: 2, DeniedCount: 1}, action.BudgetResetNever)})
-	input, reserved := fixture.reserve(t, callID("d"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "d"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	var pending State
 	if err := fixture.store.withLock(context.Background(), func() error {

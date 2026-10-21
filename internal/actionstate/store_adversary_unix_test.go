@@ -46,7 +46,7 @@ func TestPrivateStateRejectsInsecureMode(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"private", action.BudgetLimits{CallCount: 1}, action.BudgetResetNever,
 	)})
-	fixture.reserve(t, callID("w"))
+	fixture.reserve(t, fixture.issuedCallID(t, "w"))
 	if err := os.Chmod(fixture.store.statePath, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestBudgetStoreFailsClosedWhenStateDirectoryLosesWritePermission(t *testing
 		}
 	}()
 	request := fixture.request
-	request.CallID, request.StateVersion = callID("7"), version
+	request.CallID, request.StateVersion = fixture.issuedCallID(t, "7"), version
 	_, err = fixture.store.Reserve(context.Background(), ReserveRequest{
 		Plan: fixture.plan, Request: request, Context: fixture.context,
 		Authority: fixture.authority, Server: fixture.server,
@@ -97,7 +97,7 @@ func TestBudgetStoreRecoversExactJournalAfterDiskFullStatePublication(t *testing
 		t.Fatal(err)
 	}
 	request := fixture.request
-	request.CallID, request.StateVersion = callID("b"), version
+	request.CallID, request.StateVersion = fixture.issuedCallID(t, "b"), version
 	input := ReserveRequest{
 		Plan: fixture.plan, Request: request, Context: fixture.context,
 		Authority: fixture.authority, Server: fixture.server,

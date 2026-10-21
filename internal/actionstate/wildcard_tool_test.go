@@ -16,7 +16,7 @@ func TestBudgetStoreAndEvaluatorShareWildcardToolResolution(t *testing.T) {
 	)
 	fixture := newStoreFixture(t, []action.Budget{budget})
 	fixture.plan = compileStorePlan(t, "", []action.Budget{budget})
-	input, reserved := fixture.reserve(t, callID("w"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "w"))
 	evaluator, err := action.NewEvaluator(fixture.plan)
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +48,7 @@ func TestBudgetStoreMapsUnknownToolContractFailClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := fixture.request
-	request.CallID = callID("u")
+	request.CallID = fixture.issuedCallID(t, "u")
 	request.StateVersion = version
 	request.Tool = "undeclared"
 	_, err = fixture.store.Reserve(context.Background(), ReserveRequest{

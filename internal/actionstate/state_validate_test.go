@@ -19,7 +19,7 @@ func completePersistedState(t testing.TB) (*storeFixture, State) {
 	}
 	budget := storeBudget("complete-state", limits, action.BudgetResetOperatorRun)
 	fixture := newStoreFixture(t, []action.Budget{budget})
-	firstInput, first := fixture.reserve(t, callID("c"))
+	firstInput, first := fixture.reserve(t, fixture.issuedCallID(t, "c"))
 	firstIssued := issueFixtureApproval(t, fixture, firstInput, first)
 	firstApproval, err := consumeFixtureApproval(t, fixture, firstIssued, actionapproval.DecisionApprove)
 	if err != nil {
@@ -35,7 +35,7 @@ func completePersistedState(t testing.TB) (*storeFixture, State) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	secondInput, second := fixture.reserve(t, callID("d"))
+	secondInput, second := fixture.reserve(t, fixture.issuedCallID(t, "d"))
 	secondIssued := issueFixtureApproval(t, fixture, secondInput, second)
 	if _, err := consumeFixtureApproval(t, fixture, secondIssued, actionapproval.DecisionApprove); err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestStateDigestBindsEveryPersistedComponent(t *testing.T) {
 		mutate func(*State)
 	}{
 		{name: "schema", mutate: func(state *State) { state.Schema = "other" }},
-		{name: "format version", mutate: func(state *State) { state.FormatVersion = "2" }},
+		{name: "format version", mutate: func(state *State) { state.FormatVersion = "3" }},
 		{name: "key ID", mutate: func(state *State) { state.KeyID = strings.Repeat("9", 32) }},
 		{name: "repository", mutate: func(state *State) { state.RepositoryIdentity = keyed("repository") }},
 		{name: "revision", mutate: func(state *State) { state.Revision++ }},
@@ -109,7 +109,7 @@ func TestStateDigestBindsEveryPersistedComponent(t *testing.T) {
 		{name: "generation key", mutate: func(state *State) { state.Budgets[0].Generation.KeyID = strings.Repeat("8", 32) }},
 		{name: "generation history", mutate: func(state *State) { state.Budgets[0].GenerationHistory[0].PolicyDigest = policy }},
 		{name: "reservation identity", mutate: func(state *State) { state.Reservations[0].Identity = keyed("reservation") }},
-		{name: "reservation call", mutate: func(state *State) { state.Reservations[0].CallID = callID("e") }},
+		{name: "reservation call", mutate: func(state *State) { state.Reservations[0].CallID = unissuedCallID("e") }},
 		{name: "reservation owner", mutate: func(state *State) { state.Reservations[0].OwnerID = "other-owner" }},
 		{name: "reservation request", mutate: func(state *State) { state.Reservations[0].RequestIdentity = keyed("request") }},
 		{name: "reservation context", mutate: func(state *State) { state.Reservations[0].ContextIdentity = keyed("context") }},
@@ -124,14 +124,14 @@ func TestStateDigestBindsEveryPersistedComponent(t *testing.T) {
 		{name: "charge reserved", mutate: func(state *State) { state.Reservations[0].Charges[0].Reserved.CallCount++ }},
 		{name: "charge dispatch", mutate: func(state *State) { state.Reservations[0].Charges[0].DispatchCommitted = true }},
 		{name: "charge approval", mutate: func(state *State) { state.Reservations[0].Charges[0].CommittedApprovals-- }},
-		{name: "terminal call", mutate: func(state *State) { state.TerminalCalls[0].CallID = callID("f") }},
+		{name: "terminal call", mutate: func(state *State) { state.TerminalCalls[0].CallID = unissuedCallID("f") }},
 		{name: "terminal reservation", mutate: func(state *State) { state.TerminalCalls[0].ReservationIdentity = keyed("terminal") }},
 		{name: "terminal outcome", mutate: func(state *State) { state.TerminalCalls[0].Outcome = OutcomeFailed }},
 		{name: "terminal time", mutate: func(state *State) { state.TerminalCalls[0].CompletedAtUnix++ }},
 		{name: "approval request schema", mutate: func(state *State) { state.Approvals[0].Request.Schema = "other" }},
 		{name: "approval request format", mutate: func(state *State) { state.Approvals[0].Request.FormatVersion = "2" }},
 		{name: "approval request id", mutate: func(state *State) { state.Approvals[0].Request.RequestID = "apr_" + strings.Repeat("z", 26) }},
-		{name: "approval call id", mutate: func(state *State) { state.Approvals[0].Request.CallID = callID("g") }},
+		{name: "approval call id", mutate: func(state *State) { state.Approvals[0].Request.CallID = unissuedCallID("g") }},
 		{name: "approval request identity", mutate: func(state *State) { state.Approvals[0].Request.RequestIdentity = keyed("approval-request") }},
 		{name: "approval requirement", mutate: func(state *State) { state.Approvals[0].Request.RequiredApprovalIdentity = sha("4") }},
 		{name: "approval plan", mutate: func(state *State) { state.Approvals[0].Request.PlanIdentity = sha("3") }},
@@ -277,7 +277,7 @@ func TestStateSemanticValidationRejectsMalformedStateWithFreshDigest(t *testing.
 		}},
 		{name: "duplicate terminal reservation identity", mutate: func(state *State) {
 			duplicate := state.TerminalCalls[0]
-			duplicate.CallID = callID("z")
+			duplicate.CallID = unissuedCallID("z")
 			state.TerminalCalls = append(state.TerminalCalls, duplicate)
 		}},
 	}
@@ -317,7 +317,10 @@ func TestTransactionDecoderRejectsMalformedMetadataWithFreshDigest(t *testing.T)
 		redigest bool
 	}{
 		{name: "schema", redigest: true, mutate: func(transaction *stateTransaction) { transaction.Schema = "other" }},
-		{name: "format version", redigest: true, mutate: func(transaction *stateTransaction) { transaction.FormatVersion = "2" }},
+		{name: "format version", redigest: true, mutate: func(transaction *stateTransaction) { transaction.FormatVersion = "3" }},
+		{name: "format version differs from after state", redigest: true, mutate: func(transaction *stateTransaction) {
+			transaction.FormatVersion = legacyStateFormatVersion
+		}},
 		{name: "before persistence", redigest: true, mutate: func(transaction *stateTransaction) { transaction.BeforePersisted = false }},
 		{name: "before revision", redigest: true, mutate: func(transaction *stateTransaction) { transaction.BeforeRevision++ }},
 		{name: "before key generation", redigest: true, mutate: func(transaction *stateTransaction) {

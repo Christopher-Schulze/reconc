@@ -18,7 +18,6 @@ import (
 
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/actionapproval"
-	"reconc.dev/reconc/internal/actionstate"
 )
 
 type stuckShutdownDownstream struct {
@@ -418,7 +417,7 @@ func prepareDetachedPendingApprovals(
 		t.Fatal("gateway echo contract is unavailable")
 	}
 	for index := 0; index < count; index++ {
-		callID, err := actionstate.NewRandomCallID()
+		callID, err := gateway.state.NewCallID()
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -16,7 +16,11 @@ func BenchmarkBudgetReserveAndRelease(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for iteration := 0; iteration < b.N; iteration++ {
-		_, reserved := fixture.reserve(b, orderedCapacityCallID(iteration))
+		callID, err := fixture.store.NewCallID()
+		if err != nil {
+			b.Fatal(err)
+		}
+		_, reserved := fixture.reserve(b, callID)
 		if reserved.Reservation == nil {
 			b.Fatal("budget reservation is absent")
 		}

@@ -11,7 +11,7 @@ func FuzzDecodeState(f *testing.F) {
 	fixture := newStoreFixture(f, []action.Budget{storeBudget(
 		"fuzz-state", action.BudgetLimits{CallCount: 4, ApprovalCount: 4}, action.BudgetResetNever,
 	)})
-	fixture.reserve(f, callID("q"))
+	fixture.reserve(f, fixture.issuedCallID(f, "q"))
 	var persisted State
 	if err := fixture.store.withLock(context.Background(), func() error {
 		var loadErr error
@@ -50,7 +50,7 @@ func FuzzDecodeStateTransaction(f *testing.F) {
 	fixture := newStoreFixture(f, []action.Budget{storeBudget(
 		"fuzz-transaction", action.BudgetLimits{CallCount: 4}, action.BudgetResetNever,
 	)})
-	fixture.reserve(f, callID("r"))
+	fixture.reserve(f, fixture.issuedCallID(f, "r"))
 	var previous State
 	if err := fixture.store.withLock(context.Background(), func() error {
 		var loadErr error
@@ -101,7 +101,7 @@ func FuzzOpenApprovalRequestState(f *testing.F) {
 	fixture := newStoreFixture(f, []action.Budget{storeBudget(
 		"fuzz-approval-state", action.BudgetLimits{CallCount: 4, ApprovalCount: 4}, action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(f, callID("s"))
+	input, reserved := fixture.reserve(f, fixture.issuedCallID(f, "s"))
 	issued := issueFixtureApproval(f, fixture, input, reserved)
 	for _, seed := range []string{issued.issue.RequestState, "", "not-base64url", "e30"} {
 		f.Add(seed)

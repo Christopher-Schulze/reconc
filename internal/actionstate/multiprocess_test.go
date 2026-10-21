@@ -128,10 +128,12 @@ func TestBudgetStoreSerializesSeparateProcesses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The helper processes admit call identities on the system clock.
+	fixture.clock.set(time.Now().UTC(), "test-clock")
 	gate := filepath.Join(t.TempDir(), "start")
 	commands := make([]*exec.Cmd, 2)
 	outputs := make([]bytes.Buffer, 2)
-	for index, id := range []string{callID("y"), callID("z")} {
+	for index, id := range []string{fixture.issuedCallID(t, "y"), fixture.issuedCallID(t, "z")} {
 		command := exec.Command(executable, "-test.run=^TestBudgetStoreProcessHelper$")
 		command.Env = append(os.Environ(),
 			processHelperEnabled+"=1",

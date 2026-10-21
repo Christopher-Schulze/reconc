@@ -15,7 +15,7 @@ func TestEvidenceSnapshotCryptographicallyReverifiesStoredApprovalReceipt(t *tes
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"evidence-approval", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("e"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "e"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	if _, err := consumeFixtureApproval(t, fixture, issued, actionapproval.DecisionApprove); err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestApprovalReceiptEvidenceDetectsCryptographicTamperAndLegacyAbsence(t *te
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"receipt-tamper", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("t"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "t"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	if _, err := consumeFixtureApproval(t, fixture, issued, actionapproval.DecisionApprove); err != nil {
 		t.Fatal(err)

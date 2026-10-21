@@ -96,10 +96,11 @@ func boundedWait(timeout time.Duration) time.Duration {
 }
 
 // hookRequestBudgetElapsed reports whether the bounded request's budget ran
-// out.
+// out. It reads the clock as well: a wait shortened to the deadline ends at
+// or after it, possibly before the request context's own timer has fired.
 func hookRequestBudgetElapsed() bool {
 	bound := hookRequest.Load()
-	return bound != nil && bound.ctx.Err() != nil
+	return bound != nil && (bound.ctx.Err() != nil || !time.Now().Before(bound.deadline))
 }
 
 // CommandResult mirrors the evaluator's runtime.CommandResult but we

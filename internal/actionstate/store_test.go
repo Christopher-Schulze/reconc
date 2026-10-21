@@ -58,6 +58,7 @@ type storeFixture struct {
 	plan              *action.CompiledPlan
 	authority         PolicyAuthority
 	request           action.Request
+	callIDs           map[string]string
 }
 
 func newStoreFixture(t testing.TB, budgets []action.Budget) *storeFixture {
@@ -201,8 +202,28 @@ func testObservedServer(key *IdentityKey, executableDigest, marker string) Obser
 	return server
 }
 
-func callID(character string) string {
+// unissuedCallID returns a call identity in the canonical format that no
+// store issued, for tests that need only the format.
+func unissuedCallID(character string) string {
 	return "act_" + strings.Repeat(character, 26)
+}
+
+// issuedCallID returns a call identity this fixture's store issued at the
+// fixture clock, the same identity for every use of label.
+func (f *storeFixture) issuedCallID(t testing.TB, label string) string {
+	t.Helper()
+	if id, ok := f.callIDs[label]; ok {
+		return id
+	}
+	id, err := f.store.NewCallID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.callIDs == nil {
+		f.callIDs = map[string]string{}
+	}
+	f.callIDs[label] = id
+	return id
 }
 
 func requireStateCode(t testing.TB, err error, code action.ReasonCode) {
@@ -219,7 +240,7 @@ func TestBudgetStoreCommitsEveryDispatchAndApprovalDimension(t *testing.T) {
 		ResultBytes: 1000, CostUnits: 4, Concurrent: 2,
 	}
 	fixture := newStoreFixture(t, []action.Budget{storeBudget("production", limits, action.BudgetResetNever)})
-	input, reserved := fixture.reserve(t, callID("a"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "a"))
 	if reserved.Reservation == nil || len(reserved.Snapshot.Candidates) != 1 {
 		t.Fatalf("reservation = %#v", reserved)
 	}
@@ -279,7 +300,7 @@ func TestBudgetStoreCommitsEveryDispatchAndApprovalDimension(t *testing.T) {
 
 func TestBudgetStoreReturnsCanonicalAbsentSnapshotWithoutMutation(t *testing.T) {
 	fixture := newStoreFixture(t, nil)
-	input, result := fixture.reserve(t, callID("r"))
+	input, result := fixture.reserve(t, fixture.issuedCallID(t, "r"))
 	if result.Reservation != nil || result.Snapshot.StateVersion != input.Request.StateVersion ||
 		result.Snapshot.Identity != "absent" || result.Snapshot.ReservationIdentity != "absent" ||
 		!result.Snapshot.Complete || result.Snapshot.Candidates == nil || len(result.Snapshot.Candidates) != 0 {
@@ -298,8 +319,8 @@ func TestBudgetStoreIdentifiesOptimisticReservationConflict(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"conflict", action.BudgetLimits{CallCount: 2}, action.BudgetResetNever,
 	)})
-	input, _ := fixture.reserve(t, callID("o"))
-	input.Request.CallID = callID("s")
+	input, _ := fixture.reserve(t, fixture.issuedCallID(t, "o"))
+	input.Request.CallID = fixture.issuedCallID(t, "s")
 	if _, err := fixture.store.Reserve(context.Background(), input); !errors.Is(err, ErrStateVersionChanged) {
 		t.Fatalf("stale reservation error = %v", err)
 	}
@@ -309,7 +330,7 @@ func TestBudgetReservationRetryRequiresExactTrustedCallIdentity(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"retry", action.BudgetLimits{CallCount: 2, ArgumentBytes: 4096}, action.BudgetResetNever,
 	)})
-	input, first := fixture.reserve(t, callID("s"))
+	input, first := fixture.reserve(t, fixture.issuedCallID(t, "s"))
 	input.Request.StateVersion = first.Snapshot.StateVersion
 	retried, err := fixture.store.Reserve(context.Background(), input)
 	if err != nil {
@@ -411,7 +432,7 @@ func TestBudgetStoreRejectsEveryTrustedContextAndAuthoritySpoof(t *testing.T) {
 				t.Fatal(err)
 			}
 			request := fixture.request
-			request.CallID, request.StateVersion = callID("x"), version
+			request.CallID, request.StateVersion = fixture.issuedCallID(t, "x"), version
 			input := ReserveRequest{
 				Plan: fixture.plan, Request: request, Context: fixture.context,
 				Authority: fixture.authority, Server: fixture.server,
@@ -430,13 +451,13 @@ func TestBudgetStoreRejectsEveryTrustedContextAndAuthoritySpoof(t *testing.T) {
 func TestBudgetStoreRecordsDenialsAndExhaustsApprovalAtomically(t *testing.T) {
 	limits := action.BudgetLimits{CallCount: 10, DeniedCount: 1, ApprovalCount: 1}
 	fixture := newStoreFixture(t, []action.Budget{storeBudget("events", limits, action.BudgetResetNever)})
-	_, first := fixture.reserve(t, callID("b"))
+	_, first := fixture.reserve(t, fixture.issuedCallID(t, "b"))
 	if _, accounting, err := fixture.store.RecordDenied(
 		context.Background(), first.Reservation.Identity, first.Snapshot.StateVersion,
 	); err != nil || accounting.ConsumedCount != 1 || accounting.CapacityExhausted {
 		t.Fatalf("first denial accounting = %+v, %v", accounting, err)
 	}
-	_, second := fixture.reserve(t, callID("c"))
+	_, second := fixture.reserve(t, fixture.issuedCallID(t, "c"))
 	version, accounting, err := fixture.store.RecordDenied(
 		context.Background(), second.Reservation.Identity, second.Snapshot.StateVersion,
 	)
@@ -448,9 +469,9 @@ func TestBudgetStoreRecordsDenialsAndExhaustsApprovalAtomically(t *testing.T) {
 		t.Fatal("exhausted denial did not persist terminal cleanup")
 	}
 
-	_, approved := fixture.reserve(t, callID("d"))
+	_, approved := fixture.reserve(t, fixture.issuedCallID(t, "d"))
 	approvedInput := fixture.request
-	approvedInput.CallID = callID("d")
+	approvedInput.CallID = fixture.issuedCallID(t, "d")
 	approvedInput.StateVersion = approved.Snapshot.StateVersion
 	issued := issueFixtureApproval(t, fixture, ReserveRequest{
 		Plan: fixture.plan, Request: approvedInput, Context: fixture.context,
@@ -464,9 +485,9 @@ func TestBudgetStoreRecordsDenialsAndExhaustsApprovalAtomically(t *testing.T) {
 	if _, err := fixture.store.Release(context.Background(), approved.Reservation.Identity, version); err != nil {
 		t.Fatal(err)
 	}
-	_, exhausted := fixture.reserve(t, callID("e"))
+	_, exhausted := fixture.reserve(t, fixture.issuedCallID(t, "e"))
 	exhaustedRequest := fixture.request
-	exhaustedRequest.CallID = callID("e")
+	exhaustedRequest.CallID = fixture.issuedCallID(t, "e")
 	exhaustedRequest.StateVersion = exhausted.Snapshot.StateVersion
 	if _, err := fixture.store.IssueApproval(context.Background(), ApprovalIssueRequest{
 		Binding: ApprovalBinding{
@@ -505,7 +526,7 @@ func TestBudgetStoreRecordsDenialsAndExhaustsApprovalAtomically(t *testing.T) {
 func TestBudgetStoreWithholdsOversizedResultUntilExplicitReconciliation(t *testing.T) {
 	limits := action.BudgetLimits{CallCount: 2, ResultBytes: 1000, Concurrent: 2}
 	fixture := newStoreFixture(t, []action.Budget{storeBudget("results", limits, action.BudgetResetNever)})
-	_, reserved := fixture.reserve(t, callID("f"))
+	_, reserved := fixture.reserve(t, fixture.issuedCallID(t, "f"))
 	version, err := fixture.store.MarkDispatched(
 		context.Background(), reserved.Reservation.Identity, reserved.Snapshot.StateVersion,
 	)
@@ -563,7 +584,7 @@ func TestBudgetStoreWithholdsOversizedResultUntilExplicitReconciliation(t *testi
 func TestBudgetStoreConservativelyMarksUnknownAndAbandonedCalls(t *testing.T) {
 	limits := action.BudgetLimits{CallCount: 4, ResultBytes: 400, Concurrent: 4}
 	fixture := newStoreFixture(t, []action.Budget{storeBudget("unknown", limits, action.BudgetResetNever)})
-	_, first := fixture.reserve(t, callID("t"))
+	_, first := fixture.reserve(t, fixture.issuedCallID(t, "t"))
 	version, err := fixture.store.MarkIndeterminate(
 		context.Background(), first.Reservation.Identity, first.Snapshot.StateVersion,
 	)
@@ -576,7 +597,7 @@ func TestBudgetStoreConservativelyMarksUnknownAndAbandonedCalls(t *testing.T) {
 		t.Fatalf("idempotent indeterminate transition = %q, %v", repeated, err)
 	}
 
-	_, second := fixture.reserve(t, callID("u"))
+	_, second := fixture.reserve(t, fixture.issuedCallID(t, "u"))
 	authorization, err := NewOwnerAbandonmentAuthorization(fixture.key, "owner-primary", second.Snapshot.StateVersion)
 	if err != nil {
 		t.Fatal(err)
@@ -609,7 +630,7 @@ func TestBudgetStoreConservativelyMarksUnknownAndAbandonedCalls(t *testing.T) {
 func TestBudgetStoreUsesTrustedWindowsAndRejectsClockDrift(t *testing.T) {
 	limits := action.BudgetLimits{RateWindow: 1}
 	fixture := newStoreFixture(t, []action.Budget{storeBudget("minute", limits, action.BudgetResetFixedWindow)})
-	_, first := fixture.reserve(t, callID("g"))
+	_, first := fixture.reserve(t, fixture.issuedCallID(t, "g"))
 	version, err := fixture.store.MarkDispatched(
 		context.Background(), first.Reservation.Identity, first.Snapshot.StateVersion,
 	)
@@ -621,13 +642,13 @@ func TestBudgetStoreUsesTrustedWindowsAndRejectsClockDrift(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	_, exhausted := fixture.reserve(t, callID("h"))
+	_, exhausted := fixture.reserve(t, fixture.issuedCallID(t, "h"))
 	if exhausted.Reservation != nil || exhausted.Snapshot.Candidates[0].Available ||
 		exhausted.Snapshot.Candidates[0].Reason != action.ReasonBudgetExhausted {
 		t.Fatalf("same-window capacity = %#v", exhausted)
 	}
 	fixture.clock.set(time.Date(2026, 8, 11, 12, 1, 0, 0, time.UTC), "test-clock")
-	_, nextWindow := fixture.reserve(t, callID("i"))
+	_, nextWindow := fixture.reserve(t, fixture.issuedCallID(t, "i"))
 	if nextWindow.Reservation == nil {
 		t.Fatal("next trusted window did not receive fresh scoped capacity")
 	}
@@ -642,7 +663,7 @@ func TestBudgetStoreUsesTrustedWindowsAndRejectsClockDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := fixture.request
-	request.CallID, request.StateVersion = callID("j"), version
+	request.CallID, request.StateVersion = fixture.issuedCallID(t, "j"), version
 	if _, err := fixture.store.Reserve(context.Background(), ReserveRequest{
 		Plan: fixture.plan, Request: request, Context: fixture.context, Authority: fixture.authority,
 		Server: fixture.server,
@@ -666,7 +687,7 @@ func TestBudgetStoreRefusesDispatchAfterReservationWindowExpires(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"dispatch-window", action.BudgetLimits{RateWindow: 2}, action.BudgetResetFixedWindow,
 	)})
-	_, reserved := fixture.reserve(t, callID("w"))
+	_, reserved := fixture.reserve(t, fixture.issuedCallID(t, "w"))
 	fixture.clock.set(time.Date(2026, 8, 11, 12, 1, 0, 0, time.UTC), "test-clock")
 
 	if _, err := fixture.store.MarkDispatched(
@@ -691,7 +712,7 @@ func TestBudgetStorePersistsRejectedForwardClockBeforeRollback(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"rollback-window", action.BudgetLimits{RateWindow: 2}, action.BudgetResetFixedWindow,
 	)})
-	_, reserved := fixture.reserve(t, callID("2"))
+	_, reserved := fixture.reserve(t, fixture.issuedCallID(t, "2"))
 	fixture.clock.set(time.Date(2026, 8, 11, 12, 1, 0, 0, time.UTC), "test-clock")
 	if _, err := fixture.store.MarkDispatched(
 		context.Background(), reserved.Reservation.Identity, reserved.Snapshot.StateVersion,
@@ -724,7 +745,7 @@ func TestBudgetStorePrunesExpiredFixedWindowsWithoutReturningCurrentCapacity(t *
 	)})
 	for index := 0; index < 12; index++ {
 		fixture.clock.set(time.Date(2026, 8, 11, 12, index, 0, 0, time.UTC), "test-clock")
-		id, err := NewRandomCallID()
+		id, err := fixture.store.NewCallID()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -753,7 +774,7 @@ func TestBudgetStorePrunesExpiredFixedWindowsWithoutReturningCurrentCapacity(t *
 func TestBudgetStoreCarriesConsumptionAcrossGenerationAndBlocksStaleReservation(t *testing.T) {
 	limits := action.BudgetLimits{CallCount: 3}
 	fixture := newStoreFixture(t, []action.Budget{storeBudget("generation", limits, action.BudgetResetNever)})
-	_, first := fixture.reserve(t, callID("k"))
+	_, first := fixture.reserve(t, fixture.issuedCallID(t, "k"))
 	version, err := fixture.store.MarkDispatched(
 		context.Background(), first.Reservation.Identity, first.Snapshot.StateVersion,
 	)
@@ -765,14 +786,14 @@ func TestBudgetStoreCarriesConsumptionAcrossGenerationAndBlocksStaleReservation(
 	); err != nil {
 		t.Fatal(err)
 	}
-	_, stale := fixture.reserve(t, callID("l"))
+	_, stale := fixture.reserve(t, fixture.issuedCallID(t, "l"))
 
 	current, err := fixture.store.CurrentStateVersion(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	request := fixture.request
-	request.CallID, request.StateVersion = callID("m"), current
+	request.CallID, request.StateVersion = fixture.issuedCallID(t, "m"), current
 	request.PolicyDigest = storeNextPolicyDigest
 	request.ToolContractDigest = storeNextToolDigest
 	nextServer := testObservedServer(fixture.key, storeNextExecutable, "next-server")
@@ -822,7 +843,7 @@ func TestBudgetStoreCarriesConsumptionAcrossGenerationAndBlocksStaleReservation(
 		t.Fatal(err)
 	}
 	request.ServerFingerprint, request.StateVersion = newFingerprint, current
-	request.CallID = callID("v")
+	request.CallID = fixture.issuedCallID(t, "v")
 	serverChanged, err := fixture.store.Reserve(context.Background(), ReserveRequest{
 		Plan: compileStorePlan(t, newFingerprint, []action.Budget{storeBudget(
 			"generation", limits, action.BudgetResetNever,
@@ -841,7 +862,7 @@ func TestBudgetStoreCarriesConsumptionAcrossGenerationAndBlocksStaleReservation(
 func TestBudgetStorePersistsExhaustedGoverningGeneration(t *testing.T) {
 	limits := action.BudgetLimits{CallCount: 1}
 	fixture := newStoreFixture(t, []action.Budget{storeBudget("exhausted-generation", limits, action.BudgetResetNever)})
-	_, first := fixture.reserve(t, callID("y"))
+	_, first := fixture.reserve(t, fixture.issuedCallID(t, "y"))
 	version, err := fixture.store.MarkDispatched(
 		context.Background(), first.Reservation.Identity, first.Snapshot.StateVersion,
 	)
@@ -856,7 +877,7 @@ func TestBudgetStorePersistsExhaustedGoverningGeneration(t *testing.T) {
 	}
 
 	request := fixture.request
-	request.CallID, request.StateVersion = callID("z"), version
+	request.CallID, request.StateVersion = fixture.issuedCallID(t, "z"), version
 	request.PolicyDigest = storeNextPolicyDigest
 	request.ToolContractDigest = storeNextToolDigest
 	nextServer := testObservedServer(fixture.key, storeNextExecutable, "exhausted-generation")
@@ -889,7 +910,7 @@ func TestBudgetStorePersistsExhaustedGoverningGeneration(t *testing.T) {
 func TestBudgetStoreCarriesConsumptionAcrossResetContractChange(t *testing.T) {
 	limits := action.BudgetLimits{CallCount: 3}
 	fixture := newStoreFixture(t, []action.Budget{storeBudget("reset-change", limits, action.BudgetResetNever)})
-	_, first := fixture.reserve(t, callID("3"))
+	_, first := fixture.reserve(t, fixture.issuedCallID(t, "3"))
 	version, err := fixture.store.MarkDispatched(
 		context.Background(), first.Reservation.Identity, first.Snapshot.StateVersion,
 	)
@@ -906,7 +927,7 @@ func TestBudgetStoreCarriesConsumptionAcrossResetContractChange(t *testing.T) {
 	changedBudget := storeBudget("reset-change", limits, action.BudgetResetOperatorRun)
 	changedPlan := compileStorePlan(t, fixture.serverFingerprint, []action.Budget{changedBudget})
 	request := fixture.request
-	request.CallID, request.StateVersion, request.PolicyDigest = callID("4"), version, storeNextPolicyDigest
+	request.CallID, request.StateVersion, request.PolicyDigest = fixture.issuedCallID(t, "4"), version, storeNextPolicyDigest
 	changed, err := fixture.store.Reserve(context.Background(), ReserveRequest{
 		Plan: changedPlan, Request: request, Context: fixture.context, Authority: fixture.authority,
 		Server: fixture.server,
@@ -928,12 +949,12 @@ func TestBudgetStoreCarriesConsumptionAcrossResetContractChange(t *testing.T) {
 func TestBudgetStoreBlocksResetContractChangeUntilPriorReservationIsResolved(t *testing.T) {
 	limits := action.BudgetLimits{CallCount: 2}
 	fixture := newStoreFixture(t, []action.Budget{storeBudget("reset-live", limits, action.BudgetResetNever)})
-	_, live := fixture.reserve(t, callID("5"))
+	_, live := fixture.reserve(t, fixture.issuedCallID(t, "5"))
 
 	changedBudget := storeBudget("reset-live", limits, action.BudgetResetOperatorRun)
 	request := fixture.request
 	request.CallID, request.StateVersion, request.PolicyDigest =
-		callID("6"), live.Snapshot.StateVersion, storeNextPolicyDigest
+		fixture.issuedCallID(t, "6"), live.Snapshot.StateVersion, storeNextPolicyDigest
 	changedRequest := ReserveRequest{
 		Plan:    compileStorePlan(t, fixture.serverFingerprint, []action.Budget{changedBudget}),
 		Request: request, Context: fixture.context, Authority: fixture.authority,
@@ -964,12 +985,12 @@ func TestBudgetStoreBlocksResetContractChangeUntilPriorReservationIsResolved(t *
 func TestBudgetStoreBlocksLimitChangeThatWouldInvalidateLiveReservation(t *testing.T) {
 	limits := action.BudgetLimits{CallCount: 2, ResultBytes: 100}
 	fixture := newStoreFixture(t, []action.Budget{storeBudget("limit-live", limits, action.BudgetResetNever)})
-	_, live := fixture.reserve(t, callID("7"))
+	_, live := fixture.reserve(t, fixture.issuedCallID(t, "7"))
 
 	changedBudget := storeBudget("limit-live", action.BudgetLimits{CallCount: 2}, action.BudgetResetNever)
 	request := fixture.request
 	request.CallID, request.StateVersion, request.PolicyDigest =
-		callID("b"), live.Snapshot.StateVersion, storeNextPolicyDigest
+		fixture.issuedCallID(t, "b"), live.Snapshot.StateVersion, storeNextPolicyDigest
 	changedRequest := ReserveRequest{
 		Plan:    compileStorePlan(t, fixture.serverFingerprint, []action.Budget{changedBudget}),
 		Request: request, Context: fixture.context, Authority: fixture.authority,
@@ -1005,7 +1026,7 @@ func TestBudgetStoreRejectsLimitDriftInsideOneGoverningGeneration(t *testing.T) 
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"limit-generation", action.BudgetLimits{CallCount: 2}, action.BudgetResetNever,
 	)})
-	_, live := fixture.reserve(t, callID("c"))
+	_, live := fixture.reserve(t, fixture.issuedCallID(t, "c"))
 	version, err := fixture.store.Release(
 		context.Background(), live.Reservation.Identity, live.Snapshot.StateVersion,
 	)
@@ -1013,7 +1034,7 @@ func TestBudgetStoreRejectsLimitDriftInsideOneGoverningGeneration(t *testing.T) 
 		t.Fatal(err)
 	}
 	request := fixture.request
-	request.CallID, request.StateVersion = callID("a"), version
+	request.CallID, request.StateVersion = fixture.issuedCallID(t, "a"), version
 	if _, err := fixture.store.Reserve(context.Background(), ReserveRequest{
 		Plan: compileStorePlan(t, fixture.serverFingerprint, []action.Budget{storeBudget(
 			"limit-generation", action.BudgetLimits{CallCount: 3}, action.BudgetResetNever,
@@ -1063,7 +1084,7 @@ func TestBudgetStoreSerializesIndependentStoresWithoutOversubscription(t *testin
 		t.Fatal(err)
 	}
 	requests := make([]ReserveRequest, 2)
-	for index, id := range []string{callID("n"), callID("o")} {
+	for index, id := range []string{fixture.issuedCallID(t, "n"), fixture.issuedCallID(t, "o")} {
 		request := fixture.request
 		request.CallID, request.StateVersion = id, version
 		requests[index] = ReserveRequest{
@@ -1173,8 +1194,10 @@ func TestBudgetStorePreflightsOversizedStateBeforePublishingJournal(t *testing.T
 	}
 }
 
+// orderedCapacityCallID returns sorted call identities whose encoded issue
+// second lies far in the future, so retention keeps them in capacity tests.
 func orderedCapacityCallID(value int) string {
-	encoded := []byte(strings.Repeat("a", 26))
+	encoded := []byte(strings.Repeat("7", 8) + strings.Repeat("a", 18))
 	for index := len(encoded) - 1; value > 0; index-- {
 		encoded[index] = byte('a' + value%26)
 		value /= 26
@@ -1186,7 +1209,7 @@ func TestBudgetStoreRejectsCrossRepositoryStateAndClosedKeyLease(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"binding", action.BudgetLimits{CallCount: 2}, action.BudgetResetNever,
 	)})
-	fixture.reserve(t, callID("p"))
+	fixture.reserve(t, fixture.issuedCallID(t, "p"))
 	otherRepository := t.TempDir()
 	otherStore, err := OpenStore(StoreOptions{
 		Home: fixture.home, Repository: otherRepository, KeyLease: fixture.lease,
@@ -1219,7 +1242,7 @@ func TestBudgetStoreStatusContainsNoSecretAdjacentRawValues(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"privacy", action.BudgetLimits{CallCount: 2}, action.BudgetResetOperatorRun,
 	)})
-	fixture.reserve(t, callID("q"))
+	fixture.reserve(t, fixture.issuedCallID(t, "q"))
 	status, err := fixture.store.Status(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -1242,15 +1265,15 @@ func TestBudgetStoreStatusShowsEveryLiveReservationAndExactRemediation(t *testin
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"status", action.BudgetLimits{CallCount: 4, Concurrent: 4}, action.BudgetResetNever,
 	)})
-	_, reserved := fixture.reserve(t, callID("a"))
-	_, dispatched := fixture.reserve(t, callID("b"))
+	_, reserved := fixture.reserve(t, fixture.issuedCallID(t, "a"))
+	_, dispatched := fixture.reserve(t, fixture.issuedCallID(t, "b"))
 	_, err := fixture.store.MarkDispatched(
 		context.Background(), dispatched.Reservation.Identity, dispatched.Snapshot.StateVersion,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, indeterminate := fixture.reserve(t, callID("c"))
+	_, indeterminate := fixture.reserve(t, fixture.issuedCallID(t, "c"))
 	version, err := fixture.store.MarkIndeterminate(
 		context.Background(), indeterminate.Reservation.Identity, indeterminate.Snapshot.StateVersion,
 	)

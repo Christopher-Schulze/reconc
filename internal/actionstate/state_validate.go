@@ -57,9 +57,15 @@ func (s *Store) validateState(state State, persisted bool) error {
 	return nil
 }
 
+// supportedStateFormat accepts the current format and the format-1 states and
+// recovery transactions that the first write after an upgrade migrates.
+func supportedStateFormat(version string) bool {
+	return version == StateFormatVersion || version == legacyStateFormatVersion
+}
+
 // validateStateContract checks every invariant of state except its digest.
 func (s *Store) validateStateContract(state State, persisted bool) error {
-	if state.Schema != StateSchema || state.FormatVersion != StateFormatVersion {
+	if state.Schema != StateSchema || !supportedStateFormat(state.FormatVersion) {
 		return stateError(action.ReasonStateCorrupt, "action state schema metadata is invalid", nil)
 	}
 	if state.KeyID != s.key.ID() || !identityUsesKey(state.RepositoryIdentity, state.KeyID) {
@@ -542,9 +548,37 @@ func budgetLimitsBounded(limits action.BudgetLimits) bool {
 	return limits.Concurrent <= action.MaxConcurrentCalls
 }
 
+// identityUsesKey reports a keyed identity, as action.ValidKeyedIdentity
+// defines it, under keyID. It checks bytes instead of the regular
+// expression because state validation runs it for every retained record.
 func identityUsesKey(identity, keyID string) bool {
-	prefix := "hmac-sha256:v1:" + keyID + ":"
-	return action.ValidKeyedIdentity(identity) && strings.HasPrefix(identity, prefix)
+	const prefix = "hmac-sha256:v1:"
+	if !validKeyedIdentityKeyID(keyID) || len(identity) != len(prefix)+len(keyID)+1+64 ||
+		identity[:len(prefix)] != prefix || identity[len(prefix):len(prefix)+len(keyID)] != keyID ||
+		identity[len(prefix)+len(keyID)] != ':' {
+		return false
+	}
+	for _, character := range []byte(identity[len(prefix)+len(keyID)+1:]) {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// validKeyedIdentityKeyID matches the key-ID part of a keyed identity:
+// 1 to 32 lowercase letters, digits, or hyphens, starting and ending with a
+// letter or digit.
+func validKeyedIdentityKeyID(keyID string) bool {
+	if len(keyID) == 0 || len(keyID) > 32 || keyID[0] == '-' || keyID[len(keyID)-1] == '-' {
+		return false
+	}
+	for _, character := range []byte(keyID) {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func constantIdentityEqual(left, right string) bool {

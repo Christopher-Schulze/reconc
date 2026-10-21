@@ -18,7 +18,7 @@ func TestApprovalReceiptIsConsumedOnceAcrossIndependentStores(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"parallel-approval", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("p"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "p"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	receipt := signedApprovalReceipt(t, issued, actionapproval.DecisionApprove)
 
@@ -86,9 +86,9 @@ func TestIndependentPendingApprovalsSurviveUnrelatedStateTransitions(t *testing.
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"pending-approvals", action.BudgetLimits{CallCount: 4, ApprovalCount: 4}, action.BudgetResetNever,
 	)})
-	firstInput, firstReserved := fixture.reserve(t, callID("x"))
+	firstInput, firstReserved := fixture.reserve(t, fixture.issuedCallID(t, "x"))
 	first := issueFixtureApproval(t, fixture, firstInput, firstReserved)
-	secondInput, secondReserved := fixture.reserve(t, callID("y"))
+	secondInput, secondReserved := fixture.reserve(t, fixture.issuedCallID(t, "y"))
 	second := issueFixtureApproval(t, fixture, secondInput, secondReserved)
 	if first.issue.StateVersion == second.issue.StateVersion {
 		t.Fatal("independent approval issuances did not advance global state")
@@ -115,10 +115,10 @@ func TestOwnerAbandonmentTerminalizesOnlyOwnedPendingApprovals(t *testing.T) {
 		action.BudgetLimits{CallCount: 8, ApprovalCount: 8, ResultBytes: 800, Concurrent: 4},
 		action.BudgetResetNever,
 	)})
-	preInput, preReserved := fixture.reserve(t, callID("g"))
+	preInput, preReserved := fixture.reserve(t, fixture.issuedCallID(t, "g"))
 	pre := issueFixtureApproval(t, fixture, preInput, preReserved)
 
-	postInput, postReserved := fixture.reserve(t, callID("h"))
+	postInput, postReserved := fixture.reserve(t, fixture.issuedCallID(t, "h"))
 	postPre := issueFixtureApproval(t, fixture, postInput, postReserved)
 	postPreResult, err := consumeFixtureApproval(t, fixture, postPre, actionapproval.DecisionApprove)
 	if err != nil {
@@ -162,7 +162,7 @@ func TestOwnerAbandonmentTerminalizesOnlyOwnedPendingApprovals(t *testing.T) {
 		binding: postBinding, issue: postIssue, registry: postPre.registry, privateKey: postPre.privateKey,
 	}
 
-	_, indeterminate := fixture.reserve(t, callID("i"))
+	_, indeterminate := fixture.reserve(t, fixture.issuedCallID(t, "i"))
 	if _, err := fixture.store.MarkIndeterminate(
 		context.Background(), indeterminate.Reservation.Identity, indeterminate.Snapshot.StateVersion,
 	); err != nil {
@@ -187,7 +187,7 @@ func TestOwnerAbandonmentTerminalizesOnlyOwnedPendingApprovals(t *testing.T) {
 	}
 	secondaryFixture := *fixture
 	secondaryFixture.store = secondaryStore
-	secondaryInput, secondaryReserved := secondaryFixture.reserve(t, callID("j"))
+	secondaryInput, secondaryReserved := secondaryFixture.reserve(t, secondaryFixture.issuedCallID(t, "j"))
 	secondary := issueFixtureApproval(t, &secondaryFixture, secondaryInput, secondaryReserved)
 
 	current, err := fixture.store.CurrentStateVersion(context.Background())
@@ -276,7 +276,7 @@ func TestOwnerAbandonmentRecoversAtomicApprovalTransitionAfterPublicationFailure
 		action.BudgetLimits{CallCount: 2, ApprovalCount: 2, Concurrent: 2},
 		action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("k"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "k"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	authorization, err := NewOwnerAbandonmentAuthorization(
 		fixture.key, "owner-primary", issued.issue.StateVersion,
@@ -323,9 +323,9 @@ func TestDuplicateReceiptIDTerminalizesTheSecondPendingApproval(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"duplicate-receipt", action.BudgetLimits{CallCount: 4, ApprovalCount: 4}, action.BudgetResetNever,
 	)})
-	firstInput, firstReserved := fixture.reserve(t, callID("a"))
+	firstInput, firstReserved := fixture.reserve(t, fixture.issuedCallID(t, "a"))
 	first := issueFixtureApproval(t, fixture, firstInput, firstReserved)
-	secondInput, secondReserved := fixture.reserve(t, callID("b"))
+	secondInput, secondReserved := fixture.reserve(t, fixture.issuedCallID(t, "b"))
 	second := issueFixtureApproval(t, fixture, secondInput, secondReserved)
 
 	firstReceipt := signedApprovalReceipt(t, first, actionapproval.DecisionApprove)
@@ -353,7 +353,7 @@ func TestApprovalFailureRecordsDenialAndTerminalizesAtCapacity(t *testing.T) {
 		"approval-denial", action.BudgetLimits{CallCount: 4, DeniedCount: 1, ApprovalCount: 4}, action.BudgetResetNever,
 	)})
 	for index, suffix := range []string{"c", "d"} {
-		input, reserved := fixture.reserve(t, callID(suffix))
+		input, reserved := fixture.reserve(t, fixture.issuedCallID(t, suffix))
 		issued := issueFixtureApproval(t, fixture, input, reserved)
 		result, err := consumeFixtureApproval(t, fixture, issued, actionapproval.DecisionReject)
 		requireStateCode(t, err, action.ReasonApprovalRejected)
@@ -378,7 +378,7 @@ func TestApprovalPersistenceFailureDoesNotConsumeReceiptOrBudget(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"approval-disk", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("q"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "q"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	receipt := signedApprovalReceipt(t, issued, actionapproval.DecisionApprove)
 	binding := issued.binding
@@ -413,7 +413,7 @@ func TestApprovalExpiryReconciliationPersistenceFailureIsAtomic(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"approval-reconcile-disk", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("d"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "d"))
 	issueFixtureApproval(t, fixture, input, reserved)
 	fixture.clock.set(fixture.clock.snapshot.Time.Add(time.Minute), "test-clock")
 
@@ -444,7 +444,7 @@ func TestApprovalExpiryReconciliationIsSingleWriterAcrossIndependentStores(t *te
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"approval-reconcile-race", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("e"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "e"))
 	issueFixtureApproval(t, fixture, input, reserved)
 	fixture.clock.set(fixture.clock.snapshot.Time.Add(time.Minute), "test-clock")
 
@@ -517,7 +517,7 @@ func TestApprovalMalformedReceiptAndCancellationTerminalizeExactlyOnce(t *testin
 			fixture := newStoreFixture(t, []action.Budget{storeBudget(
 				"terminal-approval", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 			)})
-			input, reserved := fixture.reserve(t, callID(test.call))
+			input, reserved := fixture.reserve(t, fixture.issuedCallID(t, test.call))
 			issued := issueFixtureApproval(t, fixture, input, reserved)
 			var result ApprovalConsumeResult
 			var err error
@@ -571,7 +571,7 @@ func TestApprovalConsumeRejectsRegistryWithoutTrustedLoaderProvenance(t *testing
 			fixture := newStoreFixture(t, []action.Budget{storeBudget(
 				"trusted-registry", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 			)})
-			input, reserved := fixture.reserve(t, callID("m"))
+			input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "m"))
 			issued := issueFixtureApproval(t, fixture, input, reserved)
 			registry := issued.registry
 			test.mutate(&registry)
@@ -594,7 +594,7 @@ func TestApprovalRequestStateTamperAndPendingReservationCorruptionFailClosed(t *
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"approval-integrity", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("u"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "u"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	replacement := "A"
 	if issued.issue.RequestState[len(issued.issue.RequestState)-1:] == replacement {
@@ -697,7 +697,7 @@ func TestApprovalConsumptionRejectsEveryTrustedBindingDrift(t *testing.T) {
 			fixture := newStoreFixture(t, []action.Budget{storeBudget(
 				"binding-approval", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 			)})
-			input, reserved := fixture.reserve(t, callID("v"))
+			input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "v"))
 			issued := issueFixtureApproval(t, fixture, input, reserved)
 			binding := issued.binding
 			binding.Evaluation.CredentialLabels = append([]string(nil), issued.binding.Evaluation.CredentialLabels...)
@@ -726,7 +726,7 @@ func TestApprovalTrustedClockRollbackAndPrematureExpiryFailClosed(t *testing.T) 
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"approval-clock", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("w"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "w"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	if _, err := fixture.store.FinalizeApproval(context.Background(), ApprovalFinalizeRequest{
 		RequestState: issued.issue.RequestState, ExpectedStateVersion: issued.issue.StateVersion,

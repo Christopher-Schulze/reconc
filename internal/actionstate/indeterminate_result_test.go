@@ -185,7 +185,7 @@ func newIndeterminateResultFixture(t testing.TB) (*storeFixture, ReserveResult, 
 		storeBudget("run-result", limits, action.BudgetResetOperatorRun),
 		storeBudget("session-result", limits, action.BudgetResetOperatorSession),
 	})
-	_, reserved := fixture.reserve(t, callID("m"))
+	_, reserved := fixture.reserve(t, fixture.issuedCallID(t, "m"))
 	version, err := fixture.store.MarkIndeterminate(
 		context.Background(), reserved.Reservation.Identity, reserved.Snapshot.StateVersion,
 	)

@@ -67,6 +67,11 @@ func (s *Store) reserveLocked(input ReserveRequest) (ReserveResult, error) {
 	if existing := reservationForCall(state.Reservations, input.Request.CallID); existing != nil {
 		return s.retryReservationSnapshot(state, persisted, *existing, declarations, tool, input, clock)
 	}
+	// A call first enters the state here; its identity must be store-issued
+	// and fresh, so pruned history can never be needed to reject it.
+	if err := s.requireAdmissibleCallID(input.Request.CallID, clock.Time); err != nil {
+		return ReserveResult{}, err
+	}
 	next := cloneState(state)
 	generation := action.BudgetGeneration{
 		PolicyDigest: input.Request.PolicyDigest, ExecutableDigest: input.Server.ExecutableDigest,
@@ -86,7 +91,11 @@ func (s *Store) reserveLocked(input ReserveRequest) (ReserveResult, error) {
 		}
 		return ReserveResult{Snapshot: s.budgetSnapshot(state.Digest, "absent", candidates)}, nil
 	}
-	if len(next.Reservations) >= MaxReservations {
+	// Every active reservation must be able to leave a terminal record, so
+	// reservations and terminal records share the terminal-record capacity.
+	pruneRetainedHistory(&next, clock.Time)
+	if len(next.Reservations) >= MaxReservations ||
+		len(next.Reservations)+len(next.TerminalCalls) >= MaxTerminalCallRecords {
 		return ReserveResult{}, stateError(action.ReasonStateUnavailable, "action reservation capacity is exhausted", nil)
 	}
 	reservation, err := s.newReservation(input, candidates, clock.Time)
@@ -96,7 +105,7 @@ func (s *Store) reserveLocked(input ReserveRequest) (ReserveResult, error) {
 	next.Reservations = append(next.Reservations, reservation)
 	sort.Slice(next.Reservations, func(i, j int) bool { return next.Reservations[i].Identity < next.Reservations[j].Identity })
 	s.applyClock(&next, clock)
-	if err := s.writeState(state, persisted, &next); err != nil {
+	if err := s.writeStateWithHeadroom(state, persisted, &next, StateAdmissionHeadroomBytes); err != nil {
 		return ReserveResult{}, err
 	}
 	candidates, err = s.candidatesFromState(next, declarations, tool, input, generation, clock.Time)

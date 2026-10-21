@@ -77,7 +77,7 @@ func (p *stateMutatingEvidenceProvider) Observe(
 			p.err = fmt.Errorf("gateway is unavailable")
 			return
 		}
-		request.CallID, p.err = actionstate.NewRandomCallID()
+		request.CallID, p.err = p.gateway.state.NewCallID()
 		if p.err != nil {
 			return
 		}

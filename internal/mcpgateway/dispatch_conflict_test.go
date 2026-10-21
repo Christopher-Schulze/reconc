@@ -42,7 +42,7 @@ func (l *dispatchConflictLoader) Load(ctx context.Context, repository string) (P
 	if !exists {
 		return PolicySnapshot{}, fmt.Errorf("echo contract missing")
 	}
-	callID, err := actionstate.NewRandomCallID()
+	callID, err := l.gateway.state.NewCallID()
 	if err != nil {
 		return PolicySnapshot{}, err
 	}
@@ -142,7 +142,7 @@ func TestGatewayDispatchConflictFailuresReleaseWithoutDispatch(t *testing.T) {
 			if !exists {
 				t.Fatal("echo contract missing")
 			}
-			callID, err := actionstate.NewRandomCallID()
+			callID, err := gateway.state.NewCallID()
 			if err != nil {
 				t.Fatal(err)
 			}

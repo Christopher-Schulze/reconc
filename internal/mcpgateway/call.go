@@ -49,7 +49,7 @@ func (g *Gateway) handleTool(
 	sdkRequest *mcp.CallToolRequest,
 	registered ToolContract,
 ) (*mcp.CallToolResult, error) {
-	callID, err := actionstate.NewRandomCallID()
+	callID, err := g.state.NewCallID()
 	if err != nil {
 		return nil, fmt.Errorf("generate gateway call identity: %w", err)
 	}

@@ -11,7 +11,7 @@ import (
 
 const (
 	StateSchema            = "reconc.action-state/v1"
-	StateFormatVersion     = "1"
+	StateFormatVersion     = "2"
 	TransactionSchema      = "reconc.action-state-transaction/v1"
 	MaxStateBytes          = 16 << 20
 	MaxStateTransaction    = MaxStateBytes + 64<<10

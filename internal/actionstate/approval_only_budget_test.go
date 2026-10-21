@@ -11,7 +11,7 @@ func TestApprovalStoreIssuesWithApprovalOnlyBudget(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"approval", action.BudgetLimits{ApprovalCount: 1}, action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("a"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "a"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	if issued.issue.Evidence.Status != actionapproval.StatusPending {
 		t.Fatalf("approval status = %q, want pending", issued.issue.Evidence.Status)
@@ -23,7 +23,7 @@ func TestApprovalStoreIssuesWhenApprovalRuleDisablesCaching(t *testing.T) {
 		"approval", action.BudgetLimits{ApprovalCount: 1}, action.BudgetResetNever,
 	)})
 	fixture.plan = compileApprovalCachePlan(t, fixture.serverFingerprint, fixture.plan.Plan().Budgets)
-	input, reserved := fixture.reserve(t, callID("b"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "b"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	if issued.issue.Evidence.Status != actionapproval.StatusPending {
 		t.Fatalf("approval status = %q, want pending", issued.issue.Evidence.Status)

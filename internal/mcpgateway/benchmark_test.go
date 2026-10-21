@@ -11,7 +11,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"reconc.dev/reconc/internal/action"
-	"reconc.dev/reconc/internal/actionstate"
 )
 
 func BenchmarkToolDiscovery(b *testing.B) {
@@ -242,7 +241,7 @@ func BenchmarkGatewayPreDispatchEvidenceContention(b *testing.B) {
 			b.RunParallel(func(worker *testing.PB) {
 				for worker.Next() {
 					semaphore <- struct{}{}
-					callID, callIDErr := actionstate.NewRandomCallID()
+					callID, callIDErr := harness.gateway.state.NewCallID()
 					if callIDErr != nil {
 						<-semaphore
 						b.Error(callIDErr)

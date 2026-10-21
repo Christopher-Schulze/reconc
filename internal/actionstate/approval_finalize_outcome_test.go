@@ -17,7 +17,7 @@ func TestFinalizeApprovalPersistsThroughDenialCapacityExhaustion(t *testing.T) {
 		action.BudgetLimits{CallCount: 8, DeniedCount: 1, ApprovalCount: 4},
 		action.BudgetResetNever,
 	)})
-	firstInput, firstReserved := fixture.reserve(t, callID("a"))
+	firstInput, firstReserved := fixture.reserve(t, fixture.issuedCallID(t, "a"))
 	firstIssued := issueFixtureApproval(t, fixture, firstInput, firstReserved)
 	first, err := fixture.store.FinalizeApproval(context.Background(), ApprovalFinalizeRequest{
 		RequestState: firstIssued.issue.RequestState, ExpectedStateVersion: firstIssued.issue.StateVersion,
@@ -30,7 +30,7 @@ func TestFinalizeApprovalPersistsThroughDenialCapacityExhaustion(t *testing.T) {
 		t.Fatalf("first cancellation = %#v", first)
 	}
 
-	secondInput, secondReserved := fixture.reserve(t, callID("b"))
+	secondInput, secondReserved := fixture.reserve(t, fixture.issuedCallID(t, "b"))
 	secondIssued := issueFixtureApproval(t, fixture, secondInput, secondReserved)
 	second, err := fixture.store.FinalizeApproval(context.Background(), ApprovalFinalizeRequest{
 		RequestState: secondIssued.issue.RequestState, ExpectedStateVersion: secondIssued.issue.StateVersion,
@@ -84,7 +84,7 @@ func TestFinalizeApprovalRejectsStalePendingVersionAndRecoversTerminalState(t *t
 		action.BudgetLimits{CallCount: 4, DeniedCount: 4, ApprovalCount: 4},
 		action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("c"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "c"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	stale, err := fixture.store.FinalizeApproval(context.Background(), ApprovalFinalizeRequest{
 		RequestState: issued.issue.RequestState, ExpectedStateVersion: "invalid-issuance-version",
@@ -133,7 +133,7 @@ func TestFinalizeApprovalPublishFailureDoesNotTerminalize(t *testing.T) {
 		action.BudgetLimits{CallCount: 2, DeniedCount: 2, ApprovalCount: 2},
 		action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("d"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "d"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	publish := fixture.store.publish
 	fixture.store.publish = func(string, []byte) error { return errors.New("simulated disk full") }
@@ -172,7 +172,7 @@ func TestFinalizeApprovalConcurrentTerminalizersHaveOneWinner(t *testing.T) {
 		action.BudgetLimits{CallCount: 4, DeniedCount: 4, ApprovalCount: 4, Concurrent: 4},
 		action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("e"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "e"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	outcomes := make([]ApprovalFinalizeOutcome, 8)
 	errs := make([]error, 8)

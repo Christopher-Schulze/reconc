@@ -18,7 +18,7 @@ func TestDispatchConflictSentinelIsLimitedToStateVersion(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newStoreFixture(t, []action.Budget{storeBudget("dispatch", action.BudgetLimits{RateWindow: 2}, action.BudgetResetFixedWindow)})
-			_, reserved := fixture.reserve(t, callID("d"))
+			_, reserved := fixture.reserve(t, fixture.issuedCallID(t, "d"))
 			identity, version := reserved.Reservation.Identity, reserved.Snapshot.StateVersion
 			if test.stale {
 				version = "stale"

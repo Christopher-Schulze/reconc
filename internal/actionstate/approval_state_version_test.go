@@ -12,8 +12,8 @@ func TestApprovalIssuanceRebindsLiveReservationToCurrentState(t *testing.T) {
 		action.BudgetLimits{CallCount: 8, ApprovalCount: 8, Concurrent: 4},
 		action.BudgetResetNever,
 	)})
-	firstInput, first := fixture.reserve(t, callID("p"))
-	_, second := fixture.reserve(t, callID("q"))
+	firstInput, first := fixture.reserve(t, fixture.issuedCallID(t, "p"))
+	_, second := fixture.reserve(t, fixture.issuedCallID(t, "q"))
 	if first.Snapshot.StateVersion == second.Snapshot.StateVersion {
 		t.Fatal("independent reservation did not advance action state")
 	}

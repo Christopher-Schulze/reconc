@@ -11,7 +11,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"reconc.dev/reconc/internal/action"
-	"reconc.dev/reconc/internal/actionstate"
 )
 
 func TestMalformedDownstreamResultFailsClosedAfterDispatch(t *testing.T) {
@@ -102,7 +101,7 @@ func preparedGatewayCallWithPlan(
 	if !exists {
 		t.Fatal("gateway tool contract is unavailable")
 	}
-	callID, err := actionstate.NewRandomCallID()
+	callID, err := harness.gateway.state.NewCallID()
 	if err != nil {
 		t.Fatal(err)
 	}

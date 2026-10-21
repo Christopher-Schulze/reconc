@@ -2,7 +2,6 @@ package actionstate
 
 import (
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -53,6 +52,7 @@ const (
 	DomainTransaction      IdentityDomain = "reconc/action/state-transaction/v1"
 	DomainCredential       IdentityDomain = "reconc/action/credential/v1"
 	DomainInspection       IdentityDomain = "reconc/action/inspection/v1"
+	DomainCallID           IdentityDomain = "reconc/action/call-id/v1"
 )
 
 type IdentityKey struct {
@@ -115,7 +115,7 @@ func (d IdentityDomain) Valid() bool {
 	case DomainServer, DomainRepository, DomainWorkingDirectory, DomainArgv, DomainEnvironmentName,
 		DomainEnvironment, DomainArgument, DomainResult, DomainUpstream,
 		DomainApproval, DomainBudget, DomainLedger, DomainRun, DomainSession,
-		DomainContext, DomainState, DomainTransaction, DomainCredential, DomainInspection:
+		DomainContext, DomainState, DomainTransaction, DomainCredential, DomainInspection, DomainCallID:
 		return true
 	default:
 		return false
@@ -412,10 +412,6 @@ func environmentNameLess(left, right string) bool {
 		return strings.ToUpper(left) < strings.ToUpper(right)
 	}
 	return left < right
-}
-
-func NewRandomCallID() (string, error) {
-	return randomID("act_", rand.Reader)
 }
 
 func randomID(prefix string, reader io.Reader) (string, error) {

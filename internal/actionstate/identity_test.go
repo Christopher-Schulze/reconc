@@ -163,17 +163,6 @@ func TestRandomCallIDMatchesCanonicalContract(t *testing.T) {
 	}
 }
 
-func TestNewRandomCallIDMatchesCanonicalContract(t *testing.T) {
-	t.Parallel()
-	id, err := NewRandomCallID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !validCallID(id) {
-		t.Fatalf("random call ID = %q", id)
-	}
-}
-
 func TestObserveServerRejectsEveryBoundedIdentityViolation(t *testing.T) {
 	root := t.TempDir()
 	executable := filepath.Join(root, "worker")

@@ -107,7 +107,7 @@ func TestApprovalStoreIssuesRedactedRequestAndConsumesReceiptOnce(t *testing.T) 
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"approval", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("a"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "a"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	body, err := actionapproval.EncodeRequest(issued.issue.Request)
 	if err != nil {
@@ -157,7 +157,7 @@ func TestApprovalRequestStateRejectsEquivalentNonCanonicalJSON(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"approval-state-canonical", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("f"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "f"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	body, err := base64.RawURLEncoding.Strict().DecodeString(issued.issue.RequestState)
 	if err != nil {
@@ -180,7 +180,7 @@ func TestApprovalStoreRecordsSignedRejectionAndReleasesReservation(t *testing.T)
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"rejection", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("b"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "b"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	result, err := consumeFixtureApproval(t, fixture, issued, actionapproval.DecisionReject)
 	requireStateCode(t, err, action.ReasonApprovalRejected)
@@ -202,7 +202,7 @@ func TestApprovalStoreExpiresAndTerminalizesPendingRequest(t *testing.T) {
 	fixture := newStoreFixture(t, []action.Budget{storeBudget(
 		"expiry", action.BudgetLimits{CallCount: 2, ApprovalCount: 2}, action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("c"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "c"))
 	issued := issueFixtureApproval(t, fixture, input, reserved)
 	fixture.clock.set(time.Date(2026, 8, 11, 12, 1, 0, 0, time.UTC), "test-clock")
 	result, err := consumeFixtureApproval(t, fixture, issued, actionapproval.DecisionApprove)
@@ -224,7 +224,7 @@ func TestApprovalStoreReconcilesEveryExpiredCrashOrphanAtomically(t *testing.T) 
 		"crash-expiry", action.BudgetLimits{CallCount: 4, ApprovalCount: 4}, action.BudgetResetNever,
 	)})
 	for _, suffix := range []string{"d", "e"} {
-		input, reserved := fixture.reserve(t, callID(suffix))
+		input, reserved := fixture.reserve(t, fixture.issuedCallID(t, suffix))
 		issueFixtureApproval(t, fixture, input, reserved)
 	}
 	fixture.clock.set(time.Date(2026, 8, 11, 12, 1, 0, 0, time.UTC), "test-clock")
@@ -257,7 +257,7 @@ func TestApprovalStoreCountsPreAndPostReceiptsOnOneDispatchedReservation(t *test
 		action.BudgetLimits{CallCount: 1, ApprovalCount: 2, ResultBytes: 100},
 		action.BudgetResetNever,
 	)})
-	input, reserved := fixture.reserve(t, callID("g"))
+	input, reserved := fixture.reserve(t, fixture.issuedCallID(t, "g"))
 	pre := issueFixtureApproval(t, fixture, input, reserved)
 	preResult, err := consumeFixtureApproval(t, fixture, pre, actionapproval.DecisionApprove)
 	if err != nil {

@@ -301,6 +301,14 @@ func (s *Store) decodeState(body []byte) (State, error) {
 }
 
 func (s *Store) writeState(previous State, previousPersisted bool, next *State) error {
+	return s.writeStateWithHeadroom(previous, previousPersisted, next, 0)
+}
+
+// writeStateWithHeadroom publishes next, first migrating a format-1 state and
+// pruning history the admission window no longer needs. A positive headroom
+// refuses the write while the encoded state would leave less than headroom
+// bytes below MaxStateBytes.
+func (s *Store) writeStateWithHeadroom(previous State, previousPersisted bool, next *State, headroom int) error {
 	if next == nil {
 		return stateError(action.ReasonStateUnavailable, "next action state is unavailable", nil)
 	}
@@ -313,6 +321,12 @@ func (s *Store) writeState(previous State, previousPersisted bool, next *State) 
 	if err := s.validateState(previous, previousPersisted); err != nil {
 		return err
 	}
+	now := time.Unix(0, next.LastObservedUnixNano)
+	s.migrateLegacyHistory(next, now)
+	if next.FormatVersion != StateFormatVersion {
+		return stateError(action.ReasonStateCorrupt, "action state format cannot be written", nil)
+	}
+	pruneRetainedHistory(next, now)
 	next.Revision = previous.Revision + 1
 	digest, err := s.stateDigest(*next)
 	if err != nil {
@@ -331,6 +345,10 @@ func (s *Store) writeState(previous State, previousPersisted bool, next *State) 
 	stateBody, err := encodeBoundedJSON(*next, MaxStateBytes)
 	if err != nil {
 		return stateError(action.ReasonStateUnavailable, "encode bounded action state", err)
+	}
+	if headroom > 0 && len(stateBody) > MaxStateBytes-headroom {
+		return stateError(action.ReasonStateUnavailable,
+			"action state is too close to its size limit to admit a new call; retained history shrinks as it leaves the admission window", nil)
 	}
 	transactionBody, err := encodeBoundedCompactJSON(transaction, MaxStateTransaction)
 	if err != nil {
@@ -494,7 +512,8 @@ func (s *Store) decodeTransaction(body []byte) (stateTransaction, error) {
 	if err := requireJSONEOF(decoder); err != nil {
 		return stateTransaction{}, stateError(action.ReasonStateCorrupt, "decode action state transaction", err)
 	}
-	if transaction.Schema != TransactionSchema || transaction.FormatVersion != StateFormatVersion ||
+	if transaction.Schema != TransactionSchema || !supportedStateFormat(transaction.FormatVersion) ||
+		transaction.After.FormatVersion != transaction.FormatVersion ||
 		!identityUsesKey(transaction.BeforeDigest, s.key.ID()) ||
 		transaction.BeforePersisted != (transaction.BeforeRevision > 0) ||
 		transaction.BeforeRevision == ^uint64(0) ||

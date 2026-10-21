@@ -103,7 +103,7 @@ func TestPrepareCallFailsClosedAndReleasesSetupReservations(t *testing.T) {
 			if !exists {
 				t.Fatal("gateway echo contract is unavailable")
 			}
-			callID, err := actionstate.NewRandomCallID()
+			callID, err := harness.gateway.state.NewCallID()
 			if err != nil {
 				t.Fatal(err)
 			}
