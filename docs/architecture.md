@@ -1663,21 +1663,14 @@ macOS, when `git` resolves to the `/usr/bin/git` xcrun shim, the boundary runs
 the git that shim would execute directly: the toolchain or `usr/bin` git of
 `DEVELOPER_DIR`, the `xcode-select` selection, or the Command Line Tools when
 no Xcode is installed. An unselected Xcode, a `TOOLCHAINS` selection, or a
-missing target leaves the shim in place. This saves about 10 ms per Git
-process.
+missing target leaves the shim in place.
 
 `BenchmarkRepositoryRunStopHotpath` measures the in-process executable-TASK
-continuation path without process startup. A five-iteration Apple M1 sample on
-2026-08-05 measured 14,264,267 ns/op, 67,268 B/op, and 571 allocs/op. The
-process-independent no-op persistence benchmark
-`BenchmarkDuplicateSessionMutation` measured 256,433 ns/op, 16,496 B/op, and
-176 allocs/op in the same run. Normal audit append uses a bounded tail record
-plus the detached chain head instead of replaying every retained entry;
-`BenchmarkAuditAppendRetainedChain` measured 10,756,353 ns/op with no retained
-entries and 9,966,729 ns/op with 200 retained entries on an Apple M1 on
-2026-10-21, each the median of three 30-iteration runs.
-These are reproducible observations, not latency contracts. The routine paths
-start no Git process; fsync-backed state, pointer, decision-log, and audit
+continuation path without process startup, and
+`BenchmarkDuplicateSessionMutation` the process-independent no-op persistence
+path. Normal audit append uses a bounded tail record plus the detached chain
+head instead of replaying every retained entry
+(`BenchmarkAuditAppendRetainedChain`). The routine paths start no Git process; fsync-backed state, pointer, decision-log, and audit
 durability dominate the remaining cost.
 
 Calibrated benchmark history covers nineteen allocation-sensitive groups across

@@ -11,21 +11,12 @@ usage, architecture, release, and security facts should be kept here first.
 - [Input Bounds And Diagnostic Completeness](#input-bounds-and-diagnostic-completeness)
 - [Install And Build](#install-and-build)
 - [Transactional Bootstrap](#transactional-bootstrap)
-- [v0.9 CLI Product Contract](#v09-cli-product-contract)
+- [CLI Product Contract](#cli-product-contract)
 - [Daily Workflow](#daily-workflow)
 - [Signed CI Candidate Evidence](#signed-ci-candidate-evidence)
 - [FAQ](#faq)
 - [Troubleshooting](#troubleshooting)
 - [Upgrading](#upgrading)
-- [v0.8.8 To v0.9.0 Migration](#v088-to-v090-migration)
-- [v0.9.0 To v0.9.1 Migration](#v090-to-v091-migration)
-- [v0.9.1 To v0.9.2 Migration](#v091-to-v092-migration)
-- [v0.9.2 To v0.9.3 Migration](#v092-to-v093-migration)
-- [v0.9.3 To v0.9.4 Migration](#v093-to-v094-migration)
-- [v0.9.4 To v0.9.5 Migration](#v094-to-v095-migration)
-- [v0.9.5 To v0.9.6 Migration](#v095-to-v096-migration)
-- [v0.9.6 To v0.9.7 Migration](#v096-to-v097-migration)
-- [v0.9.7 To v0.9.8 Migration](#v097-to-v098-migration)
 - [Uninstall And Remove](#uninstall-and-remove)
 - [Development Control Plane](#development-control-plane)
 - [Minimal Example Policy](#minimal-example-policy)
@@ -159,9 +150,9 @@ The public narrative stays consistent at three depths:
 
 1. **10 seconds:** An agent saying "done" is a claim. Reconc checks current
    repository evidence before accepting it.
-2. **30 seconds:** The submitted product video shows a protected action and
-   missing proof block, applies the exact remediation, runs the real test, and
-   accepts `done` only after the TASK and proof agree.
+2. **30 seconds:** A protected action and a missing proof block, the exact
+   remediation applies, the real test runs, and `done` is accepted only after
+   the TASK and proof agree.
 3. **2 minutes:** Reconc compiles repository-owned policy, applies the same
    decision engine across CLI, hooks, Git, CI, TASK state, and run control,
    binds command success to the candidate it verified, confirms that HEAD and
@@ -195,12 +186,6 @@ one- and two-character names, without replacing those bytes inside longer
 tokens. It remains defense in depth rather than a guarantee of discovering
 every possible secret format.
 
-Submitted Build Week video, Devpost text, and the immutable v0.8.6 artifacts
-remain historical evidence. Current README and documentation use this
-terminology; future repository descriptions, release notes, video captions, and
-social posts should derive from this section instead of retroactively editing
-the submission or copying a second long-form explanation.
-
 ## Input Bounds And Diagnostic Completeness
 
 Repository and operator input is inspected before allocation. Shared readers
@@ -230,7 +215,7 @@ partial audit, run-log, checksum, release, or provenance snapshot.
 | Action content inspection | Canonical action values are capped at 8 MiB, strings at 4 MiB, nesting at 32, and JSON items at 65,536. Output schemas are capped at 1 MiB and 8,192 items, MCP results at 4,096 content blocks, decoded binary blocks at 3 MiB, and inspection at 500 ms pre-call, 1 second post-result, or 250 ms progress. |
 | Action policy evaluation | The MCP gateway starts its 500 ms evaluation context before input normalization and cache lookup. Preparation, selectors, condition nodes, inspection and budget candidates, repository-effect traces, result assembly, and glob matching observe that context; glob programs poll at most every 64 bounded work steps. Deadline or caller cancellation wins at the final publication checkpoint, fails closed, and is never cached. Each operation between checkpoints remains independently bounded by the action input, plan, trace, regex, or matcher limits. |
 | Action decision ledger | Each typed payload-free record is capped at 64 KiB, the live file and each of two archives at 4 MiB, the detached head at 8 KiB, and the authenticated incremental checkpoint at 16 MiB. Appends use a ten-second private cross-process transaction boundary; queries return records only after the retained chain, archives, and detached head verify. |
-| MCP gateway | Protocol frames and results are capped at 10 MiB, arguments at 8 MiB, discovery at 512 tools across 64 pages and 8 MiB aggregate metadata, concurrent calls and pending approvals at four each, progress at 128 events and 1 MiB per call, retained child stderr at 256 KiB, and serialized operator diagnostics at 4 KiB per line. One Go 1.27 `jsontext` pass validates framing and extracts borrowed envelope fields for observers and progress routing before the SDK consumes the original bytes. Escaping fields are cloned, transformed bytes alone are revalidated, and cleared reader/writer buffers are retained only through 256 KiB. Discovery charges and validates each page before requesting the next, retains only canonical contracts, and therefore holds at most the aggregate catalog plus one bounded in-flight page instead of all raw pages. Every in-flight call observes both its request context and gateway shutdown. Shutdown attempts every detached pending approval in stable call order before the bounded call drain, aggregates safe call-and-phase failures, and reports failures from both stages. Failed shutdown finalization retains only the structured retry state, zeroes detached wire buffers, and is retried by a later `Close` before the identity-key lease is released. A persisted terminal approval remains finalized across retries even when denial-count capacity is exhausted; that secondary condition is written to operator diagnostics after durable cleanup, never treated as an uncommitted mutation. Pure user cancellation is graceful only when no independent cleanup failure occurred; joined cleanup failures remain non-zero at the CLI boundary. Every observed SDK call consumes its pending or request-ID state on completion, cancellation, timeout, or response failure, so no terminal path retains the serialized send lease, and a call waiting for that lease stops at its own deadline or cancellation before it reaches the SDK. Tool icons are limited to 32 fully decoded self-contained PNG or JPEG data URIs, 48 KiB each, 2,048 pixels per side, and 4,194,304 pixels; remote URLs and decompression bombs fail closed. Tool `_meta` is absent or empty because extension semantics are not enforced. Definitions, frames, progress, stderr, and results are validated or inspected before exposure. Call arguments and downstream results are parsed once: request normalization and result forwarding reuse the value parsed while canonicalizing them instead of parsing the canonical bytes again, which halves normalization cost for large payloads. |
+| MCP gateway | Protocol frames and results are capped at 10 MiB, arguments at 8 MiB, discovery at 512 tools across 64 pages and 8 MiB aggregate metadata, concurrent calls and pending approvals at four each, progress at 128 events and 1 MiB per call, retained child stderr at 256 KiB, and serialized operator diagnostics at 4 KiB per line. One Go 1.27 `jsontext` pass validates framing and extracts borrowed envelope fields for observers and progress routing before the SDK consumes the original bytes. Escaping fields are cloned, transformed bytes alone are revalidated, and cleared reader/writer buffers are retained only through 256 KiB. Discovery charges and validates each page before requesting the next, retains only canonical contracts, and therefore holds at most the aggregate catalog plus one bounded in-flight page instead of all raw pages. Every in-flight call observes both its request context and gateway shutdown. Shutdown attempts every detached pending approval in stable call order before the bounded call drain, aggregates safe call-and-phase failures, and reports failures from both stages. Failed shutdown finalization retains only the structured retry state, zeroes detached wire buffers, and is retried by a later `Close` before the identity-key lease is released. A persisted terminal approval remains finalized across retries even when denial-count capacity is exhausted; that secondary condition is written to operator diagnostics after durable cleanup, never treated as an uncommitted mutation. Pure user cancellation is graceful only when no independent cleanup failure occurred; joined cleanup failures remain non-zero at the CLI boundary. Every observed SDK call consumes its pending or request-ID state on completion, cancellation, timeout, or response failure, so no terminal path retains the serialized send lease, and a call waiting for that lease stops at its own deadline or cancellation before it reaches the SDK. Tool icons are limited to 32 fully decoded self-contained PNG or JPEG data URIs, 48 KiB each, 2,048 pixels per side, and 4,194,304 pixels; remote URLs and decompression bombs fail closed. Tool `_meta` is absent or empty because extension semantics are not enforced. Definitions, frames, progress, stderr, and results are validated or inspected before exposure. Call arguments and downstream results are parsed once: request normalization and result forwarding reuse the value parsed while canonicalizing them instead of parsing the canonical bytes again. |
 | Auxiliary commands and release inventory | Git, Go, attestation, offline-hook, TASK utility, generated-reference, SBOM, and publication-audit subprocesses use purpose-specific 64 KiB to 64 MiB output ceilings and fail on overflow. Command-proof Git, runtime Git, repository-sync Git, and Grok inspection share one concurrency-safe retained-prefix sink with independent stdout/stderr accounting and caller-specific overflow diagnostics. Release assets are hashed as stable non-symlink regular-file streams, release directories stop after the declared inventory ceiling, and committed manifests, archives, and SBOMs use strict bounded reads. |
 
 Best-effort detection is best-effort only about recommendations, not about
@@ -291,8 +276,7 @@ integer for larger hosts. The publication CLI contract test uses a
 bounded temporary Git fixture instead of rescanning the real repository under
 the race detector. `make test-langchain` is the separate hash-pinned external
 consumer proof; it runs locally only and never on GitHub. `make fuzz` uses Go's `500x` execution budget and one worker per target
-by default, avoiding the Go 1.26 time-deadline shutdown race while keeping the
-randomized gate bounded. Each minimization attempt uses Go's `10x` budget,
+by default, which keeps the randomized gate bounded. Each minimization attempt uses Go's `10x` budget,
 and a disposable per-run Go fuzz cache prevents machine-local corpus
 history from consuming or changing that fixed budget. `FUZZ_TIME`,
 `FUZZ_MINIMIZE`, and `FUZZ_PARALLEL` explicitly change those budgets and the
@@ -322,8 +306,8 @@ same normalized metric's tolerance. This target check uses CPU-adjusted time
 and unadjusted bytes/allocations. Improving a calibration benchmark cannot alone
 block an improved target. Every metric's `regression` flag retains its threshold
 exceedance; the report's `regressions` list and `passed` field describe blocking
-outcomes. Independent absolute time, bytes, allocation, and peak-RSS limits are
-unchanged and remain blocking even when normalized ratios pass.
+outcomes. Independent absolute time, bytes, allocation, and peak-RSS limits
+remain blocking even when normalized ratios pass.
 The suite
 covers bounded action traces and context operands, prepared action-decision
 caching, incremental action-ledger checkpoints, structured action inspection,
@@ -333,7 +317,7 @@ and end-to-end hook-worker and long-session evidence workloads. Each package's
 source variants and shared CPU sentinel are compiled before its sample loop;
 sampling directly executes those binaries from the package source directory.
 Result/baseline v7 retain the package executable SHA-256, and comparison v8
-retains both identities. Builds use `-trimpath` except for the historical CLI
+retains both identities. Builds use `-trimpath` except for the CLI
 transport workload, which resolves its module through `runtime.Caller` and
 builds its child CLI during benchmark setup. That package's identity includes
 source paths. After the closing CPU sentinel, a separate pass executes each
@@ -342,9 +326,7 @@ independent of the internal timed repetitions. The package's benchmarks take
 turns, so one burst of machine load reaches fewer of a benchmark's five
 processes. The sample keeps the median of the five process peaks: a
 garbage-collection spike in a minority of processes is not a property of the
-workload, while an allocation that most processes make is. One spiking process
-at identical bytes per operation failed the earlier maximum gate on unchanged
-code (28 to 32 MiB typical, 60 and 162 MiB single spikes). A real memory
+workload, while an allocation that most processes make is. A real memory
 problem that appears in at least three of a sample's five processes fails the
 gate; one that appears in fewer stays below it and is visible only in the
 separate RSS diagnostics report, because process RSS cannot separate so rare
@@ -386,8 +368,8 @@ clean source tree. Intentional checked-baseline refresh uses
 The checked `scripts/benchmarks/baseline.json` is a real v7 result from clean
 commit `13bbfedb040b33d0ead5fd9ef3d6a7141911978c`, recorded with Go
 1.27.3 on darwin/arm64 Apple M1 using five samples, three internal repetitions,
-and 250 ms per sample. It covers all 19 groups and 24 targets with the same
-seven tolerances as the prior reference. The byte-preserved v6 and v4
+and 250 ms per sample. It covers all 19 groups and 24 targets with seven
+tolerances. The byte-preserved v6 and v4
 references are `scripts/benchmarks/baseline-v6.json` and
 `scripts/benchmarks/baseline-v4.json`; they remain available for historical
 same-format comparisons, not as the default for new v7 records. The checked
@@ -444,9 +426,8 @@ writes a report with profile identity, binary sizes, and seven-sample cold-start
 p50/p95 measurements under `.build/benchmarks/pgo/`. Cold-start `p95_ns` is the
 nearest-rank 95th percentile: `ceil(0.95 * n) - 1` on the sorted samples,
 bounded to the sample range, so seven samples select the maximum. The report
-format is `reconc.benchmark-pgo/v2`; v1 reports used a different index formula
-and must not be relabeled. The report is evidence for
-review; it does not change the normal build or release path.
+format is `reconc.benchmark-pgo/v2`. The report is evidence for review; it does
+not change the normal build or release path.
 `make benchmark-compare` publishes `--output` only after proving it is not the
 same filesystem object as `--baseline` or `--result`, including relative,
 cleaned, symlink, and hardlink aliases, in both recipe and non-recipe modes.
@@ -456,14 +437,6 @@ macOS runner, or explicit dispatch. It uploads raw samples and the comparison
 report for 30 days even when comparison fails, so a regression or incompatible
 environment remains attributable evidence rather than disappearing with the
 job log.
-
-Apple M1 TASK-269 before/after checks reduced deep-doctor allocation volume by
-about 10.8% and allocations by about 16.3%. Multi-platform hook status reduced
-allocation volume by about 30.8% and allocations by about 14.8%; filesystem
-wall time remained noisy. A 1 MiB hook-worker frame fell from about 4.76 MiB
-and 13 allocations to about 1.39 MiB and 4 allocations, with lower measured
-latency. The checked baseline records the worker result through same-package
-calibration rather than absolute timing.
 
 Go 1.27 synthetic time is restricted to tests whose complete dependency graph
 is in memory. The audit append gate tests use `testing/synctest` to prove
@@ -481,14 +454,6 @@ walks shared pointer ancestors once, uses `SkipValue` for unselected subtrees,
 and decodes a selected subtree into `json.Number`-preserving Go values only
 after its raw byte span fits the retained-value budget. It never builds a
 generic representation of the complete host object.
-
-The checked Apple M1 benchmark (`-benchtime=5x`) measured the streaming path at
-301,792 ns and 284,515 allocated bytes for a 64 KiB typical payload, versus
-592,175 ns and 412,702 bytes for the former interface-tree reference. At the
-8 MiB boundary it measured 14,545,458 ns and 33,584,300 bytes versus 29,269,683
-ns and 50,358,718 bytes. The 256-byte case was 43,867 ns versus 34,542 ns; the
-accepted tradeoff is a small fixed strict-streaming cost while typical and
-maximum payloads roughly halve latency and materially reduce allocation volume.
 
 Make targets:
 
@@ -572,6 +537,17 @@ remain independent of release numbers and are resolved entirely offline.
 The release publication verifier locates their bytes under the explicitly
 selected tag and compares them with local registered bytes; historical schema
 URLs retain their original publication locations and compatibility meaning.
+Schema ownership is per artifact: every registered contract version binds its
+exact local bytes, digest, release asset, immutable URL, enterprise path, and
+compatibility aliases. The registry builds its ordered contract storage once,
+indexes artifact, version, identity, enterprise-path, and format lookups
+directly, and returns detached snapshots to callers. New output emits only the
+current registered identity. Early schema URLs whose published location does
+not hold the registered bytes are accepted only as input aliases and are never
+emitted. The local publication contract verifies the current bytes, digest,
+`$id`, and registry mapping; the online HTTP publication verifier runs in the
+tag-bound release workflow against the exact protected tag and published
+assets.
 
 Installer tests use synthetic versions only in disposable fixture binaries and
 repositories. An explicitly requested Windows smoke job builds and smokes the
@@ -641,11 +617,11 @@ user-writable `%LOCALAPPDATA%\Programs\Reconc\bin`. Both report the exact PATH
 remediation when bare `reconc` does not resolve to the installed binary instead
 of elevating or silently editing shell configuration. Both installers
 download the exact platform binary and published `SHA256SUMS` over HTTPS,
-bound metadata to 2 MiB and binaries to 256 MiB, require exactly one matching
+bound metadata to 2 MiB and binaries to 256 MiB (`install.ps1` accepts a
+missing or numeric `Content-Length` header), require exactly one matching
 hexadecimal SHA-256 entry, verify the payload
-before executing it, and delegate binary and, for releases built from the
-current development source, portable skill publication to the candidate's
-`install-cli` transaction. Candidate download, local source installation,
+before executing it, and delegate binary and portable skill publication to the
+candidate's `install-cli` transaction. Candidate download, local source installation,
 private backup, atomic publication, checksum verification, and rollback use
 bounded files and fixed 128 KiB buffers; the transaction never retains complete
 old and new binaries as byte slices. Candidate and backup files are private,
@@ -678,7 +654,7 @@ in a same-filesystem backup until binary and receipt removal commit, and an
 in-process failure restores it with the binary. A later install preserves an
 unmanaged retained skill and reports a conflict for manual reconciliation.
 
-The v0.9 platform contract is one matrix:
+The platform contract is one matrix:
 
 | Platform | Direct installer | Architectures | Ownership |
 | --- | --- | --- | --- |
@@ -686,20 +662,16 @@ The v0.9 platform contract is one matrix:
 | Linux | `install.sh` | amd64, arm64 | `direct` |
 | Windows | `install.ps1` | amd64 only | `direct` |
 
-Direct installers built from the current development source own the verified
-binary and, unless opted out, the skill through the receipt. An
-existing foreign or modified skill directory is preserved and blocks installation.
-Release builds from this source include the skill archive and manifest as
-independently verified assets;
-downloading either asset or a raw binary does not install the skill. No path silently
-edits a shell profile or global environment.
+Direct installers own the verified binary and, unless opted out, the skill
+through the receipt. An existing foreign or modified skill directory is
+preserved and blocks installation. Releases include the skill archive and
+manifest as independently verified assets; downloading either asset or a raw
+binary does not install the skill. No path silently edits a shell profile or
+global environment.
 
-The protected v0.9.8 tag contains both `install.sh` and `install.ps1`. Public
-bootstrap commands fetch the appropriate script from that tag, never from
-mutable `main`, and install the matching checksummed v0.9.8 binary. Those
-published installers predate portable skill publication; the skill behavior
-described here belongs to the current development source and releases built
-from it.
+Public bootstrap commands fetch `install.sh` or `install.ps1` from an
+immutable release tag (`reconc-vX.Y.Z`), never from mutable `main`, and
+install that release's checksummed binary.
 
 Both native installers require GitHub CLI (`gh`) and verify the downloaded
 binary against its GitHub build-provenance attestation before execution or
@@ -839,9 +811,7 @@ cannot follow a dangling link, and an existing-path race is reopened only after
 regular-file, identity, security, and single-link checks. Parent replacement
 cannot redirect creation, and a rejected newly created identity is removed
 through the still-open parent. Legacy private directories may be repaired only
-at their intended boundary. Receipt,
-retention, command-proof, policy-proof, and action-state paths retain their
-existing locations, names, and retention behavior. Repository-sync reports
+at their intended boundary. Repository-sync reports
 append bounded best-effort retention warnings after their primary `next_action`
 command without changing the published schema shape.
 Binary update and rollback temporaries reuse the file-only form of this
@@ -1106,22 +1076,21 @@ after advanced init. A full rollout copies that source to the project-specific
 harness path and leaves the source intact for receipt verification and future
 sync.
 
-## v0.9 CLI Product Contract
+## CLI Product Contract
 
-The implementation contract for the next minor release is
+The CLI product lifecycle contract is
 [RECONC-0007](rfcs/RECONC-0007-cli-product-lifecycle.md). It defines one
 ownership-aware global CLI, `init` as the canonical transactional onboarding
 entrypoint, durable installation and repository ownership, stable/preview/exact
 release selection, an embedded advanced public harness pack, explicit binary
 update and uninstall, and digest-bound repository synchronization.
 
-RECONC-0007 is frozen with v0.9.0. Ownership-aware installation, global
-diagnostics, update, uninstall,
-strict release manifests, canonical init, embedded harness packs,
-digest-bound repository synchronization, portable ownership receipts,
+RECONC-0007 is frozen. Ownership-aware installation, global diagnostics,
+update, uninstall, strict release manifests, canonical init, embedded harness
+packs, digest-bound repository synchronization, portable ownership receipts,
 cross-platform hardening, and release gates implement one published contract.
 
-The locked target keeps two boundaries explicit:
+The contract keeps two boundaries explicit:
 
 - direct binary update and repository sync are separate transactions;
 - repository mutation is plan-, receipt-, precondition-, and digest-bound, and
@@ -1172,7 +1141,7 @@ command.
 Active-session inspection uses bounded snapshots without session or active-pointer
 locks and never repairs state or persists evidence taint. Malformed, oversized,
 replaced, or overflowed state is reported as uncertainty; enforcement loads keep
-their existing lock and durable-taint guarantees.
+their lock and durable-taint guarantees.
 When a saved policy report exists, the briefing exposes `policy_report_status`
 as `current`, `historical`, or `unavailable`. Only a report bound to the exact
 saved report hash, non-overflowed active-session evidence hash, and current
@@ -1202,7 +1171,7 @@ agent session emits `reconc hook claim <repo> <name> --session <id>` so the
 claim persists; missing session identity yields a non-executable inspection
 action instead of a one-shot check. `BuildLegacyFixPlan` remains the
 compatibility path for consumers that only accept the v1 fix-plan schema;
-neither format claims an action is authorized automatically. Current v2 output
+neither format claims an action is authorized automatically. v2 output
 bounds each input, remediation hint, action, and top-level remediation
 collection at 256 entries.
 Retained values stay byte-exact. If source entries exceed a limit, the optional
@@ -1280,8 +1249,9 @@ match. For positive `all_of` and `any_of` that trigger is a direct
 is reached when the inner check would pass. Historical command results do not
 satisfy that pre-command trigger.
 
-Format-2 corpora preserve format-1 repository replay through deterministic
-migration and add strict `action_pre` and `action_post` cases. An action case
+Impact corpora are emitted as `reconc-impact-corpus/v2`. Format-2 corpora
+preserve format-1 repository replay through deterministic migration and add
+strict `action_pre` and `action_post` cases. An action case
 binds the server label and fingerprint, tool and tool-contract digest, exact
 sanitized phase payload, trusted context and provenance, principal and credential
 labels, evaluator state, completeness, and an exact expected current outcome.
@@ -1411,8 +1381,8 @@ and URLs are not partially rewritten. The same sanitized error reaches legacy
 text/JSON/terse failures plus SARIF, JUnit, and GitHub output. Outputs are
 deterministic, capped at 1,024 findings and 8 MiB, make no network call, and
 are rendered to stdout and staged for `--output`; after rendering succeeds, the
-complete same bytes are atomically published. Existing text/JSON/terse defaults
-and exit codes do not change.
+complete same bytes are atomically published. Text, JSON, and terse defaults
+and exit codes are independent of these formats.
 When the finding cap is reached, later error-level findings replace retained
 non-errors before deterministic sorting, so a blocking decision cannot become
 pass-shaped in SARIF or JUnit. SARIF properties, JUnit properties, and GitHub
@@ -1590,7 +1560,7 @@ job remain unenforced. Offline verification cannot discover a later rerun or
 revocation; obtain fresh evidence when that distinction matters. Evidence is
 reusable for the same candidate while valid and is not a one-use approval.
 
-Existing `ci-green-before-merge` policies retain their `require_claim`/`warn`
+`ci-green-before-merge` policies keep their `require_claim`/`warn`
 behavior. For stronger enforcement, explicitly deploy the trusted issuer and
 publication gate above, pin the independent requirement, and verify negative
 candidate and failed-run cases before enabling publication. Keep or remove the
@@ -1636,9 +1606,7 @@ evidence rules are documented in [Policy Packs And Native Assurance](#policy-pac
 Not for core repository control. The shipped Go binary runs policy
 compilation, evaluation, hooks, run control, and proof generation without a
 model, daemon, Docker, Node, Python, or network access. Supported hosts own
-their model authentication and inference traffic. Codex and GPT-5.6
-contributed to development during OpenAI Build Week but are not runtime
-dependencies. Installation, Git operations, and remote CI naturally use the
+their model authentication and inference traffic. Installation, Git operations, and remote CI naturally use the
 network when invoked.
 
 ### Which agent runtimes are supported?
@@ -1650,8 +1618,8 @@ and Kimi Code CLI, plus git pre-commit as the repository backstop. Host capabili
 differ: some expose synchronous Stop, GitHub Copilot and Kimi Code retain
 documented host-fail-open timeout behavior, OpenCode and Kilo expose inferred
 `session.idle`, OMP exposes awaited main-session `session_stop`, Pi 1.x exposes
-the awaited `agent_before_settle` boundary (older Pi only inferred asynchronous
-`agent_settled` continuation), and Grok has a
+the awaited `agent_before_settle` boundary (earlier Pi versions expose only the
+inferred asynchronous `agent_settled` continuation), and Grok has a
 strict ACP driver for continuation. Run
 `reconc hook status . --json` before claiming that a particular installation
 is live.
@@ -1696,8 +1664,8 @@ binary throughout candidate preparation, attestation, and smoke testing, then
 revalidates it immediately before publication. Any replacement, symlink, or
 type change fails closed; rollback restores only the exact displaced generation.
 Offline `--from-dir` updates require the asset's Sigstore
-bundle and trusted root in addition to the strict release inventory. There is no
-separate check/apply step in the current user flow. Use `--channel preview` or
+bundle and trusted root in addition to the strict release inventory. The default
+flow needs no separate check/apply step. Use `--channel preview` or
 `--version VERSION` only for an intentional non-default selection. A
 source-owned installation receives the exact rebuild and path-qualified
 `install-cli` remediation instead of being overwritten.
@@ -1891,326 +1859,6 @@ receipt or journal. Commit the refreshed portable policy lock and
 `.reconc/install.lock.json` in governed target repositories.
 For a locally built or copied upgrade, run the upgraded binary's `install-cli`
 command first so bare `reconc` cannot continue resolving an older build.
-
-## v0.8.8 To v0.9.0 Migration
-
-Preserve the installation owner and update the global binary before any
-repository-owned files:
-
-| Existing v0.8.8 state | Migration |
-| --- | --- |
-| Direct POSIX install | Run the immutable v0.9.0 `install.sh --version 0.9.0`, apply its exact PATH remediation if needed, then run `reconc doctor --global`. |
-| Direct Windows x64 install | Run the immutable v0.9.0 `install.ps1 -Version 0.9.0`, apply its exact PATH remediation if needed, then run `reconc doctor --global`. |
-| Source build or copied binary | Build or select the v0.9.0 binary and run its path-qualified `install-cli`; never copy it over the current global target manually. |
-| Copied standalone toolkit or private bootstrap receipt | Keep every user-owned file. Run `reconc init .` for an explicit profile or build `reconc repo sync plan .`; legacy receipts are bounded migration evidence, not permission to overwrite drift. |
-
-Then verify the two independent layers:
-
-```bash
-reconc --version
-reconc doctor --global
-reconc repo sync plan . --output /tmp/reconc-v0.9-sync.json
-reconc repo sync apply --plan /tmp/reconc-v0.9-sync.json --digest <plan-digest>
-reconc repo sync verify .
-reconc status .
-reconc hook status . --json
-```
-
-Review the saved sync plan before apply. `user-drift`, `orphaned-legacy`,
-`incompatible`, and `manual-review` perform no repository mutation. The v0.9
-transaction changes only receipt-owned files and exact managed blocks, rolls
-back its own already-published bytes on failure, and preserves policy sources,
-agent instructions, docs, TASKs, and unrelated repository content.
-
-## v0.9.0 To v0.9.1 Migration
-
-v0.9.1 supersedes v0.9.0 for direct Windows installations. The v0.9.0
-PowerShell installer can fail before publication when a real HTTPS response
-exposes `Content-Length` as a numeric value. v0.9.1 accepts both a missing and
-a numeric header while retaining the 2 MiB metadata limit, 256 MiB binary
-limit, streamed byte cap, checksum, provenance, and atomic publication gates.
-The failure does not replace an existing binary.
-
-Preserve the current installation owner:
-
-- Direct Windows installs rerun the immutable v0.9.1 `install.ps1 -Version
-  0.9.1`, then run `reconc doctor --global`.
-- Direct POSIX and source installs update through their existing exact-version
-  path when desired.
-- Repository receipts, policy locks, hooks, schemas, and the embedded
-  `advanced@1.0.0` harness pack require no patch-specific migration.
-
-## v0.9.1 To v0.9.2 Migration
-
-Update the global CLI through the existing installation owner:
-
-```bash
-reconc update
-reconc doctor --global
-```
-
-Exact native installs may instead rerun the immutable v0.9.2 installer.
-Source-owned installs build the v0.9.2 source and run that binary's
-`install-cli` transaction. The update changes only the globally owned CLI and
-receipt. It never mutates a repository.
-
-Repository-owned hooks, harness files, and generated artifacts remain an
-explicit, reviewable transaction:
-
-```bash
-reconc repo sync plan . --output /tmp/reconc-sync.json
-reconc repo sync apply --plan /tmp/reconc-sync.json --digest <plan-digest>
-reconc repo sync verify .
-```
-
-Review every action and resolve any drift before apply. Reinstall a specific
-agent hook only when that repository should receive its updated generated
-adapter. Kimi Code remains an explicit user-global opt-in through
-`reconc hook install kimi-code`; `init` and repository sync never select it.
-
-No policy or schema migration was required by v0.9.2. That release continued
-accepting and emitting v0.9.1 schema URLs. Current source retains those URLs
-only as explicit legacy aliases because several named files were absent or did
-not contain the later local bytes; new artifacts never emit those aliases.
-TASK transaction journals, repository-sync journals, and ownership receipts
-remain format-compatible. The removed `demo` command and retired legacy
-command aliases do not return in v0.9.2.
-
-## v0.9.2 To v0.9.3 Migration
-
-Update the global CLI through the existing installation owner:
-
-```bash
-reconc update
-reconc doctor --global
-```
-
-Exact native installs may instead rerun the immutable v0.9.3 installer.
-Source-owned installs build the v0.9.3 source and run that binary's
-`install-cli` transaction. The update changes only the globally owned CLI and
-receipt. It never mutates a repository.
-
-ZCode is now a native runtime integration. Repositories that use ZCode can
-install its generated adapter explicitly and verify the result:
-
-```bash
-reconc hook install zcode . --json
-reconc hook status . --json
-```
-
-The adapter reads `.zcode/config.json`, supports the documented seven ZCode
-events, and enforces the native synchronous Stop contract where the host
-provides it. Existing repository hooks and generated artifacts remain
-untouched until an explicit install or repository-sync transaction.
-
-No policy or schema migration was required by v0.9.3. That release continued
-accepting legacy v0.9.1 identities; current source classifies them as input-only
-aliases rather than verified publication locations. Test measurement output
-remains review evidence only; Reconc has no fixed percentage requirement.
-
-## v0.9.3 To v0.9.4 Migration
-
-Update the global CLI through the existing installation owner:
-
-```bash
-reconc update
-reconc doctor --global
-```
-
-Exact native installs may instead rerun the immutable v0.9.4 installer.
-Source-owned installs build the v0.9.4 source and run that binary's
-`install-cli` transaction. The update changes only the globally owned CLI and
-receipt. It never mutates a repository.
-
-The policy lockfile moves to format version `4`, published as the v0.9.4
-`schemas/v4/policy-lock.schema.json` identity. Format 1, 2, and 3 lockfiles
-migrate automatically on read, so no repository action is required; `reconc
-refresh .` rewrites the lock in the current format whenever the policy sources
-change. The v0.9.1 schema URLs remained accepted compatibility identities at
-that release. Current source never emits them and does not claim that those
-locations contain the later schema bytes.
-
-Format 4 carries one new optional field. A `require_script` rule, or a
-`require_script` check inside a composite rule, may declare `cache_inputs`: the
-literal repository-relative paths the script reads. Each entry may be a file or
-a directory.
-
-```yaml
-rules:
-  - id: schema-drift
-    kind: require_script
-    when_paths: ['src/**']
-    script: 'scripts/check-schema-drift.sh'
-    cache_inputs: ['build/schema-report.json']
-    mode: block
-    message: schema drift gate
-```
-
-Stop report reuse binds those paths exactly. Declaring `cache_inputs` is also
-an author contract that the script result is a deterministic function of its
-script, policy arguments, Reconc execution input, and the declared paths'
-content plus supported metadata. A script that reads wall-clock time,
-randomness, network state, mutable ambient environment, an undeclared path, or
-unsupported filesystem metadata such as access time, ownership, ACLs,
-extended attributes, or the link object behind a followed symlink must leave
-`cache_inputs` absent. Such a gate is never reused and runs on every applicable
-Stop. Globs, template
-variables, escaping paths, and duplicate entries are refused at compile time,
-because binding them would require a search on the Stop path.
-
-Hook routes were added after verifying the hosts' own configuration surfaces.
-Codex accepts `SessionEnd` and `Interrupt`, and Claude Code
-accepts `Notification`; both are now generated. Claude Code and Codex also gain
-a matcher group for the `mcp__<server>__<tool>` namespace, which makes MCP
-policy enforceable on both hosts, and Codex's `SessionEnd` timeout is declared
-as the three seconds that host accepts instead of a value it clamps.
-Repositories that installed hooks before the upgrade keep working, and their
-installed artifacts report as stale until they are reinstalled:
-
-```bash
-reconc hook status . --json
-reconc hook install claude-code . --json
-reconc hook install codex . --json
-```
-
-## v0.9.4 To v0.9.5 Migration
-
-Update the global CLI through the existing installation owner:
-
-```bash
-reconc update
-reconc doctor --global
-```
-
-Exact native installs may instead rerun the immutable v0.9.5 installer.
-Source-owned installs build the v0.9.5 source and run that binary's
-`install-cli` transaction. The update changes only the globally owned CLI and
-receipt. It never mutates a repository.
-
-No policy or schema migration is required. Policy locks remain format `4`, and
-the immutable v0.9.4 `schemas/v4/policy-lock.schema.json` URL remains their
-canonical schema identity. Stop report reuse is stricter: policy-declared
-inputs are reused only while their exact supported content and metadata
-identity remains trustworthy; oversized trees, escaping symlinks, special
-files, and unstable inputs evaluate without reuse.
-
-Oh My Pi now persists bounded, source-free `user_python` execution metadata in
-hook liveness and exposes it through `reconc hook status`; Python source is
-never stored. Repositories using OMP must refresh the owned extension to receive
-that route:
-
-```bash
-reconc hook install omp . --json
-reconc hook status . --json
-```
-
-Other repository artifacts remain untouched until an explicit hook install or
-repository-sync transaction.
-
-## v0.9.5 To v0.9.6 Migration
-
-Source-owned installations build version `0.9.6`. Exact native installations
-use the immutable `reconc-v0.9.6` release. Version text alone is not release
-identity: verify the tag, checksums, manifest, and provenance.
-
-Policy locks move to format `6` under the immutable v0.9.6
-`schemas/v6/policy-lock.schema.json` identity. Formats 1 through 5 migrate in
-memory; `reconc refresh .` intentionally persists the current format. Format 6
-contains one canonical `actions` plan and never a parallel runtime `mcp` plan.
-Legacy `mcp` authoring remains accepted and lowers deterministically into that
-plan. Public schema ownership is per artifact: all 36 contract versions are
-registered with exact local bytes, digest, release asset, immutable URL,
-enterprise path, and compatibility aliases. Policy config uses v4;
-repository-sync plan/report and custom-runtime manifest use v2. Existing
-supported legacy inputs remain accepted. The registry builds its ordered
-contract and observation storage once, indexes artifact/version/identity/
-enterprise-path/format lookups directly, and returns detached nested snapshots
-to callers. New output emits only the current registered identity, and runtime
-validation stays offline.
-
-`reconc diff LOCK-A LOCK-B` compares the migrated current envelopes rather than
-raw JSON text. Its typed JSON and text reports classify every top-level field as
-semantic, provenance, generated, or unsupported; show action-plan and other
-envelope changes; report source inventory additions, removals, content changes,
-moves, and order changes; and expose rule source-provenance moves separately
-from semantic rule changes. Only explicitly set-like rule fields are sorted for
-comparison. Ordered lists such as command arguments, source precedence, and
-source inventory retain their order, so a reviewer never loses a meaningful
-ordering change behind generic digest drift.
-
-Impact corpora now emit `reconc-impact-corpus/v2`. Existing strict v1 corpora
-migrate deterministically to repository cases. Format 2 adds offline
-`action_pre` and `action_post` scenarios, exact current assertions, completeness
-claims, and reviewed candidate-delta gates. Candidate policy files may add
-`actions` declarations in memory; this does not alter live policy or enforce a
-live tool call.
-
-Action authoring may now include strict cumulative budgets. Their compiled
-declarations and evaluator snapshots are format-6 data. Durable reservations
-live only under the operator-selected `RECONC_HOME`, never in the repository,
-and are opened only when an operator explicitly launches `reconc mcp gateway`.
-Existing repositories therefore gain no live interception or implicit state
-mutation merely by compiling or refreshing policy. A filesystem root is never
-accepted as `RECONC_HOME`, and an existing selected root must already be private
-because Reconc never changes its permissions implicitly.
-
-Action authoring may also declare `actions.approvals` to select safe argument
-summaries for an external approver. The current source implements canonical
-one-call requests, Ed25519 approve or reject receipts, strict operator-owned
-authority registries outside the repository, single-use replay protection,
-atomic budget coupling, expiry reconciliation, exact MCP `2026-07-28`
-input-required plus MCP `2025-11-25` form-elicitation transport mapping, and
-payload-free transition evidence. It
-does not add a public approver or dashboard. `reconc mcp gateway` accepts a
-signed one-time receipt from the upstream MCP client only when an operator-owned
-authority registry verifies it. Authority keys and the signing process remain
-operator-owned and cannot be supplied by repository policy or agent input.
-
-Action authoring may now declare `actions.detectors`. The compiler binds the
-built-in detector-pack ID and digest, exact phase-compatible RFC 6901 fields,
-categories, dispositions, schema policy, supported content policy, exact
-fingerprint-bound annotation trust, and hard inspection limits into format 6.
-The internal Go inspection core strictly decodes bounded MCP tool results,
-validates local Draft 2020-12 output schemas without remote references and with
-a bounded RE2-compatible pattern subset, scans selected arguments, results,
-and progress deterministically, and requires every returned content block to
-be fully selected or explicitly type-allowlisted. Unselected structured
-content, metadata, unknown content, and untrusted annotations fail closed. The
-core emits only payload-free evidence or a bounded withheld result.
-`reconc mcp gateway` applies this core to arguments before dispatch and to
-progress and results before upstream delivery.
-
-Action authoring may now declare `actions.ledger` with recording mode
-`required`, `best_effort`, or `off`, one declaration/exact/keyed tool-identity
-mode, and bounded selected argument or result pointers. Format 6 binds this
-policy into the canonical plan. The separate private ledger stores only typed,
-payload-free lifecycle records in a bounded retained hash chain with two
-archives, a detached head, and crash recovery. `reconc action log
-tail|stats|verify|export` verifies before reading, never creates missing state,
-and reports lifecycle gaps instead of inferring success. Export contains only
-verified synthetic minimized Impact Lab cases, explicitly lists every omitted
-call and missing raw dimension, never claims complete replay, and refuses to
-replace an existing output file. In `ledger: required` mode, the gateway must
-record the accepted request and pre-decision before downstream dispatch or fail
-closed without invoking the tool.
-
-Budget ledger transitions mirror persisted state changes. A `denied` event
-therefore binds the live reservation it closes, the released reserved capacity,
-and denied-count consumption only. If reservation itself was refused because a
-budget was already exhausted, the blocking `pre_decision` is the complete fact;
-the ledger never fabricates a reservation or counter delta.
-
-`reconc action evidence export|verify` reads those private action surfaces
-without creating or repairing state. The report schema, control-map schema,
-control-map signature, and mapping-authority registry are versioned v1
-artifacts. Export requires an explicit canonical UTC `--as-of`, records exact
-window and retained-history boundaries, derives every control status from a
-closed evidence-fact set, and emits no raw arguments, results, receipts,
-credentials, headers, environment values, paths, or personal data. Verification
-rejects an `--as-of` before the latest retained record, rebuilds current evidence,
-and exits successfully only when every selected
-mapping is `covered`. These commands provide technical evidence and mapping,
-not organizational assessment, legal determination, or external assurance.
 
 ## Uninstall And Remove
 
@@ -2423,8 +2071,8 @@ marker recorded before creation. Prepared rollback validates those markers and
 removes only owned empty directories, deepest first; replaced, non-empty,
 pre-existing, or user-populated directories are preserved with an explicit
 recovery error. Committed finalization removes only markers. Version 1 journals
-remain recoverable, but their historically unrecorded empty parents remain
-because ownership cannot be proven. Lock acquisition, operation, unlock,
+remain recoverable; the empty parents they do not record remain because
+ownership cannot be proven. Lock acquisition, operation, unlock,
 close, marker cleanup, and journal cleanup errors remain explicit.
 Journals reject unknown fields, trailing JSON values,
 non-canonical paths, and inconsistent images. Archived detail bodies are not
@@ -2642,6 +2290,31 @@ In governed target repositories, repo-local policy lives in `.reconc.yml` and
 should be committed. The generated `.reconc/policy.lock.json` is a portable,
 committable policy contract and should be reviewed with policy-source changes.
 
+The lock format is 6, published under the immutable
+`reconc-v0.9.7/schemas/v6/policy-lock.schema.json` identity; its rule-kind
+field matrix and exact composite-check surface belong to that identity. A
+format-6 lock that names the earlier v0.9.6 schema location is accepted through
+an input-only compatibility alias, and a refresh writes the current identity.
+Formats 1 through 5 keep their published schema URLs and migrate in memory;
+`reconc refresh .` persists the current format. A format-6 lock contains one
+canonical `actions` plan and never a parallel runtime `mcp` plan; legacy `mcp`
+authoring remains accepted and lowers deterministically into that plan.
+Composite sub-checks never carry their own `before_paths` or `when_paths`: the
+parent composite rule owns activation, and every legacy format rejects those
+fields during typed runtime-plan construction after migration. A product
+release that leaves a public contract unchanged keeps its schema URL and
+requires no lockfile refresh.
+
+`reconc diff LOCK-A LOCK-B` compares the migrated current envelopes rather than
+raw JSON text. Its typed JSON and text reports classify every top-level field as
+semantic, provenance, generated, or unsupported; show action-plan and other
+envelope changes; report source inventory additions, removals, content changes,
+moves, and order changes; and expose rule source-provenance moves separately
+from semantic rule changes. Only explicitly set-like rule fields are sorted for
+comparison. Ordered lists such as command arguments, source precedence, and
+source inventory retain their order, so a reviewer never loses a meaningful
+ordering change behind generic digest drift.
+
 ### Authority-change approval
 
 The `authority-change-approval` template reserves the
@@ -2725,8 +2398,8 @@ filesystem-object drift, and repository-root replacement without rereading every
 loaded source twice. Format-1 lockfiles are migrated in memory only after their
 legacy schema and historical source digest over `source_precedence` plus raw
 `sources` pass. That digest
-verifies source records, not the whole format-1 payload because `lock_digest`
-did not exist yet. Formats 2 through 5 require their legacy schema and
+verifies source records, not the whole format-1 payload, which carries no
+`lock_digest`. Formats 2 through 5 require their legacy schema and
 whole-payload digest to pass before migration;
 their sources are reparsed and must retain exact embedded rule and canonical
 action parity. The lockfile boundary performs a bounded recursive
@@ -2742,8 +2415,8 @@ still validates the actual count and every existing JSON boundary. This avoids
 repeated growth and copying without trusting an unverified allocation size.
 Typed envelope validation serializes
 only bounded scalar, discovery, and source fields with constant rules/actions
-placeholders, then reattaches the already canonical subtrees. Current large
-arrays are therefore never boxed into `interface{}` or re-marshaled to recover
+placeholders, then reattaches the already canonical subtrees. Large arrays of
+the current format are therefore never boxed into `interface{}` or re-marshaled to recover
 their bytes. Formats 1 through 5 retain the generic migration table and exact
 historical digest semantics. The action-value boundary uses the same strict
 token API while preserving decimal normalization, aggregate cardinality,
@@ -2764,8 +2437,7 @@ Policy source ordering is explicit and stable for all source kinds, including
 the custom-runtime rank. It orders provenance and candidate insertion only;
 duplicate rule IDs are never cross-tier overrides. The parser rejects same-tier
 and cross-tier duplicates with the ID plus both source paths, and the lockfile
-continues to serialize the unchanged eight rule-bearing precedence entries for
-compatibility.
+serializes the eight rule-bearing precedence entries for compatibility.
 Glob expansion is segment-based and bounded before source bodies are retained:
 patterns are capped at 256 and 1 KiB each, directory enumeration and matches
 are capped, only regular files are candidates, and `**` is not recursive
@@ -2775,8 +2447,8 @@ segments in either separator style are rejected; repeated dots within one
 filename segment are valid. Duplicate paths are removed by normalized
 repository-relative identity before reading.
 The compiler configuration is decoded once into the authoritative bounded YAML
-mapping; `include` and `extends` extraction then share that document while
-retaining their existing strict field/type errors. User templates and deep
+mapping; `include` and `extends` extraction then share that document with
+strict field/type errors. User templates and deep
 doctor reference extraction enter through the same mapping-root, single-document,
 node, alias, depth, and scalar-byte admission before generic values exist.
 Every retained rule-bearing source is likewise syntactically decoded once into
@@ -2795,10 +2467,10 @@ preserving number fidelity, custom marshaling, null/empty distinctions, and
 trailing-value rejection without a second marshal/decode cycle.
 Canonical action values pre-size one output slice and encode recursively into
 it. Strings use `jsontext.AppendQuote`; the small HTML and JavaScript separator
-set retains the historical `encoding/json` escaping path, preserving
-identity-bearing bytes. Differential tests and fuzzing compare accepted values,
-canonical decimals, duplicate-name behavior, Unicode rejection, nesting, and
-exact string bytes against the previous decoder and encoder contracts.
+set uses `encoding/json` escaping, preserving identity-bearing bytes.
+Differential tests and fuzzing compare accepted values, canonical decimals,
+duplicate-name behavior, Unicode rejection, nesting, and exact string bytes
+against `encoding/json` reference decoding and encoding.
 Inline fenced-policy blocks are extracted with one authoritative bounded line
 scan shared by compilation and deep-doctor reference inspection. Opening and
 closing fences must be line-anchored, may carry horizontal trailing whitespace,
@@ -2929,8 +2601,9 @@ Repeated references share one admitted definition. Runtime checks the current
 selection and content before reusing a loaded policy. Editing even a comment,
 removing an override, or adding an override for a referenced built-in requires
 `reconc refresh .`; changing an unused template does not. A template-bearing
-lock produced without this provenance also requires refresh. Locks without
-named template references retain their previous source-digest representation.
+lock without this provenance also requires refresh. Locks without named
+template references use the source-digest representation without template
+dependencies.
 Equivalent checkouts with identical selected template origins and bytes produce
 identical locks, regardless of the physical user-template directory.
 Runtime resolves every such path against the filesystem identity of the
@@ -2999,8 +2672,8 @@ Each registry-dispatched hook request resolves the repository filesystem
 identity once into an opaque validated root handle. Payload normalization,
 session handling, MCP extraction and enforcement, Stop, compaction, result
 adaptation, and liveness reuse that handle; runtime attribution is explicit
-request data rather than process-global environment mutation. Existing session
-files still validate their stored canonical root, while passive and
+request data rather than process-global environment mutation. Session files
+validate their stored canonical root, while passive and
 workspace-only routes validate any existing state without creating a session,
 refreshing the active pointer, or serializing an unchanged state.
 Pre-tool and permission routes reuse a bounded external decision only when the
@@ -3238,7 +2911,7 @@ and removes canonical archives while holding that exact lease, and revalidates
 the discovered archive identity immediately before rooted removal. Append,
 rotation, and recovery acquire only the writer lock and never the retention
 lock, so the ordering has no reverse edge. Legacy generic JSONL entry points
-use the shared ten-second lock timeout; a pre-timeout default recovery journal
+use the shared ten-second lock timeout; a legacy-layout default recovery journal
 remains accepted by its exact legacy layout identity. Archive-directory
 stabilization retries at most
 20 snapshots separated by 5 ms, so persistent churn consumes at most 95 ms of
@@ -3251,8 +2924,8 @@ empty records with source-line context. A custom audit live-file cap may reduce
 the default but cannot exceed the fixed 2 MiB reader ceiling.
 Default-layout JSONL operations preserve existing restrictive Unix modes but
 reject group- or world-writable live, archive, lock, journal, and backup files
-without repairing or deleting them. Custom layouts continue to require their
-exact configured modes. Windows uses each layout's filesystem security contract
+without repairing or deleting them. Custom layouts require their exact
+configured modes. Windows uses each layout's filesystem security contract
 instead of interpreting POSIX permission bits. Audit entries additionally
 carry one contiguous sequence and SHA-256 previous/current digest
 chain, with the latest identity stored in `.reconc/audit.head.json`. Every
@@ -3383,10 +3056,7 @@ cannot qualify by prefix alone. Explicit exact command contracts retain their
 semantics, so authors opt in deliberately. Ordering semantics differ by
 design: `require_command` is presence-only (the command may have run before
 the triggering write), while `require_command_success` additionally enforces
-the write-epoch freshness contract. After upgrading, existing repositories
-must re-run `reconc hook install` for `claude-code`, `codex`, `opencode`, and
-`kilo` once to pick up the current host event contracts, matchers, bounded
-timeouts, and payload adapters.
+the write-epoch freshness contract.
 
 Glob patterns are configuration text and trim surrounding whitespace before
 matching. Repository path evidence is normalized to slash separators but never
@@ -3457,7 +3127,7 @@ cacheable command pre-decision captures one bounded, hermetic repository alias
 snapshot and reuses its immutable entries for cache identity and shell
 analysis; a fresh snapshot is required after evaluation before any decision is
 stored. Snapshot capture failure keeps the decision uncached and falls back to
-the existing per-alias inspection path. Dynamic alias definitions, excessive
+per-alias inspection. Dynamic alias definitions, excessive
 alias recursion, inspection failures, and unknown Git subcommands fail closed
 instead of bypassing the destructive-command guard.
 
@@ -3496,7 +3166,7 @@ cache publication samples again after evaluation, so a concurrent dependency
 mutation cannot warm or serve a stale decision within the available hook
 boundary. The complete snapshot is bounded to 2,048 paths and 32 MiB of
 observed regular-file content; no cache hit is claimed when those bounds or
-platform identity guarantees are unavailable. Version 4 records a typed `pass`
+platform identity guarantees are unavailable. The cache records a typed `pass`
 or `block` decision class and accepts it only when the runtime report completed
 without a folded operational failure. Parse, IO, cancellation, lock/source,
 script-execution, approval, encoding, and unclassified failures cannot warm the
@@ -3513,22 +3183,7 @@ non-interactive run that later resumes; that call is evaluated again. Pre-tool
 calls of those hosts skip identity sampling, lookup and publication and only
 evaluate. A one-shot hook without a worker cache verifies the sealed
 evidence chain once per call; evaluation and the publication resample reuse
-that verified prefix and only revalidate segment identities. On an Apple M1 a
-one-shot Claude Code pre-tool call over 16 maximal evidence segments measured
-752 ms, 315 MB and 1.46 million allocations per call before and 394 ms,
-165 MB and 0.76 million after (`BenchmarkOneShotUniquePreHook`). Observing
-each recorded read path at most once per normalization pass, confirming every
-observation once when the pass ends, and resolving the segments directory once
-per chain pass cut its recorded file-system accesses from about 164,000 to
-about 600 per call and, in back-to-back runs on a loaded machine, its median
-from 604 ms, 199 MB and 0.88 million allocations to 343 ms, 118 MB and
-0.30 million; a worker pre-tool call over 16 segments went from 3.6 to 2.3 ms
-cold and from 2.6 to 1.7 ms warm
-(`BenchmarkWorkerPreHookVerifiedEvidencePrefix`). Validating each plan
-against the discovery its evaluation entry just made, and reading
-`policies/` once for both fragment patterns, then took that call from 396
-to 344 file-system accesses and from 1.84 to 1.60 ms cold and 1.39 to
-1.21 ms warm on a quieter machine.
+that verified prefix and only revalidate segment identities.
 PreToolUse and PermissionRequest classify the parsed payload before preparing
 cache identities, so read and other non-command, non-write tools preserve their
 normal bookkeeping without loading policy sources or creating a decision cache.
@@ -3538,13 +3193,7 @@ and post-evaluation resamples remain in place to detect concurrent changes.
 Each identity sample inspects every dependency parent directory once and
 resolves dependencies from those listings, then resolves every dependency
 afresh right after observing it; a parent replaced during the sample changes
-that fresh identity and fails the sample instead of binding a stale one. In an
-interleaved comparison a replayable-host miss with 16 dependencies took 17 %
-less time and one with 255 dependencies 21 % less.
-On an Apple M1 with Go `1.26.5`, the focused irrelevant-route benchmark
-measured 564,962 ns/op, 118,983 B/op, and 986 allocations for the former
-identity-preparation path versus 14.70 ns/op, 0 B/op, and 0 allocations after
-classification. This is local benchmark evidence, not a latency guarantee.
+that fresh identity and fails the sample instead of binding a stale one.
 
 Literal `eval` uses the shell's two parsing passes, not source-level quote
 reconstruction. The outer parse first produces argument bytes; `eval` then
@@ -3605,7 +3254,7 @@ source. The exemption is bounded. It applies only when the failure is the
 lockfile contract itself rather than a policy violation, every executable
 position in the command must be a repair invocation so a compound command
 cannot smuggle work through, analysis must be complete, and the executable must
-be `reconc` or a versioned release artifact such as `reconc-0.9.0-darwin-arm64`.
+be `reconc` or a versioned release artifact such as `reconc-X.Y.Z-darwin-arm64`.
 The emitted remediation therefore tells the operator to run the repair as the
 only executable command. Piping it to another command or chaining unrelated
 work is deliberately refused.
@@ -3620,7 +3269,7 @@ maps each to its own single-line remediation: write the executable as a literal
 word, flatten the nesting, split the command, or fix the Bash syntax. When
 several causes apply, the first one reached in the fixed AST walk order is
 reported, so the message is deterministic for a given command. Only a fully
-resolved analysis permits a command; adding cause attribution changed no allow
+resolved analysis permits a command; cause attribution never changes an allow
 or block decision.
 
 `reconc adopt .` and `reconc bootstrap inspect .` share deterministic stack
@@ -3690,7 +3339,7 @@ performance budgets. Templates remain inert until a policy references them and
 supplies the repository-owned paths, commands, or script where the shape
 requires those inputs.
 
-The four evidence recipes use the existing `require_script` boundary and add a
+The four evidence recipes use the `require_script` boundary and add a
 validated template-only `recipe` metadata contract. `contract` identifies the
 typed recipe; `input_paths` and `applicability` describe the activation surface;
 `cwd`, `command_identity`, and `evidence_identity` state how a result is bound;
@@ -3711,7 +3360,7 @@ those fields to the invocation and requires successful migration
 isolation/forward/declared rollback and both performance budget flags for a passing result. Unknown or
 trailing stdout, generic exit-0 scripts, mutable identities, and mismatches fail
 closed. The project remains responsible for API semantics, migration execution,
-complete generator output comparison, and attributable TASK 490 metrics.
+complete generator output comparison, and attributable performance metrics.
 
 The stdout object uses the exact field names below. Diagnostics belong on
 stderr. Exit 0 requires `result: "pass"`; exit 2 requires `result: "block"`.
@@ -3741,7 +3390,7 @@ incompatible environments before emitting evidence. It runs the ordinary
 absolute and normalized comparison, publishes the complete comparison report,
 and emits a compact recipe object whose `evidence` is the SHA-256 of the report.
 Exit 2 reports a measured regression. A project-owned executable can invoke
-this command; the regular `compare` output remains unchanged.
+this command; the regular `compare` output is independent of this mode.
 
 `no-generated-writes` and the stack-neutral `default` preset share the same
 generated-output boundary: root or nested `generated/` and `dist/` paths, root
@@ -3750,8 +3399,8 @@ available for source tooling such as `scripts/build/`; users can override a
 template rule's `paths` explicitly when a repository owns a different output
 layout.
 
-`couple_change` keeps its legacy behavior for literal patterns: any write
-matching `when_paths` can satisfy a triggered source write. An owner-aware
+For literal patterns, any write matching `when_paths` satisfies a triggered
+`couple_change` source write. An owner-aware
 coupling is opt-in when a `{name}` capture appears in the source or companion
 patterns. Repeating the captured name binds each companion match to that
 source owner, so a test or documentation edit in another package cannot
@@ -3868,7 +3517,7 @@ RFC3339 verification time, and a repository-relative evidence path plus its
 SHA-256 as exactly 64 lowercase hexadecimal characters without surrounding
 whitespace. Evidence bytes must use one supported sample-bearing form: UTF-8 text
 starting with `measured samples:` followed by comma-separated finite numbers
-(the existing `benchmark samples:` prefix remains accepted), a JSON object with
+(the `benchmark samples:` prefix is also accepted), a JSON object with
 only a `samples` number array, or a JSON number array. Reconc parses that
 evidence and requires the exact ordered finite sample sequence to equal the
 declared samples before recomputing the aggregate, comparing it to both the
@@ -3897,6 +3546,7 @@ path classes, validated glob decisions, line indexes, package JSON objects,
 and compatible Go syntax and canonical-format facts. Package scripts and
 dependency pins share one package JSON parser and accept either ordinary UTF-8
 JSON or exactly one leading UTF-8 BOM; a second or embedded BOM remains invalid.
+A configured package manager that is missing or mismatched fails explicitly.
 Package-script gates memoize each inspected directory's identity, normalized
 manager signals,
 and parent ancestry within the evaluation; sibling manifests reuse shared
@@ -3947,7 +3597,15 @@ completeness, privacy, exact inspection evidence, detector deltas, and reviewed
 newly-allowed or newly-blocked gates. The internal Go inspection core performs
 strict MCP result decoding, local output-schema validation, deterministic
 selected-field scanning, fingerprint-bound annotation trust, and bounded result
-withholding. `reconc action log tail|stats|verify|export` reads the verified
+withholding. Output schemas use local Draft 2020-12 without remote references
+and a bounded RE2-compatible pattern subset. Every returned content block must
+be fully selected or explicitly type-allowlisted; unselected structured
+content, metadata, unknown content, and untrusted annotations fail closed, and
+the core emits only payload-free evidence or a bounded withheld result.
+`actions.detectors` binds the built-in detector-pack ID and digest, exact
+phase-compatible RFC 6901 fields, categories, dispositions, schema policy,
+supported content policy, exact fingerprint-bound annotation trust, and hard
+inspection limits into the format-6 plan. `reconc action log tail|stats|verify|export` reads the verified
 Action Ledger without creating missing state. Offline simulation and retained
 fixtures remain non-enforcement evidence; only explicitly routed gateway calls
 cross the live tool-call interception boundary.
@@ -3973,7 +3631,12 @@ outcomes. The store rejects stale identities, malformed or oversized state,
 clock rollback, partial publication, symlinks, special files, permission drift,
 counter overflow, duplicate calls, and capacity oversubscription. This is an
 enforcement primitive used by the gateway; it does not make direct MCP or
-framework calls enforced.
+framework calls enforced. Durable reservations live only under the
+operator-selected `RECONC_HOME`, never in the repository, and are opened only
+when an operator launches `reconc mcp gateway`; compiling or refreshing policy
+adds no live interception or implicit state mutation. A filesystem root is
+never accepted as `RECONC_HOME`, and an existing selected root must already be
+private because Reconc never changes its permissions implicitly.
 
 Healthy status and state-version reads validate repository and key identity
 under concurrent shared state locks. A detected recovery journal releases the
@@ -4011,7 +3674,7 @@ bindings under the state lock, accepts only a key allowed and active at that
 signed time by an operator-owned registry, and consumes the receipt at most
 once in the same durable transaction that commits its approval budget charge. Malformed,
 expired, replayed, cancelled, rejected, unavailable, stale, or unpersistable
-transitions fail closed.
+transitions fail closed. Reconc ships no public approver or dashboard.
 
 Authority is not repository policy. The registry must be a bounded private
 regular file outside the canonical repository; the private signing key and
@@ -4067,6 +3730,15 @@ identity, preventing cross-policy, cross-declaration, and cross-repository
 correlation. Unavailable identity makes the evidence incomplete with no plain
 digest fallback. The chain is tamper-evident within retained evidence, not
 immutable or deletion proof against the filesystem owner.
+`actions.ledger` selects recording mode `required`, `best_effort`, or `off`,
+one declaration, exact, or keyed tool-identity mode, and bounded selected
+argument or result pointers. In `required` mode the gateway records the
+accepted request and pre-decision before downstream dispatch or fails closed
+without invoking the tool. Budget ledger transitions mirror persisted state
+changes: a `denied` event binds the live reservation it closes, the released
+reserved capacity, and denied-count consumption only. When a reservation is
+refused because a budget is already exhausted, the blocking `pre_decision` is
+the complete fact; the ledger never fabricates a reservation or counter delta.
 Every live file, archive, lock, journal, and recovery backup is bound to the
 same private-filesystem contract as action state: existing ownership, mode, or
 ACL drift fails without repair, while each newly created or atomically replaced
@@ -4086,7 +3758,7 @@ and count of completed call IDs. It therefore scales with active calls rather
 than all completed history. Unix device/inode/change-time and Windows volume,
 file ID, change-time, write-time, and attributes prevent restored modification
 times from making changed bytes look unchanged. Head publication precedes
-checkpoint publication inside the existing recoverable JSONL transaction;
+checkpoint publication inside the recoverable JSONL transaction;
 recovery fully verifies retained bytes before rebuilding either summary. Both
 publications use ordered syncs (`F_BARRIERFSYNC` on macOS): the full sync of
 the transaction's journal removal makes them durable, and until then the
@@ -4099,7 +3771,7 @@ recovery callbacks.
 Action-state status and evidence views report the byte length of the already
 validated persisted state buffer. They do not marshal the complete state a
 second time merely to measure it. Terminal-call admission uses the canonical
-sorted state index; state schema and rendering remain unchanged.
+sorted state index.
 
 The action state issues every gateway call identity: `act_` and 26 base32
 characters carrying the issue second, 40 random bits, and a 50-bit keyed MAC
@@ -4119,13 +3791,13 @@ so retained history is bounded by the calls issued within the window. A new
 reservation or approval is refused while it would leave less than
 1 MiB below the 16 MiB state limit, and reservations plus terminal calls share
 the 65,536 terminal-record capacity, so every active reservation can always be
-finalized; the refusal clears as history leaves the window. State format 2
-introduced these rules. The first write after an upgrade migrates a format-1
-state: its random call identities fail the MAC and can never be admitted, so
+finalized; the refusal clears as history leaves the window. These rules belong
+to action state format 2. The first write to a format-1 state migrates it in
+place: its random call identities fail the MAC and can never be admitted, so
 finished history keyed by them is dropped, while records that a pending
 approval, an active reservation, or a retained approval still needs remain.
-Recovery also completes a format-1 transaction left by an older writer. An
-older Reconc refuses a format-2 state rather than misreading it.
+Recovery also completes a format-1 transaction. Reconc releases that predate
+format 2 refuse a format-2 state rather than misreading it.
 
 Approval status and reason are exact, receipt provenance is all-or-none, and a
 terminal budget stop cannot be bypassed by a later approval or dispatch. Unknown
@@ -4156,11 +3828,11 @@ An approval-free reservation also recovers at most eight typed state-version
 conflicts before dispatch. Each retry reuses its exact reservation, checks the
 current governing budget generation/window, reevaluates current state-bound
 inputs, and resamples policy/server/tool/path identities before commitment.
-The existing dispatch record carries the fresh decision and state version;
+The dispatch record carries the fresh decision and state version;
 the ledger retains one pre-call decision. Approval-bound calls do not rebind
 authorization across changed state. No downstream operation is retried after
-dispatch, and failed recovery uses the existing reservation cleanup path.
-Progress uses a 16-event per-call work queue inside the existing 128-event and
+dispatch, and failed recovery uses the reservation cleanup path.
+Progress uses a 16-event per-call work queue inside the 128-event and
 1 MiB budgets. Notifications remain source-ordered, a slow upstream sink cannot
 block the transport reader, and queue admission plus non-blocking enqueue is
 serialized with closure under one lifecycle mutex. Final result processing
@@ -4257,48 +3929,21 @@ LangChain middleware, callbacks, agent state, model provider, or hosted model.
 The proof calls converted tools directly and sends no repository data to a
 third party.
 
-Five benchmark repetitions on Apple M1 with Go `1.26.5` measured medians of
-44.5 microseconds for representative compilation, 72.4 microseconds for
-representative serial evaluation, 1.49 milliseconds for the maximum legal
-plan, 18.2 microseconds for an exact cache hit, 382 microseconds for approval
-verification, 34.5 microseconds for representative text inspection, 9.75
-microseconds for representative structured inspection, 39.7 milliseconds for
-one durable ledger append, 50.0 milliseconds for budget reserve-and-release,
-2.81 milliseconds for discovery with shared schemas, and 7.94 milliseconds for
-one end-to-end gateway call. These local observations include the benchmark
-fixtures' durability and process costs where applicable; they are review
-evidence, not latency guarantees.
-
-Five focused repetitions on the same Apple M1 with Go `1.27.0` measured the
-maximum-legal 8 MiB canonical action encoder before and after this change. The
-median moved from 16.006 ms, 23,191,586 B/op, and 18 allocs/op to 10.274 ms,
-8,388,611 B/op, and 1 alloc/op. The complete structured-action benchmark moved
-from 72.828 ms, 22,852,399 B/op, and 118 allocs/op to 41.067 ms, 8,396,832 B/op,
-and 100 allocs/op. Allocation reductions are the stable result; latency is a
-local observation subject to machine load, not a product-wide guarantee.
-
-The Go 1.27 hotpath pass also bounds trace storage during evaluation, shares
-one immutable compiled inspection pack per gateway, traverses immutable action
-values without cloning child slices, reuses one freshness hashing buffer per
+The runtime bounds trace storage during evaluation, shares one immutable
+compiled inspection pack per gateway, traverses immutable action values
+without cloning child slices, reuses one freshness hashing buffer per
 source batch, right-sizes evaluation-local memos, and opens one rooted source
 reader per complete policy load. The MCP gateway keeps one runtime evaluator
 for its lifetime: policy refreshes retain the evaluator's freshness-checked
 plan cache, and repository-effect evidence evaluates the already validated
-snapshot plan before the gateway's existing identity and policy resampling
-boundaries. Five focused Apple M1 repetitions reduced a
-maximum legal action plan from 3,184,776 to about 326,700 B/op, a clean maximum
-MCP content-array scan from 4,846,336 B/op and 32,777 allocs/op to about
-178,300 B/op and 88 allocs/op, a large freshness set from about 5.39 MiB/op to
-about 758 KiB/op, and contextual source loading from 407,928 B/op and 4,015
-allocs/op to 103,640 B/op and 1,027 allocs/op. The source-load median moved from
-8.410 ms to 3.338 ms in the recorded run; filesystem latency remains
-environment-sensitive, so the allocation reductions are the portable claim.
+snapshot plan before the gateway's identity and policy resampling
+boundaries.
 
 A completion attempt owns one local runtime evaluator for lock validation and
 full policy evaluation. The second access reuses its immutable plan only after
 rechecking lock bytes and live source freshness. Each retry creates a fresh
-owner; candidate snapshots, receipt binding, and fail-closed drift checks retain
-their existing boundaries. No cache is shared across completion attempts.
+owner; candidate snapshots, receipt binding, and fail-closed drift checks keep
+their boundaries. No cache is shared across completion attempts.
 
 Context-aware runtime-plan loads coalesce per repository without binding every
 waiter to another caller's cancellation: a canceled waiter returns immediately
@@ -4313,7 +3958,7 @@ Discovery, source reads, include expansion, template
 dependency resolution, source digesting, and freshness hashing check the caller
 lifecycle at bounded stage and per-entry boundaries. Compatibility entry points
 use a background context, while context-bearing evaluation returns the original
-cancellation or deadline through the existing error chain.
+cancellation or deadline through the error chain.
 
 The evaluator retains at most 32 immutable runtime plans and 128 MiB of
 conservatively accounted plan graphs. A legal plan larger than that budget is
@@ -4328,7 +3973,7 @@ caches retain at most 256 results and
 lookup cloning happens after the cache lock is released, and oversized legal
 results bypass retention while preserving the exact cache identity contract.
 
-Action inspection now consumes read-only compiled detector-policy views rather
+Action inspection consumes read-only compiled detector-policy views rather
 than deep-cloning every matching policy, field list, pointer-token list, and
 allowlist for each phase. Present and null selected values compute only their
 final body-bound keyed identity; missing pointer states retain their explicit
@@ -4337,15 +3982,9 @@ and remains Unicode-correct through a bounded fallback set. Evidence selector
 admission binary-searches one canonical fact registry instead of rebuilding a
 map for every control. Public fact lists remain isolated copies.
 
-Five Apple M1 samples at 100 iterations measured representative structured
-inspection at 4,944 B/op and 69 allocations, down from the checked 6,384 B/op
-and 90 allocations. ASCII secret diversity and maximum fact-selector admission
-both measured zero allocations; their local medians were about 82.5 ns/op and
-401 ns/op. Report identity encoding and final canonical report validation stay
+Report identity encoding and final canonical report validation stay
 independent: the identity hashes compact JSON with an empty identity field,
 while publication validates that binding again and emits bounded indented JSON.
-Those byte contracts are not identical, so merging them would weaken the final
-validation boundary rather than remove safe duplicate work.
 
 `MultiServerMCPClient.get_tools()` uses fresh sessions for discovery and calls;
 an explicit `client.session()` plus `load_mcp_tools()` owns one stateful
@@ -4462,27 +4101,17 @@ unleased key material makes the dependent identity unavailable.
 The gateway prepares one immutable normalized evaluation and one exact cache
 identity per logical request. Lookup, evaluation, and store share that binding;
 store accepts a result only when its eligible identity matches exactly. The
-standalone cache methods preserve their existing API and perform their own
-preparation when no prepared request is supplied.
+standalone cache methods perform their own preparation when no prepared request
+is supplied.
 
-Apple M1 TASK-270 measurements moved 128 context-root predicates from 21,816
-B/op and 259 allocations to 312 B/op and 3 allocations. Pointer traversal plus
-summary remains at zero allocations through the maximum legal JSON depth. The
-maximum legal action plan reduced allocations from 810 to 806 in the calibrated
-run; prepared cache lookup and store each avoid normalization and retain only
-the required defensive result copy.
+Prepared action-decision cache lookup and store each avoid normalization and
+retain only the required defensive result copy.
 
-The follow-up action hot-path pass removes the defensive 32 KiB operand copy
-from maximum 256-item membership checks, validates and sizes an 8 MiB canonical
-runtime value with zero heap allocation, computes normal logical-condition
-summaries only when a trace can use them, and memoizes exact root sizes within
-one evaluation. Three focused Apple M1 samples moved a 64-rule 8 MiB root
-evaluation from about 1.89 seconds and 48.2 MiB/op to about 105 milliseconds and
-31.4 MiB/op. A late normalization failure moved from about 147 milliseconds and
-33.6 MiB/op to about 28 milliseconds and a 13.7 KiB/op median because failure
-construction no longer repeats normalization or cache-identity work. These
-latencies are local observations; the allocation and single-pass contracts are
-the portable result.
+Action evaluation avoids a defensive operand copy for maximum 256-item
+membership checks, validates and sizes an 8 MiB canonical runtime value without
+heap allocation, computes normal logical-condition summaries only when a trace
+can use them, and memoizes exact root sizes within one evaluation. A late
+normalization failure does not repeat normalization or cache-identity work.
 
 Independent enforcement requires an operator-supplied expected lock digest.
 An explicit repository-managed mode is available with lower provenance and a
@@ -4490,27 +4119,34 @@ visible policy-tampering boundary. Repository policy can never select the
 downstream executable, argv, working directory, inherited
 environment, credential material, state key, or approval authority.
 
-The implemented inspection layer adds deterministic local argument, result, and
+The inspection layer provides deterministic local argument, result, and
 progress detectors, strict output-schema validation, unsupported-content
-classification, and post-result withholding. The implemented ledger layer adds
+classification, and post-result withholding. The ledger layer provides
 typed payload-free events, selected-field keyed identities, private atomic
 multi-process append, bounded rotation, crash recovery, archive and detached-head
 verification, explicit lifecycle aggregation, exact Impact Lab ledger
 assertions, and verified minimized export with explicit omissions. The
-implemented `internal/actionevidence` layer builds deterministic local JSON or
+`internal/actionevidence` layer builds deterministic local JSON or
 Markdown from the current policy and lock identity, retained ledger integrity,
 read-only budget state, reverified approval receipts, and exact Impact Lab
 scenario results. Built-in versioned maps reference SOC 2, GDPR, the HIPAA
 Security Rule, and the EU AI Act by control identifier and primary-source URL;
 strict digest-pinned or Ed25519-signed custom maps may add selectors but cannot
 set status or override evidence facts. Missing, invalid, stale, incomplete, or
-out-of-window evidence is downgraded explicitly. This is bounded technical
-evidence mapping only; organizational control operation, legal assessment, and
+out-of-window evidence is downgraded explicitly. `reconc action evidence
+export|verify` reads these private action surfaces without creating or
+repairing state; the report schema, control-map schema, control-map signature,
+and mapping-authority registry are versioned v1 artifacts. Export requires an
+explicit canonical UTC `--as-of`, records exact window and retained-history
+boundaries, derives every control status from a closed evidence-fact set, and
+emits no raw arguments, results, receipts, credentials, headers, environment
+values, paths, or personal data. Verification rejects an `--as-of` before the
+latest retained record, rebuilds current evidence, and succeeds only when every
+selected mapping is `covered`. This is bounded technical evidence mapping only; organizational control operation, legal assessment, and
 external assurance remain outside Reconc. The MCP stdio gateway is live only
 for routed tools.
 Key rotation cannot return budget capacity: it is serialized against live key
-leases and refused while dependent action state exists unless a future explicit
-atomic migration or reset owns every dependent identity and record.
+leases and refused while dependent action state exists.
 
 The full proposed contract, exact resource limits, timeouts, failure matrix,
 versioning rules, package ownership, and deterministic conformance vectors are
@@ -4590,7 +4226,7 @@ bounded and progressively disclose specialized material through stable
 `agent-intro --section` IDs and skill-owned `references/` files.
 
 The skill is useful guidance, not a runtime requirement. Explicit installers
-built from this source and `install-cli` publish its embedded canonical content into the
+and `install-cli` publish its embedded canonical content into the
 shared local `~/.agents/skills/reconc` root by default. Codex, Devin CLI,
 Cursor CLI, OMP CLI, and DSH can discover this root locally when enabled. A
 repository clone or downloaded archive does not install the skill, and an
@@ -4612,7 +4248,7 @@ integration choices without loading the entire host reference.
 | MCP gateway | Govern downstream MCP calls with policy, approvals, budgets, inspection, and ledger evidence | Explicit routing through `reconc mcp gateway`; direct and host-native tools remain outside |
 
 For shell-capable coding agents, CLI and supported hooks are the normal entry.
-The existing MCP gateway adds value when downstream MCP tools need governed
+The MCP gateway adds value when downstream MCP tools need governed
 routing. It is not a general MCP facade over every Reconc CLI command, and
 ordinary CLI work does not require an additional server.
 
@@ -4679,8 +4315,8 @@ appearing somewhere in its text. A user hook that only names
 `tools/reconc/bin/hook` in an argument or a message stays user-owned and is
 preserved, while any executable inside `tools/reconc/bin/`, including a renamed
 wrapper, remains a Reconc entry that install and uninstall refuse to treat as
-foreign. Current generated shell resolvers and the former login-shell resolver
-are recognized only by reconstructing their complete byte-exact template;
+foreign. Generated shell resolvers, including the earlier login-shell resolver
+form, are recognized only by reconstructing their complete byte-exact template;
 unparseable commands and marker text alone remain user-owned. Standalone
 plugins and hook files likewise require the format-defined exact first-line,
 top-level object, or parsed-command signature before Reconc may replace them.
@@ -4723,7 +4359,7 @@ one trie for all declared pointers. Duplicate names, invalid UTF-8 or numbers,
 malformed structure, and trailing data fail closed. Unselected subtrees use
 `SkipValue` and never become a generic interface tree. Reconc copies only the
 selected neutral fields, checks the fresh compiled identity, reuses
-the existing session/policy/MCP/Stop engine, emits one bounded versioned JSON
+the session/policy/MCP/Stop engine, emits one bounded versioned JSON
 response, and records route liveness. Routes lacking pre-execution,
 synchronous-response, authoritative-outcome, continuation, continuation
 acknowledgement, or exact MCP identity guarantees return `unsupported` and do
@@ -4821,7 +4457,7 @@ guarantees separate:
 
 The same file checks every registry platform with its own generated pre/Stop
 route and host envelope. Native JSON adapters run the generated command in a
-child process; OpenCode, Kilo, Oh My Pi, and Pi use the existing Bun worker
+child process; OpenCode, Kilo, Oh My Pi, and Pi use the Bun worker
 contracts; Kimi Code remains a global receipt-bound configuration and is not
 claimed as a local project execution. Copilot, Cursor, Grok, and Antigravity
 decision JSON, exit-code routes, and permission shapes are asserted explicitly
@@ -4834,7 +4470,7 @@ runs four native allowed/denied write/shell controls using existing authenticati
 an ephemeral session, and an explicit one-off hook-trust bypass for that probe.
 These controls do not establish ordinary persisted trust or the remaining routes.
 It does not change saved host configuration or resume an existing conversation.
-Other surfaces currently require an operator-assisted exercise: text mode waits
+Other surfaces require an operator-assisted exercise: text mode waits
 within a five-minute execution deadline, while JSON mode returns incomplete
 without reading Enter. Interrupts and termination signals cancel the probe.
 Native cleanup has a separate two-second bound. The temporary shim delegates capture to the disposable Reconc binary;
@@ -4853,7 +4489,7 @@ A captured denial describes the hook response; host enforcement still requires
 an independently linked native outcome. A separate `policy_decision` records
 `pass` or `block` only from the evaluator's complete, error-free classification;
 unclassified reads, malformed input, unavailable policy, and encoding failures
-remain `unproven`. The existing timing descriptor carries this bounded metadata
+remain `unproven`. The timing descriptor carries this bounded metadata
 without changing the host's control response. Go cannot pass that descriptor on
 Windows, where policy provenance remains unproven. Missing delivery, partial matrices,
 operator EOF, absent negative enforcement, unsupported direct transports, unavailable tools, and
@@ -4951,9 +4587,9 @@ print-mode denial used an isolated custom hook to test the host response.
 | `afterTabFileEdit` | not applicable | not applicable | installed for Tab only |
 | `workspaceOpen` | observed | observed | installed, sessionless |
 
-In print mode, CLI `2026.09.18-9a7762b` ran a Task-tool subagent without
+In print mode, CLI `2026.09.18-9a7762b` runs a Task-tool subagent without
 firing `subagentStart` or `subagentStop`; the subagent's own `preToolUse` and
-`postToolUse` events carried a separate `conversation_id` and `session_id`.
+`postToolUse` events carry a separate `conversation_id` and `session_id`.
 Each of its tool calls passes the pre-tool gate, but its evidence forms its own
 session that no subagent Stop gate certifies in that mode; an installed git
 pre-commit hook remains the backstop for its writes.
@@ -4967,8 +4603,7 @@ repository evidence, even when an unpinned tool policy could otherwise match.
 The captured native MCP deny prevented the local server effect on each attempted
 call, but the whole run ended in Cursor's transport failure. Neither the
 custom-hook deny nor these payload captures proves a Reconc policy denial on
-the installed CLI. The test server's project-specific approval was removed
-after the probe; the user's unrelated MCP configuration was unchanged.
+the installed CLI.
 
 Cursor's registry classifies all 21 current host events exactly once. Reconc
 installs 17: `sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`,
@@ -5015,13 +4650,13 @@ common `conversation_id`. A malformed or outcome-unknown post event cannot
 satisfy command freshness, completion, or proof.
 
 The CLI probe prefers `cursor-agent` and accepts `agent` only when its reported
-version and help identify Cursor; this machine's `agent` is Grok. It verifies
-the help contract before treating either executable as Cursor, so an unrelated `agent`
-binary cannot create a false host claim. The current CLI probes did not
-exercise `AskQuestion` or native `subagentStart` denial, so neither boundary
-has a live enforcement guarantee. Earlier Cursor reports describe missing
-generic hooks for `AskQuestion` and ignored subagent denials; those reports
-remain useful risk evidence, not proof of this CLI version's behavior:
+version and help identify Cursor. It verifies the help contract before treating
+either executable as Cursor, so an unrelated `agent` binary cannot create a
+false host claim. The CLI probes do not exercise `AskQuestion` or native
+`subagentStart` denial, so neither boundary has a live enforcement guarantee.
+Cursor forum reports describe missing generic hooks for `AskQuestion` and
+ignored subagent denials; they are risk evidence, not proof of a specific CLI
+version's behavior:
 `https://forum.cursor.com/t/cursor-cli-askquestion-tool-skips-pretooluse-and-posttooluse-hooks/161836/6`
 and
 `https://forum.cursor.com/t/subagentstart-hook-deny-is-not-enforced/166143/4`.
@@ -5104,9 +4739,9 @@ response contract. A host-aborted Stop yields immediately without starting a
 continuation. Approval, post-tool, compaction, and shutdown routes are
 observational and fail open after bounded diagnostics. `tool_call` handlers all
 see the original input, and a later extension's input replacement wins. OMP
-18.1.18 has no final pre-execution gate after those replacements; a live
-two-extension probe executed the later replacement after the earlier hook saw
-the original command. Reconc cannot promise policy enforcement over changed
+18.1.18 has no final pre-execution gate after those replacements: with two
+extensions, the later replacement executes after the earlier hook saw the
+original command. Reconc cannot promise policy enforcement over changed
 input when another extension runs later. The adapter correlates actual
 `tool_result.input` with the final `tool_execution_end.isError` and result, so
 later result middleware cannot create premature success evidence. A missing,
@@ -5117,10 +4752,7 @@ Its later completion is not the initial tool's success. Tool output never
 decides success. The adapter drains stdout and stderr concurrently under
 one 8 KiB budget, rejects invalid UTF-8, kills and awaits timed-out subprocesses,
 and gives shutdown observation one second inside OMP's two-second handler
-budget. A disposable OMP 18.1.18 print run with Reconc loaded explicitly
-observed session start, pre-tool, final post-tool, Stop, and shutdown. This is
-route liveness, not a demonstrated Reconc policy denial or general extension-order
-enforcement guarantee.
+budget.
 
 DeepSeek Harness uses a repository-owned Cordis extension at `.dsh/reconc.mjs`.
 `reconc hook install dsh` also writes `.dsh/reconc.patch.yml`; invoke the
@@ -5257,7 +4889,9 @@ path reports requested, failed-before-call, or suppressed delivery without
 claiming host acceptance. A settle whose `aborted` flag is set (Esc) never
 continues. State is capped at 1,024 sessions and ten requested continuations
 per session; duplicate settled events and injected Reconc input are suppressed
-by generation and in-flight state. Host cancellation releases immediately. Every registered runtime additionally carries a host event record: the event
+by generation and in-flight state. Host cancellation releases immediately.
+
+Every registered runtime additionally carries a host event record: the event
 vocabulary that host accepts, transcribed from its own published reference or
 source, with the location, the revision where one exists, and the date it was
 taken. A test compares each record against the registry in both directions, so
@@ -5464,7 +5098,7 @@ not share lifetime state. Format-1 newline-framed JSON
 requests carry bounded IDs, event, repository, and payload fields and are
 processed in deterministic order. Cancellation or route timeout kills the
 child without re-evaluating the event. Failure before an event frame is written
-may use the remaining route budget for the existing one-shot path. Transient
+may use the remaining route budget for the one-shot path. Transient
 startup failures retry worker startup after capped 100 ms, 500 ms, and 2.5 s
 delays; a proven handshake mismatch disables reuse for that plugin instance.
 After an event write begins, only a valid bounded response carrying the exact
@@ -5493,7 +5127,7 @@ candidates and all discovery markers,
 sources, relevant directories, presets/global state, and custom runtimes; any
 config identity or content change rejects the recipe before a full source load
 decodes the new configuration. Session and taint inputs remain freshly loaded.
-No daemon, socket, listener, or runtime network call is added.
+No daemon, socket, listener, or runtime network call is involved.
 Oversized newline frames are discarded with bounded retained memory and a
 bounded drain budget. A fully terminated oversized frame gets one deterministic
 protocol error and the same worker continues with the next frame; missing
@@ -5505,7 +5139,7 @@ response, only the unread remainder survives and the buffer remains bounded by
 the 128 KiB response limit.
 Concurrent session updates keep the unchanged active-session pointer on a
 lock-free read fast path. If that optimistic read overlaps an atomic Windows
-publication, Reconc rechecks once under the existing active-session lock;
+publication, Reconc rechecks once under the active-session lock;
 persistent read or validation failures still fail closed.
 
 Claude Code, Codex, GitHub Copilot, Cursor, Devin, Antigravity, Grok, and ZCode
@@ -5767,17 +5401,16 @@ answers with Devin's top-level `{"decision":"block","reason":...}`; an allowed
 one prints nothing and leaves Devin's prompt in charge. A successful post
 callback contributes file evidence only when its session, turn, call, and
 input match one allowed PreToolUse; failed, rewritten, post-only, and duplicate
-callbacks contribute no successful file evidence. On the installed
-`devin 3000.10.21 (611c1cba)`, `exec` reported `success=true` for an exact
-`exit 7` without a structured shell exit. Reconc therefore does not accept
-native direct-shell success from that boolean or output text; use `reconc exec`
-for authoritative shell-success evidence. One isolated native write-denial
-control on that version reached PreToolUse and left the protected file absent.
-Independent live controls on the same installed host showed that hook timeout
-and malformed hook JSON let a requested write execute. A correctly formed
-`hookSpecificOutput.updatedInput` changed a write path and content before
-execution. When one hook approved the original path and a later hook rewrote
-it to a blocked path, Devin wrote the blocked path; Reconc's post correlation
+callbacks contribute no successful file evidence. Devin
+`3000.10.21 (611c1cba)` reports `success=true` from `exec` for an exact
+`exit 7` without a structured shell exit, so Reconc does not accept native
+direct-shell success from that boolean or output text; use `reconc exec` for
+authoritative shell-success evidence. On that version a native write denial
+reaches PreToolUse and prevents the write, while a hook timeout or malformed
+hook JSON lets a requested write execute. A correctly formed
+`hookSpecificOutput.updatedInput` changes a write path and content before
+execution. When one hook approves the original path and a later hook rewrites
+it to a blocked path, Devin writes the blocked path; Reconc's post correlation
 rejects changed-input evidence but cannot undo that host mutation. The native
 hook is therefore an advisory pre-execution control under host timeout or
 later input rewrites; retain the git-derived checkpoint and pre-commit gate.
@@ -5999,8 +5632,8 @@ is required because Windows byte-range locks are mandatory. Every material
 slot write reaches stable storage before the state-file lock is released;
 unchanged mutations skip both write and sync. Write, sync, unlock, and close
 failures remain joined so an acknowledged transition never masks a durability
-failure. There is no legacy mode discriminator, marker cleanup, or
-`.reconc/runloop/` compatibility read.
+failure. The state carries no mode discriminator, and `.reconc/runloop/` is
+never read.
 The `run` directory and `state.bin` use the private directory/file contract;
 decision JSONL live, archive, lock, journal, and backup members use the same
 contract. Reads and retention validate it, writers secure new objects before
@@ -6194,6 +5827,17 @@ symlink object itself must omit it. A
 `require_script` that declares nothing keeps its plan off the warm path
 entirely, so no report is ever reused for a script whose inputs are unknown.
 
+```yaml
+rules:
+  - id: schema-drift
+    kind: require_script
+    when_paths: ['src/**']
+    script: 'scripts/check-schema-drift.sh'
+    cache_inputs: ['build/schema-report.json']
+    mode: block
+    message: schema drift gate
+```
+
 Dirty regular files up to 64 MiB contribute exact SHA-256 content identity. A
 larger dirty file receives only a bounded size/mtime diagnostic identity, makes
 stop-policy report caching ineligible, and marks the completion worktree
@@ -6243,8 +5887,8 @@ lists every triggering path, and a failure is attributed as
 `[first-path +N more paths]`. Composite `require_script` sub-checks reuse one
 run the same way across the contexts of their composite rule; caller
 cancellation is never reused.
-The runtime keeps the old read-safe fast path as defense in depth if a host tool
-still sends a read-only PreToolUse event; write tools still resolve the repo and
+The runtime keeps a read-safe fast path as defense in depth for a host tool that
+sends a read-only PreToolUse event; write tools still resolve the repo and
 fail closed before policy evaluation. Payload parsing stays allocation-light by decoding
 directly from bytes, and duplicate Cursor-payload suppression uses a cheap
 marker prefilter before JSON decoding. `RECONC_HOOK_TIMING=1` or
@@ -6288,25 +5932,19 @@ authority fails before the next claim is asserted.
 Independent cold workflow-audit keys execute concurrently behind per-key
 singleflight locks. Only short cache read/merge/atomic-publication sections are
 globally serialized, so parallel results cannot overwrite each other. Runtime
-retention no longer piggybacks on audit-cache publication. The task-state cache hashes only
+retention runs independently of audit-cache publication. The task-state cache hashes only
 `docs/tasks.md`, `docs/spec.md`, schema, and open TASK bodies on its hot path. A clean completed
 TASK archive is represented by its committed Git tree ID plus directory
 metadata; dirty or unreadable archive state bypasses caching entirely, avoiding
 full archive reads without hiding archived-file changes. Cache input tree walks
-now propagate traversal failures into a blocking audit result and never publish
+propagate traversal failures into a blocking audit result and never publish
 a pass from an incomplete tree. TASK diff-aware gates likewise report staged or
 working-tree Git diff failures instead of silently exempting changed completed
-TASKs. Lockfile JSON readers decode directly from the existing byte slice,
-avoiding one full lockfile copy per policy check and TUI summary. The in-process normal
-executable-TASK benchmark on Apple M1 measured 14,264,267 ns/op, 67,268 B/op,
-and 571 allocs/op over five iterations on 2026-08-05. In the same run, duplicate
-session mutation measured 256,433 ns/op, 16,496 B/op, and 176 allocs/op.
-Incremental audit append measured 34,346,403 ns/op with no retained entries and
-33,281,819 ns/op with 200 retained entries over three iterations, so normal
-append allocation count no longer scales with retained-chain length. These
-samples exclude process startup and Git and are observations rather than
-performance promises. Reproducible Stop, audit, and concurrent-cache
-benchmarks live beside their regression tests and run with
+TASKs. Lockfile JSON readers decode directly from the byte slice they read,
+avoiding one full lockfile copy per policy check and TUI summary. Normal audit
+append allocation count does not scale with retained-chain length.
+Reproducible Stop, audit, and concurrent-cache benchmarks live beside their
+regression tests and run with
 `go test ./internal/runtime/agentsession -run '^$' -bench 'RepositoryRunStopHotpath|StopPolicy' -benchmem`
 and `go test ./internal/runtime/agentsession -run '^$' -bench 'VerifiedEvidencePrefix|PackedRefLookup|RecordWriteEventLargeState' -benchmem`
 and `go test ./internal/audit -run '^$' -bench AuditAppendRetainedChain -benchmem`
@@ -6323,9 +5961,8 @@ phantom extra line, so spec-line-count and spec-line-range gates (for example
 the spec-code-parity audit `Spec Line Count` check) match the real file length.
 Worktree-walking Git calls in the workflow-audit harness run under their own
 25-second `repoScanCommandTimeout` instead of the 15-second short command
-budget. `git clean -nd` scales with worktree size rather than index size, so the
-short budget killed it at random on a large repository and reported only the
-kernel's `signal: killed`. The scan budget stays below the `timeout_sec` the
+budget, because `git clean -nd` scales with worktree size rather than index
+size. The scan budget stays below the `timeout_sec` the
 invoking `require_script` rule grants, so the inner deadline fires first and an
 expiry is reported as a classified scan timeout that states nothing was
 verified rather than as an untracked-content violation. The message never
@@ -6395,8 +6032,9 @@ CI checks:
   subset. On macOS the packages that record the most file accesses run their
   tests under a short private temporary directory (`internal/testtemp`), so
   the cached-result lookup, which resolves every recorded path, stays cheap
-  without changing the cache key. `scripts/tests/go-test-shard.sh` deals every package to exactly one shard,
-  with the slowest packages leading their own shards. Coverage is measured
+  without changing the cache key. `scripts/tests/go-test-shard.sh` deals every
+  package to exactly one shard, with the slowest packages leading their own
+  shards. Coverage is measured
   locally with `make coverage`
 - the `CI result` job succeeds only when the boundary checks and both test
   jobs succeeded; it and Go CodeQL are the required checks
@@ -6649,7 +6287,7 @@ Security posture:
   host payload through persisted session state and evaluator matching.
 - Template-aware runtime triggers compile their masked glob and capture regex
   once per immutable plan; each evaluation only applies captures and performs
-  the existing bound-semantics check.
+  the bound-semantics check.
 - Payload command strings are matched as data and are not executed. Matching
   compares the literal words a shell would execute, so quote removal and
   backslash escapes cannot hide a forbidden program, and an undecodable
@@ -6687,7 +6325,8 @@ Security posture:
 - Batch path normalization and policy evidence resolution use one
   request-local `pathidentity` prospective resolver: a hook request shares it
   between its read-path filter and every policy check. Every reused
-  observation is `Lstat`-revalidated before use: an existing ancestor must keep
+  observation is `Lstat`-revalidated before use (within a bulk read pass once
+  per pass and once more when the pass ends): an existing ancestor must keep
   its identity and metadata, and a missing ancestor must still be missing, so
   deeper missing components are not inspected again. On Unix and macOS an
   existing non-symlink derives its identity from its revalidated parent
@@ -6695,9 +6334,8 @@ Security posture:
   bound to the directory's metadata and opens the object for its descriptor
   path only when the requested spelling differs. Windows resolves every
   existing path through its final handle path. This preserves
-  symlink/reparse, containment, case, and replacement semantics while a long
-  session's thousand recorded paths cost two `Lstat` calls each instead of a
-  full resolution.
+  symlink/reparse, containment, case, and replacement semantics without a full
+  resolution per recorded path.
 - Write-epoch normalization runs through the same resolver in one ordered pass
   and merges normalized aliases with the maximum observed epoch, preserving
   causal freshness when absolute and relative spellings collide.
@@ -6729,7 +6367,7 @@ Security posture:
   complete source identities with `source_digest`, and decode into a strict
   typed runtime plan. Runtime path patterns are validated during that plan
   build and retained as bounded immutable matcher programs; patterns outside
-  the compiled-memory admission budget retain a validated doublestar fallback.
+  the compiled-memory admission budget use a validated doublestar fallback.
   Migrated legacy locks additionally prove embedded-rule and MCP parity against
   reparsed current sources.
 - Runtime-plan loading coordinates only callers for the same repository root.
@@ -6756,59 +6394,6 @@ artifacts before PATH. Those files are not a hostile same-user trust boundary.
 Security reports should be private first and include the command, policy,
 lockfile shape, payload if relevant, and reproduction steps.
 
-## v0.9.6 To v0.9.7 Migration
-
-Source-owned installations build source version `0.9.7`, and the latest
-published binary is `reconc-v0.9.7`. Existing direct installations use
-`reconc update`; a verified replacement under the same version still updates
-when its artifact digest differs from the installed receipt.
-
-Format 6 keeps its representation and migration chain unchanged, but its
-rule-kind field matrix is now part of the immutable
-`schemas/v6/policy-lock.schema.json` identity at `reconc-v0.9.7`. Existing
-format-6 lockfiles that still name the v0.9.6 schema are accepted through an
-input-only compatibility alias; a refresh writes the v0.9.7 identity. Formats
-1 through 5 keep their exact previously published schema URLs and migration
-behavior. No mutable `main` URL, tag rewrite, or format-version bump is used.
-The current v6 schema also owns the exact composite-check surface instead of
-inheriting the broader historical v4 shape. Sub-checks never carry their own
-`before_paths` or `when_paths`; the parent composite rule owns activation, and
-all legacy formats still reject those dead fields during typed runtime-plan
-construction after migration.
-
-Native assurance now fails explicitly when a configured package manager is
-missing or mismatched, binds package-script candidates and success evidence to
-the configured or sole detected runner, validates complete applicability lists
-before matching, and rejects invalid compiled command policies during plan
-loading. Substantive
-proof authoring distinguishes the omitted 24-hour default from explicit
-`max_age_hours: 0`, which disables staleness without disabling timestamp or
-future-skew validation. Package-script and dependency-pin gates share the same
-single-leading-UTF-8-BOM package JSON contract.
-
-The local publication contract verifies the current v6 bytes, digest, `$id`,
-and registry mapping. The online HTTP publication verifier belongs to the
-tag-bound release workflow and runs against the exact protected tag and
-published assets.
-
-## v0.9.7 To v0.9.8 Migration
-
-Source-owned installations build source version `0.9.8`. Existing direct
-installations use `reconc update` after the protected `reconc-v0.9.8` release
-is published, then verify global ownership with `reconc doctor --global`.
-
-Policy-lock format 6 and every other public JSON contract keep their existing
-representation, schema URL, introduction tag, migration chain, and canonical
-bytes. In particular, refreshed format-6 locks continue to name the immutable
-`reconc-v0.9.7/schemas/v6/policy-lock.schema.json` identity. A product-only
-release does not mint a duplicate schema URL or require repository lockfile
-refreshes.
-
-The release hardens filesystem identity, atomic publication, retained JSONL
-state, action enforcement, hook lifecycle handling, public redaction, and
-bounded work across supported platforms. Existing policies and repository
-receipts remain compatible; no manual data migration is required.
-
 ## License
 
 `reconc` is distributed under the MIT License.
@@ -6832,9 +6417,7 @@ Allowed supporting docs:
 
 Local source-planning and release-note files such as `docs/tasks.md`,
 `docs/tasks/**`, `todo.md`, `docs/todo/**`, and `CHANGELOG.md` are ignored by
-default in this repository. The tracked task board and explicitly published
-task details are exceptions; ignored private historical files remain
-unpublished. Ignore rules do not remove already tracked files, and an explicit
+default in this repository. Ignore rules do not remove already tracked files, and an explicit
 publication requires reviewing the exact staged paths. These source-root
 ignores do not apply to TASK control planes
 that governed bootstrap creates in target repositories. When behavior changes,
@@ -6853,7 +6436,7 @@ The latest published stable release is available at
 [GitHub Releases](https://github.com/Christopher-Schulze/reconc/releases/latest).
 Changed schemas use content-addressed identities independent of product releases;
 previously published identities remain accepted inputs, and unchanged schema
-contracts retain their existing publication identities. Schema identities, tag commit,
+contracts keep their publication identities. Schema identities, tag commit,
 artifact checksums, and build provenance jointly define release identity;
 development version text alone does not establish publication.
 Release artifacts are produced only through an explicit manual Release
