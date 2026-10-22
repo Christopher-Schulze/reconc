@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -12,6 +14,91 @@ import (
 
 	"reconc.dev/reconc/internal/hooks"
 )
+
+type archiveEntry struct {
+	name string
+	kind byte
+	body string
+}
+
+func testArchive(t *testing.T, entries ...archiveEntry) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	writer := tar.NewWriter(&buffer)
+	for _, entry := range entries {
+		if err := writer.WriteHeader(&tar.Header{Name: entry.name, Typeflag: entry.kind, Size: int64(len(entry.body)), Mode: 0o755}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Write([]byte(entry.body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
+func TestExtractRejectsEscapingPaths(t *testing.T) {
+	for _, name := range []string{"../escaped", "nested/../../escaped", filepath.Join(t.TempDir(), "absolute")} {
+		t.Run(name, func(t *testing.T) {
+			archive := testArchive(t, archiveEntry{name: name, kind: tar.TypeReg, body: "outside"})
+			if err := extract(bytes.NewReader(archive), t.TempDir()); err == nil {
+				t.Fatalf("accepted escaping archive entry %q", name)
+			}
+		})
+	}
+}
+
+func TestExtractRefusesSymlinkedParents(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		kind byte
+		body string
+	}{
+		{name: "file", kind: tar.TypeReg, body: "outside"},
+		{name: "directory", kind: tar.TypeDir},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory, outside := t.TempDir(), t.TempDir()
+			if err := os.Symlink(outside, filepath.Join(directory, "link")); err != nil {
+				t.Fatal(err)
+			}
+			archive := testArchive(t, archiveEntry{name: "link/escaped", kind: test.kind, body: test.body})
+			if err := extract(bytes.NewReader(archive), directory); err == nil {
+				t.Error("extracted through a parent symlink outside the destination")
+			}
+			if _, err := os.Lstat(filepath.Join(outside, "escaped")); !os.IsNotExist(err) {
+				t.Fatalf("archive touched a path outside the destination: %v", err)
+			}
+		})
+	}
+}
+
+func TestExtractPreservesRegularFilesAndRejectsOverwrite(t *testing.T) {
+	directory := t.TempDir()
+	archive := testArchive(t,
+		archiveEntry{name: "nested", kind: tar.TypeDir},
+		archiveEntry{name: "nested/file.go", kind: tar.TypeReg, body: "package fixture\n"},
+		archiveEntry{name: "empty", kind: tar.TypeReg},
+	)
+	if err := extract(bytes.NewReader(archive), directory); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ name, body string }{{"nested/file.go", "package fixture\n"}, {"empty", ""}} {
+		body, err := os.ReadFile(filepath.Join(directory, test.name))
+		if err != nil || string(body) != test.body {
+			t.Fatalf("extracted %s = %q, %v; want %q", test.name, body, err, test.body)
+		}
+	}
+	if err := extract(bytes.NewReader(archive), directory); err == nil {
+		t.Fatal("extraction replaced an existing regular file")
+	}
+	body, err := os.ReadFile(filepath.Join(directory, "nested/file.go"))
+	if err != nil || string(body) != "package fixture\n" {
+		t.Fatalf("existing source changed after refused extraction: %q, %v", body, err)
+	}
+}
 
 func encodedDocument(t *testing.T, releases ...map[string]string) Document {
 	t.Helper()

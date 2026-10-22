@@ -24,3 +24,9 @@ release.
   completion check instead of stopping `reconc done` with an error.
 - A case-only rename of a directory or file resolves to its new spelling
   within the same request.
+- Release-generator archive extraction uses a bound `os.Root`, rejects paths
+  and symlinks that escape its destination, and preserves existing files.
+- PowerShell command analysis renders reserved executable names from fixed
+  quoted literals while preserving ordinary command and argument boundaries.
+- The hook-generator parity registry lists the retained release tags while
+  preserving recognition of previously generated hook artifacts.

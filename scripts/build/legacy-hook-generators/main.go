@@ -216,7 +216,12 @@ func releaseArtifacts(ctx context.Context, tag string) (map[string]string, error
 	return artifacts, nil
 }
 
-func extract(archive io.Reader, directory string) error {
+func extract(archive io.Reader, directory string) (resultErr error) {
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, root.Close()) }()
 	reader := tar.NewReader(archive)
 	for {
 		header, err := reader.Next()
@@ -227,20 +232,19 @@ func extract(archive io.Reader, directory string) error {
 			return err
 		}
 		name := filepath.Clean(filepath.FromSlash(header.Name))
-		if filepath.IsAbs(name) || name == ".." || strings.HasPrefix(name, ".."+string(filepath.Separator)) {
+		if !filepath.IsLocal(name) {
 			return fmt.Errorf("archive entry escapes the export: %s", header.Name)
 		}
-		target := filepath.Join(directory, name)
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := root.MkdirAll(name, 0o755); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := root.MkdirAll(filepath.Dir(name), 0o755); err != nil {
 				return err
 			}
-			file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+			file, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 			if err != nil {
 				return err
 			}

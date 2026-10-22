@@ -1171,17 +1171,17 @@ func indexRunes(src []rune, from int, needle string) int {
 	return -1
 }
 
-// bashReservedWords cannot name a command unquoted; PowerShell aliases such
-// as `select` (Select-Object) collide with them.
-var bashReservedWords = map[string]struct{}{
-	"!": {}, "[[": {}, "]]": {}, "{": {}, "}": {}, "case": {}, "coproc": {}, "do": {}, "done": {},
-	"elif": {}, "else": {}, "esac": {}, "fi": {}, "for": {}, "function": {}, "if": {}, "in": {},
-	"select": {}, "then": {}, "time": {}, "until": {}, "while": {},
+// bashReservedWords maps reserved command names to fixed quoted literals;
+// PowerShell aliases such as `select` (Select-Object) collide with them.
+var bashReservedWords = map[string]string{
+	"!": "'!'", "[[": "'[['", "]]": "']]'", "{": "'{'", "}": "'}'", "case": "'case'", "coproc": "'coproc'", "do": "'do'", "done": "'done'",
+	"elif": "'elif'", "else": "'else'", "esac": "'esac'", "fi": "'fi'", "for": "'for'", "function": "'function'", "if": "'if'", "in": "'in'",
+	"select": "'select'", "then": "'then'", "time": "'time'", "until": "'until'", "while": "'while'",
 }
 
 func shellCommandWord(word string) string {
-	if _, reserved := bashReservedWords[word]; reserved {
-		return "'" + word + "'"
+	if quoted, reserved := bashReservedWords[word]; reserved {
+		return quoted
 	}
 	return shellQuote(word)
 }

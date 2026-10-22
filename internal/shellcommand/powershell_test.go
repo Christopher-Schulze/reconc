@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"mvdan.cc/sh/v3/syntax"
 )
 
 func powerShellInvocationWords(t *testing.T, command string) ([][]string, IncompleteReason) {
@@ -19,6 +21,30 @@ func powerShellInvocationWords(t *testing.T, command string) ([][]string, Incomp
 
 func containsInvocation(invocations [][]string, want []string) bool {
 	return slices.ContainsFunc(invocations, func(words []string) bool { return slices.Equal(words, want) })
+}
+
+func TestShellCommandWordsPreserveLiteralValues(t *testing.T) {
+	for _, word := range []string{
+		"!", "[[", "]]", "{", "}", "case", "coproc", "do", "done", "elif", "else", "esac", "fi", "for", "function", "if", "in", "select", "then", "time", "until", "while",
+		"ordinary", "space in name", "quote' ; npm publish; '", "$(npm publish)", "line\nbreak", `back\slash`,
+	} {
+		t.Run(word, func(t *testing.T) {
+			command := shellCommandWord(word) + " literal"
+			state := newParserState()
+			program, err := state.parse(command, "command-word")
+			if err != nil || len(program.Stmts) != 1 {
+				t.Fatalf("%q rendered as %q: parse=%v error=%v", word, command, program, err)
+			}
+			call, ok := program.Stmts[0].Cmd.(*syntax.CallExpr)
+			if !ok || len(call.Args) != 2 {
+				t.Fatalf("%q changed command structure: %q", word, command)
+			}
+			value, literal := staticWordParts(call.Args[0].Parts)
+			if !literal || value != word {
+				t.Fatalf("%q rendered as %q: decoded=%q literal=%t", word, command, value, literal)
+			}
+		})
+	}
 }
 
 func TestPowerShellAnalysisEnumeratesLiteralInvocations(t *testing.T) {
