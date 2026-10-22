@@ -1,10 +1,9 @@
 # reconc v0.11.0
 
-Reconc 0.11.0 closes the fail-open paths found since 0.10.3, keeps long and
-concurrent sessions from locking the repository, retains complete command
-evidence, makes the hook hot path and Stop faster, upgrades existing hook
-installs without false drift, shows the progress of `reconc update`, and
-corrects the 0.10.3 guarantees.
+Reconc 0.11.0 strengthens runtime enforcement, improves reliability in long
+and concurrent sessions, retains complete command evidence, and reduces hook
+and Stop overhead. It also upgrades existing hook installations without false
+drift and adds progress reporting to `reconc update`.
 
 ## Enforcement fixes
 
@@ -40,7 +39,8 @@ corrects the 0.10.3 guarantees.
 - Operator administration (`hook pause`, `hook evidence-resolve`, and
   `operator:*` claims) requires a local interactive confirmation in addition
   to the pre-tool refusal of recognized agent invocations. `hook resume` only
-  restores enforcement and needs no confirmation.
+  restores enforcement and needs no confirmation. A process with the same
+  user rights can still automate a terminal.
 
 ## Session reliability
 
@@ -59,6 +59,9 @@ corrects the 0.10.3 guarantees.
   object instead of a bounded prefix, and every policy observation resolves it
   before matching.
 - Staged evidence is bound to the candidate it was captured for.
+- `hook evidence-resolve` resets the resolved session's overflowed evidence
+  window; the session continues from an empty window, and required evidence
+  must be reproduced.
 
 ## MCP gateway and assurance
 
@@ -183,30 +186,6 @@ corrects the 0.10.3 guarantees.
   garbage-collection spike no longer fails the gate.
 - Tests stage one shared binary, isolate host settings, and protect the recent
   fixes with failing-first regression tests.
-
-## Corrections to reconc-v0.10.3
-
-The `reconc-v0.10.3` notes overstated several guarantees:
-
-- It did not remove every way a governed session could seal itself shut:
-  evidence-segment rotation, oversized session state, and CRLF or concurrently
-  written TASK boards could still block a session. These paths are fixed above.
-- Its bounded command prefix dropped trailing command text from the evidence
-  that policy matched. Evidence now retains the complete text.
-- `hook evidence-resolve` resets the resolved session's overflowed evidence
-  window; that session continues from an empty window, and required evidence
-  must be reproduced.
-- Agent tool calls could still run operator-only commands through scripts,
-  aliases, or copied binaries that the pre-tool guard did not recognize. The
-  guard refuses recognized invocations, and the commands now also require a
-  local interactive confirmation; a process with the same user rights can
-  still automate a terminal.
-- It shipped fail-open paths that are closed above: arbitrary commands behind
-  environment-assignment prefixes, an inherited `DEVIN_PROJECT_DIR`, hidden
-  submodule bumps, Git diagnostics in porcelain records, literal `{var}` in
-  composite `deny_write` paths, an unwritten hook decision, commits judged
-  against the wrong index, an ungated Claude Code PowerShell tool, and Claude
-  Code gating hooks without `onFailure: "block"`.
 
 ## Compatibility And Upgrade
 
