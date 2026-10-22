@@ -5,6 +5,11 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      macos_checks:
+        description: Run the complete macOS test and self-hosting checks
+        required: false
+        default: false
+        type: boolean
       windows_smoke:
         description: Run optional Windows filesystem and CLI smoke checks (two-minute job limit)
         required: false
@@ -24,12 +29,9 @@ env:
   TEST_PARALLELISM: 4
 
 jobs:
-  # The commit gate runs every functional test once per platform plus the
-  # publication audit: boundary checks, one Linux job, and one macOS job, each
-  # platform with the self-hosting golden path. Race detection, vet,
-  # Staticcheck, Govulncheck, and release trust run in the Release workflow
-  # before publication. "CI result" is the single required check over all of
-  # them. macOS stays one job: hosted macOS runners are scarce.
+  # Every commit runs the boundary checks and Linux tests with self-hosting.
+  # Manual dispatch can also select the shared macOS checks. Release requires
+  # those macOS checks separately, alongside its race, analysis, and trust gates.
   checks:
     name: Boundary checks
     runs-on: ubuntu-24.04
@@ -114,54 +116,8 @@ jobs:
         run: make self-host
 
   macos:
-    name: Go checks (macos-15)
-    runs-on: macos-15
-    timeout-minutes: 40
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            harness/template/go.sum
-
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24.18.0
-          package-manager-cache: false
-
-      - name: Set up Bun
-        run: |
-          bun_package_dir="$(mktemp -d)"
-          trap 'rm -rf "$bun_package_dir"' EXIT
-          npm pack "bun@$BUN_VERSION" --pack-destination "$bun_package_dir" --json > "$bun_package_dir/pack.json"
-          actual_bun_integrity="$(node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(data[0].integrity)' "$bun_package_dir/pack.json")"
-          test "$actual_bun_integrity" = "$BUN_INTEGRITY"
-          npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"
-          test "$(bun --version)" = "$BUN_VERSION"
-
-      - name: Download modules
-        run: |
-          go mod download
-          (cd harness/template && go mod download)
-
-      - name: Test
-        run: ./scripts/tests/go-test-shard.sh 1 1 -p="$TEST_PARALLELISM" -vet=off -count=1
-
-      - name: Self-hosting golden path
-        run: make self-host
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.macos_checks }}
+    uses: ./.github/workflows/reconc-macos.yml
 
   windows-runtime:
     name: Windows build and smoke
@@ -206,13 +162,24 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
-      - name: Require every CI job
+      - name: Require selected CI jobs
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          REQUIRED_RESULTS: ${{ needs.checks.result }} ${{ needs.linux.result }}
+          MACOS_REQUIRED: ${{ github.event_name == 'workflow_dispatch' && inputs.macos_checks }}
+          MACOS_RESULT: ${{ needs.macos.result }}
         run: |
-          for result in $RESULTS; do
+          for result in $REQUIRED_RESULTS; do
             if [ "$result" != success ]; then
               printf 'A required CI job ended with %s.\n' "$result" >&2
               exit 1
             fi
           done
+          if [ "$MACOS_REQUIRED" = true ]; then
+            if [ "$MACOS_RESULT" != success ]; then
+              printf 'Requested macOS checks ended with %s.\n' "$MACOS_RESULT" >&2
+              exit 1
+            fi
+          elif [ "$MACOS_RESULT" != skipped ]; then
+            printf 'Unrequested macOS checks ended with %s.\n' "$MACOS_RESULT" >&2
+            exit 1
+          fi

@@ -81,6 +81,9 @@ make release-check
 `make test-fast` checks formatting and both Go modules with the Go build cache
 enabled and rejects stale generated reference sections. `make test` covers
 formatting, the publication audit, and cached tests of both modules.
+GitHub CI runs Linux checks automatically. Select `macos_checks: true` when
+manually starting CI to run the complete macOS tests and self-hosting checks;
+the Release workflow requires the same macOS checks before artifact creation.
 `make release-check` adds tidy, `make vet`, `make lint` (Staticcheck),
 Govulncheck, uncached root and portable-template race suites, the
 release-trust contract, and self-hosting; it runs only before a release.

@@ -122,8 +122,8 @@ verify_manual_dispatch_only() {
   fi
 }
 
-(cd "$root" && go test ./scripts/audits/publication \
-  -run 'TestGitHubCommunitySurfaceIsSubstantive|TestCodeQLWorkflowHasBoundedAdvancedSetup|TestCIWorkflowRunsOnCandidateRefs|TestDependabotCoversBoundedDependencySurfaces|TestBuildIdentityRequiresExplicitExistingTagAtCleanHEAD') \
+(cd "$root" && go test -vet=off ./scripts/audits/publication \
+  -run 'TestGitHubCommunitySurfaceIsSubstantive|TestCodeQLWorkflowHasBoundedAdvancedSetup|TestCIWorkflowRunsOnCandidateRefs|TestMacOSWorkflowRouting|TestCIResultRequiresSelectedPlatforms|TestDependabotCoversBoundedDependencySurfaces|TestBuildIdentityRequiresExplicitExistingTagAtCleanHEAD') \
   || fail "GitHub trust-surface contract failed"
 
 require_text "$root/cmd/reconc/main.go" 'var Version = "dev"'
@@ -234,6 +234,7 @@ fi
 "$coverage_auditor" --coverage-review-only --root "$root"
 
 ci_workflow="$root/.github/workflows/reconc-ci.yml"
+macos_workflow="$root/.github/workflows/reconc-macos.yml"
 release_workflow="$root/.github/workflows/reconc-release.yml"
 codeql_workflow="$root/.github/workflows/codeql.yml"
 dependabot_config="$root/.github/dependabot.yml"
@@ -254,13 +255,13 @@ verify_manual_dispatch_only "$trigger_fixture" || fail "valid manual release tri
 printf '%s\n' 'on:' '  workflow_dispatch:' '  push:' 'jobs:' > "$trigger_fixture"
 expect_failure verify_manual_dispatch_only "$trigger_fixture"
 
-for workflow in "$ci_workflow" "$release_workflow" "$codeql_workflow"; do
+for workflow in "$ci_workflow" "$macos_workflow" "$release_workflow" "$codeql_workflow"; do
   verify_action_pins "$workflow" || fail "$workflow action trust validation failed"
   require_action "$workflow" "actions/checkout"
 done
 require_action "$ci_workflow" "actions/setup-go"
 require_action "$release_workflow" "actions/setup-go"
-for workflow in "$ci_workflow" "$release_workflow"; do
+for workflow in "$ci_workflow" "$macos_workflow" "$release_workflow"; do
   if grep -Eq 'setup-python|langchain' "$workflow"; then
     fail "$workflow runs the LangChain consumer, which runs only locally"
   fi
@@ -270,12 +271,17 @@ require_action "$codeql_workflow" "github/codeql-action/init"
 require_action "$codeql_workflow" "github/codeql-action/analyze"
 require_action "$ci_workflow" "actions/setup-node"
 require_action "$release_workflow" "actions/attest-build-provenance"
-[ "$(grep -Fc 'uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0' "$ci_workflow")" -eq 4 ] \
-  || fail "$ci_workflow must provision pinned Go in all four Go jobs"
-[ "$(grep -Fc 'go-version-file: go.mod' "$ci_workflow")" -eq 4 ] \
-  || fail "$ci_workflow must derive Go from go.mod in all four Go jobs"
-[ "$(grep -Fc 'fetch-depth: 0' "$ci_workflow")" -eq 4 ] \
-  || fail "$ci_workflow must fetch full history in all four Go jobs"
+[ "$(grep -Fc 'uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0' "$ci_workflow")" -eq 3 ] \
+  || fail "$ci_workflow must provision pinned Go in all three inline Go jobs"
+[ "$(grep -Fc 'go-version-file: go.mod' "$ci_workflow")" -eq 3 ] \
+  || fail "$ci_workflow must derive Go from go.mod in all three inline Go jobs"
+[ "$(grep -Fc 'fetch-depth: 0' "$ci_workflow")" -eq 3 ] \
+  || fail "$ci_workflow must fetch full history in all three inline Go jobs"
+require_action "$macos_workflow" "actions/setup-go"
+require_text "$macos_workflow" "go-version-file: go.mod"
+require_text "$macos_workflow" "fetch-depth: 0"
+# shellcheck disable=SC2016 # Match the workflow expression literally.
+require_text "$macos_workflow" 'ref: ${{ github.sha }}'
 [ "$(grep -Fc 'uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0' "$release_workflow")" -eq 5 ] \
   || fail "$release_workflow must provision pinned Go in all five Go jobs"
 [ "$(grep -Fc 'go-version-file: go.mod' "$release_workflow")" -eq 5 ] \
@@ -284,31 +290,35 @@ require_action "$release_workflow" "actions/attest-build-provenance"
   || fail "$release_workflow must fetch full history in the preflight and all five Go jobs"
 [ "$(grep -Fc 'ref: ${{ inputs.tag }}' "$release_workflow")" -eq 6 ] \
   || fail "$release_workflow must check out the release tag in the preflight and all five Go jobs"
-require_text "$ci_workflow" "uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0"
-[ "$(grep -Fc 'node-version: 24.18.0' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must provision Node.js 24.18.0 in the two executable-test jobs"
-[ "$(grep -Fc 'package-manager-cache: false' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must disable implicit package-manager caching in the executable-test jobs"
+for workflow in "$ci_workflow" "$macos_workflow"; do
+  require_text "$workflow" "uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0"
+  [ "$(grep -Fc 'node-version: 24.18.0' "$workflow")" -eq 1 ] \
+    || fail "$workflow must provision Node.js 24.18.0 in its executable-test job"
+  [ "$(grep -Fc 'package-manager-cache: false' "$workflow")" -eq 1 ] \
+    || fail "$workflow must disable implicit package-manager caching in its executable-test job"
+done
 if grep -Eq 'go-test-shard\.sh 1 1|make self-host|make test' "$release_workflow"; then
   fail "$release_workflow repeats commit-gate suites that CI already ran on the release commit"
 fi
 bun_integrity='sha512-aB6GVd42x1Y5ie1K16SF+oLGtgSkwX9hgoDdIW88pjvfTccU8F1vfpoOt34QLv0dZ1v3XimtaxPlZUG81Gx9Zg=='
-require_text "$ci_workflow" "BUN_VERSION: 1.3.14"
-require_text "$ci_workflow" "BUN_INTEGRITY: $bun_integrity"
-# shellcheck disable=SC2016 # Match the workflow expression literally.
-require_text "$ci_workflow" 'test "$actual_bun_integrity" = "$BUN_INTEGRITY"'
-if grep -Fq 'npm install --global bun@' "$ci_workflow"; then
-  fail "$ci_workflow installs Bun directly without verifying the packed artifact"
-fi
-# shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must fetch the exact Bun package in the two executable-test jobs"
-# shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must install only the verified Bun tarball in the two executable-test jobs"
-# shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must verify the exact Bun version in the two executable-test jobs"
+for workflow in "$ci_workflow" "$macos_workflow"; do
+  require_text "$workflow" "BUN_VERSION: 1.3.14"
+  require_text "$workflow" "BUN_INTEGRITY: $bun_integrity"
+  # shellcheck disable=SC2016 # Match the workflow expression literally.
+  require_text "$workflow" 'test "$actual_bun_integrity" = "$BUN_INTEGRITY"'
+  if grep -Fq 'npm install --global bun@' "$workflow"; then
+    fail "$workflow installs Bun directly without verifying the packed artifact"
+  fi
+  # shellcheck disable=SC2016 # Match the workflow expression literally.
+  [ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$workflow")" -eq 1 ] \
+    || fail "$workflow must fetch the exact Bun package in its executable-test job"
+  # shellcheck disable=SC2016 # Match the workflow expression literally.
+  [ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$workflow")" -eq 1 ] \
+    || fail "$workflow must install only the verified Bun tarball in its executable-test job"
+  # shellcheck disable=SC2016 # Match the workflow expression literally.
+  [ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$workflow")" -eq 1 ] \
+    || fail "$workflow must verify the exact Bun version in its executable-test job"
+done
 require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
 [ "$(grep -Fc 'make publication-audit' "$ci_workflow")" -eq 1 ] \
   || fail "$ci_workflow must run the publication audit exactly once"
@@ -335,7 +345,7 @@ expect_failure_reason "must run from refs/tags/reconc-v1.2.3" \
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 [ "$(grep -Fc './scripts/release/require-green-checks.sh "$(git rev-parse HEAD)"' "$release_workflow")" -eq 2 ] \
   || fail "$release_workflow must require green checks in the preflight and the release job"
-[ "$(grep -Fc '    needs: [preflight]' "$release_workflow")" -eq 3 ] \
+[ "$(grep -Fc '    needs: [preflight]' "$release_workflow")" -eq 4 ] \
   || fail "$release_workflow must start every gate job only after the preflight"
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" 'REPLACE_PUBLISHED: ${{ inputs.replace_published }}'
@@ -347,7 +357,7 @@ require_text "$release_workflow" "  checks: read"
 require_text "$release_workflow" "go run ./scripts/build/legacy-hook-generators --check"
 require_text "$ci_workflow" "    name: CI result"
 require_text "$ci_workflow" "    needs: [checks, linux, macos]"
-require_text "$release_workflow" "    needs: [gate-static, gate-race, gate-trust]"
+require_text "$release_workflow" "    needs: [gate-macos, gate-static, gate-race, gate-trust]"
 require_text "$release_workflow" "run: ./scripts/tests/release-trust.sh"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
 [ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$release_workflow")" -eq 1 ] \
@@ -413,9 +423,10 @@ for duplicated_name in reconc.bash reconc.zsh reconc.fish release-manifest.json 
     fail "generated release asset $duplicated_name escaped the canonical generated-assets inventory"
   fi
 done
-for runner in ubuntu-24.04 macos-15 windows-2025; do
+for runner in ubuntu-24.04 windows-2025; do
   require_text "$ci_workflow" "$runner"
 done
+require_text "$macos_workflow" "runs-on: macos-15"
 require_text "$ci_workflow" "  push:"
 require_text "$ci_workflow" "  pull_request:"
 require_text "$ci_workflow" "  workflow_dispatch:"
@@ -438,8 +449,10 @@ require_text "$root/Makefile" "STATICCHECK_VERSION := latest"
 require_text "$root/Makefile" "GOVULNCHECK_VERSION := latest"
 require_text "$release_workflow" "staticcheck@latest"
 require_text "$release_workflow" "govulncheck@latest"
-[ "$(grep -Fc 'make self-host' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must self-host on Linux and macOS"
+for workflow in "$ci_workflow" "$macos_workflow"; do
+  [ "$(grep -Fc 'run: make self-host' "$workflow")" -eq 1 ] \
+    || fail "$workflow must self-host its tested platform"
+done
 require_text "$root/scripts/tests/self-hosting.sh" "--profile governed"
 require_text "$root/scripts/tests/self-hosting.sh" "--profile existing"
 require_text "$root/scripts/tests/self-hosting.sh" "--hook all"

@@ -728,6 +728,7 @@ type githubWorkflow struct {
 	Permissions map[string]string `yaml:"permissions"`
 	Jobs        map[string]struct {
 		If             string   `yaml:"if"`
+		Uses           string   `yaml:"uses"`
 		Needs          []string `yaml:"needs"`
 		RunsOn         string   `yaml:"runs-on"`
 		TimeoutMinutes int      `yaml:"timeout-minutes"`
@@ -738,6 +739,7 @@ type githubWorkflow struct {
 			Uses            string            `yaml:"uses"`
 			Run             string            `yaml:"run"`
 			ContinueOnError bool              `yaml:"continue-on-error"`
+			Env             map[string]string `yaml:"env"`
 			With            map[string]string `yaml:"with"`
 		} `yaml:"steps"`
 	} `yaml:"jobs"`
