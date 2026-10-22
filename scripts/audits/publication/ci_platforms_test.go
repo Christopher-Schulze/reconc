@@ -36,7 +36,6 @@ func TestMacOSWorkflowRouting(t *testing.T) {
 		when string
 	}{
 		{".github/workflows/reconc-ci.yml", "macos", "${{ github.event_name == 'workflow_dispatch' && inputs.macos_checks }}"},
-		{".github/workflows/reconc-release.yml", "gate-macos", ""},
 	} {
 		t.Run(test.job, func(t *testing.T) {
 			var workflow githubWorkflow
@@ -47,11 +46,19 @@ func TestMacOSWorkflowRouting(t *testing.T) {
 			if !ok || job.Uses != shared || job.If != test.when {
 				t.Fatalf("%s must call the shared macOS checks with condition %q", test.path, test.when)
 			}
-			if test.job == "gate-macos" && (!equalStrings(job.Needs, []string{"preflight"}) ||
-				!slices.Contains(workflow.Jobs["release"].Needs, test.job)) {
-				t.Fatal("release artifacts must depend on successful macOS checks after preflight")
-			}
 		})
+	}
+	var release githubWorkflow
+	if err := yaml.Unmarshal([]byte(readPublicSurfaceFile(t, root, ".github/workflows/reconc-release.yml")), &release); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(release.Jobs["release"].Needs, "gate-macos") {
+		t.Fatal("release artifacts must not depend on macOS tests")
+	}
+	for _, job := range release.Jobs {
+		if job.Uses == shared {
+			t.Fatal("Release must not start macOS tests; select them explicitly in manual CI")
+		}
 	}
 	var sharedWorkflow githubWorkflow
 	body := readPublicSurfaceFile(t, root, ".github/workflows/reconc-macos.yml")

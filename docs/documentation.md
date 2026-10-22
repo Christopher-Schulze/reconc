@@ -1708,8 +1708,8 @@ The Go binary and `.exe` or `.com` policy scripts run natively. Shell hook
 wrappers plus `.sh` and extensionless policy scripts require `sh` on `PATH`;
 Git for Windows supplies it. Windows implementation and test definitions are
 maintained, but native validation is best effort. Automatic candidate CI runs
-on Linux; complete macOS checks are mandatory before release and optionally
-selected in manual CI. Windows tests never block publication.
+on Linux; complete macOS tests and self-hosting run only when explicitly
+selected in manual CI, never as part of a release. Windows tests never block publication.
 Windows cannot represent POSIX permission bits: Reconc validates protected
 current-user-only DACLs for private state and uses the readonly attribute as
 the representable atomic-file mode boundary. Private binary backup and update
@@ -6023,9 +6023,9 @@ CI checks:
 - the automatic commit gate: root-module and `harness/template` tests once on
   Ubuntu 24.04, followed by the self-hosting golden path, plus the publication
   audit, formatting, and tidy once on Linux. Complete macOS 15 tests and
-  self-hosting run only when manual CI selects `macos_checks: true`, or as a
-  mandatory Release gate. Both callers use the same reusable workflow and
-  check out the caller's exact commit; the manual input defaults to false.
+  self-hosting run only when manual CI selects `macos_checks: true`, never as
+  part of a Release run. The reusable workflow checks out the caller's exact
+  commit; the manual input defaults to false.
   To request macOS CI, run
   `gh workflow run reconc-ci.yml --ref main -f macos_checks=true`.
   Race detection, vet, Staticcheck and Govulncheck at their newest releases, and
@@ -6065,8 +6065,8 @@ CI checks:
   verifies the selected tag, ref, clean tagged commit, and release notes and
   requires successful `CI result` and Go CodeQL checks for the exact tagged
   commit within seconds; only then does it run the release-only gates
-  against that tag (complete macOS tests and self-hosting, three Linux race
-  shards, vet and Staticcheck, release trust) before any artifact is built,
+  against that tag (three Linux race shards, vet and Staticcheck, release
+  trust) before any artifact is built,
   and then Govulncheck and the legacy hook generator check, which depend on
   release time and tags
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;
@@ -6112,13 +6112,13 @@ Release:
   `-f replace_published=true`; requesting replacement when no release exists
   also fails. Existing drafts remain resumable without expanding authority.
 - The explicitly selected tag must use stable semantic versioning, identify clean HEAD, and have committed release notes. Source code contains no assigned release version.
-- The macOS artifact job runs only after the release gate jobs (complete macOS
-  tests and self-hosting, race, vet and Staticcheck, release trust) passed for
+- The macOS artifact job runs only after the release gate jobs (race, vet and
+  Staticcheck, release trust) passed for
   the exact tag, checks out that tag, and requires successful `CI result` and
   Go CodeQL checks for that commit, so
   formatting, tidy, Linux tests, publication, and Linux self-hosting are not
-  repeated. The shared macOS gate is mandatory for every Release run regardless
-  of manual CI selection. The artifact job then runs the newest Govulncheck
+  repeated. macOS tests and self-hosting run only through explicit manual CI
+  selection and are never started or required by Release. The artifact job then runs the newest Govulncheck
   and the legacy hook generator registry check before building. Optional Windows smoke is independent and
   never blocks publication. The LangChain consumer proof runs locally only.
 - `make release RELEASE_TAG=reconc-vX.Y.Z` builds the exact flat release inventory from the selected existing tag.

@@ -30,8 +30,7 @@ env:
 
 jobs:
   # Every commit runs the boundary checks and Linux tests with self-hosting.
-  # Manual dispatch can also select the shared macOS checks. Release requires
-  # those macOS checks separately, alongside its race, analysis, and trust gates.
+  # Only explicit manual dispatch can select the shared macOS checks.
   checks:
     name: Boundary checks
     runs-on: ubuntu-24.04

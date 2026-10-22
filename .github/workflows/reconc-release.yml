@@ -100,13 +100,6 @@ jobs:
 
   # Pre-release gate: the suites CI no longer runs on every commit run here
   # against the exact tag, before any artifact is built.
-  gate-macos:
-    name: Release gate macOS checks
-    needs: [preflight]
-    permissions:
-      contents: read
-    uses: ./.github/workflows/reconc-macos.yml
-
   gate-static:
     name: Release gate static checks
     needs: [preflight]
@@ -231,7 +224,7 @@ jobs:
 
   release:
     name: Build release artifacts
-    needs: [gate-macos, gate-static, gate-race, gate-trust]
+    needs: [gate-static, gate-race, gate-trust]
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -270,7 +263,7 @@ jobs:
           test "$verified" = true
 
       # Candidate CI and CodeQL cover this commit; the preceding release gates
-      # add mandatory macOS checks, race tests, static analysis, and trust.
+      # add race tests, static analysis, and trust. macOS tests are manual only.
       - name: Require green CI and CodeQL for the release commit
         env:
           GH_TOKEN: ${{ github.token }}

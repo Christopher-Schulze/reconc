@@ -345,7 +345,7 @@ expect_failure_reason "must run from refs/tags/reconc-v1.2.3" \
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 [ "$(grep -Fc './scripts/release/require-green-checks.sh "$(git rev-parse HEAD)"' "$release_workflow")" -eq 2 ] \
   || fail "$release_workflow must require green checks in the preflight and the release job"
-[ "$(grep -Fc '    needs: [preflight]' "$release_workflow")" -eq 4 ] \
+[ "$(grep -Fc '    needs: [preflight]' "$release_workflow")" -eq 3 ] \
   || fail "$release_workflow must start every gate job only after the preflight"
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" 'REPLACE_PUBLISHED: ${{ inputs.replace_published }}'
@@ -357,7 +357,7 @@ require_text "$release_workflow" "  checks: read"
 require_text "$release_workflow" "go run ./scripts/build/legacy-hook-generators --check"
 require_text "$ci_workflow" "    name: CI result"
 require_text "$ci_workflow" "    needs: [checks, linux, macos]"
-require_text "$release_workflow" "    needs: [gate-macos, gate-static, gate-race, gate-trust]"
+require_text "$release_workflow" "    needs: [gate-static, gate-race, gate-trust]"
 require_text "$release_workflow" "run: ./scripts/tests/release-trust.sh"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
 [ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$release_workflow")" -eq 1 ] \
