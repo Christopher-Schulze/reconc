@@ -23,7 +23,8 @@
     "0.10.0",
     "0.10.1",
     "0.10.2",
-    "0.11.0"
+    "0.11.0",
+    "0.12.0"
   ],
   "artifacts": {
     "antigravity": [
@@ -66,6 +67,7 @@
       "1e1fc0c8d3bb21d184c235c0010f684b52fcc399f8e0c6f489063c35df0ad8dc",
       "36afe19bc62c3cf6f8af3393c77bfa41f195a7592a54e6944451b21bc0a92f1d",
       "3ad2c5182121699891bce34c3e51306c2b0ce78c678abbeb6f3a6cb782b3e191",
+      "4c3e554c7ca6e81070b3b9bc6432e527929d349ab9aa6a572858c16e837e9cbc",
       "cacbb844bb1aebf973a9b9d7b0899d952cce84f0b0f0816786eada9f99d2d3b7"
     ],
     "github-copilot": [

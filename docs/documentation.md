@@ -6072,7 +6072,11 @@ CI checks:
   against that tag (three Linux race shards, vet and Staticcheck, release
   trust) before any artifact is built,
   and then Govulncheck and the legacy hook generator check, which depend on
-  release time and tags
+  release time and tags; two dispatch inputs, both false by default, let the
+  operator explicitly waive the race, Vet, Staticcheck and Govulncheck gates
+  (`skip_heavy_gates`) or the green CI and CodeQL requirement
+  (`skip_green_checks`) for one release run, while the release trust gate, the
+  tag and source verification and the legacy hook generator check always run
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;
   the trust gate validates pin shape and action identity without coupling
   updates to historical commit values
@@ -6115,6 +6119,11 @@ Release:
   requires the same tag-bound dispatch plus
   `-f replace_published=true`; requesting replacement when no release exists
   also fails. Existing drafts remain resumable without expanding authority.
+- Only an explicit operator decision for one release adds
+  `-f skip_heavy_gates=true` (no race, Vet, Staticcheck or Govulncheck gate)
+  or `-f skip_green_checks=true` (no green CI and CodeQL requirement for the
+  tagged commit); the artifact job then still requires the successful release
+  trust gate and every gate job that ran.
 - The explicitly selected tag must use stable semantic versioning, identify clean HEAD, and have committed release notes. Source code contains no assigned release version.
 - The macOS artifact job runs only after the release gate jobs (race, vet and
   Staticcheck, release trust) passed for

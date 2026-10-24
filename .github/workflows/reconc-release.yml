@@ -17,6 +17,16 @@ on:
         required: false
         default: false
         type: boolean
+      skip_heavy_gates:
+        description: Operator-requested release without the race, Vet, Staticcheck and Govulncheck gates
+        required: false
+        default: false
+        type: boolean
+      skip_green_checks:
+        description: Operator-requested release without requiring green CI and CodeQL for the commit
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: release-${{ inputs.tag }}
@@ -94,6 +104,7 @@ jobs:
         run: ./scripts/release/verify-release-selection.sh
 
       - name: Require green CI and CodeQL for the release commit
+        if: ${{ !inputs.skip_green_checks }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./scripts/release/require-green-checks.sh "$(git rev-parse HEAD)"
@@ -103,6 +114,7 @@ jobs:
   gate-static:
     name: Release gate static checks
     needs: [preflight]
+    if: ${{ !inputs.skip_heavy_gates }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -142,6 +154,7 @@ jobs:
   gate-race:
     name: Release gate race tests (${{ matrix.shard }}/3)
     needs: [preflight]
+    if: ${{ !inputs.skip_heavy_gates }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -225,6 +238,9 @@ jobs:
   release:
     name: Build release artifacts
     needs: [gate-static, gate-race, gate-trust]
+    # The trust gate always runs; the race and static gates may be skipped
+    # only by the explicit skip_heavy_gates operator input.
+    if: ${{ !cancelled() && needs.gate-trust.result == 'success' && (needs.gate-static.result == 'success' || (inputs.skip_heavy_gates && needs.gate-static.result == 'skipped')) && (needs.gate-race.result == 'success' || (inputs.skip_heavy_gates && needs.gate-race.result == 'skipped')) }}
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -265,15 +281,19 @@ jobs:
       # Candidate CI and CodeQL cover this commit; the preceding release gates
       # add race tests, static analysis, and trust. macOS tests are manual only.
       - name: Require green CI and CodeQL for the release commit
+        if: ${{ !inputs.skip_green_checks }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./scripts/release/require-green-checks.sh "$(git rev-parse HEAD)"
 
-      - name: Verify release-only gates
+      - name: Verify release-only vulnerability gate
+        if: ${{ !inputs.skip_heavy_gates }}
         run: |
           go run golang.org/x/vuln/cmd/govulncheck@latest ./...
           (cd harness/template && go run golang.org/x/vuln/cmd/govulncheck@latest ./...)
-          go run ./scripts/build/legacy-hook-generators --check
+
+      - name: Verify legacy hook generators
+        run: go run ./scripts/build/legacy-hook-generators --check
 
       - name: Build artifacts
         env:

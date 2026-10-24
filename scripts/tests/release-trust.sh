@@ -347,6 +347,24 @@ expect_failure_reason "must run from refs/tags/reconc-v1.2.3" \
   || fail "$release_workflow must require green checks in the preflight and the release job"
 [ "$(grep -Fc '    needs: [preflight]' "$release_workflow")" -eq 3 ] \
   || fail "$release_workflow must start every gate job only after the preflight"
+# Two operator inputs may waive the race, Vet, Staticcheck and Govulncheck
+# gates and the green-check wait for one dispatch; both default to the
+# enforcing behavior, and the trust gate can never be skipped.
+for input in skip_heavy_gates skip_green_checks; do
+  awk -v input="      $input:" '
+    $0 == input { found = 1; next }
+    found && /^      [a-z_]+:/ { exit }
+    found && $0 == "        default: false" { ok = 1 }
+    END { exit ok ? 0 : 1 }
+  ' "$release_workflow" || fail "$release_workflow input $input must default to false"
+done
+# shellcheck disable=SC2016 # Match workflow expressions literally.
+[ "$(grep -Fc 'if: ${{ !inputs.skip_heavy_gates }}' "$release_workflow")" -eq 3 ] \
+  || fail "$release_workflow may skip only the static job, the race job and the vulnerability step"
+# shellcheck disable=SC2016 # Match workflow expressions literally.
+[ "$(grep -Fc 'if: ${{ !inputs.skip_green_checks }}' "$release_workflow")" -eq 2 ] \
+  || fail "$release_workflow may skip only the two green-check steps"
+require_text "$release_workflow" "needs.gate-trust.result == 'success'"
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" 'REPLACE_PUBLISHED: ${{ inputs.replace_published }}'
 require_text "$release_workflow" './scripts/release/publish-github-release.sh'
