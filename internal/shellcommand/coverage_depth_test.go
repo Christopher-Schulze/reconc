@@ -12,6 +12,9 @@ func TestInvocationsResolvesSupportedWrapperOptionContracts(t *testing.T) {
 		want    [][]string
 	}{
 		{name: "command query remains the command", command: "command -v git", want: [][]string{{"command", "-v", "git"}}},
+		{name: "bare env is its own invocation", command: "env", want: [][]string{{"env"}}},
+		{name: "env options without a command", command: "env -i -u OLD MODE=1", want: [][]string{{"env", "-i", "-u", "OLD", "MODE=1"}}},
+		{name: "wrapper chain ending without a command", command: "sudo -n env -i", want: [][]string{{"env", "-i"}}},
 		{name: "builtin", command: "builtin printf ready", want: [][]string{{"printf", "ready"}}},
 		{name: "exec argv zero argument", command: "exec -a reconc -- git status", want: [][]string{{"git", "status"}}},
 		{name: "exec argv zero inline and flags", command: "exec --argv0=reconc -cl git status", want: [][]string{{"git", "status"}}},
@@ -102,6 +105,9 @@ func TestInvocationsRejectsUnsupportedOrIncompleteWrapperOptions(t *testing.T) {
 		{name: "bwrap missing setenv value", command: "bwrap --setenv MODE"},
 		{name: "bwrap unknown option", command: "bwrap --unknown git status"},
 		{name: "unshare missing command", command: "unshare --user --fork"},
+		{name: "nsenter shell without command", command: "nsenter --target 1"},
+		{name: "sudo login shell without command", command: "sudo -i"},
+		{name: "nohup without command", command: "nohup"},
 		{name: "unshare unknown option", command: "unshare --unknown git status"},
 		{name: "nsenter missing target value", command: "nsenter --target"},
 		{name: "nsenter unknown option", command: "nsenter --unknown git status"},

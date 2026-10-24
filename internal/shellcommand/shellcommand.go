@@ -792,13 +792,21 @@ func StripLineContinuations(command string) string {
 	return out.String()
 }
 
+// effectiveWords strips the supported wrappers and returns the words of the
+// command they launch. A chain that ends in `env` without a command launches no
+// other program: env then only prints the environment, so it is the complete
+// invocation of that env with its options. Every other wrapper without a
+// command stays unresolved, because several of them start a shell (unshare,
+// chroot, nsenter, pkexec, sudo -i) whose commands could arrive on stdin.
 func effectiveWords(words []commandWord) ([]commandWord, bool, bool) {
 	index := 0
 	wrapped := false
+	last := -1
 	for index < len(words) {
 		if words[index].dynamic {
 			return nil, wrapped, false
 		}
+		last = index
 		switch baseName(words[index].value) {
 		case "command":
 			index++
@@ -954,6 +962,9 @@ func effectiveWords(words []commandWord) ([]commandWord, bool, bool) {
 		default:
 			return words[index:], wrapped, true
 		}
+	}
+	if last >= 0 && baseName(words[last].value) == "env" {
+		return words[last:], last > 0, true
 	}
 	return nil, wrapped, true
 }

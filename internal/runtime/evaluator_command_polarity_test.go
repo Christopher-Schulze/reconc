@@ -231,6 +231,43 @@ func TestPreCommandForbidMatchesNewDispatchers(t *testing.T) {
 	}
 }
 
+// An env called without a command only prints the environment, so a recorded
+// bare `env` must not count as a forbidden command in the pre-command or the
+// completion evaluation, while env launching the forbidden command still does
+// and a shell-starting wrapper without a command still fails closed.
+func TestForbidIgnoresCommandLessWrappers(t *testing.T) {
+	repo := makeRepoWithFiles(t,
+		"rules:\n  - id: no-git-clean\n    kind: forbid_command\n    command_match: prefix\n    commands: ['git clean', 'git-clean']\n    mode: block\n    message: m\n",
+		nil)
+	for _, command := range []string{"env", "env -i MODE=1", "sudo -n env"} {
+		inputs := Empty()
+		inputs.Commands = []string{command}
+		for name, check := range map[string]func(string, ExecutionInputs) (*CheckReport, error){
+			"pre-command": CheckRepoPolicyForPreCommand,
+			"completion":  CheckRepoPolicy,
+		} {
+			report, err := check(repo, inputs)
+			if err != nil {
+				t.Fatalf("%s %q: %v", name, command, err)
+			}
+			if report.Decision != DecisionPass {
+				t.Fatalf("%s %q must not match forbid git clean, got %s: %+v", name, command, report.Decision, report.Violations)
+			}
+		}
+	}
+	for _, command := range []string{"env -i git clean -fd", "echo 'git clean -fd' | sudo -i"} {
+		inputs := Empty()
+		inputs.Commands = []string{command}
+		report, err := CheckRepoPolicy(repo, inputs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if report.Decision != DecisionBlock {
+			t.Fatalf("%q must stay forbidden or fail closed, got %s", command, report.Decision)
+		}
+	}
+}
+
 func TestCompletionNotForbidKeepsLogicalNegation(t *testing.T) {
 	repo := makeRepoWithFiles(t,
 		"rules:\n  - id: must-git\n    kind: not\n    when_paths: ['src/**']\n    checks:\n      - kind: forbid_command\n        command_match: prefix\n        commands: ['git']\n    mode: block\n    message: must run git\n",

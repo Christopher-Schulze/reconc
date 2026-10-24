@@ -96,12 +96,14 @@ func stagedParentDirectory(name string) string {
 }
 
 // configureCLITestProcess puts the staged binary on PATH and points Reconc
-// and host state at state, a directory owned by this process.
+// state and the user-global Kimi Code home at state, a directory owned by this
+// process.
 func configureCLITestProcess(source, staged, state string) error {
 	stagedCLITestDirectory = staged
 	values := map[string]string{
 		"RECONC_INSTALL_DIR": staged,
 		"RECONC_HOME":        filepath.Join(state, "state"),
+		"KIMI_CODE_HOME":     filepath.Join(state, "kimi-code"),
 		"PATH":               staged + string(os.PathListSeparator) + os.Getenv("PATH"),
 	}
 	for name, value := range values {

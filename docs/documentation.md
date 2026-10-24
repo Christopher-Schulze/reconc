@@ -3084,12 +3084,16 @@ newline continuations are folded before matching. Common
 `env`/`sudo`/`doas`/`command`/`exec`/`nohup`/`nice`/`timeout`/`setsid`/`stdbuf`/`time`/`chroot`/`taskset`/`bwrap`/`unshare`/`nsenter`/`pkexec`/`busybox`/`systemd-run`
 wrappers plus `find -exec`/`-ok`/`-execdir`/`-okdir`, `xargs`, `flock`,
 `watch`, and GNU `parallel` command launchers are resolved when their option
-grammar is statically known. Option operands, `--` terminators, assignments,
-absolute executable paths, and quoted static values are not treated as
-commands. Dispatcher modes whose executable cannot be identified, including
-`taskset -p`, `systemd-run --shell`, `busybox --list`, `parallel --pipe`,
-`parallel :::` before a command, unknown options, dynamic operands, and
-unsupported command strings evaluated by another shell, are incomplete. GNU
+grammar is statically known. An `env` that ends a wrapper chain without a
+command only prints the environment and is analyzed as its own complete
+invocation; every other wrapper without a command stays incomplete, because
+`unshare`, `chroot`, `nsenter`, `pkexec` and `sudo -i` start a shell. Option
+operands, `--` terminators, assignments, absolute executable paths, and quoted
+static values are not treated as commands. Dispatcher modes whose executable
+cannot be identified, including `taskset -p`, `systemd-run --shell`,
+`busybox --list`, `parallel --pipe`, `parallel :::` before a command, unknown
+options, dynamic operands, and unsupported command strings evaluated by another
+shell, are incomplete. GNU
 Parallel's static command template is reparsed through the bounded shell
 analyzer after outer quote removal; `--quote` preserves literal argument
 boundaries. Input appended by Parallel remains unknown command arguments,

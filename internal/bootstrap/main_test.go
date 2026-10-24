@@ -10,8 +10,10 @@ import (
 )
 
 // TestMain puts one executable reconc on PATH, as the user CLI that apply
-// installs provides. Verification treats a wrapper that resolves no runnable
-// binary as degraded; tests of a missing CLI replace PATH themselves.
+// installs provides, and points the user-global Kimi Code home at an empty
+// directory so a developer's own Kimi Code hooks never appear as a detected
+// platform. Verification treats a wrapper that resolves no runnable binary as
+// degraded; tests of a missing CLI replace PATH themselves.
 func TestMain(testingMain *testing.M) {
 	os.Exit(testtemp.MainWithSetup(testingMain, stageReconcOnPath))
 }
@@ -29,6 +31,9 @@ func stageReconcOnPath() (cleanup func() error, err error) {
 		name += ".exe"
 	}
 	if err := os.WriteFile(filepath.Join(directory, name), []byte("#!/bin/sh\nexit 2\n"), 0o755); err != nil {
+		return cleanup, err
+	}
+	if err := os.Setenv("KIMI_CODE_HOME", filepath.Join(directory, "kimi-code")); err != nil {
 		return cleanup, err
 	}
 	return cleanup, os.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))

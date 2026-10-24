@@ -10,8 +10,8 @@ import (
 
 // TestMain isolates hook status from the developer's host settings: the
 // managed Claude Code policy directory, Claude and Copilot user settings, the
-// OMP config root and the Pi agent directory all point at an empty temporary
-// tree.
+// OMP config root, the Pi agent directory and the user-global Kimi Code home
+// all point at an empty temporary tree.
 func TestMain(testingMain *testing.M) {
 	directory, err := os.MkdirTemp("", "reconc-hooks-test-*")
 	if err != nil {
@@ -27,6 +27,9 @@ func TestMain(testingMain *testing.M) {
 		// Pi and OMP resolve their agent directory from this before any
 		// default, so a developer's own value must not reach status tests.
 		"PI_CODING_AGENT_DIR": filepath.Join(directory, "pi-agent"),
+		// Kimi Code hooks are user-global; a developer's own installation
+		// must not appear as an installed platform in status tests.
+		"KIMI_CODE_HOME": filepath.Join(directory, "kimi-code"),
 	} {
 		if err := os.Setenv(name, value); err != nil {
 			fmt.Fprintln(os.Stderr, err)
