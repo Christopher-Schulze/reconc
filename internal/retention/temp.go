@@ -206,7 +206,7 @@ func pruneRepoTemps(options Options, report *Report) ClassReport {
 
 func pruneOwnedTempRoots(options Options, report *Report) ClassReport {
 	class := ClassReport{Name: "abandoned-owned-temp"}
-	entries, err := boundedio.ReadDir(options.TempRoot, maxRetentionDirectoryEntries)
+	entries, err := readOwnedTempDirectories(options.TempRoot, maxRetentionWalkEntries, maxRetentionDirectoryEntries)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			report.Errors = append(report.Errors, fmt.Sprintf("read temp root %s: %v", options.TempRoot, err))

@@ -2658,6 +2658,14 @@ mutations normalize once, compare the normalized result once, and skip atomic
 publication when the apparent change normalizes away; missing or non-private
 state and pointer modes are still repaired, while a state directory that
 already validates as private is used without a repair walk.
+Shared temporary-root discovery reads directory entries in batches of at most
+256, scans at most 100,000 entries, and retains at most 16,384 recognized
+Reconc-owned directories. Unrelated names do not consume the owned-candidate
+budget and their subtrees are never inspected. Discovery validates the opened
+root identity while allowing other applications to change its contents. A scan
+or candidate-budget error discards the entire temporary candidate inventory
+before deletion; each eligible directory still passes the existing age and
+identity-bound removal checks. Symbolic-link entries are never candidates.
 Run-decision class reports include `inspection_status` when their JSONL ring is
 projected or enforced. `complete` makes zero deletion and byte values measured
 zeroes; `unknown` means inspection failed and no after/freed/deleted projection
