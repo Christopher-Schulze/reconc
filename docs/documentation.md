@@ -2805,7 +2805,32 @@ These checks prevent accidental administration through recognized tool calls;
 they do not authenticate a human. A same-user process can automate a PTY,
 invoke unrecognized code, or modify private local state. `operator:` claims
 are workflow assertions, never independent approval evidence. Ordinary claims
-remain agent-recordable. Recording a claim only persists it; the gates that
+remain agent-recordable.
+
+An `operator:` claim authorizes exactly one change. Recording it stores a grant
+with the recording session and the Git `HEAD` of that moment in the private
+per-project file `claim-grants.json` (format `claim-grants-v1`, bounded,
+decoded strictly). Every policy decision that consults session claims (the
+pre-tool write and command gates and their decision cache, Stop and completion,
+and the active evidence that `reconc ci` and `reconc impact` read) uses the
+effective claims: a recorded claim that is not revoked, where an `operator:`
+claim additionally needs a grant of the evaluated session at the current
+`HEAD`. A commit, amend, reset, checkout or rebase moves `HEAD` and expires the
+grant; a switch of the active session drops the grants of every other session,
+so returning to the old session does not revive them; session cleanup forgets
+the session's grants and revocations. An `operator:` claim recorded by an
+older release has no grant and authorizes nothing. The staged gate of the
+authorized change still runs before its commit, and Stop judges only
+uncommitted writes, so the committed change does not block after its claim
+expired, while any further protected write needs a fresh claim.
+`reconc hook claim <repo> <name> --revoke` removes any claim, operator or
+agent, from the session's effective claims without confirmation; the
+pre-tool and MCP gates admit a literal `--revoke` because it only lowers
+authority. Revocations and grants live outside the sealed evidence chain, so
+reloading sealed evidence segments cannot bring an expired or revoked claim
+back, while the chain keeps recording that the claim was made. A damaged grant
+file fails closed: every claim-dependent decision of the repository reports it
+until the file is repaired or removed. Recording a claim only persists it; the gates that
 consult claims evaluate the current set
 themselves, so no policy script runs on the claim path. The sanctioned valve
 for an incident is `reconc hook pause . --for DURATION --reason TEXT` (one

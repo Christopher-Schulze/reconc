@@ -99,6 +99,7 @@ func stopPolicyFingerprintInputForSnapshotWithScan(
 		WriteEpochs:        cloneWriteEpochs(state.WriteEpochs),
 		Commands:           sortedUnique(state.Commands),
 		Claims:             sortedUnique(state.Claims),
+		ClaimGrantHash:     fileContentHash(claimGrantPath(root)),
 		CommandResults:     append([]CommandResult{}, state.CommandResults...),
 		GitHead:            gitSnapshot.Head,
 		GitStatusMode:      gitSnapshot.StatusMode,

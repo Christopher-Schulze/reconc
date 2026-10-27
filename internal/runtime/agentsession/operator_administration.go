@@ -263,6 +263,9 @@ func operatorOnlyCommandReason(command string) string {
 		if subcommand != "claim" {
 			continue
 		}
+		if claimInvocationRevokes(invocation.Words, invocation.DynamicWords, subIndex) {
+			continue // revoking a claim only lowers authority
+		}
 		for index := subIndex + 1; index < len(words); index++ {
 			if index < len(invocation.DynamicWords) && invocation.DynamicWords[index] {
 				return operatorOnlyMessage("reconc hook claim with a dynamic claim name")
@@ -273,6 +276,18 @@ func operatorOnlyCommandReason(command string) string {
 		}
 	}
 	return ""
+}
+
+// claimInvocationRevokes reports a `reconc hook claim` invocation that carries
+// a literal --revoke flag after the subcommand. A dynamic word could expand to
+// anything, so it never counts as the flag.
+func claimInvocationRevokes(words []string, dynamic []bool, subIndex int) bool {
+	for index := subIndex + 1; index < len(words); index++ {
+		if words[index] == "--revoke" && (index >= len(dynamic) || !dynamic[index]) {
+			return true
+		}
+	}
+	return false
 }
 
 func operatorOnlyMessage(what string) string {

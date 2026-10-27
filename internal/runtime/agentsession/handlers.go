@@ -328,6 +328,10 @@ func evaluatePreToolUseParsed(
 		if err != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): load evidence chain: %s", err)}
 		}
+		claims, err := claimsForEvaluation(root, state)
+		if err != nil {
+			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
+		}
 		declaredWrites, declared, declaredErr := commandWritePaths(payload)
 		if declaredErr != nil {
 			return Result{ExitCode: 2, Stderr: "reconc hook (pre): command write declaration: " + declaredErr.Error()}
@@ -368,7 +372,7 @@ func evaluatePreToolUseParsed(
 			return resultWithPolicyDecision(Result{ExitCode: 2, Stderr: firstLinesForViolations(violations, "reconc blocked this command before execution.")}, policyReports...)
 		}
 		if len(literalWrites) > 0 && !declared {
-			writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, paths, root, state.ReadPaths, trialState.WritePaths, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
+			writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, paths, root, state.ReadPaths, trialState.WritePaths, state.WriteEpochs, state.Commands, state.CommandResults, claims)
 			if writeErr != nil {
 				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): command write check failed: %s", writeErr)}
 			}
@@ -395,7 +399,7 @@ func evaluatePreToolUseParsed(
 				return Result{ExitCode: 2, Stderr: "reconc hook (pre): " + staleErr.Error()}
 			}
 			if declared {
-				writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, paths, root, state.ReadPaths, trialState.WritePaths, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
+				writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, paths, root, state.ReadPaths, trialState.WritePaths, state.WriteEpochs, state.Commands, state.CommandResults, claims)
 				if writeErr != nil {
 					return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): command write check failed: %s", writeErr)}
 				}
@@ -445,10 +449,14 @@ func evaluatePreToolUseParsed(
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): load evidence chain: %s", err)}
 	}
+	claims, err := claimsForEvaluation(root, state)
+	if err != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
+	}
 	trialWrites := append([]string{}, state.WritePaths...)
 	trialWrites = append(trialWrites, pendingWrites...)
 	report, err := runPreWritePolicyCheckWithEvaluator(evaluator, nil, root, state.ReadPaths, trialWrites,
-		state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
+		state.WriteEpochs, state.Commands, state.CommandResults, claims)
 	if err != nil {
 		if isLockfileError(err) {
 			// Writes stay blocked: a write authorized by an unreadable policy
@@ -1014,7 +1022,11 @@ func runPreWritePolicyCheckWithEvaluator(
 // runPreCommandPolicyCheckWithEvaluator judges a command. paths is the
 // request's shared prospective resolver; nil gives the check its own.
 func runPreCommandPolicyCheckWithEvaluator(evaluator *runtime.Evaluator, paths *pathidentity.ProspectiveResolver, repoRoot string, state SessionState, command string) (*runtime.CheckReport, error) {
-	inputs := executionInputs(state.ReadPaths, state.WritePaths, state.WriteEpochs, []string{command}, state.CommandResults, state.Claims)
+	claims, err := claimsForEvaluation(repoRoot, state)
+	if err != nil {
+		return nil, err
+	}
+	inputs := executionInputs(state.ReadPaths, state.WritePaths, state.WriteEpochs, []string{command}, state.CommandResults, claims)
 	return evaluator.CheckRepoPolicyForPreCommandContext(hookEvaluationContext(paths), repoRoot, inputs)
 }
 

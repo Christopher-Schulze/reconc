@@ -72,7 +72,7 @@ Generated from `internal/commandmeta`; run `make reference-docs` after changing 
 | `reconc hook bridge` | `reconc hook bridge <runtime> <host-event> [repo]` | dispatch a declarative repository-owned custom runtime event | json |
 | `reconc hook conform` | `reconc hook conform <manifest.json> <fixtures.json> [--json]` | verify a custom runtime adapter contract offline | text, json |
 | `reconc hook sync-scaffold` | `reconc hook sync-scaffold <repo-root-scaffold> [--json]` | synchronize generated scaffold hook artifacts | text, json |
-| `reconc hook claim` | `reconc hook claim <repo> <claim-name> [--session ID] [--json] [--output PATH]` | record one explicit session claim | text, json, file |
+| `reconc hook claim` | `reconc hook claim <repo> <claim-name> [--revoke] [--session ID] [--json] [--output PATH]` | record or revoke one explicit session claim | text, json, file |
 | `reconc hook evidence-status` | `reconc hook evidence-status [repo] [--json]` | inspect effective evidence taint without mutation | text, json |
 | `reconc hook evidence-resolve` | `reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]` | resolve reviewed evidence taint explicitly, also during an active session (operator only) | text, json |
 | `reconc hook pause` | `reconc hook pause [repo] --for DURATION --reason TEXT [--json]` | let blocking hook events pass for a bounded time (operator only, max 24h) | text, json |
@@ -1573,12 +1573,19 @@ from a source-specific harness. Reconc preflights containment for every target
 before the first write, preventing both parent-symlink escapes and partial
 scaffold updates.
 
-### `reconc hook claim <repo> <claim-name> [--session ID] [--json] [--output PATH]`
+### `reconc hook claim <repo> <claim-name> [--revoke] [--session ID] [--json] [--output PATH]`
 Assert a workflow claim (e.g. `ci-green`). Written to the session
 state consulted by later hook-runtime checks and `ci` calls; recording only
 persists the claim and runs no policy evaluation or script. `--session`
 selects an exact existing session instead of resolving the active pointer.
-Claims named `operator:*` are reserved for local administration. Recognized
+`--revoke` removes the claim from the session's effective claims; it needs no
+confirmation, also for `operator:*` claims, because it only lowers authority,
+and recording the claim again restores it. An `operator:*` claim authorizes
+exactly one change: it is effective only while Git `HEAD` is the commit that
+was current when it was recorded and only while the recording session stays
+the active session, so a commit, amend, reset, checkout or rebase, a switch of
+the active session and the session's cleanup end it. Claims named
+`operator:*` are reserved for local administration. Recognized
 tool invocations are refused; the CLI requires an interactive terminal and
 the exact displayed confirmation code. The same confirmation applies to
 pause, resume, and evidence recovery. This prevents accidental administration,

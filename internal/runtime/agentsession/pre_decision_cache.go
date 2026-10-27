@@ -426,6 +426,13 @@ func preDecisionEvaluationInputs(
 		return runtime.Empty(), 0, false
 	}
 	readPaths := filterRepoScopedReadPaths(root, state.ReadPaths, nil)
+	// The cache identity covers the effective claims, so an operator claim
+	// that expired with a commit or a session switch cannot reuse a decision
+	// it once allowed.
+	claims, err := claimsForEvaluation(root, state)
+	if err != nil {
+		return runtime.Empty(), 0, false
+	}
 	if payload.IsCommandTool() {
 		declaredWrites, _, err := commandWritePaths(payload)
 		if err != nil {
@@ -442,7 +449,7 @@ func preDecisionEvaluationInputs(
 		if literal := literalCommandWritePaths(root, payload); len(literal) > 0 {
 			trialWrites = append(append([]string(nil), trialWrites...), literal...)
 		}
-		return executionInputs(readPaths, trialWrites, state.WriteEpochs, []string{payload.Command()}, state.CommandResults, state.Claims),
+		return executionInputs(readPaths, trialWrites, state.WriteEpochs, []string{payload.Command()}, state.CommandResults, claims),
 			runtime.PreDecisionRouteCommand, true
 	}
 	if !payload.IsWriteTool() {
@@ -453,7 +460,7 @@ func preDecisionEvaluationInputs(
 		return runtime.Empty(), 0, false
 	}
 	trialWrites := append(append([]string(nil), state.WritePaths...), pending...)
-	return executionInputs(readPaths, trialWrites, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims),
+	return executionInputs(readPaths, trialWrites, state.WriteEpochs, state.Commands, state.CommandResults, claims),
 		runtime.PreDecisionRouteWrite, true
 }
 

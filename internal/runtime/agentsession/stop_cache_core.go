@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	stopPolicyFingerprintVersion = "stop-policy-report-v11"
+	stopPolicyFingerprintVersion = "stop-policy-report-v12"
 	stopPolicyUntrackedModeEnv   = "RECONC_STOP_FINGERPRINT_UNTRACKED"
 	maxStopReportBytes           = 32 << 20
 	maxGitControlFileBytes       = 1 << 20
@@ -38,13 +38,16 @@ type stopPolicyFingerprintInput struct {
 	WriteEpochs        map[string]uint64 `json:"write_epochs"`
 	Commands           []string          `json:"commands"`
 	Claims             []string          `json:"claims"`
-	CommandResults     []CommandResult   `json:"command_results"`
-	GitHead            string            `json:"git_head"`
-	GitStatusMode      string            `json:"git_status_mode"`
-	GitStatusOK        bool              `json:"git_status_ok"`
-	GitStatus          string            `json:"git_status"`
-	GitDirtyFiles      []gitDirtyFile    `json:"git_dirty_files"`
-	ReconcAuditNoCache string            `json:"reconc_audit_no_cache"`
+	// ClaimGrantHash binds the operator grants and revocations that decide
+	// which recorded claims are effective.
+	ClaimGrantHash     string          `json:"claim_grant_hash"`
+	CommandResults     []CommandResult `json:"command_results"`
+	GitHead            string          `json:"git_head"`
+	GitStatusMode      string          `json:"git_status_mode"`
+	GitStatusOK        bool            `json:"git_status_ok"`
+	GitStatus          string          `json:"git_status"`
+	GitDirtyFiles      []gitDirtyFile  `json:"git_dirty_files"`
+	ReconcAuditNoCache string          `json:"reconc_audit_no_cache"`
 	// PolicyInputs binds the repository paths the compiled policy names but
 	// Git does not report, most importantly gitignored require_evidence and
 	// require_fresh_file targets.
@@ -325,8 +328,12 @@ func runStopPolicyCheckLockedAttempt(
 		StatusMode: gitSnapshot.StatusMode,
 		StatusOK:   gitSnapshot.StatusOK,
 	})
+	claims, err := claimsForEvaluation(repoRoot, state)
+	if err != nil {
+		return stopPolicyCheckResult{}, err
+	}
 	report, err := runCheckAndSaveWithEvaluator(evaluator, repoRoot, state.SessionID, state.ReadPaths,
-		scopedWritePaths, filterWriteEpochs(state.WriteEpochs, scopedWritePaths), state.Commands, state.CommandResults, state.Claims)
+		scopedWritePaths, filterWriteEpochs(state.WriteEpochs, scopedWritePaths), state.Commands, state.CommandResults, claims)
 	if err != nil {
 		return stopPolicyCheckResult{}, err
 	}

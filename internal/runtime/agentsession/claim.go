@@ -13,6 +13,7 @@ type ClaimReport struct {
 	RepoRoot   string `json:"repo_root"`
 	SessionID  string `json:"session_id"`
 	Claim      string `json:"claim"`
+	Revoked    bool   `json:"revoked,omitempty"`
 	ClaimCount int    `json:"claim_count"`
 	StatePath  string `json:"state_path"`
 	ReportPath string `json:"report_path"`
@@ -64,6 +65,9 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 	}
 	if updated.EvidenceOverflow {
 		return nil, errors.New(evidenceOverflowMessage(updated))
+	}
+	if err := grantRecordedClaim(root, sessionID, claim); err != nil {
+		return nil, fmt.Errorf("record claim grant: %w", err)
 	}
 	updated, err = loadCompleteSessionEvidence(root, updated)
 	if err != nil {
@@ -133,6 +137,10 @@ func ActiveEvidence(repoRoot string) (ActiveEvidenceSnapshot, error) {
 	if err != nil {
 		return ActiveEvidenceSnapshot{}, fmt.Errorf("load active session %q evidence chain: %w", sessionID, err)
 	}
+	claims, err := claimsForEvaluation(root, state)
+	if err != nil {
+		return ActiveEvidenceSnapshot{}, fmt.Errorf("active session %q: %w", sessionID, err)
+	}
 	return ActiveEvidenceSnapshot{
 		ReadPaths:              append([]string{}, state.ReadPaths...),
 		WritePaths:             append([]string{}, state.WritePaths...),
@@ -140,7 +148,7 @@ func ActiveEvidence(repoRoot string) (ActiveEvidenceSnapshot, error) {
 		EvidenceEpoch:          state.EvidenceEpoch,
 		Commands:               append([]string{}, state.Commands...),
 		CommandResults:         append([]CommandResult{}, state.CommandResults...),
-		Claims:                 append([]string{}, state.Claims...),
+		Claims:                 append([]string{}, claims...),
 		EvidenceOverflow:       state.EvidenceOverflow,
 		EvidenceOverflowReason: state.EvidenceOverflowReason,
 		EvidenceOverflowLimit:  state.EvidenceOverflowLimit,
@@ -168,6 +176,10 @@ func ActiveClaims(repoRoot string) ([]string, error) {
 // DescribeClaimReport returns a short human-readable rendering of
 // the ClaimReport. Used by the CLI when --json is not set.
 func DescribeClaimReport(r *ClaimReport) string {
+	if r.Revoked {
+		return fmt.Sprintf("claim '%s' revoked for session %s (effective claims: %d)\n  state:  %s\n  report: %s",
+			r.Claim, r.SessionID, r.ClaimCount, r.StatePath, r.ReportPath)
+	}
 	return fmt.Sprintf("claim '%s' recorded for session %s (total claims: %d)\n  state:  %s\n  report: %s",
 		r.Claim, r.SessionID, r.ClaimCount, r.StatePath, r.ReportPath)
 }

@@ -350,8 +350,12 @@ func runMCPWritePreResolvedWithStopCache(
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): load evidence chain: " + err.Error()}
 	}
+	claims, err := claimsForEvaluation(root, state)
+	if err != nil {
+		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
+	}
 	trialWrites := append(append([]string(nil), state.WritePaths...), paths...)
-	report, err := runPreWritePolicyCheckWithEvaluator(evaluator, nil, root, state.ReadPaths, trialWrites, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
+	report, err := runPreWritePolicyCheckWithEvaluator(evaluator, nil, root, state.ReadPaths, trialWrites, state.WriteEpochs, state.Commands, state.CommandResults, claims)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): write check failed: " + err.Error()}
 	}

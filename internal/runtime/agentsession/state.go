@@ -1050,6 +1050,9 @@ func cleanupSessionStateResolved(root, sessionID string) error {
 					return fmt.Errorf("remove session state: %w", err)
 				}
 			}
+			if err := dropSessionClaimGrantsLocked(root, sessionID); err != nil {
+				return fmt.Errorf("remove session claim grants: %w", err)
+			}
 			preDecisionPath := filepath.Join(projectDir(root), "pre-decisions", sessionFileKey(sessionID)+".json")
 			if err := os.Remove(preDecisionPath); err != nil && !os.IsNotExist(err) {
 				return fmt.Errorf("remove pre-decision cache: %w", err)
@@ -1245,6 +1248,13 @@ func writeActiveSessionLockedIfChanged(repoRoot, sessionID string) (bool, error)
 	result, err := atomicfile.WritePrivateIfChanged(path, []byte(sessionID+"\n"), 0o600)
 	if err != nil {
 		return false, fmt.Errorf("write active session: %w", err)
+	}
+	if result.Changed {
+		// An operator claim belongs to the session that was active when it
+		// was recorded; switching the active session ends it.
+		if err := dropForeignOperatorGrantsLocked(repoRoot, sessionID); err != nil {
+			return true, err
+		}
 	}
 	return result.Changed, nil
 }

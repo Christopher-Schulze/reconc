@@ -14,6 +14,7 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 	claim := ""
 	sessionID := ""
 	jsonOut := false
+	revoke := false
 	outputPath := ""
 	positional := 0
 	i := 0
@@ -21,13 +22,19 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 		a := args[i]
 		switch a {
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc hook claim <repo> <claim-name> [--session ID] [--json] [--output PATH]")
+			fmt.Fprintln(stdout, "Usage: reconc hook claim <repo> <claim-name> [--revoke] [--session ID] [--json] [--output PATH]")
 			fmt.Fprintln(stdout, "")
 			fmt.Fprintln(stdout, "Records a claim (e.g. 'ci-green') in the active session state so")
-			fmt.Fprintln(stdout, "subsequent require_claim rules see it.")
+			fmt.Fprintln(stdout, "subsequent require_claim rules see it. An operator:* claim needs terminal")
+			fmt.Fprintln(stdout, "confirmation and authorizes one change: it expires when HEAD moves (commit,")
+			fmt.Fprintln(stdout, "amend, reset, checkout, rebase), when another session becomes active, or when")
+			fmt.Fprintln(stdout, "the session is cleaned up. --revoke removes any claim from the session's")
+			fmt.Fprintln(stdout, "effective claims without confirmation; recording it again restores it.")
 			return nil
 		case "--json":
 			jsonOut = true
+		case "--revoke":
+			revoke = true
 		case "--output":
 			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
@@ -57,15 +64,22 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 		i++
 	}
 	if repo == "" || claim == "" {
-		return &CLIError{ExitCode: 1, Message: "reconc hook claim: usage: reconc hook claim <repo> <claim-name> [--session ID] [--json]"}
+		return &CLIError{ExitCode: 1, Message: "reconc hook claim: usage: reconc hook claim <repo> <claim-name> [--revoke] [--session ID] [--json]"}
 	}
 
-	if strings.HasPrefix(strings.TrimSpace(claim), agentsession.OperatorClaimPrefix) {
-		if err := confirmOperatorPresence("reconc hook claim "+strings.TrimSpace(claim), stderr); err != nil {
-			return err
+	var report *agentsession.ClaimReport
+	var err error
+	if revoke {
+		// Revoking only lowers authority, so it needs no operator presence.
+		report, err = agentsession.RevokeClaim(repo, claim, sessionID)
+	} else {
+		if strings.HasPrefix(strings.TrimSpace(claim), agentsession.OperatorClaimPrefix) {
+			if err := confirmOperatorPresence("reconc hook claim "+strings.TrimSpace(claim), stderr); err != nil {
+				return err
+			}
 		}
+		report, err = agentsession.RecordClaim(repo, claim, sessionID)
 	}
-	report, err := agentsession.RecordClaim(repo, claim, sessionID)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook claim: " + err.Error()}
 	}

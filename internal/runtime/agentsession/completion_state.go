@@ -173,11 +173,15 @@ func completionExecutionInputs(
 	worktreeMatchesIndex bool,
 	now time.Time,
 ) (runtime.ExecutionInputs, error) {
+	claims, err := claimsForEvaluation(root, state)
+	if err != nil {
+		return runtime.ExecutionInputs{}, err
+	}
 	inputs := executionInputs(
 		filterRepoScopedReadPaths(root, state.ReadPaths, nil),
 		append([]string{}, state.WritePaths...), cloneWriteEpochs(state.WriteEpochs),
 		append([]string{}, state.Commands...), append([]CommandResult{}, state.CommandResults...),
-		append([]string{}, state.Claims...),
+		claims,
 	)
 	// Mutable session history cannot mint the marker reserved for verified
 	// staged receipts. Only the proof loader below may add that authority.
