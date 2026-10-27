@@ -1,7 +1,7 @@
 {
   "schema": "reconc-host-contract-sources",
   "format_version": 2,
-  "reviewed_at": "2026-10-21",
+  "reviewed_at": "2026-10-27",
   "hosts": [
     {
       "host": "antigravity",
@@ -46,7 +46,7 @@
           "url": "https://code.claude.com/docs/en/hooks.md",
           "baseline_url": "https://code.claude.com/docs/en/hooks.md",
           "normalization": "markdown",
-          "sha256": "7ca1871602c8b7d4b80e3b7aa2ff4dde913cb363970e19717f9128e573a8f58c",
+          "sha256": "72fd8926643715db512bfc670b270241ec1f4fe1c0aefc3a8cf68c2bdd410f47",
           "required_markers": [
             "PreToolUse",
             "SessionStart",
@@ -106,9 +106,9 @@
         {
           "id": "hook-registry",
           "url": "https://raw.githubusercontent.com/openai/codex/HEAD/codex-rs/hooks/src/registry.rs",
-          "baseline_url": "https://raw.githubusercontent.com/openai/codex/7c073196a1673a0b248b2e5edfb7548d2c2290ac/codex-rs/hooks/src/registry.rs",
+          "baseline_url": "https://raw.githubusercontent.com/openai/codex/75a4146411d22e4c487ba86f026201594cdbaa85/codex-rs/hooks/src/registry.rs",
           "normalization": "source",
-          "sha256": "3aefbfde1e5a59f8427e93744c5a55ddb68a43d245df922a2355f2a0542b6d58",
+          "sha256": "2dbf3a263a6fba2bbeb6438d6e0386075d314b9cac8d78e0b0b5141a62feb4fd",
           "required_markers": [
             "PreToolUseRequest",
             "run_pre_tool_use"
@@ -195,7 +195,7 @@
           "url": "https://cursor.com/docs/hooks",
           "baseline_url": "https://cursor.com/docs/hooks",
           "normalization": "markdown",
-          "sha256": "5ccc32e0652aa12996567af700a7b71719ff0d7f4e1ceb1458363514c6633921",
+          "sha256": "150e12c3512367f305c537e6a6ac6ed5a41fdddccf34054c6974a7c88695636e",
           "required_markers": [
             "preToolUse",
             "sessionStart",
@@ -228,7 +228,7 @@
           "url": "https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md",
           "baseline_url": "https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md",
           "normalization": "markdown",
-          "sha256": "7d4367e05fc132648f4cf1f5e007ecc7c86e15bf13ccc38d150efcff2c4d3dac",
+          "sha256": "7b160c610f914532df8703f830cec8b1f1632abdf5a39755921d11b7cef02b01",
           "required_markers": [
             "PreToolUse",
             "SessionStart"
@@ -245,7 +245,7 @@
           "url": "https://docs.devin.ai/cli/extensibility/hooks/overview.md",
           "baseline_url": "https://docs.devin.ai/cli/extensibility/hooks/overview.md",
           "normalization": "markdown",
-          "sha256": "f2a6c9da8774d329d21eaa35c9400e73b5c4420ccadaccd31187dc91a5cc4b52",
+          "sha256": "c6657e2bc168a59971284a0fe11eb3e7b0a28b7ca9e586d15734b938474baa19",
           "required_markers": [
             ".devin/hooks.v1.json",
             "PreToolUse"
@@ -271,9 +271,9 @@
         {
           "id": "agent-events",
           "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/packages/core/agent/src/runtime-types.ts",
-          "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/agent/src/runtime-types.ts",
+          "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/6bfe05c6f5b9985a50e1d50f649ee5ce5c91bf94/packages/core/agent/src/runtime-types.ts",
           "normalization": "source",
-          "sha256": "371822e550b2d7257e2e4199ddd66696497dd922bd2b2b2fb8cee79a3becc5fe",
+          "sha256": "1c14fc9a5a0e3fab1f6c5211eb08fcd0a6f1363c013e153f36d052e36497d057",
           "required_markers": [
             "'agent/pre-step'",
             "'agent/turn-stopping'"
@@ -309,9 +309,9 @@
         {
           "id": "session-types",
           "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/packages/core/session/src/types.ts",
-          "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/session/src/types.ts",
+          "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/30650824c9ad59dbd96ed1cec72771f221d6eafd/packages/core/session/src/types.ts",
           "normalization": "source",
-          "sha256": "87457e69c05487a0969215be883658862aec5c8d0e400d6d7bb2d952aaa27c4b",
+          "sha256": "342f0186f63557897795dfbdeccfb0d8e08bcda6791f998dc1f2fb4c759a05ca",
           "required_markers": [
             "export interface SessionHeader",
             "readonly meta: SessionHeader"
@@ -330,9 +330,9 @@
         {
           "id": "system-prompt",
           "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/docs/subsystems/system-prompt.md",
-          "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/687f282e8625c6b8d11ff58211a90524be2e4317/docs/subsystems/system-prompt.md",
+          "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/9d0c97b9d27fe60a51d09fd432fc9f564b8238c1/docs/subsystems/system-prompt.md",
           "normalization": "markdown",
-          "sha256": "330ec69447b0f9807f693004d12eb9967eed8cdd47f546e4ed8e937265afd3ff",
+          "sha256": "86b93b3e78fec33edd7ae30f55605aff8702f22c419fdd0224b31e731e782f7d",
           "required_markers": [
             "interface PromptContext",
             "context(context: PromptContext)"
@@ -345,32 +345,27 @@
         },
         {
           "id": "tool-runtime",
-          "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/packages/core/tools/src/index.ts",
-          "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/687f282e8625c6b8d11ff58211a90524be2e4317/packages/core/tools/src/index.ts",
+          "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/packages/core/tools/src/events.ts",
+          "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/e727a3b16141ff342cf75deb18b6f436655d8ce8/packages/core/tools/src/events.ts",
           "normalization": "source",
-          "sha256": "da6db0ae764fef9a65f5bdf628422f631c1123d418f916a024d110971cf7e47a",
+          "sha256": "3d5aa3cf30243ac011a20c0ececfde84aa85e3331234e2996d07b7fe0d1f33f9",
           "required_markers": [
             "'tools/pre-execute'",
-            "'tools/result'",
-            "workingDirectory"
+            "'tools/result'"
           ],
           "sections": [
             {
-              "start": "declare module '@deepseek-ai/cordis' {",
-              "end": "export interface ToolOutputDefinition {"
-            },
-            {
-              "start": "  private requirePtcTransport(): ToolDefinition {",
-              "end": "  presentAs(mode: ToolPresentationMode): () => void {"
+              "start": "  interface Events {",
+              "end": "    'tools/change'(): void"
             }
           ]
         },
         {
           "id": "working-directory",
           "url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/packages/session/working-directory/src/index.ts",
-          "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/687f282e8625c6b8d11ff58211a90524be2e4317/packages/session/working-directory/src/index.ts",
+          "baseline_url": "https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/ff731c72dee9e7a23a1b9bb67cee6ce520ce5405/packages/session/working-directory/src/index.ts",
           "normalization": "source",
-          "sha256": "cb218d61e1d5046c07e7deba88f2f6e97c4cc69979a39d3d99451119ad17db7b",
+          "sha256": "86c8c3677a68d910215996c766448c293f68885bf9c86514b094feafaaaf783b",
           "required_markers": [
             "WorkingDirectoryService",
             "super(ctx, 'workingDirectory')"
@@ -525,7 +520,7 @@
           "url": "https://moonshotai.github.io/kimi-code/en/customization/hooks",
           "baseline_url": "https://moonshotai.github.io/kimi-code/en/customization/hooks",
           "normalization": "html",
-          "sha256": "59bbfa5066c067fe593c1efd348ad1016dc6ce34ab7aea3318831da23c4040b3",
+          "sha256": "40f80a70788691168b9ff98b1d886f1bfa9177984f3eaebe6e8f3ecb27868e97",
           "required_markers": [
             "PreToolUse",
             "SessionStart"
