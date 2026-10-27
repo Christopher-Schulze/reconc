@@ -2807,7 +2807,7 @@ invoke unrecognized code, or modify private local state. `operator:` claims
 are workflow assertions, never independent approval evidence. Ordinary claims
 remain agent-recordable.
 
-An `operator:` claim authorizes exactly one change. Recording it stores a grant
+An `operator:` claim authorizes the changes up to the next commit. Recording it stores a grant
 with the recording session and the Git `HEAD` of that moment in the private
 per-project file `claim-grants.json` (format `claim-grants-v1`, bounded,
 decoded strictly). Every policy decision that consults session claims (the

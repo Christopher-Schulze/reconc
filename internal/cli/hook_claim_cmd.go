@@ -26,7 +26,7 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 			fmt.Fprintln(stdout, "")
 			fmt.Fprintln(stdout, "Records a claim (e.g. 'ci-green') in the active session state so")
 			fmt.Fprintln(stdout, "subsequent require_claim rules see it. An operator:* claim needs terminal")
-			fmt.Fprintln(stdout, "confirmation and authorizes one change: it expires when HEAD moves (commit,")
+			fmt.Fprintln(stdout, "confirmation and authorizes the changes up to the next commit: it expires when HEAD moves (commit,")
 			fmt.Fprintln(stdout, "amend, reset, checkout, rebase), when another session becomes active, or when")
 			fmt.Fprintln(stdout, "the session is cleaned up. --revoke removes any claim from the session's")
 			fmt.Fprintln(stdout, "effective claims without confirmation; recording it again restores it.")

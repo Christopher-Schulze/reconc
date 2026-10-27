@@ -1585,7 +1585,7 @@ selects an exact existing session instead of resolving the active pointer.
 `--revoke` removes the claim from the session's effective claims; it needs no
 confirmation, also for `operator:*` claims, because it only lowers authority,
 and recording the claim again restores it. An `operator:*` claim authorizes
-exactly one change: it is effective only while Git `HEAD` is the commit that
+the changes up to the next commit: it is effective only while Git `HEAD` is the commit that
 was current when it was recorded and only while the recording session stays
 the active session, so a commit, amend, reset, checkout or rebase, a switch of
 the active session and the session's cleanup end it. Claims named

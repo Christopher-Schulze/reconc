@@ -12,7 +12,7 @@ import (
 	"reconc.dev/reconc/internal/boundedio"
 )
 
-// An operator claim authorizes exactly one change. Its grant records the
+// An operator claim authorizes the changes up to the next commit. Its grant records the
 // session that recorded it and the Git HEAD at that moment; the claim is
 // effective only while HEAD is unchanged and the recording session stayed the
 // active session. A commit, amend, reset, checkout or rebase moves HEAD and
