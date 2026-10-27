@@ -497,13 +497,9 @@ func TestBenchmarkWorkflowRunsCompleteBoundedProfilePipeline(t *testing.T) {
 	if !ok {
 		t.Fatalf("%s has no structured trigger map", path)
 	}
-	for _, trigger := range []string{"pull_request", "schedule", "workflow_dispatch"} {
-		if _, ok := triggerMap[trigger]; !ok {
-			t.Errorf("%s omits %s trigger", path, trigger)
-		}
-	}
-	if len(triggerMap) != 3 {
-		t.Errorf("%s contains unexpected triggers: %v", path, triggerMap)
+	// macOS CI runs only when the operator dispatches it.
+	if _, ok := triggerMap["workflow_dispatch"]; !ok || len(triggerMap) != 1 {
+		t.Errorf("%s must run only on workflow_dispatch, got triggers %v", path, triggerMap)
 	}
 	job, ok := workflow.Jobs["compare"]
 	if !ok || len(workflow.Jobs) != 1 {

@@ -392,9 +392,9 @@ uses local `go test` processes only; it never starts a production profiling
 server. Override `BENCHMARK_PROFILE_GROUPS` or `BENCHMARK_PROFILE_DIR` when a
 different bounded workload set is needed.
 
-The `reconc-benchmarks` workflow runs this complete profile pipeline on pull
-requests, the weekly schedule, and manual dispatch on the pinned `macos-15`
-runner. It resolves the checked baseline's exact source commit and checks it
+The `reconc-benchmarks` workflow runs this complete profile pipeline only on
+manual dispatch, on the pinned `macos-15` runner; like every macOS workflow it
+starts for no push, pull request or schedule. It resolves the checked baseline's exact source commit and checks it
 out separately under the ignored build directory. The candidate's benchmark
 tool's `record-pair` command measures both source trees in one process with the
 same inherited environment. For each package it alternates baseline/candidate
@@ -427,8 +427,8 @@ not change the normal build or release path.
 same filesystem object as `--baseline` or `--result`, including relative,
 cleaned, symlink, and hardlink aliases, in both recipe and non-recipe modes.
 
-The benchmark workflow runs on scoped pull requests, a weekly scheduled
-macOS runner, or explicit dispatch. It uploads raw samples and the comparison
+The benchmark workflow runs on the macOS runner only when the operator
+dispatches it. It uploads raw samples and the comparison
 report for 30 days even when comparison fails, so a regression or incompatible
 environment remains attributable evidence rather than disappearing with the
 job log.
