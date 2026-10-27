@@ -533,9 +533,13 @@ update or succeeds without mutation when already current. Hidden `check` and
 `apply` forms exist only as compatibility aliases for older automation.
 Text output prints one line per completed phase (installation, release, skill,
 download, provenance, smoke test, publish). On a terminal the running phase
-animates in place with its elapsed time, and the binary download shows a byte
-progress bar; without a terminal or with `TERM=dumb` the output carries no
-cursor control, and `NO_COLOR` removes colors. The closing summary states the version
+animates in place with its elapsed time, and the binary download shows a
+smooth byte progress bar (full cells and the leading cell in eighths), the
+percentage, the transferred and total bytes, the smoothed transfer speed and
+the remaining time (shown as `stalled` while no bytes arrive for two seconds);
+its finished line keeps the size and the average speed.
+Without a terminal or with `TERM=dumb` the output carries no cursor control and
+prints only the finished phase lines, and `NO_COLOR` removes colors. The closing summary states the version
 change, owner, and skill state against the selected release, and lists only
 checks that need attention; `--json` keeps the complete report.
 
