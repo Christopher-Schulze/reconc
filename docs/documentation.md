@@ -2818,10 +2818,13 @@ recorded claim that is not revoked, where an `operator:` claim additionally
 needs a grant of the evaluated session whose `HEAD` and reflog size are both
 current. Git appends a reflog entry for every commit, amend, reset, checkout
 and rebase, including a reset to the same commit, so each of them expires the
-grant for good, also when `HEAD` later returns to the granted commit. Recording
-fails, and an existing grant is not effective, when Git cannot resolve `HEAD`
-or keeps no reflog for a `HEAD` commit (`core.logAllRefUpdates=false`); before
-the first commit the grant binds the unborn `HEAD`. A switch of the active
+grant for good, also when `HEAD` later returns to the granted commit. `HEAD`
+counts as unborn only when it is a symbolic reference to a branch that does
+not exist, as before the first commit or on an orphan branch; the grant then
+binds the unborn `HEAD`. Recording fails, and an existing grant is not
+effective, when `HEAD` resolves to no readable commit otherwise (a broken
+branch reference or a missing commit object), when Git cannot answer, or when
+Git keeps no reflog for a `HEAD` commit (`core.logAllRefUpdates=false`). A switch of the active
 session drops the grants of every other session, so returning to the old
 session does not revive them; session cleanup forgets the session's grants and
 revocations. An `operator:` claim recorded by an older release, including a

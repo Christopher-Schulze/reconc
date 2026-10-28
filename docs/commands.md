@@ -1603,7 +1603,8 @@ the size of its reflog are those of the moment it was recorded and only while
 the recording session stays the active session, so a commit, amend, reset,
 checkout or rebase ends it for good, also when `HEAD` later returns to the same
 commit, and a switch of the active session and the session's cleanup end it.
-Recording fails when Git cannot resolve `HEAD` or keeps no reflog for it. Claims named
+Recording fails when `HEAD` is neither a readable commit nor an unborn branch,
+when Git cannot answer, or when Git keeps no reflog for `HEAD`. Claims named
 `operator:*` are reserved for local administration. Recognized
 tool invocations are refused; the CLI requires an interactive terminal and
 the exact displayed confirmation code. The same confirmation applies to

@@ -403,3 +403,52 @@ func claimRepoGitOutput(t *testing.T, repo string, args ...string) string {
 	}
 	return string(output)
 }
+
+// corruptHeadBranch replaces the branch HEAD names with body.
+func corruptHeadBranch(t *testing.T, repo, body string) {
+	t.Helper()
+	head, err := os.ReadFile(filepath.Join(repo, ".git", "HEAD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch := strings.TrimSpace(strings.TrimPrefix(string(head), "ref: "))
+	if err := os.WriteFile(filepath.Join(repo, ".git", filepath.FromSlash(branch)), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestOperatorClaimRefusesHeadWithoutCommit proves that recording an operator
+// claim fails, instead of binding an unborn HEAD, when the branch HEAD names
+// is broken or points to a missing commit object.
+func TestOperatorClaimRefusesHeadWithoutCommit(t *testing.T) {
+	for name, body := range map[string]string{
+		"broken reference": "not-a-commit\n",
+		"missing object":   "1111111111111111111111111111111111111111\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			repo := setupOperatorClaimRepo(t)
+			writeProtected(t, repo, "s1", "change\n")
+			corruptHeadBranch(t, repo, body)
+			if _, err := RecordClaim(repo, protectedClaim, "s1"); err == nil {
+				t.Fatal("an operator claim was bound to a HEAD without a commit")
+			}
+			if claims := activeClaims(t, repo); len(claims) != 0 {
+				t.Fatalf("a claim on a HEAD without a commit is effective: %q", claims)
+			}
+		})
+	}
+}
+
+// TestOperatorClaimOnOrphanBranchBindsUnbornHead proves that an orphan branch
+// in a repository with other commits still counts as an unborn HEAD.
+func TestOperatorClaimOnOrphanBranchBindsUnbornHead(t *testing.T) {
+	repo := setupOperatorClaimRepo(t)
+	claimRepoGit(t, repo, "checkout", "-q", "--orphan", "fresh")
+	writeProtected(t, repo, "s1", "change\n")
+	if _, err := RecordClaim(repo, protectedClaim, "s1"); err != nil {
+		t.Fatalf("recording on an orphan branch: %v", err)
+	}
+	if claims := activeClaims(t, repo); !slices.Equal(claims, []string{protectedClaim}) {
+		t.Fatalf("the claim on the orphan branch is not effective: %q", claims)
+	}
+}

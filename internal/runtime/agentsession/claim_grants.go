@@ -135,9 +135,12 @@ func claimsForEvaluation(root string, state SessionState) ([]string, error) {
 // currentHeadBinding reads HEAD and the size of its reflog. Git failing to
 // answer is an error, never an unborn HEAD, and so is a HEAD commit without a
 // reflog, where a return to the same commit would go unnoticed; recording then
-// fails and an existing grant is not effective.
+// fails and an existing grant is not effective. Git answers a broken branch
+// reference or a missing commit exactly like an unborn branch, so an unborn
+// HEAD must be confirmed separately.
 func currentHeadBinding(root string) (headBinding, error) {
-	output, err := gitCommandOutput(root, "rev-parse", "--git-path", "logs/HEAD", "--verify", "-q", "HEAD")
+	// HEAD^{commit} also requires the commit object, which plain HEAD does not.
+	output, err := gitCommandOutput(root, "rev-parse", "--git-path", "logs/HEAD", "--verify", "-q", "HEAD^{commit}")
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	var binding headBinding
 	switch {
@@ -148,6 +151,9 @@ func currentHeadBinding(root string) (headBinding, error) {
 		var exitErr *exec.ExitError
 		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
 			return headBinding{}, fmt.Errorf("read git HEAD: %w", err)
+		}
+		if err := confirmUnbornHead(root); err != nil {
+			return headBinding{}, err
 		}
 	case err != nil:
 		return headBinding{}, fmt.Errorf("read git HEAD: %w", err)
@@ -171,6 +177,27 @@ func currentHeadBinding(root string) (headBinding, error) {
 		return headBinding{}, fmt.Errorf("inspect git HEAD reflog: %w", err)
 	}
 	return binding, nil
+}
+
+// confirmUnbornHead accepts HEAD without a commit only when it is a symbolic
+// reference to a branch that does not exist; any diagnostic, such as Git's
+// warning about a broken reference, fails the check.
+func confirmUnbornHead(root string) error {
+	target, err := gitCommandOutput(root, "symbolic-ref", "-q", "HEAD")
+	if err != nil {
+		return fmt.Errorf("read git HEAD: HEAD names no commit and is not an unborn branch: %w", err)
+	}
+	target = strings.TrimSpace(target)
+	listed, err := gitCommandOutput(root, "for-each-ref", "--format=%(refname)", target)
+	if err != nil {
+		return fmt.Errorf("read git HEAD: inspect %s: %w", target, err)
+	}
+	for _, name := range strings.Split(strings.TrimSpace(listed), "\n") {
+		if strings.TrimSpace(name) == target {
+			return fmt.Errorf("read git HEAD: %s exists but names no readable commit", target)
+		}
+	}
+	return nil
 }
 
 // grantRecordedClaim updates the grant file after a claim was recorded: the
