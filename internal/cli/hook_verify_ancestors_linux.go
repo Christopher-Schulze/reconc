@@ -4,17 +4,29 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
 )
 
+const maxLiveHookProcessStatusBytes = 4096
+
 // /proc/<pid>/stat starts with "pid (comm) state ppid"; comm may contain
-// spaces and parentheses, so the fields are read after the last ")".
+// spaces and parentheses, so the fields are read after the last ")". The file
+// reports size zero, so it is read through an explicit byte limit.
 func liveHookParentProcessID(pid int) (int, error) {
-	body, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	file, err := os.Open("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
 		return 0, err
+	}
+	defer file.Close()
+	body, err := io.ReadAll(io.LimitReader(file, maxLiveHookProcessStatusBytes+1))
+	if err != nil {
+		return 0, err
+	}
+	if len(body) > maxLiveHookProcessStatusBytes {
+		return 0, fmt.Errorf("process %d status exceeds %d bytes", pid, maxLiveHookProcessStatusBytes)
 	}
 	text := string(body)
 	end := strings.LastIndexByte(text, ')')
