@@ -13,10 +13,19 @@ import (
 	"reconc.dev/reconc/internal/hooks"
 )
 
+// qualifiedCodexNativeProbeVersions are the codex-cli releases whose native
+// probe passed live: 0.154.0 binds captures through the joined host process
+// group, 0.165.0 through host ancestry because it starts hooks in a new session
+// without the caller's environment.
+var qualifiedCodexNativeProbeVersions = map[string]bool{
+	"codex-cli 0.154.0": true,
+	"codex-cli 0.165.0": true,
+}
+
 // Launch and fingerprint the native executable itself. A known npm layout is
 // a discovery candidate, never proof that an arbitrary script delegates to it.
 func bindCodexNativeHost(ctx context.Context, host *liveHookHostIdentity) error {
-	if host == nil || !host.IdentityVerified || host.Version != "codex-cli 0.154.0" {
+	if host == nil || !host.IdentityVerified || !qualifiedCodexNativeProbeVersions[host.Version] {
 		return fmt.Errorf("installed Codex version has no qualified native probe contract")
 	}
 	for _, candidate := range codexNativeCandidates(host.Executable) {

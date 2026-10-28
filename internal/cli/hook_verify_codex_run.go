@@ -188,8 +188,8 @@ func finishCodexLiveProbe(repo string, result *hookVerificationResult, operation
 		if record.Binding.StartedAt.Before(result.Probe.Native.StartedAt) {
 			return fmt.Errorf("native capture predates the owned host execution")
 		}
-		if record.Binding.OwnedProcessGroup != result.Probe.Native.ProcessID {
-			return fmt.Errorf("native capture ownership was not proven: route=%s captured-group=%d host-group=%d decision-source=%s", record.Route, record.Binding.OwnedProcessGroup, result.Probe.Native.ProcessID, record.Binding.DecisionSource)
+		if !liveHookCaptureOwnedByHost(record.Binding, result.Probe.Native.ProcessID) {
+			return fmt.Errorf("native capture ownership was not proven: route=%s captured-group=%d ancestors=%d host=%d decision-source=%s", record.Route, record.Binding.OwnedProcessGroup, len(record.Binding.AncestorProcessIDs), result.Probe.Native.ProcessID, record.Binding.DecisionSource)
 		}
 	}
 	*result = applyLiveHookProbeRecords(*result, records, repo)

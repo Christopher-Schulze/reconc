@@ -4509,6 +4509,14 @@ prepares one disposable host exercise. The installed Codex CLI on macOS/Linux
 runs four native allowed/denied write/shell controls using existing authentication,
 an ephemeral session, and an explicit one-off hook-trust bypass for that probe.
 These controls do not establish ordinary persisted trust or the remaining routes.
+The native probe is qualified for codex-cli 0.154.0 and 0.165.0. Every capture
+must belong to the owned Codex run: under 0.154.0 it joins the host's process
+group; codex-cli 0.165.0 starts hooks in a new session with an environment
+rebuilt from its shell snapshot, so a group of another session is never joined,
+the wrapper keeps its own bounded group, and the capture records its parent
+process chain, which must contain the owned Codex process. That process lives
+for the whole run, so its process ID names no other process while the run's
+captures are recorded.
 It does not change saved host configuration or resume an existing conversation.
 Other surfaces require an operator-assisted exercise: text mode waits
 within a five-minute execution deadline, while JSON mode returns incomplete

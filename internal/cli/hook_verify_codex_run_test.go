@@ -177,3 +177,25 @@ func TestCodexAllowedProofRequiresNativeOutcomeAndIndependentContent(t *testing.
 		})
 	}
 }
+
+// TestCodexCaptureOwnershipAcceptsHostAncestry proves that a capture outside
+// the host process group is owned only when the host process is among its
+// recorded ancestors.
+func TestCodexCaptureOwnershipAcceptsHostAncestry(t *testing.T) {
+	const host = 4242
+	for _, tc := range []struct {
+		name    string
+		binding liveHookCaptureBinding
+		owned   bool
+	}{
+		{"joined host group", liveHookCaptureBinding{OwnedProcessGroup: host}, true},
+		{"host among ancestors", liveHookCaptureBinding{AncestorProcessIDs: []int{900, host, 77}}, true},
+		{"foreign ancestors", liveHookCaptureBinding{AncestorProcessIDs: []int{900, 77}}, false},
+		{"no ownership evidence", liveHookCaptureBinding{}, false},
+		{"foreign group despite ancestry", liveHookCaptureBinding{OwnedProcessGroup: 999, AncestorProcessIDs: []int{host}}, false},
+	} {
+		if got := liveHookCaptureOwnedByHost(&tc.binding, host); got != tc.owned {
+			t.Errorf("%s: owned = %v, want %v", tc.name, got, tc.owned)
+		}
+	}
+}

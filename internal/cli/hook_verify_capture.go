@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"reconc.dev/reconc/internal/boundedexec"
@@ -37,6 +38,42 @@ type liveHookCaptureBinding struct {
 	DecisionSource    string    `json:"decision_source"`
 	PolicyDecision    string    `json:"policy_decision"`
 	OwnedProcessGroup int       `json:"owned_process_group,omitempty"`
+	// AncestorProcessIDs is the capture's parent chain, recorded before the
+	// wrapper runs, for hosts that start hooks outside their process group.
+	AncestorProcessIDs []int `json:"ancestor_process_ids,omitempty"`
+}
+
+const maxLiveHookAncestors = 64
+
+// liveHookAncestorProcessIDs lists the parent chain of the capture process up
+// to init, bounded. A host that starts hooks in a new session without its
+// environment, as codex-cli does since 0.164.0, still remains their ancestor.
+func liveHookAncestorProcessIDs() []int {
+	var chain []int
+	for pid := os.Getppid(); pid > 1 && len(chain) < maxLiveHookAncestors; {
+		chain = append(chain, pid)
+		parent, err := liveHookParentProcessID(pid)
+		if err != nil || parent == pid {
+			break
+		}
+		pid = parent
+	}
+	return chain
+}
+
+// liveHookCaptureOwnedByHost reports whether a capture belongs to the owned
+// native host run: it joined the host process group, or it stayed outside any
+// group and the host process is among its recorded ancestors. The host process
+// lives for the whole run, so its PID names no other process while the run's
+// captures are recorded.
+func liveHookCaptureOwnedByHost(binding *liveHookCaptureBinding, host int) bool {
+	if binding == nil || host <= 1 {
+		return false
+	}
+	if binding.OwnedProcessGroup != 0 {
+		return binding.OwnedProcessGroup == host
+	}
+	return slices.Contains(binding.AncestorProcessIDs, host)
 }
 
 type liveHookCaptureExecution struct {
@@ -61,6 +98,7 @@ func runHookVerificationCaptureChild(args []string, input io.Reader, stdout, std
 	if err != nil {
 		return err
 	}
+	record.Binding.AncestorProcessIDs = liveHookAncestorProcessIDs()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	execution, runErr := executeLiveHookCapture(ctx, args[0], args[2:], payload)
@@ -263,8 +301,13 @@ func classifyLiveHookResponse(route string, code int, body []byte) (string, stri
 
 func validLiveHookBoundRecord(record liveHookProbeRecord) bool {
 	binding := record.Binding
-	if binding.OwnedProcessGroup < 0 || binding.OwnedProcessGroup == 1 {
+	if binding.OwnedProcessGroup < 0 || binding.OwnedProcessGroup == 1 || len(binding.AncestorProcessIDs) > maxLiveHookAncestors {
 		return false
+	}
+	for _, pid := range binding.AncestorProcessIDs {
+		if pid <= 1 {
+			return false
+		}
 	}
 	if !liveHookHex(binding.RunID, 16) || binding.StartedAt.IsZero() ||
 		!liveHookHex(binding.PayloadSHA256, 32) || !liveHookHex(binding.ResponseSHA256, 32) {

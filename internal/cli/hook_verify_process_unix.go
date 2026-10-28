@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func configureLiveHookCaptureProcess(command *exec.Cmd) (int, error) {
@@ -27,6 +29,18 @@ func configureLiveHookCaptureProcess(command *exec.Cmd) (int, error) {
 		return 0, fmt.Errorf("native host no longer owns its process group")
 	}
 	if actual != group {
+		hostSession, hostErr := unix.Getsid(group)
+		ownSession, ownErr := unix.Getsid(0)
+		if hostErr != nil || ownErr != nil {
+			return 0, fmt.Errorf("capture could not compare its session with the native host")
+		}
+		if hostSession != ownSession {
+			// A group of another session cannot be joined. codex-cli 0.164.0 and
+			// later start hooks in a new session yet pass the variable on through
+			// their shell snapshot; the recorded ancestry proves ownership, and
+			// the wrapper keeps its own bounded group.
+			return 0, nil
+		}
 		// Hosts may start the hook shell in a separate process group. Join the
 		// still-live native owner before starting any policy/runtime children.
 		if err := syscall.Setpgid(0, group); err != nil {
