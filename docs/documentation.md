@@ -5277,8 +5277,24 @@ matcher cannot create hooks for hosted tools or transports that Codex excludes.
 Codex descendants share the root's native `session_id`; Reconc uses the supplied
 `agent_id` to isolate child lifecycle, local-tool, permission, and MCP evidence.
 After installation, Codex must trust the project and review each exact hook
-definition in `/hooks`. `reconc hook status` verifies repository configuration
-but does not certify the host's per-definition trust or managed-only policy.
+definition in `/hooks`. Codex stores each approval as `trusted_hash` under
+`[hooks.state."<repo>/.codex/hooks.json:<event>:<group>:<handler>"]` in
+`$CODEX_HOME/config.toml` (default `~/.codex`); the hash is SHA-256 over the
+key-sorted JSON of the event label, the matcher of matcher events and the
+normalized command handler (default timeout, `async`, `statusMessage` and a
+non-default `additionalContextLimit`). `reconc hook status` recomputes that
+hash for every command handler of `.codex/hooks.json`. An untrusted project
+keeps Codex installed, not configured, because Codex then loads none of its
+hooks. A hook that is disabled, unapproved or approved for an older
+definition is skipped by Codex without a message; Codex stays configured,
+because every regenerated definition starts unapproved and install and
+repository sync verification require the configured state, and the status
+detail names each affected hook with the `/hooks` approval step. With every
+definition approved it reports the approvals as verified; without a Codex
+configuration or project entry it leaves host trust unverified, and an
+unreadable or invalid configuration leaves Codex configured with the error and
+a repair step in the status. It never
+writes Codex trust and does not inspect managed-only policy.
 `SubagentStop` checks that child's policy without running the parent's TASK
 continuation or changing durable run mode. An unresolved policy gets one native
 remediation attempt; `stop_hook_active` releases the repeated turn as explicitly

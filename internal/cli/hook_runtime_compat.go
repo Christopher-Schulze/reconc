@@ -52,7 +52,9 @@ func inspectHookRuntimeCompatibility(discovery ingest.DiscoveryResult) hookRunti
 			runtimeKinds = append(runtimeKinds, report.Kind)
 		}
 		parts = append(parts, fmt.Sprintf("%s: %s (%s)", report.Kind, report.State, report.Detail))
-		if report.State != hooks.StateConfigured {
+		// A configured platform with a remediation still has a host step
+		// left, such as Codex hooks awaiting approval under /hooks.
+		if report.State != hooks.StateConfigured || report.Remediation != "" {
 			hasWarn = true
 		}
 	}

@@ -29,12 +29,13 @@ binary_dir=$(cd "$(dirname "$binary")" && pwd)
 git -C "$root" check-ignore --no-index --quiet .reconc/run/decisions.jsonl.lock \
   || fail "self-hosted repository does not ignore Reconc run runtime"
 
-mkdir -p "$tmp/bin" "$tmp/kimi-code-home" "$tmp/pi-agent" "$tmp/reconc-home" "$tmp/runtime-tmp" "$tmp/state"
+mkdir -p "$tmp/bin" "$tmp/codex-home" "$tmp/kimi-code-home" "$tmp/pi-agent" "$tmp/reconc-home" "$tmp/runtime-tmp" "$tmp/state"
 export RECONC_HOME="$tmp/reconc-home"
 export RECONC_INSTALL_DIR="$tmp/bin"
 export PATH="$RECONC_INSTALL_DIR:$binary_dir:$PATH"
 export TMPDIR="$tmp/runtime-tmp"
 export RECONC_CLAUDE_STATE_DIR="$tmp/state"
+export CODEX_HOME="$tmp/codex-home"
 export KIMI_CODE_HOME="$tmp/kimi-code-home"
 export PI_CODING_AGENT_DIR="$tmp/pi-agent"
 export RECONC_AUDIT=1

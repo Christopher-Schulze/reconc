@@ -448,6 +448,18 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		return report
 	}
 
+	var codexTrust codexTrustResult
+	var codexTrustErr error
+	if platform.Kind == KindCodex && report.TargetPath == platform.TargetPath {
+		codexTrust, codexTrustErr = inspectCodexHookTrust(root)
+		if codexTrust.Untrusted {
+			report.State = StateInstalled
+			report.Detail = "artifact is installed but Codex does not trust this project in " + codexTrust.ConfigPath + ", so it loads none of its hooks"
+			report.remediation = hostRemediation("Start Codex in "+root+", trust the project, approve the Reconc hooks under /hooks, then rerun hook status.", remediationCommand{})
+			return report
+		}
+	}
+
 	report.State = StateConfigured
 	switch {
 	case report.TargetPath == platform.TargetPath:
@@ -457,8 +469,24 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		}
 		if platform.Kind == KindCodex {
 			report.Detail = "repository configuration is complete; Codex project trust, exact hook-definition trust, and managed-only restrictions are unverified; inspect /hooks before claiming hooks are loaded"
+			if codexTrust.Verified {
+				report.Detail = "repository configuration is complete, the project is trusted and every Reconc hook definition is approved under /hooks; managed-only restrictions are unverified; live execution is reported separately"
+			}
 		}
 		report.remediation = noRemediation()
+		if codexTrustErr != nil {
+			// The user's Codex configuration is host state, so a broken one
+			// stays a visible warning and never fails repository verification.
+			report.Detail = "repository configuration is complete; Codex hook approvals cannot be inspected: " + codexTrustErr.Error() + "; inspect /hooks before claiming hooks are loaded"
+			report.remediation = manualRemediation("Make " + codexTrust.ConfigPath + " readable, valid TOML, then rerun hook status.")
+		}
+		if codexTrustErr == nil && len(codexTrust.Findings) > 0 {
+			// Every regenerated definition needs a new approval, so the
+			// repository stays configured after an install or sync and the
+			// warning carries the host step instead.
+			report.Detail = fmt.Sprintf("repository configuration is complete, but Codex will not run %d Reconc hook(s) until they are approved under /hooks: %s; live execution is reported separately", len(codexTrust.Findings), describeCodexTrustFindings(codexTrust.Findings))
+			report.remediation = hostRemediation("Start Codex in "+root+", open /hooks, approve or enable the listed Reconc hooks, then rerun hook status.", remediationCommand{})
+		}
 	case platform.Activation.Mode == ActivationGitPath:
 		// core.hooksPath selected another directory and the managed hook is
 		// installed there, so the default-path "not installed" placeholder and

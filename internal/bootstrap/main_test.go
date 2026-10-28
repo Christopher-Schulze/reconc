@@ -36,5 +36,8 @@ func stageReconcOnPath() (cleanup func() error, err error) {
 	if err := os.Setenv("KIMI_CODE_HOME", filepath.Join(directory, "kimi-code")); err != nil {
 		return cleanup, err
 	}
+	if err := os.Setenv("CODEX_HOME", filepath.Join(directory, "codex")); err != nil {
+		return cleanup, err
+	}
 	return cleanup, os.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
 }

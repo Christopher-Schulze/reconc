@@ -176,6 +176,9 @@ Runtime:
   root used to recognize the current project's persistent-memory state and,
   read-only, the user `settings.json` whose `disableAllHooks` hook status and
   the Claude `ConfigChange` gate evaluate
+- `CODEX_HOME` (default `~/.codex`) -- Codex user root whose `config.toml`
+  hook status reads, read-only, for project trust and the per-hook `/hooks`
+  approvals
 - `COPILOT_HOME` (default `~/.copilot`) -- GitHub Copilot CLI user root whose
   `settings.json` hook status reads, read-only, for `disableAllHooks`
 - `RECONC_SCHEMA_BASE_URL` -- enterprise override resolved through the typed
@@ -773,7 +776,10 @@ Grok leader steering protocol/extension compatibility, lockfile freshness,
 the compiled MCP side-effect contract and redacted observation state,
 audit-log size, preset/template reference resolution, session-claim age, and
 static rule conflicts. Deep mode exits 1 when any check is `FAIL`, 0 when all
-rows are `OK` or `WARN`. The MCP row always states that gateway enforcement is
+rows are `OK` or `WARN`. The hook-runtime row is `WARN` for every installed
+platform that is not `configured` or still carries a host remediation, such
+as Reconc hooks Codex skips until they are approved under `/hooks`. The MCP
+row always states that gateway enforcement is
 limited to explicit `reconc mcp gateway` routes, external client configuration
 is not inspected, and direct/native routes are unenforced.
 Freshness, parsed rules, conflict detection, and preset/template references
@@ -1399,7 +1405,14 @@ never executed. Development targets retain resolver precedence; ambiguous
 distribution targets fail before PATH fallback. Pi is `configured` only when the
 canonical root has a saved `true` trust entry or `defaultProjectTrust` is
 `always`; Reconc never mutates either setting and reports `pi --approve` as the
-one-run alternative. GitHub Copilot status verifies its generator-exact
+one-run alternative. When Codex's user configuration records the project as
+untrusted, Codex stays `installed`. A Reconc hook definition that is
+disabled, unapproved, or approved only in an older form keeps Codex
+`configured`, and the detail plus remediation name each hook to approve under
+`/hooks`; with every definition approved the detail says so, and an
+unreadable or invalid Codex configuration keeps `configured` with the error and
+a repair step. GitHub Copilot
+status verifies its generator-exact
 repository hook and wrapper but reports live execution separately. Static Grok
 status cannot prove folder trust; `doctor
 --deep` additionally runs `grok inspect --json` when the artifact exists.

@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"reconc.dev/reconc/internal/hooks"
+	"reconc.dev/reconc/internal/ingest"
 )
 
 func TestRunDoctorDeepWarnsWhenBinaryLacksHookRuntime(t *testing.T) {
@@ -95,4 +97,40 @@ func TestRunDoctorDeepDoesNotRequireAgentRuntimeForGitHook(t *testing.T) {
 		}
 	}
 	t.Fatal("missing hook runtime compatibility doctor row")
+}
+
+func TestDoctorWarnsWhenCodexWillNotRunReconcHooks(t *testing.T) {
+	repo := makeCheckRepo(t,
+		"rules:\n  - id: deny-generated\n    kind: deny_write\n    paths: ['generated/**']\n    mode: warn\n    message: generated files are read-only\n")
+	if _, err := hooks.Install(hooks.KindCodex, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	wrapper := filepath.Join(repo, filepath.FromSlash(hooks.WrapperPath))
+	if err := os.MkdirAll(filepath.Dir(wrapper), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wrapper, []byte(hooks.GenerateWrapper().Content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	discovery, err := ingest.DiscoverPolicyRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := inspectHookRuntimeCompatibility(discovery); result.Status != doctorStatusOK {
+		t.Fatalf("without Codex approval evidence = %s %q", result.Status, result.Detail)
+	}
+	root, err := filepath.EvalSymlinks(discovery.RepoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	config := "[projects." + strconv.Quote(root) + "]\ntrust_level = \"trusted\"\n"
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result := inspectHookRuntimeCompatibility(discovery)
+	if result.Status != doctorStatusWarn || !strings.Contains(result.Detail, "until they are approved under /hooks") {
+		t.Fatalf("trusted project without hook approvals = %s %q", result.Status, result.Detail)
+	}
 }

@@ -201,6 +201,7 @@ func TestCommandReferenceCoversPublicHostEnvironment(t *testing.T) {
 	commandReference := readPublicSurfaceFile(t, root, "docs/commands.md")
 	for _, variable := range []string{
 		"CLAUDE_CONFIG_DIR",
+		"CODEX_HOME",
 		"COLUMNS",
 		"COPILOT_HOME",
 		"GITHUB_ACTIONS",

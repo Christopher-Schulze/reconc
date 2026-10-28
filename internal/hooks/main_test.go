@@ -30,6 +30,9 @@ func TestMain(testingMain *testing.M) {
 		// Kimi Code hooks are user-global; a developer's own installation
 		// must not appear as an installed platform in status tests.
 		"KIMI_CODE_HOME": filepath.Join(directory, "kimi-code"),
+		// Codex hook approvals live in the user's Codex home; status tests
+		// must not read the developer's own approvals.
+		"CODEX_HOME": filepath.Join(directory, "codex"),
 	} {
 		if err := os.Setenv(name, value); err != nil {
 			fmt.Fprintln(os.Stderr, err)
