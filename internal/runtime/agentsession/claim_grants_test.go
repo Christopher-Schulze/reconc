@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -367,10 +368,9 @@ func TestOperatorClaimNeedsHeadReflog(t *testing.T) {
 	}
 }
 
-// TestOperatorGrantsOfTheFirstFormatAuthorizeNothing proves that grants stored
-// in the first grant format, which bound only the commit, no longer authorize
-// a change while its revocations stay in force.
-func TestOperatorGrantsOfTheFirstFormatAuthorizeNothing(t *testing.T) {
+// TestLegacyOperatorGrantsAuthorizeNothing proves that grants stored without
+// a reflog generation no longer authorize a change while revocations stay in force.
+func TestLegacyOperatorGrantsAuthorizeNothing(t *testing.T) {
 	repo := setupOperatorClaimRepo(t)
 	writeProtected(t, repo, "s1", "change\n")
 	if _, err := RecordClaim(repo, protectedClaim, "s1"); err != nil {
@@ -384,12 +384,20 @@ func TestOperatorGrantsOfTheFirstFormatAuthorizeNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	head := strings.TrimSpace(claimRepoGitOutput(t, repo, "rev-parse", "HEAD"))
-	legacy := `{"format_version":"claim-grants-v1","repo_root":"` + root + `","operator_grants":[{"session_id":"s1","claim":"` + protectedClaim + `","head":"` + head + `"}],"revocations":[{"session_id":"s1","claim":"ci-green"}]}`
-	if err := os.WriteFile(claimGrantPath(root), []byte(legacy), 0o600); err != nil {
+	binding, err := currentHeadBinding(root)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if claims := activeClaims(t, repo); len(claims) != 0 {
-		t.Fatalf("a first-format grant or a revoked claim is effective: %q", claims)
+	for _, format := range []string{"claim-grants-v1", "claim-grants-v2"} {
+		t.Run(format, func(t *testing.T) {
+			legacy := fmt.Sprintf(`{"format_version":%q,"repo_root":%q,"operator_grants":[{"session_id":"s1","claim":%q,"head":%q,"head_reflog_bytes":%d}],"revocations":[{"session_id":"s1","claim":"ci-green"}]}`, format, root, protectedClaim, head, binding.reflogBytes)
+			if err := os.WriteFile(claimGrantPath(root), []byte(legacy), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if claims := activeClaims(t, repo); len(claims) != 0 {
+				t.Fatalf("a legacy operator grant or a revoked claim is effective: %q", claims)
+			}
+		})
 	}
 }
 
@@ -450,5 +458,112 @@ func TestOperatorClaimOnOrphanBranchBindsUnbornHead(t *testing.T) {
 	}
 	if claims := activeClaims(t, repo); !slices.Equal(claims, []string{protectedClaim}) {
 		t.Fatalf("the claim on the orphan branch is not effective: %q", claims)
+	}
+}
+
+func TestOperatorClaimStaysExpiredAfterReflogCleanup(t *testing.T) {
+	for _, observed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("expiry_observed=%t", observed), func(t *testing.T) {
+			repo := setupOperatorClaimRepo(t)
+			writeProtected(t, repo, "s1", "change\n")
+			if _, err := RecordClaim(repo, protectedClaim, "s1"); err != nil {
+				t.Fatal(err)
+			}
+			if stopBlocked(t, repo, "s1") {
+				t.Fatal("control: the fresh grant did not authorize the change")
+			}
+			claimRepoGit(t, repo, "commit", "-q", "--allow-empty", "-m", "temporary commit")
+			claimRepoGit(t, repo, "reset", "-q", "--soft", "HEAD~1")
+			if observed && len(activeClaims(t, repo)) != 0 {
+				t.Fatal("the grant did not expire before cleanup")
+			}
+			claimRepoGit(t, repo, "reflog", "expire", "--expire-unreachable=now", "--all")
+			if !stopBlocked(t, repo, "s1") {
+				t.Fatal("Stop reused the authorization after reflog cleanup")
+			}
+			if claims := activeClaims(t, repo); len(claims) != 0 {
+				t.Fatalf("reflog cleanup revived the expired grant: %q", claims)
+			}
+			root, err := ResolveRepoRoot(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			file, err := loadClaimGrantFile(root)
+			if err != nil || len(file.OperatorGrants) != 0 {
+				t.Fatalf("the expired grant was not removed: %+v, %v", file.OperatorGrants, err)
+			}
+			if _, err := RecordClaim(repo, protectedClaim, "s1"); err != nil {
+				t.Fatal(err)
+			}
+			if stopBlocked(t, repo, "s1") {
+				t.Fatal("a fresh grant after cleanup did not authorize the change")
+			}
+		})
+	}
+}
+
+func TestOperatorClaimExpiresAfterSameContentReflogRewrite(t *testing.T) {
+	repo := setupOperatorClaimRepo(t)
+	writeProtected(t, repo, "s1", "change\n")
+	if _, err := RecordClaim(repo, protectedClaim, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	if stopBlocked(t, repo, "s1") {
+		t.Fatal("control: the fresh grant did not authorize the change")
+	}
+	reflog := strings.TrimSpace(claimRepoGitOutput(t, repo, "rev-parse", "--git-path", "logs/HEAD"))
+	if !filepath.IsAbs(reflog) {
+		reflog = filepath.Join(repo, reflog)
+	}
+	before, err := os.ReadFile(reflog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(reflog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimRepoGit(t, repo, "reflog", "expire", "--expire=never", "--expire-unreachable=never", "--all")
+	if err := os.Chtimes(reflog, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(reflog)
+	if err != nil || string(before) != string(after) {
+		t.Fatalf("control: rewrite changed the reflog content: %v", err)
+	}
+	if !stopBlocked(t, repo, "s1") {
+		t.Fatal("the rewritten reflog kept the authorization")
+	}
+	if claims := activeClaims(t, repo); len(claims) != 0 {
+		t.Fatalf("same-content rewrite with restored mtime kept the grant: %q", claims)
+	}
+}
+
+func TestOperatorClaimSurvivesUnverifiedGitObservation(t *testing.T) {
+	repo := setupOperatorClaimRepo(t)
+	writeProtected(t, repo, "s1", "change\n")
+	for _, claim := range []string{protectedClaim, "ci-green"} {
+		if _, err := RecordClaim(repo, claim, "s1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := activeClaims(t, repo)
+	path := os.Getenv("PATH")
+	t.Setenv("PATH", t.TempDir())
+	claims, err := effectiveClaims(root, "s1", recorded)
+	if err != nil || !slices.Equal(claims, []string{"ci-green"}) {
+		t.Fatalf("unverified Git state must withhold only operator authority: %q, %v", claims, err)
+	}
+	file, err := loadClaimGrantFile(root)
+	if err != nil || len(file.OperatorGrants) != 1 {
+		t.Fatalf("an unverified observation removed the grant: %+v, %v", file.OperatorGrants, err)
+	}
+	t.Setenv("PATH", path)
+	if claims := activeClaims(t, repo); !slices.Equal(claims, recorded) {
+		t.Fatalf("recovered Git did not restore the unexpired claims: %q", claims)
 	}
 }

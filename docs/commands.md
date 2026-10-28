@@ -1599,16 +1599,21 @@ selects an exact existing session instead of resolving the active pointer.
 confirmation, also for `operator:*` claims, because it only lowers authority,
 and recording the claim again restores it. An `operator:*` claim authorizes
 the changes up to the next commit: it is effective only while Git `HEAD` and
-the size of its reflog are those of the moment it was recorded and only while
-the recording session stays the active session, so a commit, amend, reset,
-checkout or rebase ends it for good, also when `HEAD` later returns to the same
-commit, and a switch of the active session and the session's cleanup end it.
+the size and filesystem generation of its reflog match the recorded binding
+and the recording session stays active. A commit, amend, reset, checkout,
+rebase or reflog rewrite ends it, including cleanup that restores the original
+reflog bytes. Confirmed expiry permanently removes the grant. Reflog maintenance
+can expire it without a HEAD change; record a fresh claim afterwards. A session
+switch or cleanup also ends it. Grants stored without the reflog generation
+authorize nothing after upgrading; their revocations remain in force.
 Recording fails when `HEAD` is neither a readable commit nor an unborn branch,
-when Git cannot answer, or when Git keeps no reflog for `HEAD`. Claims named
+when Git cannot answer, when Git keeps no reflog for a committed `HEAD`, or
+when its filesystem generation cannot be observed reliably. Claims named
 `operator:*` are reserved for local administration. Recognized
 tool invocations are refused; the CLI requires an interactive terminal and
 the exact displayed confirmation code. The same confirmation applies to
-pause, resume, and evidence recovery. This prevents accidental administration,
+pause and evidence recovery; resume only restores enforcement and needs no
+confirmation. This prevents accidental administration,
 not PTY automation or state changes by another same-user process; it does not
 prove human identity or provide independent approval evidence.
 Session FixPlan `assert_claim` actions emit this command; standalone evaluation

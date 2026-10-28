@@ -27,8 +27,9 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 			fmt.Fprintln(stdout, "Records a claim (e.g. 'ci-green') in the active session state so")
 			fmt.Fprintln(stdout, "subsequent require_claim rules see it. An operator:* claim needs terminal")
 			fmt.Fprintln(stdout, "confirmation and authorizes the changes up to the next commit: it expires for good when HEAD moves")
-			fmt.Fprintln(stdout, "(commit, amend, reset, checkout, rebase), even back to the same commit, when another session")
-			fmt.Fprintln(stdout, "becomes active, or when the session is cleaned up. --revoke removes any claim from the session's")
+			fmt.Fprintln(stdout, "(commit, amend, reset, checkout, rebase), even back to the same commit, when its reflog is rewritten,")
+			fmt.Fprintln(stdout, "when another session becomes active, or when the session is cleaned up.")
+			fmt.Fprintln(stdout, "--revoke removes any claim from the session's")
 			fmt.Fprintln(stdout, "effective claims without confirmation; recording it again restores it.")
 			return nil
 		case "--json":
