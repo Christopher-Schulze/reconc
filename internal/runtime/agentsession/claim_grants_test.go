@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
@@ -290,4 +291,115 @@ func TestClaimGrantFileFailsClosed(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestOperatorClaimStaysExpiredWhenHeadReturns proves that a grant recorded at
+// one commit does not come back when HEAD moves on and returns to that commit
+// within the same session.
+func TestOperatorClaimStaysExpiredWhenHeadReturns(t *testing.T) {
+	repo := setupOperatorClaimRepo(t)
+	writeProtected(t, repo, "s1", "first change\n")
+	if _, err := RecordClaim(repo, protectedClaim, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	if stopBlocked(t, repo, "s1") {
+		t.Fatal("control: the operator claim did not authorize its change")
+	}
+	claimRepoGit(t, repo, "commit", "-q", "--allow-empty", "-m", "unrelated commit")
+	claimRepoGit(t, repo, "reset", "-q", "--soft", "HEAD~1")
+	if claims := activeClaims(t, repo); len(claims) != 0 {
+		t.Fatalf("the grant came back with its commit: %q", claims)
+	}
+	if !stopBlocked(t, repo, "s1") {
+		t.Fatal("the expired claim authorized the protected change again")
+	}
+}
+
+// TestOperatorClaimFromUnbornHeadStaysExpiredWhenGitFails proves that a grant
+// recorded before the first commit stays expired after that commit even when
+// Git later cannot resolve HEAD.
+func TestOperatorClaimFromUnbornHeadStaysExpiredWhenGitFails(t *testing.T) {
+	repo := setupOperatorClaimRepo(t)
+	if err := os.RemoveAll(filepath.Join(repo, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	claimRepoGit(t, repo, "init", "-q")
+	writeProtected(t, repo, "s1", "change\n")
+	if _, err := RecordClaim(repo, protectedClaim, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	if claims := activeClaims(t, repo); !slices.Equal(claims, []string{protectedClaim}) {
+		t.Fatalf("control: the claim at the unborn HEAD is not effective: %q", claims)
+	}
+	claimRepoGit(t, repo, "add", "-A")
+	claimRepoGit(t, repo, "commit", "-q", "-m", "first commit")
+	if claims := activeClaims(t, repo); len(claims) != 0 {
+		t.Fatalf("the first commit did not expire the claim: %q", claims)
+	}
+	head, err := os.ReadFile(filepath.Join(repo, ".git", "HEAD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch := strings.TrimSpace(strings.TrimPrefix(string(head), "ref: "))
+	if err := os.WriteFile(filepath.Join(repo, ".git", filepath.FromSlash(branch)), []byte("not-a-commit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if claims := activeClaims(t, repo); len(claims) != 0 {
+		t.Fatalf("an unresolvable HEAD revived the claim from the unborn HEAD: %q", claims)
+	}
+}
+
+// TestOperatorClaimNeedsHeadReflog proves that recording an operator claim
+// fails when HEAD names a commit but Git keeps no reflog for it, because a
+// return to the same commit could not be detected.
+func TestOperatorClaimNeedsHeadReflog(t *testing.T) {
+	repo := setupOperatorClaimRepo(t)
+	claimRepoGit(t, repo, "config", "core.logAllRefUpdates", "false")
+	if err := os.RemoveAll(filepath.Join(repo, ".git", "logs")); err != nil {
+		t.Fatal(err)
+	}
+	writeProtected(t, repo, "s1", "change\n")
+	if _, err := RecordClaim(repo, protectedClaim, "s1"); err == nil || !strings.Contains(err.Error(), "reflog") {
+		t.Fatalf("recording without a HEAD reflog = %v, want a reflog error", err)
+	}
+	if !stopBlocked(t, repo, "s1") {
+		t.Fatal("an operator claim without a HEAD reflog authorized the change")
+	}
+}
+
+// TestOperatorGrantsOfTheFirstFormatAuthorizeNothing proves that grants stored
+// in the first grant format, which bound only the commit, no longer authorize
+// a change while its revocations stay in force.
+func TestOperatorGrantsOfTheFirstFormatAuthorizeNothing(t *testing.T) {
+	repo := setupOperatorClaimRepo(t)
+	writeProtected(t, repo, "s1", "change\n")
+	if _, err := RecordClaim(repo, protectedClaim, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RecordClaim(repo, "ci-green", "s1"); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := strings.TrimSpace(claimRepoGitOutput(t, repo, "rev-parse", "HEAD"))
+	legacy := `{"format_version":"claim-grants-v1","repo_root":"` + root + `","operator_grants":[{"session_id":"s1","claim":"` + protectedClaim + `","head":"` + head + `"}],"revocations":[{"session_id":"s1","claim":"ci-green"}]}`
+	if err := os.WriteFile(claimGrantPath(root), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if claims := activeClaims(t, repo); len(claims) != 0 {
+		t.Fatalf("a first-format grant or a revoked claim is effective: %q", claims)
+	}
+}
+
+func claimRepoGitOutput(t *testing.T, repo string, args ...string) string {
+	t.Helper()
+	command := exec.CommandContext(t.Context(), "git", args...)
+	command.Dir = repo
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return string(output)
 }

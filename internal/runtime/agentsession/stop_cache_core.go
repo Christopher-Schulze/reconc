@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	stopPolicyFingerprintVersion = "stop-policy-report-v12"
+	stopPolicyFingerprintVersion = "stop-policy-report-v13"
 	stopPolicyUntrackedModeEnv   = "RECONC_STOP_FINGERPRINT_UNTRACKED"
 	maxStopReportBytes           = 32 << 20
 	maxGitControlFileBytes       = 1 << 20
@@ -40,7 +40,10 @@ type stopPolicyFingerprintInput struct {
 	Claims             []string          `json:"claims"`
 	// ClaimGrantHash binds the operator grants and revocations that decide
 	// which recorded claims are effective.
-	ClaimGrantHash     string          `json:"claim_grant_hash"`
+	ClaimGrantHash string `json:"claim_grant_hash"`
+	// EffectiveClaims binds the claims that authorize this decision, so a
+	// grant that expired while HEAD returned to its commit cannot reuse it.
+	EffectiveClaims    []string        `json:"effective_claims"`
 	CommandResults     []CommandResult `json:"command_results"`
 	GitHead            string          `json:"git_head"`
 	GitStatusMode      string          `json:"git_status_mode"`

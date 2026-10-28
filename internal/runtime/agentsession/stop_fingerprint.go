@@ -79,6 +79,10 @@ func stopPolicyFingerprintInputForSnapshotWithScan(
 	if gitSnapshot.StatusOK {
 		dirtyFiles = gitDirtyFilesWithScan(root, gitSnapshot.Status, scanCache)
 	}
+	effectiveClaims, err := claimsForEvaluation(root, state)
+	if err != nil {
+		effectiveClaims = []string{"error:" + err.Error()}
+	}
 	policyScan := scanCache.get(root, state.WritePaths)
 	policyLockHash := policyScan.LockHash
 	if policyLockHash == "" {
@@ -100,6 +104,7 @@ func stopPolicyFingerprintInputForSnapshotWithScan(
 		Commands:           sortedUnique(state.Commands),
 		Claims:             sortedUnique(state.Claims),
 		ClaimGrantHash:     fileContentHash(claimGrantPath(root)),
+		EffectiveClaims:    sortedUnique(effectiveClaims),
 		CommandResults:     append([]CommandResult{}, state.CommandResults...),
 		GitHead:            gitSnapshot.Head,
 		GitStatusMode:      gitSnapshot.StatusMode,

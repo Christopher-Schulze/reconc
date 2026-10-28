@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -12,28 +14,40 @@ import (
 	"reconc.dev/reconc/internal/boundedio"
 )
 
-// An operator claim authorizes the changes up to the next commit. Its grant records the
-// session that recorded it and the Git HEAD at that moment; the claim is
-// effective only while HEAD is unchanged and the recording session stayed the
-// active session. A commit, amend, reset, checkout or rebase moves HEAD and
-// expires it, and a switch of the active session or the session's cleanup
-// drops it. Revocations remove any claim, operator or agent, from a session's
+// An operator claim authorizes the changes up to the next commit. Its grant
+// records the session that recorded it, the Git HEAD at that moment and the
+// size of HEAD's reflog; the claim is effective only while both are unchanged
+// and the recording session stayed the active session. Git appends a reflog
+// entry for every commit, amend, reset, checkout and rebase, even one that
+// returns to the granted commit, so each of them expires the grant for good,
+// and a switch of the active session or the session's cleanup drops it. Revocations remove any claim, operator or agent, from a session's
 // effective claims. Grants and revocations live in one private per-project
 // file outside the sealed evidence chain, so reloading sealed evidence cannot
 // bring an expired or revoked claim back; the evidence keeps recording that the
 // claim was made.
 const (
-	claimGrantFormatVersion = "claim-grants-v1"
-	claimGrantFileName      = "claim-grants.json"
-	maxClaimGrantBytes      = 256 * 1024
-	maxOperatorClaimGrants  = 256
-	maxClaimRevocations     = 1024
+	claimGrantFormatVersion = "claim-grants-v2"
+	// claimGrantLegacyFormat bound grants to the commit alone; its grants
+	// authorize nothing, while its revocations stay in force.
+	claimGrantLegacyFormat = "claim-grants-v1"
+	claimGrantFileName     = "claim-grants.json"
+	maxClaimGrantBytes     = 256 * 1024
+	maxOperatorClaimGrants = 256
+	maxClaimRevocations    = 1024
 )
 
 type operatorClaimGrant struct {
-	SessionID string `json:"session_id"`
-	Claim     string `json:"claim"`
-	Head      string `json:"head"`
+	SessionID   string `json:"session_id"`
+	Claim       string `json:"claim"`
+	Head        string `json:"head"`
+	ReflogBytes int64  `json:"head_reflog_bytes"`
+}
+
+// headBinding is the Git HEAD commit, empty while HEAD is unborn, and the
+// size of HEAD's reflog, which only grows while HEAD moves.
+type headBinding struct {
+	head        string
+	reflogBytes int64
 }
 
 type claimRevocation struct {
@@ -75,13 +89,15 @@ func effectiveClaims(root, sessionID string, claims []string) ([]string, error) 
 			revoked[revocation.Claim] = true
 		}
 	}
-	grants := map[string]string{}
+	grants := map[string]headBinding{}
 	for _, grant := range file.OperatorGrants {
 		if grant.SessionID == sessionID {
-			grants[grant.Claim] = grant.Head
+			grants[grant.Claim] = headBinding{head: grant.Head, reflogBytes: grant.ReflogBytes}
 		}
 	}
-	head, headRead := "", false
+	var current headBinding
+	var currentErr error
+	headRead := false
 	out := make([]string, 0, len(claims))
 	for _, claim := range claims {
 		normalized := strings.TrimSpace(claim)
@@ -89,14 +105,15 @@ func effectiveClaims(root, sessionID string, claims []string) ([]string, error) 
 			continue
 		}
 		if isOperatorClaim(normalized) {
-			grantHead, granted := grants[normalized]
-			if !granted {
+			granted, ok := grants[normalized]
+			if !ok {
 				continue
 			}
 			if !headRead {
-				head, headRead = currentGitHead(root), true
+				current, currentErr = currentHeadBinding(root)
+				headRead = true
 			}
-			if grantHead != head {
+			if currentErr != nil || granted != current {
 				continue
 			}
 		}
@@ -115,15 +132,45 @@ func claimsForEvaluation(root string, state SessionState) ([]string, error) {
 	return claims, nil
 }
 
-// currentGitHead returns the commit HEAD names, or "" when the repository has
-// no commit yet or Git cannot answer. A grant and its later check read HEAD the
-// same way, so an unreadable HEAD can only expire a grant, never extend it.
-func currentGitHead(root string) string {
-	head, err := gitCommandOutput(root, "rev-parse", "--verify", "-q", "HEAD")
-	if err != nil {
-		return ""
+// currentHeadBinding reads HEAD and the size of its reflog. Git failing to
+// answer is an error, never an unborn HEAD, and so is a HEAD commit without a
+// reflog, where a return to the same commit would go unnoticed; recording then
+// fails and an existing grant is not effective.
+func currentHeadBinding(root string) (headBinding, error) {
+	output, err := gitCommandOutput(root, "rev-parse", "--git-path", "logs/HEAD", "--verify", "-q", "HEAD")
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	var binding headBinding
+	switch {
+	case err == nil && len(lines) == 2:
+		binding.head = strings.TrimSpace(lines[1])
+	case err != nil && len(lines) == 1 && lines[0] != "":
+		// --verify -q exits 1 without output while HEAD has no commit.
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+			return headBinding{}, fmt.Errorf("read git HEAD: %w", err)
+		}
+	case err != nil:
+		return headBinding{}, fmt.Errorf("read git HEAD: %w", err)
+	default:
+		return headBinding{}, fmt.Errorf("read git HEAD: unexpected rev-parse output %q", output)
 	}
-	return strings.TrimSpace(head)
+	reflog := strings.TrimSpace(lines[0])
+	if !filepath.IsAbs(reflog) {
+		reflog = filepath.Join(root, reflog)
+	}
+	info, err := os.Lstat(reflog)
+	switch {
+	case err == nil && info.Mode().IsRegular():
+		binding.reflogBytes = info.Size()
+	case err == nil:
+		return headBinding{}, fmt.Errorf("git HEAD reflog %s is not a regular file", reflog)
+	case errors.Is(err, fs.ErrNotExist) && binding.head == "":
+	case errors.Is(err, fs.ErrNotExist):
+		return headBinding{}, fmt.Errorf("no git HEAD reflog in %s, so a return to the granted commit cannot be detected; enable core.logAllRefUpdates", root)
+	default:
+		return headBinding{}, fmt.Errorf("inspect git HEAD reflog: %w", err)
+	}
+	return binding, nil
 }
 
 // grantRecordedClaim updates the grant file after a claim was recorded: the
@@ -137,11 +184,15 @@ func grantRecordedClaim(root, sessionID, claim string) error {
 			if !isOperatorClaim(claim) {
 				return nil
 			}
+			binding, err := currentHeadBinding(root)
+			if err != nil {
+				return fmt.Errorf("bind operator claim: %w", err)
+			}
 			file.OperatorGrants = withoutGrant(file.OperatorGrants, sessionID, claim)
 			if len(file.OperatorGrants) >= maxOperatorClaimGrants {
 				return fmt.Errorf("claim grants exceed %d operator grants", maxOperatorClaimGrants)
 			}
-			file.OperatorGrants = append(file.OperatorGrants, operatorClaimGrant{SessionID: sessionID, Claim: claim, Head: currentGitHead(root)})
+			file.OperatorGrants = append(file.OperatorGrants, operatorClaimGrant{SessionID: sessionID, Claim: claim, Head: binding.head, ReflogBytes: binding.reflogBytes})
 			return nil
 		})
 	})
@@ -305,7 +356,7 @@ func loadClaimGrantFile(root string) (claimGrantFile, error) {
 	if err := decoder.Decode(&file); err != nil {
 		return claimGrantFile{}, fmt.Errorf("claim grants are not valid JSON (%s): %w", claimGrantPath(root), err)
 	}
-	if file.FormatVersion != claimGrantFormatVersion || file.RepoRoot != root ||
+	if (file.FormatVersion != claimGrantFormatVersion && file.FormatVersion != claimGrantLegacyFormat) || file.RepoRoot != root ||
 		len(file.OperatorGrants) > maxOperatorClaimGrants || len(file.Revocations) > maxClaimRevocations {
 		return claimGrantFile{}, fmt.Errorf("claim grants identity is invalid (%s)", claimGrantPath(root))
 	}
@@ -319,9 +370,10 @@ func loadClaimGrantFile(root string) (claimGrantFile, error) {
 			return claimGrantFile{}, fmt.Errorf("claim grants contain an invalid revocation (%s)", claimGrantPath(root))
 		}
 	}
-	if file.OperatorGrants == nil {
+	if file.OperatorGrants == nil || file.FormatVersion == claimGrantLegacyFormat {
 		file.OperatorGrants = []operatorClaimGrant{}
 	}
+	file.FormatVersion = claimGrantFormatVersion
 	if file.Revocations == nil {
 		file.Revocations = []claimRevocation{}
 	}

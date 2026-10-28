@@ -2808,18 +2808,25 @@ are workflow assertions, never independent approval evidence. Ordinary claims
 remain agent-recordable.
 
 An `operator:` claim authorizes the changes up to the next commit. Recording it stores a grant
-with the recording session and the Git `HEAD` of that moment in the private
-per-project file `claim-grants.json` (format `claim-grants-v1`, bounded,
-decoded strictly). Every policy decision that consults session claims (the
-pre-tool write and command gates and their decision cache, Stop and completion,
-and the active evidence that `reconc ci` and `reconc impact` read) uses the
-effective claims: a recorded claim that is not revoked, where an `operator:`
-claim additionally needs a grant of the evaluated session at the current
-`HEAD`. A commit, amend, reset, checkout or rebase moves `HEAD` and expires the
-grant; a switch of the active session drops the grants of every other session,
-so returning to the old session does not revive them; session cleanup forgets
-the session's grants and revocations. An `operator:` claim recorded by an
-older release has no grant and authorizes nothing. The staged gate of the
+with the recording session, the Git `HEAD` of that moment and the size of
+`HEAD`'s reflog in the private per-project file `claim-grants.json` (format
+`claim-grants-v2`, bounded, decoded strictly). Every policy decision that
+consults session claims (the pre-tool write and command gates and their
+decision cache, Stop and its report cache, completion, and the active evidence
+that `reconc ci` and `reconc impact` read) uses the effective claims: a
+recorded claim that is not revoked, where an `operator:` claim additionally
+needs a grant of the evaluated session whose `HEAD` and reflog size are both
+current. Git appends a reflog entry for every commit, amend, reset, checkout
+and rebase, including a reset to the same commit, so each of them expires the
+grant for good, also when `HEAD` later returns to the granted commit. Recording
+fails, and an existing grant is not effective, when Git cannot resolve `HEAD`
+or keeps no reflog for a `HEAD` commit (`core.logAllRefUpdates=false`); before
+the first commit the grant binds the unborn `HEAD`. A switch of the active
+session drops the grants of every other session, so returning to the old
+session does not revive them; session cleanup forgets the session's grants and
+revocations. An `operator:` claim recorded by an older release, including a
+`claim-grants-v1` grant bound to the commit alone, authorizes nothing, while
+its revocations stay in force. The staged gate of the
 authorized change still runs before its commit, and Stop judges only
 uncommitted writes, so the committed change does not block after its claim
 expired, while any further protected write needs a fresh claim.
