@@ -294,7 +294,7 @@ func TestHostIntegrationDocumentationCoversStructuredContract(t *testing.T) {
 // The README installs from a release tag the reader selects: installer URLs
 // and version arguments carry the reconc-vX.Y.Z placeholder, never mutable
 // main and never a pinned release number.
-func TestREADMEInstallsFromASelectedReleaseTag(t *testing.T) {
+func TestREADMEInstallsFromPublishedReleaseAssets(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	readme := readPublicSurfaceFile(t, root, "README.md")
 	status := markdownSection(t, "README.md", readme, "Status")
@@ -308,16 +308,15 @@ func TestREADMEInstallsFromASelectedReleaseTag(t *testing.T) {
 	if !strings.Contains(install, "https://github.com/Christopher-Schulze/reconc/releases") {
 		t.Error("README installation omits the published release inventory")
 	}
+	quickInstall := markdownSection(t, "README.md", readme, "Install\n")
 	for _, installer := range []string{"install.sh", "install.ps1"} {
-		pattern := regexp.MustCompile(`https://raw\.githubusercontent\.com/Christopher-Schulze/reconc/([^/]+)/` + regexp.QuoteMeta(installer))
-		matches := pattern.FindAllStringSubmatch(readme, -1)
-		if len(matches) == 0 {
-			t.Errorf("README.md omits the %s installer URL", installer)
+		assetURL := "https://github.com/Christopher-Schulze/reconc/releases/latest/download/" + installer
+		if !strings.Contains(quickInstall, assetURL) {
+			t.Errorf("README install omits the %s release asset URL", installer)
 		}
-		for _, match := range matches {
-			if match[1] != "reconc-vX.Y.Z" {
-				t.Errorf("README.md %s source = %q, want the reconc-vX.Y.Z placeholder", installer, match[1])
-			}
+		sourceURL := regexp.MustCompile(`https://raw\.githubusercontent\.com/Christopher-Schulze/reconc/[^/]+/` + regexp.QuoteMeta(installer))
+		if match := sourceURL.FindString(readme); match != "" {
+			t.Errorf("README.md fetches %s from the source tree instead of a release asset: %q", installer, match)
 		}
 	}
 	for _, argument := range []string{"--version X.Y.Z", "-Version X.Y.Z"} {

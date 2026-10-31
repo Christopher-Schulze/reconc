@@ -16,7 +16,7 @@ agree.
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Offline](https://img.shields.io/badge/runtime-offline_by_default-111827)](#what-reconc-controls)
 
-[Why Reconc](#why-reconc-exists) · [MCP Gateway](#enforce-agent-tool-calls-before-execution) · [Install](#install-and-bootstrap) · [Architecture](#architecture-and-operational-boundaries) · [Integrations](#supported-agent-runtimes) · [Documentation](docs/documentation.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/Christopher-Schulze/reconc/issues/new/choose) · [Releases](https://github.com/Christopher-Schulze/reconc/releases)
+[Why Reconc](#why-reconc-exists) · [MCP Gateway](#enforce-agent-tool-calls-before-execution) · [Install](#install) · [Architecture](#architecture-and-operational-boundaries) · [Integrations](#supported-agent-runtimes) · [Documentation](docs/documentation.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/Christopher-Schulze/reconc/issues/new/choose) · [Releases](https://github.com/Christopher-Schulze/reconc/releases)
 
 An agent saying "done" is a claim. Reconc verifies that claim against the
 current repository, policy, evidence, and TASK state. Missing tests, stale
@@ -28,6 +28,30 @@ rules and enforces them across the CLI, Git, CI, and fourteen coding-agent
 integrations. The exact
 [guarantees and limits](docs/documentation.md#evidence-bound-completion-control)
 stay explicit.
+
+## Install
+
+**macOS & Linux**
+
+```bash
+curl -fsSL https://github.com/Christopher-Schulze/reconc/releases/latest/download/install.sh | sh
+```
+
+**Windows (PowerShell)**
+
+```powershell
+irm https://github.com/Christopher-Schulze/reconc/releases/latest/download/install.ps1 | iex
+```
+
+**Build from source**
+
+```bash
+git clone https://github.com/Christopher-Schulze/reconc && cd reconc
+make build && .build/bin/reconc install-cli
+```
+
+Then run `reconc init .` in your repository. Details:
+[Install and Bootstrap](#install-and-bootstrap).
 
 ## Enforce Agent Tool Calls Before Execution
 
@@ -275,37 +299,24 @@ state exactly what remains outside the boundary.
 
 ## Install and Bootstrap
 
-Select a published tag from [Releases](https://github.com/Christopher-Schulze/reconc/releases)
-and substitute it for `reconc-vX.Y.Z`, and its version for `X.Y.Z`, in the
-commands below. Later changes on `main` remain unreleased; use the source-build
-path below when those development changes are required.
-
 ### Native release installation
 
-macOS or Linux:
+The [Install](#install) commands fetch the installer attached to the latest
+[published release](https://github.com/Christopher-Schulze/reconc/releases),
+never executable installation logic from mutable `main`, and install the latest
+stable version. To pin an exact release, replace `X.Y.Z`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-vX.Y.Z/install.sh \
-  | sh -s -- --version X.Y.Z
-export PATH="$HOME/.local/bin:$PATH"
-reconc --version
+curl -fsSL https://github.com/Christopher-Schulze/reconc/releases/latest/download/install.sh | sh -s -- --version X.Y.Z
 ```
-
-Windows x64:
 
 ```powershell
-$installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-vX.Y.Z/install.ps1 -OutFile $installer
-& $installer -Version X.Y.Z
-Remove-Item $installer
-$env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
-reconc --version
+& ([scriptblock]::Create((irm https://github.com/Christopher-Schulze/reconc/releases/latest/download/install.ps1))) -Version X.Y.Z
 ```
 
-The selected protected release tag supplies the installer script (both scripts
-since `reconc-v0.8.7`), so these commands do not fetch executable installation
-logic from mutable `main`. The
-installers:
+`--channel preview` and `-Channel Preview` select the latest preview instead.
+Later changes on `main` remain unreleased until a release publishes them; build
+from source when those development changes are required. The installers:
 
 - resolve one explicit version or release channel;
 - download bounded metadata and the exact platform artifact over HTTPS;
@@ -333,16 +344,9 @@ supplies it. Native `.exe` and `.com` policy scripts execute directly.
 
 ### Source or portable installation
 
-For a source build or copied binary:
-
-```bash
-make build
-.build/bin/reconc install-cli
-reconc --version
-```
-
-`install-cli` atomically installs the exact running executable and the embedded
-portable skill. The skill defaults to `~/.agents/skills/reconc`; pass
+A source build or copied binary installs through `install-cli`, as shown in
+[Install](#install). `install-cli` atomically installs the exact running
+executable and the embedded portable skill. The skill defaults to `~/.agents/skills/reconc`; pass
 `--no-skill` to install only the CLI, `--skill-dir PATH` for a different skill
 destination, or `--skill-only` when the current binary is already receipt-owned.
 The installer scripts install the skill by default; they accept `--no-skill`
