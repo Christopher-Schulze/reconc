@@ -32,7 +32,6 @@ const (
 	releaseManifestFormat   = "reconc.release/v1"
 	maxReleaseMetadataBytes = 2 << 20
 	maxReleaseAssets        = 128
-	maxReleaseList          = 32
 	maxReleaseDirEntries    = 512
 )
 
@@ -113,23 +112,13 @@ func selectRelease(ctx context.Context, request UpdateRequest) (selectedRelease,
 
 func selectedChannel(request UpdateRequest) (Channel, error) {
 	version := strings.TrimSpace(request.Version)
-	channel := request.Channel
-	if version != "" && channel != "" {
-		return "", errors.New("--channel and --version are mutually exclusive")
+	if version == "" {
+		return ChannelStable, nil
 	}
-	if version != "" {
-		if _, err := parseSemanticVersion(version); err != nil {
-			return "", fmt.Errorf("invalid exact version: %w", err)
-		}
-		return ChannelExact, nil
+	if _, err := parseSemanticVersion(version); err != nil {
+		return "", fmt.Errorf("invalid exact version: %w", err)
 	}
-	if channel == "" {
-		channel = ChannelStable
-	}
-	if channel != ChannelStable && channel != ChannelPreview {
-		return "", fmt.Errorf("update channel must be stable or preview, got %q", channel)
-	}
-	return channel, nil
+	return ChannelExact, nil
 }
 
 func selectOnlineRelease(ctx context.Context, exact string, channel Channel) (selectedRelease, error) {
@@ -199,20 +188,6 @@ func discoverOnlineRelease(ctx context.Context, exact string, channel Channel) (
 			return githubRelease{}, err
 		}
 		return release, nil
-	case ChannelPreview:
-		var releases []githubRelease
-		if err := getJSON(ctx, releaseAPIBase+"/releases?per_page=32", &releases); err != nil {
-			return githubRelease{}, err
-		}
-		if len(releases) > maxReleaseList {
-			return githubRelease{}, fmt.Errorf("release list exceeds %d entries", maxReleaseList)
-		}
-		for _, release := range releases {
-			if !release.Draft && release.Prerelease {
-				return release, nil
-			}
-		}
-		return githubRelease{}, errors.New("no non-draft preview release is available")
 	default:
 		return githubRelease{}, fmt.Errorf("unsupported release channel %q", channel)
 	}
@@ -752,9 +727,6 @@ func validateReleaseClass(version string, draft bool, prerelease bool, channel C
 	}
 	if channel == ChannelStable && actualPrerelease {
 		return errors.New("stable channel cannot select a prerelease")
-	}
-	if channel == ChannelPreview && !actualPrerelease {
-		return errors.New("preview channel requires a prerelease")
 	}
 	return nil
 }

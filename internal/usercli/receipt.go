@@ -45,10 +45,9 @@ const (
 type Channel string
 
 const (
-	ChannelStable  Channel = "stable"
-	ChannelPreview Channel = "preview"
-	ChannelExact   Channel = "exact"
-	ChannelSource  Channel = "source"
+	ChannelStable Channel = "stable"
+	ChannelExact  Channel = "exact"
+	ChannelSource Channel = "source"
 )
 
 type ProvenanceState string
@@ -585,7 +584,7 @@ func validManager(manager Manager) bool {
 
 func validChannel(channel Channel) bool {
 	switch channel {
-	case ChannelStable, ChannelPreview, ChannelExact, ChannelSource:
+	case ChannelStable, ChannelExact, ChannelSource:
 		return true
 	default:
 		return false

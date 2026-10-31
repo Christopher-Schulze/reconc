@@ -338,7 +338,7 @@ try {
             [Environment]::SetEnvironmentVariable("RECONC_INSTALL_DIR", $liveInstallDirectory)
             [Environment]::SetEnvironmentVariable("RECONC_RELEASE_BASE", $null)
             $env:Path = "$liveInstallDirectory;$savedLiveProcessPath"
-            $selection = Resolve-ReconcReleaseSelection -RequestedChannel Stable -TemporaryDirectory $temporaryDirectory
+            $selection = Resolve-ReconcReleaseSelection -TemporaryDirectory $temporaryDirectory
             & $resolvedInstaller $selection.Version
         }
         finally {

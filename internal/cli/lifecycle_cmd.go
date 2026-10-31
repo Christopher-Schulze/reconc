@@ -71,15 +71,6 @@ func parseUpdateRequest(subcommand string, command string, args []string) (userc
 	help := false
 	for index := 0; index < len(args); index++ {
 		switch args[index] {
-		case "--channel":
-			value, ok := nextArgValue(args, &index, "--channel", argValueNoLeadingDash)
-			if !ok {
-				return request, jsonOut, false, &CLIError{ExitCode: 1, Message: "reconc update: --channel requires stable or preview"}
-			}
-			if request.Channel != "" {
-				return request, jsonOut, false, &CLIError{ExitCode: 1, Message: "reconc update: --channel may be specified only once"}
-			}
-			request.Channel = usercli.Channel(value)
 		case "--version":
 			value, ok := nextArgValue(args, &index, "--version", argValueNoLeadingDash)
 			if !ok {
@@ -112,9 +103,6 @@ func parseUpdateRequest(subcommand string, command string, args []string) (userc
 				ExitCode: 1, Message: fmt.Sprintf("%s: unknown argument %q", command, args[index]),
 			}
 		}
-	}
-	if request.Channel != "" && request.Version != "" {
-		return request, jsonOut, false, &CLIError{ExitCode: 1, Message: "reconc update: --channel and --version are mutually exclusive"}
 	}
 	return request, jsonOut, help, nil
 }
@@ -248,7 +236,7 @@ func hasExactArgument(args []string, value string) bool {
 }
 
 func printUpdateHelp(stdout io.Writer) {
-	fmt.Fprintln(stdout, "Usage: reconc update [--channel stable|preview | --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]")
+	fmt.Fprintln(stdout, "Usage: reconc update [--version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]")
 	fmt.Fprintln(stdout, "Check the binary and owned skill independently; leave both unchanged when already current, or update stale owned components together.")
 	fmt.Fprintln(stdout, "A missing skill is proposed as an explicit install-cli --skill-only action, never installed by update.")
 }

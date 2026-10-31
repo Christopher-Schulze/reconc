@@ -44,7 +44,7 @@ func TestCanonicalUpdateSourceInstallEmitsOneApplyRefusalDocument(t *testing.T) 
 
 func TestLifecycleCLIRejectsInvalidSelectionWithoutMutation(t *testing.T) {
 	tests := [][]string{
-		{"update", "--channel", "stable", "--version", "1.0.0"},
+		{"update", "--channel", "stable"},
 		{"update", "check", "--allow-downgrade"},
 		{"update", "--channel"},
 		{"uninstall", "--unknown"},

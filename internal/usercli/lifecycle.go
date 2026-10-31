@@ -77,7 +77,6 @@ type SkillUpdateReport struct {
 
 type UpdateRequest struct {
 	Version        string
-	Channel        Channel
 	FromDir        string
 	AllowDowngrade bool
 	// Progress, when set, observes each update phase as it runs.

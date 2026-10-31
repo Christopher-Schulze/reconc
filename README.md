@@ -317,7 +317,7 @@ curl -fsSL https://github.com/Christopher-Schulze/reconc/releases/latest/downloa
 Later changes on `main` remain unreleased until a release publishes them; build
 from source when those development changes are required. The installers:
 
-- resolve one explicit version or release channel;
+- resolve the latest stable release or one exact version;
 - download bounded metadata and the exact platform artifact over HTTPS;
 - require one matching SHA-256 entry and verify the payload before execution;
 - inspect the candidate's embedded version, target, and source identity;
@@ -515,9 +515,8 @@ reconc update
 `reconc update` checks ownership and release trust, installs an available stable
 release atomically, and succeeds without changing anything when already
 current. Equal version text is current only when the installed receipt's
-artifact SHA-256 matches the selected release asset. Use `--channel preview`
-or `--version VERSION` only for an intentional
-selection. Source-owned installations receive the exact rebuild guidance.
+artifact SHA-256 matches the selected release asset. Use `--version VERSION`
+only for an intentional exact selection. Source-owned installations receive the exact rebuild guidance.
 There is no separate check/apply step in the current user flow. Direct updates
 require GitHub build-provenance verification before publication. Offline
 `--from-dir` updates additionally require the asset's Sigstore bundle and the

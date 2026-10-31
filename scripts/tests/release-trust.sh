@@ -128,11 +128,12 @@ verify_manual_dispatch_only() {
 
 require_text "$root/cmd/reconc/main.go" 'var Version = "dev"'
 require_text "$root/Makefile" './scripts/build/resolve-version.sh'
-require_text "$root/install.sh" "sh install.sh --channel preview"
+require_text "$root/install.sh" "sh install.sh                      # install the latest stable release"
 require_text "$root/install.sh" "sh install.sh --version X.Y.Z"
 # shellcheck disable=SC2016 # Match the installer expression literally.
 require_text "$root/install.sh" 'LC_ALL=C awk -v left="$1" -v right="$2"'
-require_text "$root/install.ps1" '[ValidateSet("Stable", "Preview")]'
+# shellcheck disable=SC2016 # Match the PowerShell declaration literally.
+require_text "$root/install.ps1" '[string]$Version = ""'
 # shellcheck disable=SC2016 # Match the PowerShell declaration literally.
 require_text "$root/install.ps1" '[switch]$AllowDowngrade'
 require_text "$root/README.md" "has no assigned product release version."
@@ -811,7 +812,7 @@ SCRIPT
 chmod +x "$fake_bin/gh"
 cp "$fake_bin/gh" "$fake_bin/gh-pass"
 
-expect_failure sh "$root/install.sh" --channel stable --version "$project_version"
+expect_failure sh "$root/install.sh" --channel stable
 expect_failure sh "$root/install.sh" --version "$project_version-preview.01"
 sh "$root/install.sh" --help >/dev/null
 

@@ -161,7 +161,7 @@ func TestOnlineReleaseSelectionRejectsMutableAssetURL(t *testing.T) {
 	}
 }
 
-func TestOnlineReleaseDiscoveryCoversExactPreviewAndBounds(t *testing.T) {
+func TestOnlineReleaseDiscoveryCoversExactAndRejectsUnknownChannels(t *testing.T) {
 	previousClient := lifecycleHTTPClient
 	t.Cleanup(func() { lifecycleHTTPClient = previousClient })
 
@@ -172,35 +172,9 @@ func TestOnlineReleaseDiscoveryCoversExactPreviewAndBounds(t *testing.T) {
 			t.Fatalf("exact release = %+v, %v", release, err)
 		}
 	})
-	t.Run("preview", func(t *testing.T) {
-		lifecycleHTTPClient = jsonLifecycleClient(`[
-			{"tag_name":"reconc-v1.2.3-preview.0","draft":true,"prerelease":true},
-			{"tag_name":"reconc-v1.2.3-preview.1","draft":false,"prerelease":true}
-		]`)
-		release, err := discoverOnlineRelease(context.Background(), "", ChannelPreview)
-		if err != nil || release.TagName != "reconc-v1.2.3-preview.1" {
-			t.Fatalf("preview release = %+v, %v", release, err)
-		}
-	})
-	t.Run("preview absent", func(t *testing.T) {
-		lifecycleHTTPClient = jsonLifecycleClient(`[{"tag_name":"reconc-v1.2.3","prerelease":false}]`)
-		if _, err := discoverOnlineRelease(context.Background(), "", ChannelPreview); err == nil ||
-			!strings.Contains(err.Error(), "no non-draft preview") {
-			t.Fatalf("missing preview error = %v", err)
-		}
-	})
-	t.Run("preview list bounded", func(t *testing.T) {
-		releases := make([]githubRelease, maxReleaseList+1)
-		body, err := json.Marshal(releases)
-		if err != nil {
-			t.Fatal(err)
-		}
-		lifecycleHTTPClient = jsonLifecycleClient(string(body))
-		if _, err := discoverOnlineRelease(context.Background(), "", ChannelPreview); err == nil ||
-			!strings.Contains(err.Error(), "exceeds") {
-			t.Fatalf("oversized preview list error = %v", err)
-		}
-	})
+	if _, err := discoverOnlineRelease(context.Background(), "", Channel("preview")); err == nil {
+		t.Fatal("removed preview discovery channel passed")
+	}
 	if _, err := discoverOnlineRelease(context.Background(), "", Channel("nightly")); err == nil {
 		t.Fatal("unsupported discovery channel passed")
 	}
@@ -354,16 +328,6 @@ func TestSameVersionDifferentArtifactUpdatesExactInstallationByDefault(t *testin
 	}
 	if receipt.Channel != ChannelStable {
 		t.Fatalf("same-version replacement channel = %q", receipt.Channel)
-	}
-
-	writeDirectTestReceiptForChannel(t, target, "1.0.0", ChannelPreview)
-	previewReport, err := CheckUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDirectory})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if previewReport.Status != LifecycleRefused ||
-		!strings.Contains(previewReport.NextAction, "--channel stable") {
-		t.Fatalf("implicit preview channel change = %+v", previewReport)
 	}
 }
 
@@ -913,14 +877,11 @@ func TestLifecycleReportEncodingIsOneBoundedDocument(t *testing.T) {
 }
 
 func TestReleaseSelectionAndValidationFailureContracts(t *testing.T) {
-	if _, err := selectedChannel(UpdateRequest{Version: "1.0.0", Channel: ChannelStable}); err == nil {
-		t.Fatal("combined exact version and channel passed")
-	}
 	if _, err := selectedChannel(UpdateRequest{Version: "v1"}); err == nil {
 		t.Fatal("invalid exact version passed")
 	}
-	if _, err := selectedChannel(UpdateRequest{Channel: Channel("nightly")}); err == nil {
-		t.Fatal("unknown channel passed")
+	if channel, err := selectedChannel(UpdateRequest{}); err != nil || channel != ChannelStable {
+		t.Fatalf("default channel = %q, %v", channel, err)
 	}
 	if channel, err := selectedChannel(UpdateRequest{Version: "1.0.0"}); err != nil || channel != ChannelExact {
 		t.Fatalf("exact channel = %q, %v", channel, err)
@@ -935,9 +896,8 @@ func TestReleaseSelectionAndValidationFailureContracts(t *testing.T) {
 		want       string
 	}{
 		{name: "draft", version: "1.0.0", draft: true, channel: ChannelStable, want: "draft"},
-		{name: "flag mismatch", version: "1.0.0-preview.1", channel: ChannelPreview, want: "flag"},
+		{name: "flag mismatch", version: "1.0.0-preview.1", channel: ChannelExact, want: "flag"},
 		{name: "stable prerelease", version: "1.0.0-preview.1", prerelease: true, channel: ChannelStable, want: "stable"},
-		{name: "preview stable", version: "1.0.0", channel: ChannelPreview, want: "preview"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := validateReleaseClass(test.version, test.draft, test.prerelease, test.channel)
@@ -1029,14 +989,11 @@ func TestLifecyclePureHelpersCoverOrderingAndCommands(t *testing.T) {
 		!strings.Contains(command, "--allow-downgrade") {
 		t.Fatalf("update command = %q", command)
 	}
-	if got := updateCommand(UpdateRequest{Channel: ChannelPreview}); got != "reconc update --channel preview" {
-		t.Fatalf("preview update command = %q", got)
+	if got := updateCommand(UpdateRequest{}); got != "reconc update" {
+		t.Fatalf("default update command = %q", got)
 	}
 	if got := channelForRelease(selectedRelease{channel: ChannelExact}); got != ChannelExact {
 		t.Fatalf("explicit release channel = %q", got)
-	}
-	if got := channelForRelease(selectedRelease{manifest: ReleaseManifest{Prerelease: true}}); got != ChannelPreview {
-		t.Fatalf("inferred preview channel = %q", got)
 	}
 	if got := channelForRelease(selectedRelease{}); got != ChannelStable {
 		t.Fatalf("inferred stable channel = %q", got)

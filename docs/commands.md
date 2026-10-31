@@ -34,7 +34,7 @@ Generated from `internal/commandmeta`; run `make reference-docs` after changing 
 | `reconc repo sync recover` | `reconc repo sync recover [repo] [--json]` | finalize or roll back an interrupted repository sync | text, json |
 | `reconc install-cli` | `reconc install-cli [--install-dir PATH] [--skill-dir PATH] [--no-skill \| --skill-only] [--json]` | install the running build and owned portable skill | text, json |
 | `reconc skill-manifest` | `reconc skill-manifest --json` | print the running binary's embedded portable skill identity | json |
-| `reconc update` | `reconc update [check\|apply] [--channel stable\|preview \| --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]` | inspect and update the owned binary and portable skill | text, json |
+| `reconc update` | `reconc update [check\|apply] [--version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]` | inspect and update the owned binary and portable skill | text, json |
 | `reconc uninstall` | `reconc uninstall [--purge-state] [--remove-skill] [--json]` | remove the owned CLI and optionally its verified skill | text, json |
 | `reconc init` | `reconc init [repo] [--profile PROFILE] [selection flags]` | transactionally onboard a repository | text, json, file |
 | `reconc adopt` | `reconc adopt [repo] [--yaml \| --json \| --apply]` | detect tooling and suggest rules | text, yaml, json |
@@ -502,18 +502,17 @@ receipt-owned binary is never replaced while bare `reconc` resolves elsewhere:
 that reinstall exits non-zero with the PATH remediation and leaves the binary
 and its receipt unchanged, so the receipt never describes bytes that are gone.
 
-### `reconc update [--channel stable|preview | --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]`
+### `reconc update [--version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]`
 Runs the ownership-aware update transaction. The candidate is downloaded,
 attested, and smoke-tested before the global installation lock is taken, so
 concurrent doctor, install, and hook commands keep reading the installation;
 publication then runs under the lock and refuses if the receipt changed while
 the candidate was prepared. Metadata requests time out after two minutes; a
 binary download has no total limit beyond the command's and fails only when no
-data arrives for one minute. Stable is the default; preview and exact version selection
-are explicit and mutually exclusive. An exact-version receipt records that one
-installation choice but does not pin future updates: a later bare
-`reconc update` selects stable. Leaving a recorded preview channel still
-requires an explicit `--channel stable`. Direct updates verify release identity,
+data arrives for one minute. The latest stable release is the default;
+`--version` selects one exact release. An exact-version receipt records that
+one installation choice but does not pin future updates: a later bare
+`reconc update` selects stable. Direct updates verify release identity,
 bounded bytes, `SHA256SUMS`, embedded version, target, source provenance,
 mandatory GitHub build-provenance attestation, and an actual candidate
 `--version` smoke test before atomic replacement and receipt publication. A

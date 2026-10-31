@@ -593,12 +593,11 @@ notice, and preserves each source text with its SHA-256 digest. Verification
 regenerates `THIRD_PARTY_NOTICES.txt` from the tagged source and byte-compares
 it before checksums and provenance are accepted.
 
-`install.sh [--channel stable|preview | --version VERSION]
-[--allow-downgrade] [--no-skill]` supports macOS and Linux. `install.ps1 [-Channel
-Stable|Preview | -Version VERSION] [-AllowDowngrade] [-NoSkill]` supports Windows x64.
-Omitting a selector resolves the latest stable GitHub release; an exact version
-uses only its immutable tag. Preview selection never accepts a draft or stable
-release. Exact downgrades fail unless the caller explicitly opts in, and
+`install.sh [--version VERSION] [--allow-downgrade] [--no-skill]` supports
+macOS and Linux. `install.ps1 [-Version VERSION] [-AllowDowngrade] [-NoSkill]`
+supports Windows x64. Omitting the version resolves the latest stable GitHub
+release and rejects drafts and prereleases; an exact version uses only its
+immutable tag. Exact downgrades fail unless the caller explicitly opts in, and
 `reconc update` refuses a downgrade below reconc-v0.10.0, the first release
 that reads the format 2 installation receipt the update leaves behind.
 `reconc init` and `bootstrap apply` keep an intact receipt-owned CLI that PATH
@@ -606,8 +605,8 @@ resolves even when it is a different build than the running one; they install
 the running build only when no callable owned CLI exists, and never in place of
 a valid direct release install, whose receipt owner that would rewrite: they
 stop and name `reconc update` or the release installer instead. A custom
-release base requires an exact version and cannot be mixed with channel
-discovery. POSIX defaults to `~/.local/bin`; Windows defaults to the
+release base requires an exact version and cannot be mixed with latest
+release discovery. POSIX defaults to `~/.local/bin`; Windows defaults to the
 user-writable `%LOCALAPPDATA%\Programs\Reconc\bin`. Both report the exact PATH
 remediation when bare `reconc` does not resolve to the installed binary instead
 of elevating or silently editing shell configuration. Both installers
@@ -1076,7 +1075,7 @@ sync.
 The CLI product lifecycle contract is
 [RECONC-0007](rfcs/RECONC-0007-cli-product-lifecycle.md). It defines one
 ownership-aware global CLI, `init` as the canonical transactional onboarding
-entrypoint, durable installation and repository ownership, stable/preview/exact
+entrypoint, durable installation and repository ownership, stable/exact
 release selection, an embedded advanced public harness pack, explicit binary
 update and uninstall, and digest-bound repository synchronization.
 
@@ -1660,8 +1659,8 @@ revalidates it immediately before publication. Any replacement, symlink, or
 type change fails closed; rollback restores only the exact displaced generation.
 Offline `--from-dir` updates require the asset's Sigstore
 bundle and trusted root in addition to the strict release inventory. The default
-flow needs no separate check/apply step. Use `--channel preview` or
-`--version VERSION` only for an intentional non-default selection. A
+flow needs no separate check/apply step. Use `--version VERSION` only for an
+intentional exact selection. A
 source-owned installation receives the exact rebuild and path-qualified
 `install-cli` remediation instead of being overwritten.
 
@@ -1818,10 +1817,8 @@ receipt share the installation lock and rollback transaction. A failure cannot
 report a partially updated installation as current. When both components are
 current, the command succeeds without mutation. Equal version text alone is
 insufficient: the receipt artifact SHA-256 must match the selected release
-asset. Use
-`--channel stable|preview` or
-`--version VERSION` only when that selection is intentional. Exact-version
-downgrades and channel changes require explicit flags.
+asset. Use `--version VERSION` only when that exact selection is intentional.
+Exact-version downgrades require `--allow-downgrade`.
 The default command performs the verified decision and the safe update
 transaction; `update check` and `update apply` are explicit automation forms.
 Direct installations download only the immutable manifest-selected asset,

@@ -52,16 +52,6 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 		report.NextAction = channelErr.Error()
 		return report, nil
 	}
-	// An exact receipt records a one-time version selection, not a persistent
-	// update channel. Preview installations still require an explicit switch
-	// back to stable so a bare update cannot silently leave preview.
-	if diagnostic.Channel != nil && *diagnostic.Channel == ChannelPreview &&
-		*diagnostic.Channel != requestedChannel &&
-		request.Channel == "" && strings.TrimSpace(request.Version) == "" {
-		report.Status = LifecycleRefused
-		report.NextAction = "Select the channel explicitly with `--channel " + string(requestedChannel) + "`."
-		return report, nil
-	}
 	observe.pass(UpdatePhaseInstallation, installationPhaseDetail(diagnostic))
 	observe.start(UpdatePhaseRelease)
 	release, err := selectRelease(ctx, request)
@@ -550,8 +540,6 @@ func updateCommand(request UpdateRequest) string {
 	command := "reconc update"
 	if strings.TrimSpace(request.Version) != "" {
 		command += " --version " + request.Version
-	} else if request.Channel == ChannelPreview {
-		command += " --channel preview"
 	}
 	if strings.TrimSpace(request.FromDir) != "" {
 		command += " --from-dir " + quote(request.FromDir)
@@ -595,9 +583,6 @@ func compareVersionStrings(current string, target string) (int, error) {
 func channelForRelease(release selectedRelease) Channel {
 	if release.channel != "" {
 		return release.channel
-	}
-	if release.manifest.Prerelease {
-		return ChannelPreview
 	}
 	return ChannelStable
 }

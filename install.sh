@@ -4,7 +4,6 @@
 #
 # Usage:
 #   sh install.sh                      # install the latest stable release
-#   sh install.sh --channel preview    # install the latest preview
 #   sh install.sh --version X.Y.Z      # install an explicitly chosen release
 #   sh install.sh X.Y.Z                # compatible exact-version form
 #   RECONC_INSTALL_DIR=/tmp sh install.sh
@@ -16,7 +15,6 @@
 set -eu
 
 REPOSITORY="Christopher-Schulze/reconc"
-RELEASE_API_BASE="${RECONC_RELEASE_API_BASE:-https://api.github.com/repos/${REPOSITORY}}"
 RELEASE_BASE="${RECONC_RELEASE_BASE:-https://github.com/Christopher-Schulze/reconc/releases/download}"
 BIN_NAME="reconc"
 
@@ -24,7 +22,7 @@ log() { printf '>> %s\n' "$1" >&2; }
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 usage() {
   printf '%s\n' \
-    'usage: sh install.sh [--channel stable|preview | --version VERSION] [--allow-downgrade] [--no-skill]' \
+    'usage: sh install.sh [--version VERSION] [--allow-downgrade] [--no-skill]' \
     '       sh install.sh VERSION'
 }
 shell_quote() {
@@ -101,18 +99,11 @@ compare_versions() {
   '
 }
 
-channel=""
 VERSION=""
 allow_downgrade=false
 no_skill=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --channel)
-      [ "$#" -ge 2 ] || die "--channel requires stable or preview"
-      [ -z "$channel" ] || die "--channel may be specified only once"
-      channel="$2"
-      shift 2
-      ;;
     --version)
       [ "$#" -ge 2 ] || die "--version requires a semantic version"
       [ -z "$VERSION" ] || die "--version may be specified only once"
@@ -141,48 +132,27 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
-[ -z "$channel" ] || [ -z "$VERSION" ] \
-  || die "--channel and --version are mutually exclusive"
 if [ -n "$VERSION" ]; then
   is_semantic_version "$VERSION" || die "invalid semantic version: $VERSION"
   channel="exact"
 else
-  channel="${channel:-stable}"
+  channel="stable"
   [ -z "${RECONC_RELEASE_BASE:-}" ] \
-    || die "channel discovery is unavailable with RECONC_RELEASE_BASE; use --version"
-  case "$channel" in
-    stable)
-      command -v curl >/dev/null 2>&1 \
-        || die "stable channel discovery requires curl; use --version for an exact release"
-      latest_url=$(
-        curl -fsSL --proto '=https' --tlsv1.2 -o /dev/null -w '%{url_effective}' \
-          "https://github.com/${REPOSITORY}/releases/latest"
-      ) || die "stable release discovery failed"
-      tag=${latest_url##*/}
-      case "$latest_url" in
-        "https://github.com/${REPOSITORY}/releases/tag/reconc-v"*) ;;
-        *) die "stable release discovery returned a noncanonical URL: $latest_url" ;;
-      esac
-      VERSION=${tag#reconc-v}
-      is_semantic_version "$VERSION" || die "stable release returned an invalid version: $VERSION"
-      case "$VERSION" in *-*) die "stable release resolved to a prerelease: $VERSION" ;; esac
-      ;;
-    preview)
-      command -v gh >/dev/null 2>&1 \
-        || die "preview channel discovery requires GitHub CLI 'gh'; use --version for an exact preview"
-      tag=$(
-        gh api "${RELEASE_API_BASE#https://api.github.com/}/releases?per_page=32" \
-          --jq 'map(select(.draft == false and .prerelease == true))[0].tag_name // empty'
-      ) || die "preview release discovery failed"
-      case "$tag" in reconc-v*) ;; *) die "no non-draft preview release is available" ;; esac
-      VERSION=${tag#reconc-v}
-      is_semantic_version "$VERSION" || die "preview release returned an invalid version: $VERSION"
-      case "$VERSION" in *-*) ;; *) die "preview release is not a prerelease: $VERSION" ;; esac
-      ;;
-    *)
-      die "channel must be stable or preview: $channel"
-      ;;
+    || die "latest release discovery is unavailable with RECONC_RELEASE_BASE; use --version"
+  command -v curl >/dev/null 2>&1 \
+    || die "latest release discovery requires curl; use --version for an exact release"
+  latest_url=$(
+    curl -fsSL --proto '=https' --tlsv1.2 -o /dev/null -w '%{url_effective}' \
+      "https://github.com/${REPOSITORY}/releases/latest"
+  ) || die "latest release discovery failed"
+  tag=${latest_url##*/}
+  case "$latest_url" in
+    "https://github.com/${REPOSITORY}/releases/tag/reconc-v"*) ;;
+    *) die "latest release discovery returned a noncanonical URL: $latest_url" ;;
   esac
+  VERSION=${tag#reconc-v}
+  is_semantic_version "$VERSION" || die "latest release returned an invalid version: $VERSION"
+  case "$VERSION" in *-*) die "latest release resolved to a prerelease: $VERSION" ;; esac
 fi
 
 if [ -n "${RECONC_INSTALL_DIR:-}" ]; then

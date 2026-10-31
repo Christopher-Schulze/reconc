@@ -163,7 +163,7 @@ func installCLIOptions(version string) (usercli.InstallOptions, error) {
 		options.Channel = usercli.ChannelExact
 	}
 	switch options.Channel {
-	case usercli.ChannelStable, usercli.ChannelPreview, usercli.ChannelExact:
+	case usercli.ChannelStable, usercli.ChannelExact:
 	default:
 		return usercli.InstallOptions{}, fmt.Errorf("invalid direct installation channel %q", options.Channel)
 	}

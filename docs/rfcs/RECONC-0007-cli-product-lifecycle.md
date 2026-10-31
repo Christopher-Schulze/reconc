@@ -63,7 +63,7 @@ The v0.9 additions and changed canonical entrypoints are:
 | Command | Effect |
 |---|---|
 | `reconc doctor --global [--json] [--output PATH]` | Read-only installation, ownership, receipt, binary identity, PATH, platform, and provenance diagnosis. `--global` cannot be combined with a repository operand or `--deep`. |
-| `reconc update [--channel stable\|preview \| --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]` | Selects and verifies an update, applies it for a direct installation, and returns a verified no-op when already current. The default channel is `stable`; a downgrade requires `--allow-downgrade`; `--from-dir` disables network access. |
+| `reconc update [--version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]` | Selects and verifies an update, applies it for a direct installation, and returns a verified no-op when already current. The default channel is `stable`; a downgrade requires `--allow-downgrade`; `--from-dir` disables network access. |
 | `reconc uninstall [--purge-state] [--json]` | Removes only the globally owned installation. Repository state is never removed. `--purge-state` additionally requires a complete recognized-state inventory before mutation; the private coordination lock remains on one persistent inode, and unknown files fail closed. |
 | `reconc init [repo] [--profile existing|minimal|governed|advanced] [--pack NAME ...] [--hook KIND ...] [--no-hooks] [--accept-managed-blocks] [--json] [--output PATH]` | Inspects, selects, plans, applies, and verifies through `internal/bootstrap`. It writes the durable plan and repository receipt only as part of the transaction. |
 | `reconc repo sync plan [repo] [--output PATH [--replace-output]] [--json]` | Computes the exact change from the repository receipt to the packs embedded in the running binary. Repository inspection is hermetic and read-only; only explicit `--output` may publish the plan outside the repository transaction. |
@@ -123,7 +123,7 @@ this common envelope:
 | `owner` | string or null | `direct`, `source`, or null when unowned or ambiguous. |
 | `current_version` | string | Running version, or empty only when no runnable installation exists. |
 | `target_version` | string or null | Selected update or sync target. |
-| `channel` | string or null | `stable`, `preview`, `exact`, or `source`. |
+| `channel` | string or null | `stable`, `exact`, or `source`. |
 | `binary_path` | string or null | Canonical installed binary identity. |
 | `receipt_path` | string or null | Canonical receipt identity. |
 | `plan_digest` | string or null | Lowercase SHA-256 for plan operations. |
@@ -159,7 +159,7 @@ Required receipt fields:
 | `$schema` | string | Immutable `schemas/v1/installation-receipt.schema.json` URL. |
 | `format_version` | string | `1`. |
 | `manager` | string | `direct` or `source`. |
-| `channel` | string | `stable`, `preview`, `exact`, or `source`. |
+| `channel` | string | `stable`, `exact`, or `source`. |
 | `version` | string | Valid build version verified from the binary. |
 | `source_repository` | string | Exactly `Christopher-Schulze/reconc` for release installations and `local-source` for source builds. |
 | `release_tag` | string or null | Exact immutable tag for release installations. |
@@ -183,13 +183,12 @@ Manager authority:
 
 | Owner | Update authority | Uninstall authority | Channel support |
 |---|---|---|---|
-| `direct` | Reconc direct updater | Reconc direct uninstaller | stable, preview, exact |
+| `direct` | Reconc direct updater | Reconc direct uninstaller | stable, exact |
 | `source` | Source toolchain or a newly built path-qualified `install-cli` | Reconc removes only receipt-owned global bytes | source |
 
 ## Channels And Release Selection
 
 - `stable` selects GitHub's latest non-draft, non-prerelease stable release.
-- `preview` selects the newest non-draft prerelease.
 - `--version VERSION` selects exactly `reconc-vVERSION` and records channel
   `exact`. Stable and prerelease semantic versions are accepted; build metadata
   is rejected in release tags. Numeric prerelease identifiers use unbounded
@@ -197,8 +196,8 @@ Manager authority:
   lifecycle implementations.
 - A target lower than the running version is a downgrade and requires
   `--allow-downgrade`.
-- Channel changes require the new channel flag. Receipt channel is never
-  changed merely because a version compares differently.
+- A bare update always selects `stable`; an `exact` receipt does not pin
+  later updates.
 - Unsupported OS or architecture fails before a download.
 - Windows arm64 is unsupported in v0.9.0. The native installer and release
   inventory reject it explicitly.
@@ -206,8 +205,8 @@ Manager authority:
   linux/arm64, and windows/amd64.
 
 Online discovery uses bounded HTTPS requests against the fixed public GitHub
-repository. Stable uses the latest-release endpoint, preview uses the bounded
-release list, and exact uses the tag endpoint. Drafts are always rejected.
+repository. Stable uses the latest-release endpoint and exact uses the tag
+endpoint. Drafts are always rejected.
 After discovery, every download uses the immutable tag URL and verifies exact
 repository, tag, asset name, size, SHA256SUMS entry, embedded build version,
 target, and source digest. Native installers and every CLI update require

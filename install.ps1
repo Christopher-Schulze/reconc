@@ -1,11 +1,7 @@
-[CmdletBinding(DefaultParameterSetName = "Channel")]
+[CmdletBinding()]
 param(
-    [Parameter(ParameterSetName = "Version", Position = 0, Mandatory = $true)]
-    [ValidateNotNullOrEmpty()]
-    [string]$Version,
-    [Parameter(ParameterSetName = "Channel")]
-    [ValidateSet("Stable", "Preview")]
-    [string]$Channel = "Stable",
+    [Parameter(Position = 0)]
+    [string]$Version = "",
     [switch]$AllowDowngrade,
     [switch]$NoSkill
 )
@@ -298,8 +294,6 @@ function Invoke-ReconcHttpsDownload {
 function Resolve-ReconcReleaseSelection {
     param(
         [string]$RequestedVersion = "",
-        [ValidateSet("Stable", "Preview")]
-        [string]$RequestedChannel = "Stable",
         [Parameter(Mandatory = $true)]
         [string]$TemporaryDirectory
     )
@@ -312,35 +306,20 @@ function Resolve-ReconcReleaseSelection {
         }
     }
     if (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("RECONC_RELEASE_BASE"))) {
-        throw "Channel discovery is unavailable with RECONC_RELEASE_BASE; use -Version."
+        throw "Latest release discovery is unavailable with RECONC_RELEASE_BASE; use -Version."
     }
     $apiBase = Get-ReconcEnvironmentValue `
         -Name "RECONC_RELEASE_API_BASE" `
         -Default "https://api.github.com/repos/Christopher-Schulze/reconc"
     $metadataPath = Join-Path $TemporaryDirectory "release-selection.json"
-    if ($RequestedChannel -eq "Stable") {
-        $endpoint = "$($apiBase.TrimEnd('/'))/releases/latest"
-    }
-    else {
-        $endpoint = "$($apiBase.TrimEnd('/'))/releases?per_page=32"
-    }
+    $endpoint = "$($apiBase.TrimEnd('/'))/releases/latest"
     Invoke-ReconcHttpsDownload `
         -Uri ([Uri]$endpoint) `
         -Destination $metadataPath `
         -MaximumBytes 2097152
-    $metadata = Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($RequestedChannel -eq "Stable") {
-        $release = $metadata
-        if ($release.draft -or $release.prerelease) {
-            throw "Stable channel selected a draft or prerelease."
-        }
-    }
-    else {
-        $release = @($metadata | Where-Object { -not $_.draft -and $_.prerelease }) |
-            Select-Object -First 1
-        if ($null -eq $release) {
-            throw "No non-draft preview release is available."
-        }
+    $release = Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($release.draft -or $release.prerelease) {
+        throw "Latest release discovery selected a draft or prerelease."
     }
     $tag = [string]$release.tag_name
     if (-not $tag.StartsWith("reconc-v", [StringComparison]::Ordinal)) {
@@ -348,13 +327,12 @@ function Resolve-ReconcReleaseSelection {
     }
     $resolvedVersion = $tag.Substring("reconc-v".Length)
     Assert-ReconcSemanticVersion -Value $resolvedVersion
-    $isPreview = $resolvedVersion.Contains("-")
-    if (($RequestedChannel -eq "Preview") -ne $isPreview) {
-        throw "Release metadata channel and semantic version disagree: $resolvedVersion"
+    if ($resolvedVersion.Contains("-")) {
+        throw "Latest release resolved to a prerelease: $resolvedVersion"
     }
     return [PSCustomObject]@{
         Version = $resolvedVersion
-        Channel = $RequestedChannel.ToLowerInvariant()
+        Channel = "stable"
     }
 }
 
@@ -408,7 +386,7 @@ function Install-ReconcVerifiedArtifact {
         [string]$InstallDirectory,
         [string]$ReleaseVersion = "",
         [string]$AssetName = "",
-        [ValidateSet("stable", "preview", "exact")]
+        [ValidateSet("stable", "exact")]
         [string]$InstallChannel = "exact",
         [ValidateSet("github-verified", "embedded-verified")]
         [string]$ProvenanceState = "embedded-verified",
@@ -518,8 +496,6 @@ function Test-ReconcCommandMatches {
 function Invoke-ReconcInstall {
     param(
         [string]$RequestedVersion = "",
-        [ValidateSet("Stable", "Preview")]
-        [string]$RequestedChannel = "Stable",
         [bool]$DowngradeAllowed = $false,
         [bool]$SkipSkill = $false
     )
@@ -541,7 +517,6 @@ function Invoke-ReconcInstall {
     try {
         $selection = Resolve-ReconcReleaseSelection `
             -RequestedVersion $RequestedVersion `
-            -RequestedChannel $RequestedChannel `
             -TemporaryDirectory $temporaryDirectory
         $releaseVersion = $selection.Version
         $installChannel = $selection.Channel
@@ -604,16 +579,8 @@ function Invoke-ReconcInstall {
 }
 
 if ($MyInvocation.InvocationName -ne ".") {
-    if ($PSCmdlet.ParameterSetName -eq "Version") {
-        Invoke-ReconcInstall `
-            -RequestedVersion $Version `
-            -DowngradeAllowed $AllowDowngrade.IsPresent `
-            -SkipSkill $NoSkill.IsPresent
-    }
-    else {
-        Invoke-ReconcInstall `
-            -RequestedChannel $Channel `
-            -DowngradeAllowed $AllowDowngrade.IsPresent `
-            -SkipSkill $NoSkill.IsPresent
-    }
+    Invoke-ReconcInstall `
+        -RequestedVersion $Version `
+        -DowngradeAllowed $AllowDowngrade.IsPresent `
+        -SkipSkill $NoSkill.IsPresent
 }
