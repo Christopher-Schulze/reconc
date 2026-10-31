@@ -278,7 +278,9 @@ reconc check . --write <path> --claim ci-green --json
 
 Claims can also be supplied via an events file, stdin JSON, or by a registered hook integration.
 Claims named `operator:*` are operator-only: never try to record one; ask the
-operator.
+operator. An operator claim lasts until the next commit; when several protected
+commits are planned, ask the operator once for
+`reconc hook claim . operator:<name> --for DURATION` (one minute to eight hours).
 
 If bounded session evidence becomes persistently tainted, inspect it without
 mutation (read-only diagnostics keep working while tainted):

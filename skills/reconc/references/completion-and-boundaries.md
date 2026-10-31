@@ -35,6 +35,11 @@ claims named `operator:*` are operator-only: the pre-tool gate refuses
 recognized invocations in agent tool calls, and all but `hook resume` require a
 local interactive confirmation. Never route them through a script or other
 indirection; ask the operator. A gate that passes during an operator pause is not evidence.
+An `operator:*` claim lasts until the next commit. When several protected
+commits are planned, ask the operator once for
+`reconc hook claim <repo> operator:<name> --for DURATION` (one minute to eight
+hours) instead of one claim per commit; revocation, another active session and
+session cleanup still end it.
 
 When `reconc` warns:
 

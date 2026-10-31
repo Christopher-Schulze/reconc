@@ -20,6 +20,8 @@ func TestOperatorOnlyCommandsAreRefusedForAgentToolCalls(t *testing.T) {
 		{"/usr/local/bin/reconc hook evidence-resolve . --token abc --reason review", true},
 		{"reconc hook claim . operator:agents-md-edit-authorized", true},
 		{"reconc hook claim . operator:x --json", true},
+		{"reconc hook claim . operator:x --for 3h", true},
+		{"sh -c 'reconc hook claim . operator:x --for 8h --session s1'", true},
 		{"reconc-1.2.3-darwin-arm64 hook pause . --for 1h --reason x", true},
 		{"sh -c 'reconc hook pause . --for 5m --reason nested'", true},
 		{"git status && reconc hook resume .", true},
