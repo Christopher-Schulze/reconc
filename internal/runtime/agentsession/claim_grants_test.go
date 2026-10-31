@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"reconc.dev/reconc/internal/compiler"
 )
@@ -565,5 +566,137 @@ func TestOperatorClaimSurvivesUnverifiedGitObservation(t *testing.T) {
 	t.Setenv("PATH", path)
 	if claims := activeClaims(t, repo); !slices.Equal(claims, recorded) {
 		t.Fatalf("recovered Git did not restore the unexpired claims: %q", claims)
+	}
+}
+
+// TestTimedOperatorClaimSurvivesCommitsUntilExpiry proves that a timed
+// operator claim authorizes protected changes across commits and that an
+// expired timed claim authorizes nothing.
+func TestTimedOperatorClaimSurvivesCommitsUntilExpiry(t *testing.T) {
+	repo := setupOperatorClaimRepo(t)
+	writeProtected(t, repo, "s1", "first change\n")
+	report, err := RecordOperatorClaimFor(repo, protectedClaim, "s1", time.Hour, time.Now())
+	if err != nil || report.ExpiresAt == "" {
+		t.Fatalf("timed claim report = %+v, %v", report, err)
+	}
+	if stopBlocked(t, repo, "s1") {
+		t.Fatal("the timed operator claim did not authorize its change")
+	}
+	claimRepoGit(t, repo, "add", "protected.md")
+	claimRepoGit(t, repo, "commit", "-q", "-m", "first authorized change")
+	writeProtected(t, repo, "s1", "second change\n")
+	if stopBlocked(t, repo, "s1") {
+		t.Fatal("the timed operator claim ended with the commit")
+	}
+	if claims := activeClaims(t, repo); !slices.Equal(claims, []string{protectedClaim}) {
+		t.Fatalf("active evidence after the commit = %q", claims)
+	}
+	if _, err := RecordOperatorClaimFor(repo, protectedClaim, "s1", time.Hour, time.Now().Add(-2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if !stopBlocked(t, repo, "s1") {
+		t.Fatal("an expired timed operator claim still authorized a change")
+	}
+	if claims := activeClaims(t, repo); len(claims) != 0 {
+		t.Fatalf("active evidence carries the expired timed claim: %q", claims)
+	}
+}
+
+// TestTimedOperatorClaimEndsWithRevocationAndSessionSwitch proves that
+// revocation and another active session end a timed operator claim before it
+// expires.
+func TestTimedOperatorClaimEndsWithRevocationAndSessionSwitch(t *testing.T) {
+	repo := setupOperatorClaimRepo(t)
+	writeProtected(t, repo, "s1", "change\n")
+	if _, err := RecordOperatorClaimFor(repo, protectedClaim, "s1", time.Hour, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RevokeClaim(repo, protectedClaim, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	if claims := activeClaims(t, repo); len(claims) != 0 {
+		t.Fatalf("a revoked timed operator claim is still effective: %q", claims)
+	}
+	if _, err := RecordOperatorClaimFor(repo, protectedClaim, "s1", time.Hour, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if result := RunPostToolUse(repo, []byte(`{"session_id":"s2","tool_name":"Read","tool_input":{"file_path":"src/a.go"}}`)); result.ExitCode != 0 {
+		t.Fatalf("read in s2: %+v", result)
+	}
+	writeProtected(t, repo, "s1", "change again\n")
+	if !stopBlocked(t, repo, "s1") {
+		t.Fatal("the timed operator claim survived a session switch")
+	}
+}
+
+// TestTimedOperatorGrantBeyondMaximumIsNotEffective proves that a stored
+// expiry later than any recordable duration authorizes nothing.
+func TestTimedOperatorGrantBeyondMaximumIsNotEffective(t *testing.T) {
+	repo := setupOperatorClaimRepo(t)
+	writeProtected(t, repo, "s1", "change\n")
+	if _, err := RecordOperatorClaimFor(repo, protectedClaim, "s1", time.Hour, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := loadClaimGrantFile(root)
+	if err != nil || len(file.OperatorGrants) != 1 {
+		t.Fatalf("grant file = %+v, %v", file, err)
+	}
+	file.OperatorGrants[0].ExpiresAt = time.Now().Add(MaxTimedOperatorClaim + time.Hour).UTC().Format(time.RFC3339Nano)
+	if err := writeClaimGrantFile(root, file); err != nil {
+		t.Fatal(err)
+	}
+	if claims := activeClaims(t, repo); len(claims) != 0 {
+		t.Fatalf("an over-long timed grant is effective: %q", claims)
+	}
+}
+
+func TestTimedOperatorClaimRequiresOperatorClaimAndBoundedDuration(t *testing.T) {
+	repo := setupOperatorClaimRepo(t)
+	for _, tc := range []struct {
+		name     string
+		claim    string
+		duration time.Duration
+	}{
+		{name: "too short", claim: protectedClaim, duration: 30 * time.Second},
+		{name: "too long", claim: protectedClaim, duration: MaxTimedOperatorClaim + time.Minute},
+		{name: "agent claim", claim: "ci-green", duration: time.Hour},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := RecordOperatorClaimFor(repo, tc.claim, "s1", tc.duration, time.Now()); err == nil {
+				t.Fatal("an invalid timed claim was recorded")
+			}
+		})
+	}
+}
+
+// TestHeadBoundGrantsFromPreviousFormatStayEffective proves that grants
+// written in the previous head-bound format keep authorizing their change.
+func TestHeadBoundGrantsFromPreviousFormatStayEffective(t *testing.T) {
+	repo := setupOperatorClaimRepo(t)
+	writeProtected(t, repo, "s1", "change\n")
+	if _, err := RecordClaim(repo, protectedClaim, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(claimGrantPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := strings.Replace(string(body), `"`+claimGrantFormatVersion+`"`, `"`+claimGrantHeadFormat+`"`, 1)
+	if previous == string(body) {
+		t.Fatal("grant file does not carry the current format version")
+	}
+	if err := os.WriteFile(claimGrantPath(root), []byte(previous), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if stopBlocked(t, repo, "s1") {
+		t.Fatal("a head-bound grant of the previous format stopped authorizing")
 	}
 }

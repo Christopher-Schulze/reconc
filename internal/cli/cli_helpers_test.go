@@ -54,7 +54,7 @@ func TestNextArgValueCallSiteContracts(t *testing.T) {
 		{file: "evaluate_cmd.go", wantOrdinary: 3, wantLeadingDashValue: 12},
 		{file: "explain_cmd.go", wantOrdinary: 3, wantLeadingDashValue: 4},
 		{file: "grok_cmd.go", wantOrdinary: 4},
-		{file: "hook_claim_cmd.go", wantOrdinary: 1},
+		{file: "hook_claim_cmd.go", wantOrdinary: 2},
 		{file: "hook_lifecycle_cmd.go", wantOrdinary: 3},
 		{file: "impact_options_cmd.go", wantOrdinary: 2, wantLeadingDashValue: 1},
 		{file: "inspect_cmd.go", wantOrdinary: 3},
@@ -80,8 +80,8 @@ func TestNextArgValueCallSiteContracts(t *testing.T) {
 			leadingDashTotal += leadingDash
 		})
 	}
-	if ordinaryTotal != 54 || leadingDashTotal != 19 {
-		t.Fatalf("contract totals = ordinary %d, leading-dash %d; want ordinary 54, leading-dash 19", ordinaryTotal, leadingDashTotal)
+	if ordinaryTotal != 55 || leadingDashTotal != 19 {
+		t.Fatalf("contract totals = ordinary %d, leading-dash %d; want ordinary 55, leading-dash 19", ordinaryTotal, leadingDashTotal)
 	}
 }
 

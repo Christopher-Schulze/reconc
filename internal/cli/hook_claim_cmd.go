@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
@@ -16,19 +17,22 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 	jsonOut := false
 	revoke := false
 	outputPath := ""
+	forValue := ""
 	positional := 0
 	i := 0
 	for i < len(args) {
 		a := args[i]
 		switch a {
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc hook claim <repo> <claim-name> [--revoke] [--session ID] [--json] [--output PATH]")
+			fmt.Fprintln(stdout, "Usage: reconc hook claim <repo> <claim-name> [--for DURATION] [--revoke] [--session ID] [--json] [--output PATH]")
 			fmt.Fprintln(stdout, "")
 			fmt.Fprintln(stdout, "Records a claim (e.g. 'ci-green') in the active session state so")
 			fmt.Fprintln(stdout, "subsequent require_claim rules see it. An operator:* claim needs terminal")
 			fmt.Fprintln(stdout, "confirmation and authorizes the changes up to the next commit: it expires for good when HEAD moves")
 			fmt.Fprintln(stdout, "(commit, amend, reset, checkout, rebase), even back to the same commit, when its reflog is rewritten,")
 			fmt.Fprintln(stdout, "when another session becomes active, or when the session is cleaned up.")
+			fmt.Fprintln(stdout, "--for DURATION (1m to 8h) records an operator:* claim that stays effective across commits until")
+			fmt.Fprintln(stdout, "the duration ends; revocation, another active session and session cleanup still end it.")
 			fmt.Fprintln(stdout, "--revoke removes any claim from the session's")
 			fmt.Fprintln(stdout, "effective claims without confirmation; recording it again restores it.")
 			return nil
@@ -36,6 +40,12 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 			jsonOut = true
 		case "--revoke":
 			revoke = true
+		case "--for":
+			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
+			if !ok {
+				return &CLIError{ExitCode: 1, Message: "reconc hook claim: --for requires a duration"}
+			}
+			forValue = val
 		case "--output":
 			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
@@ -65,7 +75,18 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 		i++
 	}
 	if repo == "" || claim == "" {
-		return &CLIError{ExitCode: 1, Message: "reconc hook claim: usage: reconc hook claim <repo> <claim-name> [--revoke] [--session ID] [--json]"}
+		return &CLIError{ExitCode: 1, Message: "reconc hook claim: usage: reconc hook claim <repo> <claim-name> [--for DURATION] [--revoke] [--session ID] [--json]"}
+	}
+	var duration time.Duration
+	if forValue != "" {
+		if revoke {
+			return &CLIError{ExitCode: 1, Message: "reconc hook claim: --for cannot be combined with --revoke"}
+		}
+		parsed, err := time.ParseDuration(forValue)
+		if err != nil {
+			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook claim: invalid --for %q: %v", forValue, err)}
+		}
+		duration = parsed
 	}
 
 	var report *agentsession.ClaimReport
@@ -74,12 +95,20 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 		// Revoking only lowers authority, so it needs no operator presence.
 		report, err = agentsession.RevokeClaim(repo, claim, sessionID)
 	} else {
+		action := "reconc hook claim " + strings.TrimSpace(claim)
+		if duration != 0 {
+			action += " --for " + duration.String()
+		}
 		if strings.HasPrefix(strings.TrimSpace(claim), agentsession.OperatorClaimPrefix) {
-			if err := confirmOperatorPresence("reconc hook claim "+strings.TrimSpace(claim), stderr); err != nil {
+			if err := confirmOperatorPresence(action, stderr); err != nil {
 				return err
 			}
 		}
-		report, err = agentsession.RecordClaim(repo, claim, sessionID)
+		if duration != 0 {
+			report, err = agentsession.RecordOperatorClaimFor(repo, claim, sessionID, duration, time.Now())
+		} else {
+			report, err = agentsession.RecordClaim(repo, claim, sessionID)
+		}
 	}
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook claim: " + err.Error()}

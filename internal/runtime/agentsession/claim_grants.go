@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
@@ -18,15 +19,21 @@ import (
 // An operator claim authorizes the changes up to the next commit. Its grant
 // records the session, Git HEAD, and the size and filesystem generation of
 // HEAD's reflog. Reflog writes and replacements expire it, including cleanup
-// that restores the original HEAD and reflog bytes between evaluations.
-// Observed expiry removes the grant under the active-session lock; a session
-// switch or cleanup also drops it. Revocations remove any claim from a session's
+// that restores the original HEAD and reflog bytes between evaluations. A
+// timed operator claim instead records its expiry time and stays effective
+// across commits until then; an expiry beyond MaxTimedOperatorClaim from now
+// is never effective. Observed expiry removes the grant under the
+// active-session lock; a session switch or cleanup also drops it. Revocations
+// remove any claim from a session's
 // effective claims. Grants and revocations live in one private per-project
 // file outside the sealed evidence chain, so reloading sealed evidence cannot
 // bring an expired or revoked claim back; the evidence keeps recording that the
 // claim was made.
 const (
-	claimGrantFormatVersion = "claim-grants-v3"
+	claimGrantFormatVersion = "claim-grants-v4"
+	// claimGrantHeadFormat bound every grant to HEAD and its reflog; its grants
+	// keep that binding and stay valid.
+	claimGrantHeadFormat = "claim-grants-v3"
 	// claimGrantLegacyFormat bound grants to the commit alone; its grants
 	// authorize nothing, while its revocations stay in force.
 	claimGrantLegacyFormat = "claim-grants-v1"
@@ -37,6 +44,9 @@ const (
 	maxClaimGrantBytes       = 256 * 1024
 	maxOperatorClaimGrants   = 256
 	maxClaimRevocations      = 1024
+	// MaxTimedOperatorClaim bounds one timed operator claim.
+	MaxTimedOperatorClaim = 8 * time.Hour
+	minTimedOperatorClaim = time.Minute
 )
 
 type operatorClaimGrant struct {
@@ -45,6 +55,9 @@ type operatorClaimGrant struct {
 	Head             string `json:"head"`
 	ReflogBytes      int64  `json:"head_reflog_bytes"`
 	ReflogGeneration string `json:"head_reflog_generation"`
+	// ExpiresAt is the RFC 3339 expiry of a timed grant, which has no HEAD
+	// binding; it is empty for a grant bound to HEAD.
+	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
 // headBinding is the Git HEAD commit, empty while HEAD is unborn, and the
@@ -79,7 +92,8 @@ func isOperatorClaim(claim string) bool {
 
 // effectiveClaims returns the claims of sessionID that may authorize policy
 // decisions now: every recorded claim that is not revoked, where an operator
-// claim additionally needs a grant of this session at the current HEAD. An
+// claim additionally needs a grant of this session at the current HEAD or an
+// unexpired timed grant. An
 // operator claim recorded without a grant, as by an older release, is never
 // effective. An unreadable grant file fails closed with an error.
 func effectiveClaims(root, sessionID string, claims []string) ([]string, error) {
@@ -90,15 +104,16 @@ func effectiveClaims(root, sessionID string, claims []string) ([]string, error) 
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now()
 	if !slices.ContainsFunc(file.OperatorGrants, func(grant operatorClaimGrant) bool {
 		return grant.SessionID == sessionID
 	}) {
-		return effectiveClaimsFromGrantFile(root, sessionID, claims, &file), nil
+		return effectiveClaimsFromGrantFile(root, sessionID, claims, &file, now), nil
 	}
 	var effective []string
 	err = withActiveSessionLock(root, func() error {
 		return mutateClaimGrantFileLocked(root, func(current *claimGrantFile) error {
-			effective = effectiveClaimsFromGrantFile(root, sessionID, claims, current)
+			effective = effectiveClaimsFromGrantFile(root, sessionID, claims, current, now)
 			return nil
 		})
 	})
@@ -108,14 +123,14 @@ func effectiveClaims(root, sessionID string, claims []string) ([]string, error) 
 // effectiveClaimsFromGrantFile filters claims and removes confirmed-expired
 // grants of this session. A caller that can remove a grant holds the active-
 // session lock and publishes the mutation before returning the claims.
-func effectiveClaimsFromGrantFile(root, sessionID string, claims []string, file *claimGrantFile) []string {
+func effectiveClaimsFromGrantFile(root, sessionID string, claims []string, file *claimGrantFile, now time.Time) []string {
 	revoked := map[string]bool{}
 	for _, revocation := range file.Revocations {
 		if revocation.SessionID == sessionID {
 			revoked[revocation.Claim] = true
 		}
 	}
-	grants := currentSessionOperatorGrants(root, sessionID, file)
+	grants := currentSessionOperatorGrants(root, sessionID, file, now)
 	out := make([]string, 0, len(claims))
 	for _, claim := range claims {
 		normalized := strings.TrimSpace(claim)
@@ -130,14 +145,20 @@ func effectiveClaimsFromGrantFile(root, sessionID string, claims []string, file 
 	return out
 }
 
-func currentSessionOperatorGrants(root, sessionID string, file *claimGrantFile) map[string]bool {
+func currentSessionOperatorGrants(root, sessionID string, file *claimGrantFile, now time.Time) map[string]bool {
 	grants := map[string]bool{}
 	var current headBinding
 	var currentErr error
 	headRead := false
 	kept := file.OperatorGrants[:0]
 	for _, grant := range file.OperatorGrants {
-		if grant.SessionID == sessionID {
+		if grant.SessionID == sessionID && grant.ExpiresAt != "" {
+			expires, err := time.Parse(time.RFC3339Nano, grant.ExpiresAt)
+			if err != nil || !now.Before(expires) || expires.After(now.Add(MaxTimedOperatorClaim)) {
+				continue
+			}
+			grants[grant.Claim] = true
+		} else if grant.SessionID == sessionID {
 			if !headRead {
 				current, currentErr = currentHeadBinding(root)
 				headRead = true
@@ -239,8 +260,9 @@ func confirmUnbornHead(root string) error {
 
 // grantRecordedClaim updates the grant file after a claim was recorded: the
 // claim is no longer revoked, and an operator claim receives a fresh grant at
-// the current HEAD. The caller holds no active-session lock.
-func grantRecordedClaim(root, sessionID, claim string) error {
+// the current HEAD, or a timed grant until expiresAt when it is not zero. The
+// caller holds no active-session lock.
+func grantRecordedClaim(root, sessionID, claim string, expiresAt time.Time) error {
 	claim = strings.TrimSpace(claim)
 	return withActiveSessionLock(root, func() error {
 		return mutateClaimGrantFileLocked(root, func(file *claimGrantFile) error {
@@ -248,18 +270,21 @@ func grantRecordedClaim(root, sessionID, claim string) error {
 			if !isOperatorClaim(claim) {
 				return nil
 			}
-			binding, err := currentHeadBinding(root)
-			if err != nil {
-				return fmt.Errorf("bind operator claim: %w", err)
+			grant := operatorClaimGrant{SessionID: sessionID, Claim: claim}
+			if expiresAt.IsZero() {
+				binding, err := currentHeadBinding(root)
+				if err != nil {
+					return fmt.Errorf("bind operator claim: %w", err)
+				}
+				grant.Head, grant.ReflogBytes, grant.ReflogGeneration = binding.head, binding.reflogBytes, binding.reflogGeneration
+			} else {
+				grant.ExpiresAt = expiresAt.UTC().Format(time.RFC3339Nano)
 			}
 			file.OperatorGrants = withoutGrant(file.OperatorGrants, sessionID, claim)
 			if len(file.OperatorGrants) >= maxOperatorClaimGrants {
 				return fmt.Errorf("claim grants exceed %d operator grants", maxOperatorClaimGrants)
 			}
-			file.OperatorGrants = append(file.OperatorGrants, operatorClaimGrant{
-				SessionID: sessionID, Claim: claim, Head: binding.head,
-				ReflogBytes: binding.reflogBytes, ReflogGeneration: binding.reflogGeneration,
-			})
+			file.OperatorGrants = append(file.OperatorGrants, grant)
 			return nil
 		})
 	})
@@ -423,12 +448,13 @@ func loadClaimGrantFile(root string) (claimGrantFile, error) {
 	if err := decoder.Decode(&file); err != nil {
 		return claimGrantFile{}, fmt.Errorf("claim grants are not valid JSON (%s): %w", claimGrantPath(root), err)
 	}
-	if (file.FormatVersion != claimGrantFormatVersion && file.FormatVersion != claimGrantLegacyFormat && file.FormatVersion != claimGrantSizeOnlyFormat) || file.RepoRoot != root ||
+	if (file.FormatVersion != claimGrantFormatVersion && file.FormatVersion != claimGrantHeadFormat &&
+		file.FormatVersion != claimGrantLegacyFormat && file.FormatVersion != claimGrantSizeOnlyFormat) || file.RepoRoot != root ||
 		len(file.OperatorGrants) > maxOperatorClaimGrants || len(file.Revocations) > maxClaimRevocations {
 		return claimGrantFile{}, fmt.Errorf("claim grants identity is invalid (%s)", claimGrantPath(root))
 	}
 	for _, grant := range file.OperatorGrants {
-		if validateSessionID(grant.SessionID) != nil || !isOperatorClaim(grant.Claim) {
+		if validateSessionID(grant.SessionID) != nil || !isOperatorClaim(grant.Claim) || !validGrantExpiry(grant.ExpiresAt) {
 			return claimGrantFile{}, fmt.Errorf("claim grants contain an invalid operator grant (%s)", claimGrantPath(root))
 		}
 	}
@@ -437,7 +463,7 @@ func loadClaimGrantFile(root string) (claimGrantFile, error) {
 			return claimGrantFile{}, fmt.Errorf("claim grants contain an invalid revocation (%s)", claimGrantPath(root))
 		}
 	}
-	if file.OperatorGrants == nil || file.FormatVersion != claimGrantFormatVersion {
+	if file.OperatorGrants == nil || (file.FormatVersion != claimGrantFormatVersion && file.FormatVersion != claimGrantHeadFormat) {
 		file.OperatorGrants = []operatorClaimGrant{}
 	}
 	file.FormatVersion = claimGrantFormatVersion
@@ -445,6 +471,15 @@ func loadClaimGrantFile(root string) (claimGrantFile, error) {
 		file.Revocations = []claimRevocation{}
 	}
 	return file, nil
+}
+
+// validGrantExpiry accepts an empty expiry or an RFC 3339 time.
+func validGrantExpiry(expiresAt string) bool {
+	if expiresAt == "" {
+		return true
+	}
+	_, err := time.Parse(time.RFC3339Nano, expiresAt)
+	return err == nil
 }
 
 func writeClaimGrantFile(root string, file claimGrantFile) error {

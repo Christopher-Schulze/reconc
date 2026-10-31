@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ClaimReport is the outcome of appending one claim to the active
@@ -14,6 +15,7 @@ type ClaimReport struct {
 	SessionID  string `json:"session_id"`
 	Claim      string `json:"claim"`
 	Revoked    bool   `json:"revoked,omitempty"`
+	ExpiresAt  string `json:"expires_at,omitempty"`
 	ClaimCount int    `json:"claim_count"`
 	StatePath  string `json:"state_path"`
 	ReportPath string `json:"report_path"`
@@ -25,8 +27,25 @@ type ClaimReport struct {
 // underlying state file can't be written.
 //
 // Re-running RecordClaim for the same claim is idempotent (dedup in
-// AppendClaim).
+// AppendClaim). An operator claim recorded here is bound to the current HEAD.
 func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
+	return recordClaim(repoRoot, claim, sessionID, time.Time{})
+}
+
+// RecordOperatorClaimFor records an operator claim that stays effective for
+// duration after now, across commits, until it expires, is revoked, another
+// session becomes active, or the session is cleaned up.
+func RecordOperatorClaimFor(repoRoot, claim, sessionID string, duration time.Duration, now time.Time) (*ClaimReport, error) {
+	if !isOperatorClaim(claim) {
+		return nil, fmt.Errorf("a claim duration applies only to %s* claims", OperatorClaimPrefix)
+	}
+	if duration < minTimedOperatorClaim || duration > MaxTimedOperatorClaim {
+		return nil, fmt.Errorf("claim duration must be between %s and %s", minTimedOperatorClaim, MaxTimedOperatorClaim)
+	}
+	return recordClaim(repoRoot, claim, sessionID, now.Add(duration))
+}
+
+func recordClaim(repoRoot, claim, sessionID string, expiresAt time.Time) (*ClaimReport, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return nil, err
@@ -66,7 +85,7 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 	if updated.EvidenceOverflow {
 		return nil, errors.New(evidenceOverflowMessage(updated))
 	}
-	if err := grantRecordedClaim(root, sessionID, claim); err != nil {
+	if err := grantRecordedClaim(root, sessionID, claim, expiresAt); err != nil {
 		return nil, fmt.Errorf("record claim grant: %w", err)
 	}
 	updated, err = loadCompleteSessionEvidence(root, updated)
@@ -78,14 +97,18 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 	// itself, so re-running the full policy here would only repeat that work
 	// and execute every applicable script on the claim path.
 
-	return &ClaimReport{
+	report := &ClaimReport{
 		RepoRoot:   root,
 		SessionID:  sessionID,
 		Claim:      claim,
 		ClaimCount: len(updated.Claims),
 		StatePath:  sessionStatePath(root, sessionID),
 		ReportPath: updated.ReportPath,
-	}, nil
+	}
+	if !expiresAt.IsZero() {
+		report.ExpiresAt = expiresAt.UTC().Format(time.RFC3339)
+	}
+	return report, nil
 }
 
 // ActiveEvidence returns read, write, command, and claim evidence recorded on the
@@ -179,6 +202,10 @@ func DescribeClaimReport(r *ClaimReport) string {
 	if r.Revoked {
 		return fmt.Sprintf("claim '%s' revoked for session %s (effective claims: %d)\n  state:  %s\n  report: %s",
 			r.Claim, r.SessionID, r.ClaimCount, r.StatePath, r.ReportPath)
+	}
+	if r.ExpiresAt != "" {
+		return fmt.Sprintf("claim '%s' recorded for session %s until %s (total claims: %d)\n  state:  %s\n  report: %s",
+			r.Claim, r.SessionID, r.ExpiresAt, r.ClaimCount, r.StatePath, r.ReportPath)
 	}
 	return fmt.Sprintf("claim '%s' recorded for session %s (total claims: %d)\n  state:  %s\n  report: %s",
 		r.Claim, r.SessionID, r.ClaimCount, r.StatePath, r.ReportPath)

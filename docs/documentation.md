@@ -2807,7 +2807,7 @@ remain agent-recordable.
 An `operator:` claim authorizes the changes up to the next commit. Recording it stores a grant
 with the recording session, the Git `HEAD` of that moment, and the size and
 filesystem generation of `HEAD`'s reflog in the private per-project file
-`claim-grants.json` (format `claim-grants-v3`, bounded, decoded strictly).
+`claim-grants.json` (format `claim-grants-v4`, bounded, decoded strictly).
 The generation uses the existing platform file-identity and change-time
 observation; it detects reflog replacement or rewriting even when cleanup
 restores the original bytes and modification time. Every policy decision that
@@ -2838,7 +2838,14 @@ revocations. An `operator:` claim recorded by an older release, including a
 `claim-grants-v1` grant bound to the commit alone or a `claim-grants-v2` grant
 bound only to the commit and reflog size, authorizes nothing, while its
 revocations stay in force. Record a fresh operator claim after upgrading
-from either format. The staged gate of the
+from either format. A `claim-grants-v3` grant keeps its `HEAD` binding and
+stays effective. `reconc hook claim <repo> operator:<name> --for DURATION`
+(one minute to eight hours) stores a timed grant with the recording session
+and an RFC 3339 expiry instead of a `HEAD` binding. It is effective while the
+current time is before that expiry, across commits and reflog changes, and a
+confirmed expiry removes it. Revocation, a switch of the active session and
+session cleanup end a timed grant like any other grant; the confirmation
+prompt names the duration. The staged gate of the
 authorized change still runs before its commit, and Stop judges only
 uncommitted writes, so the committed change does not block after its claim
 expired, while any further protected write needs a fresh claim.

@@ -72,7 +72,7 @@ Generated from `internal/commandmeta`; run `make reference-docs` after changing 
 | `reconc hook bridge` | `reconc hook bridge <runtime> <host-event> [repo]` | dispatch a declarative repository-owned custom runtime event | json |
 | `reconc hook conform` | `reconc hook conform <manifest.json> <fixtures.json> [--json]` | verify a custom runtime adapter contract offline | text, json |
 | `reconc hook sync-scaffold` | `reconc hook sync-scaffold <repo-root-scaffold> [--json]` | synchronize generated scaffold hook artifacts | text, json |
-| `reconc hook claim` | `reconc hook claim <repo> <claim-name> [--revoke] [--session ID] [--json] [--output PATH]` | record or revoke one explicit session claim | text, json, file |
+| `reconc hook claim` | `reconc hook claim <repo> <claim-name> [--for DURATION] [--revoke] [--session ID] [--json] [--output PATH]` | record or revoke one explicit session claim | text, json, file |
 | `reconc hook evidence-status` | `reconc hook evidence-status [repo] [--json]` | inspect effective evidence taint without mutation | text, json |
 | `reconc hook evidence-resolve` | `reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]` | resolve reviewed evidence taint explicitly, also during an active session (operator only) | text, json |
 | `reconc hook pause` | `reconc hook pause [repo] --for DURATION --reason TEXT [--json]` | let blocking hook events pass for a bounded time (operator only, max 24h) | text, json |
@@ -1589,7 +1589,7 @@ from a source-specific harness. Reconc preflights containment for every target
 before the first write, preventing both parent-symlink escapes and partial
 scaffold updates.
 
-### `reconc hook claim <repo> <claim-name> [--revoke] [--session ID] [--json] [--output PATH]`
+### `reconc hook claim <repo> <claim-name> [--for DURATION] [--revoke] [--session ID] [--json] [--output PATH]`
 Assert a workflow claim (e.g. `ci-green`). Written to the session
 state consulted by later hook-runtime checks and `ci` calls; recording only
 persists the claim and runs no policy evaluation or script. `--session`
@@ -1603,7 +1603,12 @@ and the recording session stays active. A commit, amend, reset, checkout,
 rebase or reflog rewrite ends it, including cleanup that restores the original
 reflog bytes. Confirmed expiry permanently removes the grant. Reflog maintenance
 can expire it without a HEAD change; record a fresh claim afterwards. A session
-switch or cleanup also ends it. Grants stored without the reflog generation
+switch or cleanup also ends it. `--for DURATION` (one minute to eight hours)
+records an `operator:*` claim with an expiry time instead of a `HEAD` binding:
+it stays effective across commits until the duration ends, while revocation, a
+session switch and cleanup still end it, and its confirmation names the
+duration. `--for` is refused together with `--revoke` and for claims outside
+`operator:*`. Grants stored without the reflog generation
 authorize nothing after upgrading; their revocations remain in force.
 Recording fails when `HEAD` is neither a readable commit nor an unborn branch,
 when Git cannot answer, when Git keeps no reflog for a committed `HEAD`, or
