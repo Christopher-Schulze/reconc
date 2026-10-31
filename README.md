@@ -304,20 +304,11 @@ state exactly what remains outside the boundary.
 The [Install](#install) commands fetch the installer attached to the latest
 [published release](https://github.com/Christopher-Schulze/reconc/releases),
 never executable installation logic from mutable `main`, and install the latest
-stable version. To pin an exact release, replace `X.Y.Z`:
+stable version. Later changes on `main` remain unreleased until a release
+publishes them; build from source when those development changes are required.
+The installers:
 
-```bash
-curl -fsSL https://github.com/Christopher-Schulze/reconc/releases/latest/download/install.sh | sh -s -- --version X.Y.Z
-```
-
-```powershell
-& ([scriptblock]::Create((irm https://github.com/Christopher-Schulze/reconc/releases/latest/download/install.ps1))) -Version X.Y.Z
-```
-
-Later changes on `main` remain unreleased until a release publishes them; build
-from source when those development changes are required. The installers:
-
-- resolve the latest stable release or one exact version;
+- resolve the latest stable release;
 - download bounded metadata and the exact platform artifact over HTTPS;
 - require one matching SHA-256 entry and verify the payload before execution;
 - inspect the candidate's embedded version, target, and source identity;
@@ -515,8 +506,8 @@ reconc update
 `reconc update` checks ownership and release trust, installs an available stable
 release atomically, and succeeds without changing anything when already
 current. Equal version text is current only when the installed receipt's
-artifact SHA-256 matches the selected release asset. Use `--version VERSION`
-only for an intentional exact selection. Source-owned installations receive the exact rebuild guidance.
+artifact SHA-256 matches the selected release asset. Source-owned
+installations receive the exact rebuild guidance.
 There is no separate check/apply step in the current user flow. Direct updates
 require GitHub build-provenance verification before publication. Offline
 `--from-dir` updates additionally require the asset's Sigstore bundle and the

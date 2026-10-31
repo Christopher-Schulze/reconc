@@ -319,11 +319,6 @@ func TestREADMEInstallsFromPublishedReleaseAssets(t *testing.T) {
 			t.Errorf("README.md fetches %s from the source tree instead of a release asset: %q", installer, match)
 		}
 	}
-	for _, argument := range []string{"--version X.Y.Z", "-Version X.Y.Z"} {
-		if !strings.Contains(install, argument) {
-			t.Errorf("README installation omits %q", argument)
-		}
-	}
 	if pinned := regexp.MustCompile(`-(-v|V)ersion [0-9]`).FindString(install); pinned != "" {
 		t.Errorf("README installation pins a release version: %q", pinned)
 	}
