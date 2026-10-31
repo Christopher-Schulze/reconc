@@ -1656,7 +1656,8 @@ Windows installer uses ordinal comparison.
 On a terminal the running update phase animates in place on one line that
 stays short of the terminal width, so the terminal never wraps it: when the
 window is too narrow, the transfer speed and remaining time are left out first,
-then the byte counts. Output to a non-terminal writer keeps every field.
+then the byte counts. A terminal that does not report its size counts as 80
+columns.
 The update retains the strict identity and digest snapshot of the receipt-owned
 binary throughout candidate preparation, attestation, and smoke testing, then
 revalidates it immediately before publication. Any replacement, symlink, or
