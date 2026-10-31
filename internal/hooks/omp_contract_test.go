@@ -329,7 +329,10 @@ func TestGeneratedOMPExtensionTransportFailsClosedWithinBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Bun is required to verify the generated OMP extension: %v", err)
 	}
-	for _, mode := range []string{"large", "invalid-utf8", "timeout", "spawn-failure", "abort"} {
+	// unread-input holds the event loop after each hook spawn until the hook, which
+	// exits without reading its payload, is gone, as a descheduled host would;
+	// the hook's exit code decides, not a broken pipe.
+	for _, mode := range []string{"large", "invalid-utf8", "timeout", "spawn-failure", "abort", "unread-input"} {
 		t.Run(mode, func(t *testing.T) {
 			repo := t.TempDir()
 			artifact, err := Generate(KindOMP)
@@ -377,6 +380,7 @@ case "$RECONC_OMP_TRANSPORT_MODE" in
     exit 1
     ;;
   invalid-utf8) printf '\377\376broken\n' >&2; exit 0 ;;
+  unread-input) exit 0 ;;
   timeout) sleep 2; exit 0 ;;
   abort) sleep 2; exit 0 ;;
 esac
@@ -386,7 +390,15 @@ esac
 				}
 			}
 			driverPath := filepath.Join(repo, "omp-transport.js")
-			driver := `const module = await import("file://" + Bun.argv[2] + "?transport=" + Date.now())
+			driver := `if (Bun.argv[4] === "unread-input") {
+  const spawn = Bun.spawn
+  Bun.spawn = (...args) => {
+    const proc = spawn(...args)
+    if (args[0]?.[1] !== "__worker_v1__") Bun.sleepSync(200)
+    return proc
+  }
+}
+const module = await import("file://" + Bun.argv[2] + "?transport=" + Date.now())
 const handlers = new Map()
 module.default({ logger: { warn: () => {} }, on: (event, handler) => handlers.set(event, handler) })
 if (Bun.argv[4] === "spawn-failure") process.env.PATH = ""
@@ -405,6 +417,14 @@ if (Bun.argv[4] === "abort") {
   const canceled = await pending
   if (canceled !== undefined) throw new Error("in-flight aborted OMP Stop must yield to the host")
   if (Date.now() - started > 1500) throw new Error("in-flight OMP Stop abort did not kill promptly")
+  process.exit(0)
+}
+if (Bun.argv[4] === "unread-input") {
+  const allowed = await handlers.get("tool_call")({
+    type: "tool_call", toolCallId: "call-1", toolName: "write", input: { path: "allowed" },
+  }, ctx)
+  if (allowed?.block === true) throw new Error("OMP blocked a hook that exited without reading its payload: " + JSON.stringify(allowed))
+  try { await handlers.get("session_shutdown")({ type: "session_shutdown" }, ctx) } catch {}
   process.exit(0)
 }
 const result = await handlers.get("tool_call")({

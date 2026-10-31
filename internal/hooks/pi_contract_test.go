@@ -215,7 +215,10 @@ func TestGeneratedPiExtensionTransportBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Bun is required to verify the generated Pi extension: %v", err)
 	}
-	for _, mode := range []string{"invalid-utf8", "oversized", "timeout", "spawn-failure"} {
+	// unread-input holds the event loop after each hook spawn until the hook, which
+	// exits without reading its payload, is gone, as a descheduled host would;
+	// the hook's exit code decides, not a broken pipe.
+	for _, mode := range []string{"invalid-utf8", "oversized", "timeout", "spawn-failure", "unread-input"} {
 		t.Run(mode, func(t *testing.T) {
 			repo := t.TempDir()
 			artifact, err := Generate(KindPi)
@@ -241,6 +244,7 @@ func TestGeneratedPiExtensionTransportBoundaries(t *testing.T) {
 				wrapper := `#!/bin/sh
 case "$RECONC_PI_TRANSPORT_MODE" in
   invalid-utf8) printf '\377\376broken\n' >&2; exit 0 ;;
+  unread-input) exit 0 ;;
   oversized) head -c 9000 /dev/zero | tr '\000' x; exit 0 ;;
   timeout) sleep 2; exit 0 ;;
 esac
@@ -250,7 +254,15 @@ esac
 				}
 			}
 			driverPath := filepath.Join(repo, "pi-transport.js")
-			driver := `const module = await import("file://" + Bun.argv[2] + "?transport=" + Date.now())
+			driver := `if (Bun.argv[4] === "unread-input") {
+  const spawn = Bun.spawn
+  Bun.spawn = (...args) => {
+    const proc = spawn(...args)
+    if (args[0]?.[1] !== "__worker_v1__") Bun.sleepSync(200)
+    return proc
+  }
+}
+const module = await import("file://" + Bun.argv[2] + "?transport=" + Date.now())
 const handlers = new Map()
 const sent = []
 module.default({ on: (event, handler) => handlers.set(event, handler), sendUserMessage: (value) => sent.push(value) })
@@ -260,6 +272,14 @@ const ctx = {
   sessionManager: { getSessionId: () => "pi-transport", getSessionFile: () => undefined },
 }
 const started = Date.now()
+if (Bun.argv[4] === "unread-input") {
+  const allowed = await handlers.get("tool_call")({
+    type: "tool_call", toolCallId: "call-1", toolName: "write", input: { path: "allowed" },
+  }, ctx)
+  if (allowed?.block === true) throw new Error("Pi blocked a hook that exited without reading its payload: " + JSON.stringify(allowed))
+  try { await handlers.get("session_shutdown")({ type: "session_shutdown" }, ctx) } catch {}
+  process.exit(0)
+}
 const blocked = await handlers.get("tool_call")({
   type: "tool_call", toolCallId: "call-1", toolName: "write", input: { path: "blocked" },
 }, ctx)

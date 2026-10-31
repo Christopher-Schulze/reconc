@@ -217,9 +217,11 @@ const runOneShot = async (
     if (aborted) {
       return { code: 1, stdout: "", stderr: "Pi canceled the Reconc hook", timedOut, aborted, truncated: false, invalidUTF8: false }
     }
+    // Bun delivers the payload itself: a hook that exits without reading it
+    // keeps its own exit code and output instead of a broken-pipe error.
     const proc = Bun.spawn(command, {
       cwd: repo,
-      stdin: "pipe",
+      stdin: new TextEncoder().encode(JSON.stringify(payload)),
       stdout: "pipe",
       stderr: "pipe",
       killSignal: "SIGKILL",
@@ -233,8 +235,6 @@ const runOneShot = async (
       const code = await proc.exited
       return { code, stdout: "", stderr: "Pi canceled the Reconc hook", timedOut, aborted, truncated: false, invalidUTF8: false }
     }
-    proc.stdin.write(JSON.stringify(payload))
-    proc.stdin.end()
     timeoutID = setTimeout(() => {
       timedOut = true
       outputAbort.abort()

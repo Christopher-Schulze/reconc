@@ -158,14 +158,14 @@ const ReconcKiloServer = async ({ directory, worktree, client }) => {
     let timedOut = false
     const outputAbort = new AbortController()
     try {
+      // Bun delivers the payload itself: a hook that exits without reading it
+      // keeps its own exit code and output instead of a broken-pipe error.
       proc = Bun.spawn(await commandFor(event), {
-        stdin: "pipe",
+        stdin: new TextEncoder().encode(JSON.stringify(payload)),
         stdout: "pipe",
         stderr: "pipe",
         killSignal: "SIGKILL",
       })
-      proc.stdin.write(JSON.stringify(payload))
-      proc.stdin.end()
       timeoutID = setTimeout(() => {
         timedOut = true
         outputAbort.abort()
