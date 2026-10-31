@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 const (
@@ -26,18 +28,40 @@ func newTextStyler(writer io.Writer) textStyler {
 
 // writerIsTerminal reports whether writer, or a writer it wraps, is a terminal.
 func writerIsTerminal(writer io.Writer) bool {
+	file := wrappedFile(writer)
+	if file == nil {
+		return false
+	}
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+// terminalColumns reports the width of the terminal behind writer, 80 when the
+// terminal does not report its size, and 0 when writer is not a terminal.
+func terminalColumns(writer io.Writer) int {
+	if !writerIsTerminal(writer) {
+		return 0
+	}
+	width, _, err := term.GetSize(int(wrappedFile(writer).Fd()))
+	if err != nil || width <= 0 {
+		return 80
+	}
+	return width
+}
+
+// wrappedFile returns the file behind writer or a writer it wraps.
+func wrappedFile(writer io.Writer) *os.File {
 	for {
 		if file, ok := writer.(*os.File); ok {
-			info, err := file.Stat()
-			return err == nil && info.Mode()&os.ModeCharDevice != 0
+			return file
 		}
 		unwrapper, ok := writer.(interface{ Unwrap() io.Writer })
 		if !ok {
-			return false
+			return nil
 		}
 		next := unwrapper.Unwrap()
 		if next == nil || next == writer {
-			return false
+			return nil
 		}
 		writer = next
 	}

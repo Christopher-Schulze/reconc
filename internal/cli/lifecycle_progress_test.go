@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/usercli"
 )
@@ -192,5 +193,60 @@ func TestLifecycleTextSummaryShowsOnlyChecksThatNeedAttention(t *testing.T) {
 		"Next: Run `reconc doctor --global` to verify the updated installation.\n"
 	if out.String() != want {
 		t.Fatalf("lifecycle summary =\n%q\nwant\n%q", out.String(), want)
+	}
+}
+
+// TestUpdateProgressLiveFitsTheTerminalWidth proves that the running download
+// line stays short of the terminal width, so the terminal cannot wrap it, and
+// that the speed and remaining time go first, then the byte counts.
+func TestUpdateProgressLiveFitsTheTerminalWidth(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		columns   int
+		wantParts []string
+		absent    []string
+	}{
+		{name: "wide", columns: 120, wantParts: []string{" 50%", "2.0 MiB / 4.0 MiB", "2.0 MiB/s · 1s left"}},
+		{name: "standard", columns: 80, wantParts: []string{" 50%", "2.0 MiB / 4.0 MiB"}, absent: []string{"left"}},
+		{name: "narrow", columns: 60, wantParts: []string{" 50%"}, absent: []string{"MiB", "left"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			start := time.Date(2026, 10, 31, 1, 0, 0, 0, time.UTC)
+			now := start
+			var out bytes.Buffer
+			view := &updateProgressView{out: &out, style: textStyler{enabled: true}, live: true,
+				now: func() time.Time { return now }, columns: func() int { return tc.columns }}
+			view.observe(usercli.UpdateEvent{Phase: usercli.UpdatePhaseDownload, Kind: usercli.UpdateEventStart})
+			for _, step := range []struct {
+				at   time.Duration
+				done int64
+			}{{100 * time.Millisecond, 1 << 19}, {500 * time.Millisecond, 1 << 20}, {time.Second, 2 << 20}} {
+				now = start.Add(step.at)
+				view.observe(usercli.UpdateEvent{Phase: usercli.UpdatePhaseDownload, Kind: usercli.UpdateEventProgress, Done: step.done, Total: 4 << 20})
+			}
+			view.mu.Lock()
+			view.drawRunning()
+			view.mu.Unlock()
+			frames := strings.Split(out.String(), ansiClearLine)
+			line := frames[len(frames)-1]
+			visible := line
+			for _, code := range []string{ansiReset, ansiBold, ansiCyan, ansiDim} {
+				visible = strings.ReplaceAll(visible, code, "")
+			}
+			if width := utf8.RuneCountInString(visible); width >= tc.columns {
+				t.Fatalf("running line is %d columns wide on a %d-column terminal: %q", width, tc.columns, visible)
+			}
+			for _, part := range tc.wantParts {
+				if !strings.Contains(visible, part) {
+					t.Fatalf("running line lacks %q: %q", part, visible)
+				}
+			}
+			for _, part := range tc.absent {
+				if strings.Contains(visible, part) {
+					t.Fatalf("running line keeps %q that does not fit: %q", part, visible)
+				}
+			}
+			view.close()
+		})
 	}
 }

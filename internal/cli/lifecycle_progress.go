@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/usercli"
 )
@@ -50,12 +51,16 @@ var updatePhaseLabels = map[usercli.UpdatePhase]string{
 // terminal it also animates the running phase in place: a spinner with the
 // elapsed time, and while the binary downloads a smooth byte progress bar with
 // the transferred bytes, the smoothed transfer speed and the remaining time.
-// A finished live download keeps its average speed.
+// A finished live download keeps its average speed. The running line stays
+// short of the terminal width: parts that do not fit are left out, last part
+// first, so the terminal never wraps it and the in-place redraw keeps one line.
 type updateProgressView struct {
 	out   io.Writer
 	style textStyler
 	live  bool
 	now   func() time.Time
+	// columns reports the terminal width; nil or 0 leaves the line unlimited.
+	columns func() int
 
 	mu       sync.Mutex
 	phase    usercli.UpdatePhase
@@ -73,7 +78,8 @@ type updateProgressView struct {
 
 func newUpdateProgressView(out io.Writer) *updateProgressView {
 	live := writerIsTerminal(out) && !strings.EqualFold(os.Getenv("TERM"), "dumb")
-	return &updateProgressView{out: out, style: newTextStyler(out), live: live, now: time.Now}
+	return &updateProgressView{out: out, style: newTextStyler(out), live: live, now: time.Now,
+		columns: func() int { return terminalColumns(out) }}
 }
 
 func (view *updateProgressView) clock() time.Time {
@@ -155,20 +161,48 @@ func (view *updateProgressView) drawRunning() {
 		return
 	}
 	spinner := view.style.token(spinnerFrames[view.frame%len(spinnerFrames)], ansiBold+ansiCyan)
-	status := ""
+	var parts []progressPart
 	if view.total > 0 {
-		status = progressBar(view.done, view.total) + "  " +
-			formatByteCount(view.done) + " / " + formatByteCount(view.total)
+		parts = append(parts, progressPart{text: progressBar(view.done, view.total)},
+			progressPart{text: "  " + formatByteCount(view.done) + " / " + formatByteCount(view.total)})
 		if view.clock().Sub(view.lastRead) >= stallShown {
-			status += view.style.token("  stalled", ansiDim)
+			parts = append(parts, progressPart{text: "  stalled", dim: true})
 		} else if view.speed > 0 {
 			remaining := remainingTime(view.total-view.done, view.speed)
-			status += view.style.token("  "+formatRate(view.speed)+" · "+formatRemaining(remaining)+" left", ansiDim)
+			parts = append(parts, progressPart{text: "  " + formatRate(view.speed) + " · " + formatRemaining(remaining) + " left", dim: true})
 		}
 	} else if elapsed := view.clock().Sub(view.started); elapsed >= progressElapsedShown {
-		status = view.style.token(formatElapsed(elapsed), ansiDim)
+		parts = append(parts, progressPart{text: formatElapsed(elapsed), dim: true})
+	}
+	limit := -1
+	if view.columns != nil {
+		if columns := view.columns(); columns > 0 {
+			// Two spaces, the spinner, a space, the label and a space precede
+			// the status; the last column stays free so the line cannot wrap.
+			limit = max(columns-1-(4+phaseLabelWidth+1), 0)
+		}
+	}
+	status, used := "", 0
+	for _, part := range parts {
+		width := utf8.RuneCountInString(part.text)
+		if limit >= 0 && used+width > limit {
+			break
+		}
+		used += width
+		if part.dim {
+			status += view.style.token(part.text, ansiDim)
+		} else {
+			status += part.text
+		}
 	}
 	fmt.Fprintf(view.out, "%s  %s %-*s %s", ansiClearLine, spinner, phaseLabelWidth, updatePhaseLabels[view.phase], status)
+}
+
+// progressPart is one piece of the running status with its plain text, whose
+// rune count is its terminal width.
+type progressPart struct {
+	text string
+	dim  bool
 }
 
 func (view *updateProgressView) finish(phase usercli.UpdatePhase, passed bool, detail string) {
