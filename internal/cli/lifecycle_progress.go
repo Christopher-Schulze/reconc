@@ -13,8 +13,13 @@ import (
 )
 
 const (
+	// ansiClearLive returns to the start of the running line and erases it and
+	// every row below, which includes the rows a terminal reflows it onto when
+	// its window narrows.
+	ansiClearLive        = "\r\x1b[J"
+	ansiAutowrapOff      = "\x1b[?7l"
+	ansiAutowrapOn       = "\x1b[?7h"
 	ansiDim              = "\x1b[2m"
-	ansiClearLine        = "\r\x1b[2K"
 	progressBarCells     = 24
 	progressFrameDelay   = 80 * time.Millisecond
 	progressElapsedShown = time.Second
@@ -53,7 +58,11 @@ var updatePhaseLabels = map[usercli.UpdatePhase]string{
 // the transferred bytes, the smoothed transfer speed and the remaining time.
 // A finished live download keeps its average speed. The running line stays
 // short of the terminal width: parts that do not fit are left out, last part
-// first, so the terminal never wraps it and the in-place redraw keeps one line.
+// first. It is drawn with autowrap off, so a width change between measuring
+// and drawing cuts it instead of wrapping it, and the cursor then rests at its
+// start. A terminal that reflows the line onto several rows when its window
+// narrows keeps the cursor at the start of the line, so the next redraw erases
+// every one of those rows and the display stays one line through any resize.
 type updateProgressView struct {
 	out   io.Writer
 	style textStyler
@@ -195,7 +204,9 @@ func (view *updateProgressView) drawRunning() {
 			status += part.text
 		}
 	}
-	fmt.Fprintf(view.out, "%s  %s %-*s %s", ansiClearLine, spinner, phaseLabelWidth, updatePhaseLabels[view.phase], status)
+	// One write keeps autowrap from staying off when the update is interrupted.
+	fmt.Fprintf(view.out, "%s%s  %s %-*s %s%s\r", ansiClearLive, ansiAutowrapOff, spinner, phaseLabelWidth,
+		updatePhaseLabels[view.phase], status, ansiAutowrapOn)
 }
 
 // progressPart is one piece of the running status with its plain text, whose
@@ -215,7 +226,7 @@ func (view *updateProgressView) finish(phase usercli.UpdatePhase, passed bool, d
 		if elapsed := view.clock().Sub(view.started); elapsed >= progressElapsedShown {
 			line += "  " + view.style.token(formatElapsed(elapsed), ansiDim)
 		}
-		line = ansiClearLine + line
+		line = ansiClearLive + line
 	}
 	fmt.Fprintln(view.out, strings.TrimRight(line, " "))
 	view.phase = ""

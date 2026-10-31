@@ -542,7 +542,10 @@ the remaining time (shown as `stalled` while no bytes arrive for two seconds);
 its finished line keeps the size and the average speed. The running line stays
 short of the terminal width so the terminal never wraps it: when the window is
 too narrow, the speed and remaining time are left out first, then the byte
-counts.
+counts. It is drawn with autowrap off and leaves the cursor at its start, and
+every redraw erases from there to the end of the screen, so the rows a terminal
+reflows it onto when the window narrows disappear with the next frame and the
+display stays on one line while the window is resized.
 Without a terminal or with `TERM=dumb` the output carries no cursor control and
 prints only the finished phase lines, and `NO_COLOR` removes colors. The closing summary states the version
 change, owner, and skill state against the selected release, and lists only

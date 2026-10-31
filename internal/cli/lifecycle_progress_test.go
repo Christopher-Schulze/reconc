@@ -44,12 +44,12 @@ func TestUpdateProgressLiveOutputAnimatesTheRunningPhaseInPlace(t *testing.T) {
 	view.close()
 	text := out.String()
 	bar := strings.Repeat("█", progressBarCells/2) + strings.Repeat("░", progressBarCells/2) + "  50%  50 B / 100 B"
-	if !strings.Contains(text, ansiClearLine) || !strings.Contains(text, bar) {
+	if !strings.Contains(text, ansiClearLive) || !strings.Contains(text, bar) {
 		t.Fatalf("live progress did not redraw a half-filled bar in place: %q", text)
 	}
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	last := lines[len(lines)-1]
-	if len(lines) != 1 || !strings.HasPrefix(last, ansiClearLine) || !strings.Contains(last, "Download") ||
+	if len(lines) != 1 || !strings.HasPrefix(last, ansiClearLive) || !strings.Contains(last, "Download") ||
 		!strings.Contains(last, "100 B · SHA-256 verified") {
 		t.Fatalf("live progress must end with one finished line, got %q", text)
 	}
@@ -196,6 +196,42 @@ func TestLifecycleTextSummaryShowsOnlyChecksThatNeedAttention(t *testing.T) {
 	}
 }
 
+// TestUpdateProgressLiveRedrawSurvivesWindowResize proves the redraw framing
+// that keeps the display on one line when the window is resized while it runs:
+// every running frame erases from the start of the line to the end of the
+// screen, is drawn with autowrap off and leaves the cursor at its start, and
+// the finished line erases the same way before it ends the line.
+func TestUpdateProgressLiveRedrawSurvivesWindowResize(t *testing.T) {
+	var out bytes.Buffer
+	columns := 100
+	view := &updateProgressView{out: &out, live: true, columns: func() int { return columns }}
+	view.observe(usercli.UpdateEvent{Phase: usercli.UpdatePhaseDownload, Kind: usercli.UpdateEventStart})
+	view.observe(usercli.UpdateEvent{Phase: usercli.UpdatePhaseDownload, Kind: usercli.UpdateEventProgress, Done: 1 << 20, Total: 4 << 20})
+	for _, width := range []int{100, 40} {
+		view.mu.Lock()
+		columns = width
+		out.Reset()
+		view.drawRunning()
+		frame := out.String()
+		view.mu.Unlock()
+		content, framed := strings.CutPrefix(frame, ansiClearLive+ansiAutowrapOff)
+		content, closed := strings.CutSuffix(content, ansiAutowrapOn+"\r")
+		if !framed || !closed || strings.ContainsAny(content, "\r\n") || !strings.Contains(content, "Download") {
+			t.Fatalf("running frame at %d columns is not erased, unwrapped and left at its start: %q", width, frame)
+		}
+		if got := utf8.RuneCountInString(content); got >= width {
+			t.Fatalf("running frame is %d columns wide on a %d-column terminal: %q", got, width, content)
+		}
+	}
+	view.observe(usercli.UpdateEvent{Phase: usercli.UpdatePhaseDownload, Kind: usercli.UpdateEventPass, Detail: "SHA-256 verified", Total: 4 << 20})
+	view.close()
+	text := out.String()
+	last := strings.LastIndex(text, ansiClearLive)
+	if last < 0 || !strings.HasPrefix(text[last:], ansiClearLive+"  ✓ Download") || !strings.HasSuffix(text, "SHA-256 verified\n") {
+		t.Fatalf("finished line does not erase the running line first: %q", text)
+	}
+}
+
 // TestUpdateProgressLiveFitsTheTerminalWidth proves that the running download
 // line stays short of the terminal width, so the terminal cannot wrap it, and
 // that the speed and remaining time go first, then the byte counts.
@@ -227,10 +263,10 @@ func TestUpdateProgressLiveFitsTheTerminalWidth(t *testing.T) {
 			view.mu.Lock()
 			view.drawRunning()
 			view.mu.Unlock()
-			frames := strings.Split(out.String(), ansiClearLine)
+			frames := strings.Split(out.String(), ansiClearLive)
 			line := frames[len(frames)-1]
 			visible := line
-			for _, code := range []string{ansiReset, ansiBold, ansiCyan, ansiDim} {
+			for _, code := range []string{ansiReset, ansiBold, ansiCyan, ansiDim, ansiAutowrapOff, ansiAutowrapOn, "\r"} {
 				visible = strings.ReplaceAll(visible, code, "")
 			}
 			if width := utf8.RuneCountInString(visible); width >= tc.columns {

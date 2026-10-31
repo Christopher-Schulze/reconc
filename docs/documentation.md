@@ -1657,7 +1657,9 @@ On a terminal the running update phase animates in place on one line that
 stays short of the terminal width, so the terminal never wraps it: when the
 window is too narrow, the transfer speed and remaining time are left out first,
 then the byte counts. A terminal that does not report its size counts as 80
-columns.
+columns. Each frame is drawn with autowrap off and leaves the cursor at the
+start of the line, and each redraw erases from there to the end of the screen,
+so the display stays on one line even when the window is resized while it runs.
 The update retains the strict identity and digest snapshot of the receipt-owned
 binary throughout candidate preparation, attestation, and smoke testing, then
 revalidates it immediately before publication. Any replacement, symlink, or
