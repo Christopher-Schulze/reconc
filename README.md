@@ -314,7 +314,6 @@ curl -fsSL https://github.com/Christopher-Schulze/reconc/releases/latest/downloa
 & ([scriptblock]::Create((irm https://github.com/Christopher-Schulze/reconc/releases/latest/download/install.ps1))) -Version X.Y.Z
 ```
 
-`--channel preview` and `-Channel Preview` select the latest preview instead.
 Later changes on `main` remain unreleased until a release publishes them; build
 from source when those development changes are required. The installers:
 
