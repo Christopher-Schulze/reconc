@@ -36,13 +36,22 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 // duration after now, across commits, until it expires, is revoked, another
 // session becomes active, or the session is cleaned up.
 func RecordOperatorClaimFor(repoRoot, claim, sessionID string, duration time.Duration, now time.Time) (*ClaimReport, error) {
-	if !isOperatorClaim(claim) {
-		return nil, fmt.Errorf("a claim duration applies only to %s* claims", OperatorClaimPrefix)
-	}
-	if duration < minTimedOperatorClaim || duration > MaxTimedOperatorClaim {
-		return nil, fmt.Errorf("claim duration must be between %s and %s", minTimedOperatorClaim, MaxTimedOperatorClaim)
+	if err := ValidateTimedOperatorClaim(claim, duration); err != nil {
+		return nil, err
 	}
 	return recordClaim(repoRoot, claim, sessionID, now.Add(duration))
+}
+
+// ValidateTimedOperatorClaim reports whether claim and duration form a valid
+// timed operator claim, so callers can refuse before asking for confirmation.
+func ValidateTimedOperatorClaim(claim string, duration time.Duration) error {
+	if !isOperatorClaim(claim) {
+		return fmt.Errorf("a claim duration applies only to %s* claims", OperatorClaimPrefix)
+	}
+	if duration < minTimedOperatorClaim || duration > MaxTimedOperatorClaim {
+		return fmt.Errorf("claim duration must be between %s and %s", minTimedOperatorClaim, MaxTimedOperatorClaim)
+	}
+	return nil
 }
 
 func recordClaim(repoRoot, claim, sessionID string, expiresAt time.Time) (*ClaimReport, error) {

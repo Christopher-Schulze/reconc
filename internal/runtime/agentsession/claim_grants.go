@@ -482,8 +482,13 @@ func validGrantExpiry(expiresAt string) bool {
 	return err == nil
 }
 
+// writeClaimGrantFile stores the previous head-bound format while no timed
+// grant exists, so a release that predates timed grants keeps reading the file.
 func writeClaimGrantFile(root string, file claimGrantFile) error {
-	file.FormatVersion = claimGrantFormatVersion
+	file.FormatVersion = claimGrantHeadFormat
+	if slices.ContainsFunc(file.OperatorGrants, func(grant operatorClaimGrant) bool { return grant.ExpiresAt != "" }) {
+		file.FormatVersion = claimGrantFormatVersion
+	}
 	file.RepoRoot = root
 	body, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {

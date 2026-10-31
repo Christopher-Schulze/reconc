@@ -18,6 +18,7 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 	revoke := false
 	outputPath := ""
 	forValue := ""
+	forSet := false
 	positional := 0
 	i := 0
 	for i < len(args) {
@@ -45,7 +46,7 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc hook claim: --for requires a duration"}
 			}
-			forValue = val
+			forValue, forSet = val, true
 		case "--output":
 			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
@@ -78,13 +79,17 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 		return &CLIError{ExitCode: 1, Message: "reconc hook claim: usage: reconc hook claim <repo> <claim-name> [--for DURATION] [--revoke] [--session ID] [--json]"}
 	}
 	var duration time.Duration
-	if forValue != "" {
+	if forSet {
 		if revoke {
 			return &CLIError{ExitCode: 1, Message: "reconc hook claim: --for cannot be combined with --revoke"}
 		}
 		parsed, err := time.ParseDuration(forValue)
 		if err != nil {
 			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook claim: invalid --for %q: %v", forValue, err)}
+		}
+		// Validate before the operator types a confirmation code.
+		if err := agentsession.ValidateTimedOperatorClaim(claim, parsed); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc hook claim: " + err.Error()}
 		}
 		duration = parsed
 	}
@@ -96,7 +101,7 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 		report, err = agentsession.RevokeClaim(repo, claim, sessionID)
 	} else {
 		action := "reconc hook claim " + strings.TrimSpace(claim)
-		if duration != 0 {
+		if forSet {
 			action += " --for " + duration.String()
 		}
 		if strings.HasPrefix(strings.TrimSpace(claim), agentsession.OperatorClaimPrefix) {
@@ -104,7 +109,7 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 				return err
 			}
 		}
-		if duration != 0 {
+		if forSet {
 			report, err = agentsession.RecordOperatorClaimFor(repo, claim, sessionID, duration, time.Now())
 		} else {
 			report, err = agentsession.RecordClaim(repo, claim, sessionID)

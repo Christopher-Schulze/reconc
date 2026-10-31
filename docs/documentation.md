@@ -2807,7 +2807,8 @@ remain agent-recordable.
 An `operator:` claim authorizes the changes up to the next commit. Recording it stores a grant
 with the recording session, the Git `HEAD` of that moment, and the size and
 filesystem generation of `HEAD`'s reflog in the private per-project file
-`claim-grants.json` (format `claim-grants-v4`, bounded, decoded strictly).
+`claim-grants.json` (format `claim-grants-v3`, or `claim-grants-v4` while it
+holds a timed grant; bounded, decoded strictly).
 The generation uses the existing platform file-identity and change-time
 observation; it detects reflog replacement or rewriting even when cleanup
 restores the original bytes and modification time. Every policy decision that
@@ -2845,7 +2846,12 @@ and an RFC 3339 expiry instead of a `HEAD` binding. It is effective while the
 current time is before that expiry, across commits and reflog changes, and a
 confirmed expiry removes it. Revocation, a switch of the active session and
 session cleanup end a timed grant like any other grant; the confirmation
-prompt names the duration. The staged gate of the
+prompt names the duration, and the CLI validates the claim name and duration
+before it asks for confirmation. A timed grant reads no Git state, so the
+`HEAD` and reflog requirements above apply only to grants bound to `HEAD`. A
+stored expiry more than eight hours ahead, for example after the system clock
+moved back, is never effective and is removed. While no timed grant exists the
+file keeps the `claim-grants-v3` format, so an earlier release still reads it. The staged gate of the
 authorized change still runs before its commit, and Stop judges only
 uncommitted writes, so the committed change does not block after its claim
 expired, while any further protected write needs a fresh claim.

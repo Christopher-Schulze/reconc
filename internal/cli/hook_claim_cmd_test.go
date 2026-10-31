@@ -33,7 +33,11 @@ func TestHookClaimForRejectsInvalidUse(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	previous := confirmOperatorPresence
-	confirmOperatorPresence = func(string, io.Writer) error { return nil }
+	confirmations := 0
+	confirmOperatorPresence = func(string, io.Writer) error {
+		confirmations++
+		return nil
+	}
 	t.Cleanup(func() { confirmOperatorPresence = previous })
 	for _, tc := range []struct {
 		name string
@@ -45,6 +49,9 @@ func TestHookClaimForRejectsInvalidUse(t *testing.T) {
 		{name: "with revoke", args: []string{"hook", "claim", repo, "operator:edit-protected", "--for", "1h", "--revoke"}, want: "cannot be combined with --revoke"},
 		{name: "agent claim", args: []string{"hook", "claim", repo, "ci-green", "--for", "1h", "--session", "session-1"}, want: "applies only to operator:* claims"},
 		{name: "too long", args: []string{"hook", "claim", repo, "operator:edit-protected", "--for", "9h", "--session", "session-1"}, want: "between 1m0s and 8h0m0s"},
+		{name: "zero duration", args: []string{"hook", "claim", repo, "operator:edit-protected", "--for", "0s", "--session", "session-1"}, want: "between 1m0s and 8h0m0s"},
+		{name: "empty duration", args: []string{"hook", "claim", repo, "operator:edit-protected", "--for", "", "--session", "session-1"}, want: "invalid --for"},
+		{name: "zero duration on agent claim", args: []string{"hook", "claim", repo, "ci-green", "--for", "0s", "--session", "session-1"}, want: "applies only to operator:* claims"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -53,5 +60,8 @@ func TestHookClaimForRejectsInvalidUse(t *testing.T) {
 				t.Fatalf("error = %v, want %q", err, tc.want)
 			}
 		})
+	}
+	if confirmations != 0 {
+		t.Fatalf("an invalid timed claim asked for operator confirmation %d time(s)", confirmations)
 	}
 }

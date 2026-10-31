@@ -1607,10 +1607,12 @@ switch or cleanup also ends it. `--for DURATION` (one minute to eight hours)
 records an `operator:*` claim with an expiry time instead of a `HEAD` binding:
 it stays effective across commits until the duration ends, while revocation, a
 session switch and cleanup still end it, and its confirmation names the
-duration. `--for` is refused together with `--revoke` and for claims outside
-`operator:*`. Grants stored without the reflog generation
+duration. `--for` is refused together with `--revoke`, for claims outside
+`operator:*` and for a duration outside the bounds, before any confirmation. A
+timed claim reads no Git state. Grants stored without the reflog generation
 authorize nothing after upgrading; their revocations remain in force.
-Recording fails when `HEAD` is neither a readable commit nor an unborn branch,
+Recording a claim without `--for` fails when `HEAD` is neither a readable
+commit nor an unborn branch,
 when Git cannot answer, when Git keeps no reflog for a committed `HEAD`, or
 when its filesystem generation cannot be observed reliably. Claims named
 `operator:*` are reserved for local administration. Recognized

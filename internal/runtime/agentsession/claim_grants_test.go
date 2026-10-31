@@ -673,30 +673,51 @@ func TestTimedOperatorClaimRequiresOperatorClaimAndBoundedDuration(t *testing.T)
 	}
 }
 
-// TestHeadBoundGrantsFromPreviousFormatStayEffective proves that grants
-// written in the previous head-bound format keep authorizing their change.
-func TestHeadBoundGrantsFromPreviousFormatStayEffective(t *testing.T) {
+// TestGrantFileUsesTimedFormatOnlyForTimedGrants proves that a grant file
+// without timed grants keeps the previous head-bound format, so an earlier
+// release still reads it, and that a timed grant switches the file to the
+// current format until it is gone.
+func TestGrantFileUsesTimedFormatOnlyForTimedGrants(t *testing.T) {
 	repo := setupOperatorClaimRepo(t)
 	writeProtected(t, repo, "s1", "change\n")
-	if _, err := RecordClaim(repo, protectedClaim, "s1"); err != nil {
-		t.Fatal(err)
-	}
 	root, err := ResolveRepoRoot(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, err := os.ReadFile(claimGrantPath(root))
-	if err != nil {
+	format := func() string {
+		t.Helper()
+		body, err := os.ReadFile(claimGrantPath(root))
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case strings.Contains(string(body), `"`+claimGrantHeadFormat+`"`) && !strings.Contains(string(body), "expires_at"):
+			return claimGrantHeadFormat
+		case strings.Contains(string(body), `"`+claimGrantFormatVersion+`"`):
+			return claimGrantFormatVersion
+		}
+		t.Fatalf("unexpected grant file: %s", body)
+		return ""
+	}
+	if _, err := RecordClaim(repo, protectedClaim, "s1"); err != nil {
 		t.Fatal(err)
 	}
-	previous := strings.Replace(string(body), `"`+claimGrantFormatVersion+`"`, `"`+claimGrantHeadFormat+`"`, 1)
-	if previous == string(body) {
-		t.Fatal("grant file does not carry the current format version")
-	}
-	if err := os.WriteFile(claimGrantPath(root), []byte(previous), 0o600); err != nil {
-		t.Fatal(err)
+	if got := format(); got != claimGrantHeadFormat {
+		t.Fatalf("head-bound grant file format = %s", got)
 	}
 	if stopBlocked(t, repo, "s1") {
-		t.Fatal("a head-bound grant of the previous format stopped authorizing")
+		t.Fatal("a head-bound grant in the previous format did not authorize")
+	}
+	if _, err := RecordOperatorClaimFor(repo, protectedClaim, "s1", time.Hour, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := format(); got != claimGrantFormatVersion {
+		t.Fatalf("timed grant file format = %s", got)
+	}
+	if _, err := RevokeClaim(repo, protectedClaim, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := format(); got != claimGrantHeadFormat {
+		t.Fatalf("grant file without timed grants format = %s", got)
 	}
 }
