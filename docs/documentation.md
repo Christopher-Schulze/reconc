@@ -1653,6 +1653,10 @@ Semantic-version precedence compares numeric prerelease identifiers by digit
 length and ordinal text, so valid identifiers are not bounded by machine
 integer size; the POSIX installer fixes collation to the C locale and the
 Windows installer uses ordinal comparison.
+On a terminal the running update phase animates in place on one line that
+stays short of the terminal width, so the terminal never wraps it: when the
+window is too narrow, the transfer speed and remaining time are left out first,
+then the byte counts. Output to a non-terminal writer keeps every field.
 The update retains the strict identity and digest snapshot of the receipt-owned
 binary throughout candidate preparation, attestation, and smoke testing, then
 revalidates it immediately before publication. Any replacement, symlink, or
