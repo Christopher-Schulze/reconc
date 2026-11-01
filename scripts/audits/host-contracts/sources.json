@@ -1,7 +1,7 @@
 {
   "schema": "reconc-host-contract-sources",
   "format_version": 2,
-  "reviewed_at": "2026-10-27",
+  "reviewed_at": "2026-11-01",
   "hosts": [
     {
       "host": "antigravity",
@@ -26,7 +26,7 @@
           "sections": [
             {
               "start": "Schema and file format",
-              "end": "Previous Custom subagents"
+              "end": "Previous Customization discovery"
             }
           ]
         }
@@ -46,7 +46,7 @@
           "url": "https://code.claude.com/docs/en/hooks.md",
           "baseline_url": "https://code.claude.com/docs/en/hooks.md",
           "normalization": "markdown",
-          "sha256": "72fd8926643715db512bfc670b270241ec1f4fe1c0aefc3a8cf68c2bdd410f47",
+          "sha256": "8acffdbf92dfa415392fa2ae6b5f484bb5d719bb1563e729b7f0d0f346de0aa7",
           "required_markers": [
             "PreToolUse",
             "SessionStart",
@@ -425,7 +425,7 @@
           "url": "https://docs.github.com/en/copilot/reference/hooks-reference",
           "baseline_url": "https://docs.github.com/en/copilot/reference/hooks-reference",
           "normalization": "markdown",
-          "sha256": "9d95f8abcf88f2bb9ec6b77a2f3e5b4cf6d723b3703aca401e00c12a6b79923e",
+          "sha256": "02d5f629bc7ae30886dbe23d0c0515bcd6d16de65e1c3e124b7bc488d4a9da47",
           "required_markers": [
             "preToolUse",
             "sessionStart",
@@ -520,7 +520,7 @@
           "url": "https://moonshotai.github.io/kimi-code/en/customization/hooks",
           "baseline_url": "https://moonshotai.github.io/kimi-code/en/customization/hooks",
           "normalization": "html",
-          "sha256": "40f80a70788691168b9ff98b1d886f1bfa9177984f3eaebe6e8f3ecb27868e97",
+          "sha256": "87ef269fb2181cf00ee02b8a8600ade2036df125349a5a92b14e4b8cc4f794d9",
           "required_markers": [
             "PreToolUse",
             "SessionStart"
@@ -571,9 +571,9 @@
         {
           "id": "extension-types",
           "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/HEAD/packages/coding-agent/src/extensibility/extensions/types.ts",
-          "baseline_url": "https://raw.githubusercontent.com/can1357/oh-my-pi/61bc6d217efcfd6b4dd05717c20ecb3ad9fd3303/packages/coding-agent/src/extensibility/extensions/types.ts",
+          "baseline_url": "https://raw.githubusercontent.com/can1357/oh-my-pi/8c4fb5ef45d03c4266be469e19e0db69ce10d76a/packages/coding-agent/src/extensibility/extensions/types.ts",
           "normalization": "source",
-          "sha256": "8e144274861494368106a1f5752e7788daf7c5109ca3a58144089bba1ec7bb36",
+          "sha256": "452658c57b16a8f7b5146adba963476d01a39281baa14c1ca56506c7aa542681",
           "required_markers": [
             "ToolCallEvent",
             "SessionStopEvent"
@@ -634,9 +634,9 @@
         {
           "id": "plugin-module",
           "url": "https://raw.githubusercontent.com/anomalyco/opencode/HEAD/packages/core/src/plugin/module.ts",
-          "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/c7ddff776c59426e7dd63fe5a0d2a348864592ba/packages/core/src/plugin/module.ts",
+          "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/b2bd02ee719c313dd0cda1c7a28a0335f6244374/packages/core/src/plugin/module.ts",
           "normalization": "source",
-          "sha256": "644d4aeab961851dea27183058f798f2ca5f8d7ad1aea117a392a0ba1ccd38ac",
+          "sha256": "5f01ff8b091ef954601d14fa01e77f82a7884ad282101ed629a94fc716278055",
           "required_markers": [
             "id: Schema.String",
             "setup: Schema.declare",
