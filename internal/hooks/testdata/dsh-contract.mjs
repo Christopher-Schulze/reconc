@@ -152,13 +152,26 @@ if (mode === 'diagnostics-timer') {
       assert.deepEqual(result, { kind: 'deny', reason: 'another plugin' })
     } else if (mode.startsWith('route-')) {
       const step = () => listeners.get('agent/pre-step')({ agent }, () => ({ kind: 'enter' }))
-      if (mode === 'route-evaluation' || mode === 'route-stop') await step()
+      if (mode === 'route-evaluation' || mode === 'route-stop') {
+        assert.equal((await bounded(step(), 6000)).kind, 'enter')
+        assert.equal(records().filter(row => row.event === 'session-response').length, 1, 'session setup did not complete')
+      }
+      if (mode === 'route-combined') {
+        const warmAgent = { id: 'warm', session: { header: Object.freeze({ id: 'warm-session', cwd: repo }) } }
+        await bounded(listeners.get('agent/pre-step')({ agent: warmAgent }, () => ({ kind: 'enter' })), 6000)
+        assert.ok(records().some(row => row.event === 'session-response' && row.sessionId === 'warm-session'), 'worker warmup did not complete')
+      }
       const startedAt = performance.now()
       const answer = await bounded(mode === 'route-setup' ? step() : mode === 'route-stop'
-        ? listeners.get('agent/turn-stopping')({ agent }) : pre(call('read')), 1000)
+        ? listeners.get('agent/turn-stopping')({ agent }) : pre(call('read')), 1500)
       const elapsed = performance.now() - startedAt
-      assert.ok(elapsed >= 400 && elapsed < 800, `shared route budget: ${elapsed} ms`)
+      assert.ok(elapsed >= 400 && elapsed < 1200, `shared route budget: ${elapsed} ms`)
       if (mode !== 'route-stop') assert.equal(answer.kind, mode === 'route-setup' ? 'enter' : 'deny')
+      if (mode === 'route-evaluation' || mode === 'route-combined') assert.match(answer.reason, /timed out/)
+      const events = records().filter(row => row.sessionId === 'session').map(row => row.event)
+      assert.equal(events.filter(event => event === 'dsh-session-start').length, 1, 'session setup was retried')
+      if (mode !== 'route-setup') assert.equal(events.filter(event => event === 'session-response').length, 1, 'session response was not sent')
+      if (mode !== 'route-setup') assert.ok(events.includes(mode === 'route-stop' ? 'dsh-stop' : 'dsh-pre-tool-use'), 'tested route never reached the worker')
       console.log(JSON.stringify({ mode, elapsedMilliseconds: Math.round(elapsed) }))
     } else if (mode === 'decision-limit') {
       assert.equal((await pre(call('read'))).kind, 'allow')

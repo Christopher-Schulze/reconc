@@ -9,13 +9,17 @@ for await (const line of createInterface({ input: process.stdin })) {
     inputBytes: Buffer.byteLength(JSON.stringify(request.payload?.tool_input || {})),
     errorBytes: Buffer.byteLength(request.payload?.error || ''),
     workingDirectory: request.payload?.working_directory,
+    sessionId: request.payload?.session_id,
   }) + '\n')
   if (request.payload?.hang) continue
   const mode = process.env.RECONC_DSH_TEST_MODE
   if ((mode === 'route-setup' && request.event === 'dsh-session-start') ||
       (mode === 'route-evaluation' && request.event === 'dsh-pre-tool-use') ||
       (mode === 'route-stop' && request.event === 'dsh-stop')) continue
-  if (mode === 'route-combined' && request.event) await new Promise(resolve => setTimeout(resolve, 450))
+  if ((mode === 'route-evaluation' || mode === 'route-stop') && request.event === 'dsh-session-start') {
+    await new Promise(resolve => setTimeout(resolve, 700))
+  }
+  if (mode === 'route-combined' && request.event) await new Promise(resolve => setTimeout(resolve, 300))
   if (request.payload?.crash) process.exit(17)
   if (process.env.RECONC_DSH_TEST_MODE?.startsWith('session-') && request.event === 'dsh-session-start') {
     await new Promise(resolve => setTimeout(resolve, 400))
@@ -34,6 +38,7 @@ for await (const line of createInterface({ input: process.stdin })) {
   if (mode === 'decisions' && request.event === 'dsh-stop') {
     response.stdout = JSON.stringify({ decision: 'block', reason: 'finish the Reconc run' })
   }
+  if (request.event === 'dsh-session-start') appendFileSync(process.env.RECONC_DSH_TEST_LOG, JSON.stringify({ event: 'session-response', id: request.id, sessionId: request.payload.session_id }) + '\n')
   process.stdout.write(JSON.stringify(response) + '\n')
   if (request.type === 'shutdown') process.exit(0)
 }

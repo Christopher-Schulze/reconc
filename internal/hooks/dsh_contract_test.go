@@ -48,9 +48,22 @@ func runDSHContract(t *testing.T, mode string) {
 		}
 	}
 	if strings.HasPrefix(mode, "route-") {
-		for _, milliseconds := range []string{"5000", "10000", "30000"} {
-			content = strings.ReplaceAll(content, `"timeoutMilliseconds":`+milliseconds, `"timeoutMilliseconds":500`)
+		event, milliseconds := "", ""
+		switch mode {
+		case "route-setup":
+			event, milliseconds = "dsh-session-start", "5000"
+		case "route-evaluation", "route-combined":
+			event, milliseconds = "dsh-pre-tool-use", "10000"
+		case "route-stop":
+			event, milliseconds = "dsh-stop", "30000"
+		default:
+			t.Fatalf("unknown route fixture %q", mode)
 		}
+		original := `"` + event + `":{"timeoutMilliseconds":` + milliseconds
+		if strings.Count(content, original) != 1 {
+			t.Fatalf("route fixture did not find exactly one budget for %s", event)
+		}
+		content = strings.Replace(content, original, `"`+event+`":{"timeoutMilliseconds":500`, 1)
 	}
 	if mode == "deadline" {
 		content = strings.Replace(content, `"dsh-post-tool-use":{"timeoutMilliseconds":5000`, `"dsh-post-tool-use":{"timeoutMilliseconds":150`, 1)
