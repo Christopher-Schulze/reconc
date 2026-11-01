@@ -339,26 +339,31 @@ func TestGeneratedOMPExtensionTransportFailsClosedWithinBudget(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			content := strings.Replace(
-				artifact.Content,
-				`"omp-pre-tool-use":{"timeoutMilliseconds":10000`,
-				`"omp-pre-tool-use":{"timeoutMilliseconds":50`,
-				1,
-			)
-			content = strings.Replace(
-				content,
-				`"omp-stop":{"timeoutMilliseconds":29000`,
-				`"omp-stop":{"timeoutMilliseconds":50`,
-				1,
-			)
-			// The user's own shell command runs under the same blocking budget
-			// as a tool call and must fail closed the same way.
-			content = strings.Replace(
-				content,
-				`"omp-user-bash":{"timeoutMilliseconds":10000`,
-				`"omp-user-bash":{"timeoutMilliseconds":50`,
-				1,
-			)
+			content := artifact.Content
+			// Only a timeout scenario needs a shortened deadline. In particular,
+			// unread-input deliberately stalls the event loop for 200 ms.
+			if mode == "timeout" {
+				content = strings.Replace(
+					content,
+					`"omp-pre-tool-use":{"timeoutMilliseconds":10000`,
+					`"omp-pre-tool-use":{"timeoutMilliseconds":50`,
+					1,
+				)
+				content = strings.Replace(
+					content,
+					`"omp-stop":{"timeoutMilliseconds":29000`,
+					`"omp-stop":{"timeoutMilliseconds":50`,
+					1,
+				)
+				// The user's own shell command runs under the same blocking budget
+				// as a tool call and must fail closed the same way.
+				content = strings.Replace(
+					content,
+					`"omp-user-bash":{"timeoutMilliseconds":10000`,
+					`"omp-user-bash":{"timeoutMilliseconds":50`,
+					1,
+				)
+			}
 			extensionPath := filepath.Join(repo, filepath.FromSlash(artifact.TargetPath))
 			if err := os.MkdirAll(filepath.Dir(extensionPath), 0o755); err != nil {
 				t.Fatal(err)

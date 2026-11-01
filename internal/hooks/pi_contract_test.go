@@ -225,10 +225,15 @@ func TestGeneratedPiExtensionTransportBoundaries(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			content := strings.Replace(artifact.Content, `"pi-pre-tool-use":{"timeoutMilliseconds":10000`, `"pi-pre-tool-use":{"timeoutMilliseconds":50`, 1)
-			content = strings.Replace(content, `"pi-user-bash":{"timeoutMilliseconds":10000`, `"pi-user-bash":{"timeoutMilliseconds":50`, 1)
-			content = strings.Replace(content, `"pi-stop":{"timeoutMilliseconds":30000`, `"pi-stop":{"timeoutMilliseconds":50`, 1)
-			content = strings.Replace(content, `"pi-continuation-failed":{"timeoutMilliseconds":5000`, `"pi-continuation-failed":{"timeoutMilliseconds":50`, 1)
+			content := artifact.Content
+			// Non-timeout cases retain their production deadline, including the
+			// unread-input regression's deliberate 200 ms event-loop stall.
+			if mode == "timeout" {
+				content = strings.Replace(content, `"pi-pre-tool-use":{"timeoutMilliseconds":10000`, `"pi-pre-tool-use":{"timeoutMilliseconds":50`, 1)
+				content = strings.Replace(content, `"pi-user-bash":{"timeoutMilliseconds":10000`, `"pi-user-bash":{"timeoutMilliseconds":50`, 1)
+				content = strings.Replace(content, `"pi-stop":{"timeoutMilliseconds":30000`, `"pi-stop":{"timeoutMilliseconds":50`, 1)
+				content = strings.Replace(content, `"pi-continuation-failed":{"timeoutMilliseconds":5000`, `"pi-continuation-failed":{"timeoutMilliseconds":50`, 1)
+			}
 			extensionPath := filepath.Join(repo, filepath.FromSlash(artifact.TargetPath))
 			if err := os.MkdirAll(filepath.Dir(extensionPath), 0o755); err != nil {
 				t.Fatal(err)
