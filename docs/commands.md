@@ -72,7 +72,7 @@ Generated from `internal/commandmeta`; run `make reference-docs` after changing 
 | `reconc hook bridge` | `reconc hook bridge <runtime> <host-event> [repo]` | dispatch a declarative repository-owned custom runtime event | json |
 | `reconc hook conform` | `reconc hook conform <manifest.json> <fixtures.json> [--json]` | verify a custom runtime adapter contract offline | text, json |
 | `reconc hook sync-scaffold` | `reconc hook sync-scaffold <repo-root-scaffold> [--json]` | synchronize generated scaffold hook artifacts | text, json |
-| `reconc hook claim` | `reconc hook claim <repo> <claim-name> [--for DURATION] [--revoke] [--session ID] [--json] [--output PATH]` | record or revoke one explicit session claim | text, json, file |
+| `reconc hook claim` | `reconc hook claim <repo> <claim-name> [--for DURATION] [--user-approved] [--revoke] [--session ID] [--json] [--output PATH]` | record or revoke one explicit session claim | text, json, file |
 | `reconc hook evidence-status` | `reconc hook evidence-status [repo] [--json]` | inspect effective evidence taint without mutation | text, json |
 | `reconc hook evidence-resolve` | `reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]` | resolve reviewed evidence taint explicitly, also during an active session (operator only) | text, json |
 | `reconc hook pause` | `reconc hook pause [repo] --for DURATION --reason TEXT [--json]` | let blocking hook events pass for a bounded time (operator only, max 24h) | text, json |
@@ -1595,7 +1595,7 @@ from a source-specific harness. Reconc preflights containment for every target
 before the first write, preventing both parent-symlink escapes and partial
 scaffold updates.
 
-### `reconc hook claim <repo> <claim-name> [--for DURATION] [--revoke] [--session ID] [--json] [--output PATH]`
+### `reconc hook claim <repo> <claim-name> [--for DURATION] [--user-approved] [--revoke] [--session ID] [--json] [--output PATH]`
 Assert a workflow claim (e.g. `ci-green`). Written to the session
 state consulted by later hook-runtime checks and `ci` calls; recording only
 persists the claim and runs no policy evaluation or script. `--session`
@@ -1621,11 +1621,16 @@ Recording a claim without `--for` fails when `HEAD` is neither a readable
 commit nor an unborn branch,
 when Git cannot answer, when Git keeps no reflog for a committed `HEAD`, or
 when its filesystem generation cannot be observed reliably. Claims named
-`operator:*` are reserved for local administration. Recognized
-tool invocations are refused; the CLI requires an interactive terminal and
-the exact displayed confirmation code. The same confirmation applies to
-pause and evidence recovery; resume only restores enforcement and needs no
-confirmation. This prevents accidental administration,
+`operator:*` require explicit user consent. Ordinary tool invocations are
+refused and the CLI requires an interactive terminal and displayed code.
+After explicit chat approval of the exact claim, scope and duration,
+`--user-approved --for DURATION` lets an agent attest that approval and record
+the existing timed grant without a terminal code. The native guard requires
+literal arguments; the CLI rejects missing/invalid duration, non-operator
+claims and combinations with `--revoke` before changing state. This agent
+attestation is not independent approval evidence. Pause and evidence recovery
+retain terminal confirmation; resume only restores enforcement and needs no
+confirmation. These routes prevent accidental administration,
 not PTY automation or state changes by another same-user process; it does not
 prove human identity or provide independent approval evidence.
 Session FixPlan `assert_claim` actions emit this command; standalone evaluation

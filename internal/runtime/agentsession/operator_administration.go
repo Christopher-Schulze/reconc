@@ -14,10 +14,10 @@ import (
 	"reconc.dev/reconc/internal/shellcommand"
 )
 
-// OperatorClaimPrefix reserves a workflow claim for local administration.
-// Recognized tool invocations are refused and the CLI requires terminal
-// confirmation. This convention does not authenticate a human or prevent a
-// process with the same privileges from changing state or automating a PTY.
+// OperatorClaimPrefix reserves a workflow claim for explicit user consent.
+// The default route requires terminal confirmation; the bounded user-approved
+// route is an agent attestation. Neither independently authenticates a human
+// or isolates processes with the same privileges.
 const OperatorClaimPrefix = "operator:"
 
 const (
@@ -240,8 +240,8 @@ var operatorOnlyHookSubcommands = map[string]bool{
 
 // operatorOnlyCommandReason refuses agent tool calls that would lift their own
 // restraint: pausing or resuming hooks, resolving an evidence taint, or
-// recording an operator claim. Unanalyzable commands are left to the shell
-// guard, which already refuses them.
+// recording an operator claim without explicit bounded user approval.
+// Unanalyzable commands are left to the shell guard, which already refuses them.
 func operatorOnlyCommandReason(command string) string {
 	invocations, incomplete := shellcommand.InvocationsWithReason(command, maxShellGuardDepth)
 	if incomplete != shellcommand.IncompleteNone {
@@ -263,8 +263,8 @@ func operatorOnlyCommandReason(command string) string {
 		if subcommand != "claim" {
 			continue
 		}
-		if claimInvocationRevokes(invocation.Words, invocation.DynamicWords, subIndex) {
-			continue // revoking a claim only lowers authority
+		if claimInvocationRevokes(invocation.Words, invocation.DynamicWords, subIndex) || claimInvocationUserApproved(invocation.Words, invocation.DynamicWords, subIndex) {
+			continue // explicit bounded user approval or revocation
 		}
 		for index := subIndex + 1; index < len(words); index++ {
 			if index < len(invocation.DynamicWords) && invocation.DynamicWords[index] {
@@ -290,8 +290,43 @@ func claimInvocationRevokes(words []string, dynamic []bool, subIndex int) bool {
 	return false
 }
 
+// claimInvocationUserApproved recognizes the explicit agent attestation route.
+// The CLI validates the complete command before recording the existing grant.
+// This flag attests consent; it does not authenticate the user independently.
+func claimInvocationUserApproved(words []string, dynamic []bool, subIndex int) bool {
+	for _, isDynamic := range dynamic {
+		if isDynamic {
+			return false
+		}
+	}
+	approved := false
+	bounded := false
+	for index := subIndex + 1; index < len(words); index++ {
+		switch words[index] {
+		case "--user-approved":
+			approved = true
+		case "--session", "--output":
+			if index+1 >= len(words) {
+				return false
+			}
+			index++ // a value that resembles a flag is not an attestation
+		case "--for":
+			if index+1 >= len(words) {
+				return false
+			}
+			duration, err := time.ParseDuration(words[index+1])
+			if err != nil || duration < minTimedOperatorClaim || duration > MaxTimedOperatorClaim {
+				return false
+			}
+			bounded = true
+			index++
+		}
+	}
+	return approved && bounded
+}
+
 func operatorOnlyMessage(what string) string {
-	return fmt.Sprintf("reconc blocked an operator-only command (%s). Recognized tool invocations of pause, resume, evidence recovery, and `%s*` claims are refused. Ask the operator to confirm this action locally at an interactive terminal. This workflow does not authenticate a human or isolate processes with the same privileges.", what, OperatorClaimPrefix)
+	return fmt.Sprintf("reconc blocked an operator-only command (%s). Pause, resume, evidence recovery and ordinary `%s*` claim invocations are refused. With explicit user approval of the exact claim and duration, use `hook claim --user-approved --for DURATION`; otherwise ask the operator to confirm locally at an interactive terminal. This workflow does not authenticate a human or isolate processes with the same privileges.", what, OperatorClaimPrefix)
 }
 
 func nextOperand(words []string, start int) (string, int) {

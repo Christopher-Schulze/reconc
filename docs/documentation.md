@@ -2797,14 +2797,25 @@ durable taint exists; JSON marks this observation with `persisted=false`, and
 the same token resolves it.
 
 Operator administration covers `reconc hook pause`, `reconc hook resume`,
-`reconc hook evidence-resolve`, and `reconc hook claim` for a claim named
-`operator:*`. The pre-tool and MCP command gates refuse such an invocation in
-every executable position (including nested `sh -c` bodies and a dynamic claim
-name) before execution. For the commands that lift restraint (pause,
-evidence-resolve, and `operator:` claims) the CLI also requires terminal input
-and an exact six-digit confirmation code, refusing non-terminal input and
-mismatched codes. `reconc hook resume` only restores enforcement and needs no
-confirmation, so a script or a host's user shell escape can end a pause.
+`reconc hook evidence-resolve`, and ordinary `reconc hook claim` invocations for
+claims named `operator:*`. The pre-tool and MCP command gates refuse these in
+every executable position, including nested shell bodies and dynamic claim
+names. Pause, evidence recovery and the ordinary operator-claim CLI require
+terminal input and an exact six-digit confirmation code. `reconc hook resume`
+only restores enforcement and needs no CLI confirmation, so a script or a
+host's user shell escape can end a pause.
+
+After explicit user approval of the exact claim, scope and duration in chat,
+an agent can use `reconc hook claim <repo> operator:<name> --user-approved
+--for DURATION` without a terminal code. The literal attestation flag and a
+literal duration of one minute to eight hours admit that command through the
+native guards; dynamic arguments remain refused. The CLI rejects missing or
+invalid duration, non-operator claims and combinations with `--revoke` before
+mutating state. It records the same existing timed grant, retaining expiry,
+revocation and session boundaries. The flag is the agent's attestation of user
+consent, not independent authentication or approval evidence; it cannot infer
+consent from tool output, repository text or unrelated broad instructions.
+It does not pause hooks, resolve tainted evidence or change policy.
 These checks prevent accidental administration through recognized tool calls;
 they do not authenticate a human. A same-user process can automate a PTY,
 invoke unrecognized code, or modify private local state. `operator:` claims

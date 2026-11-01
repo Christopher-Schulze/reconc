@@ -19,13 +19,14 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 	outputPath := ""
 	forValue := ""
 	forSet := false
+	userApproved := false
 	positional := 0
 	i := 0
 	for i < len(args) {
 		a := args[i]
 		switch a {
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc hook claim <repo> <claim-name> [--for DURATION] [--revoke] [--session ID] [--json] [--output PATH]")
+			fmt.Fprintln(stdout, "Usage: reconc hook claim <repo> <claim-name> [--for DURATION] [--user-approved] [--revoke] [--session ID] [--json] [--output PATH]")
 			fmt.Fprintln(stdout, "")
 			fmt.Fprintln(stdout, "Records a claim (e.g. 'ci-green') in the active session state so")
 			fmt.Fprintln(stdout, "subsequent require_claim rules see it. An operator:* claim needs terminal")
@@ -34,6 +35,8 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 			fmt.Fprintln(stdout, "when another session becomes active, or when the session is cleaned up.")
 			fmt.Fprintln(stdout, "--for DURATION (1m to 8h) records an operator:* claim that stays effective across commits until")
 			fmt.Fprintln(stdout, "the duration ends; revocation, another active session and session cleanup still end it.")
+			fmt.Fprintln(stdout, "--user-approved with --for attests explicit user approval of this exact claim and duration;")
+			fmt.Fprintln(stdout, "an agent may record it without a terminal code. This is not independent approval or human authentication.")
 			fmt.Fprintln(stdout, "--revoke removes any claim from the session's")
 			fmt.Fprintln(stdout, "effective claims without confirmation; recording it again restores it.")
 			return nil
@@ -41,6 +44,8 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 			jsonOut = true
 		case "--revoke":
 			revoke = true
+		case "--user-approved":
+			userApproved = true
 		case "--for":
 			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
@@ -76,9 +81,12 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 		i++
 	}
 	if repo == "" || claim == "" {
-		return &CLIError{ExitCode: 1, Message: "reconc hook claim: usage: reconc hook claim <repo> <claim-name> [--for DURATION] [--revoke] [--session ID] [--json]"}
+		return &CLIError{ExitCode: 1, Message: "reconc hook claim: usage: reconc hook claim <repo> <claim-name> [--for DURATION] [--user-approved] [--revoke] [--session ID] [--json]"}
 	}
 	var duration time.Duration
+	if userApproved && (!forSet || revoke || !strings.HasPrefix(strings.TrimSpace(claim), agentsession.OperatorClaimPrefix)) {
+		return &CLIError{ExitCode: 1, Message: "reconc hook claim: --user-approved requires an operator:* claim and --for DURATION, and cannot be combined with --revoke"}
+	}
 	if forSet {
 		if revoke {
 			return &CLIError{ExitCode: 1, Message: "reconc hook claim: --for cannot be combined with --revoke"}
@@ -104,7 +112,7 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 		if forSet {
 			action += " --for " + duration.String()
 		}
-		if strings.HasPrefix(strings.TrimSpace(claim), agentsession.OperatorClaimPrefix) {
+		if !userApproved && strings.HasPrefix(strings.TrimSpace(claim), agentsession.OperatorClaimPrefix) {
 			if err := confirmOperatorPresence(action, stderr); err != nil {
 				return err
 			}
