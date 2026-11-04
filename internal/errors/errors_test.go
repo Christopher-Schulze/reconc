@@ -79,7 +79,7 @@ func TestPresetNotFoundCanBeTypeAsserted(t *testing.T) {
 
 func TestRepoBoundaryError(t *testing.T) {
 	err := &RepoBoundaryError{Path: "/outside", RepoRoot: "/repo"}
-	want := `path "/outside" escapes repo root "/repo"`
+	want := `path "/outside" escapes repo root "/repo"; work in another repository needs its own session there`
 	if got := err.Error(); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

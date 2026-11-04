@@ -1,6 +1,9 @@
 package agentsession
 
-import "reflect"
+import (
+	"maps"
+	"reflect"
+)
 
 // cloneSessionState isolates callback input from the loaded baseline. Session
 // mutations are compared against that baseline after the callback returns, so
@@ -19,6 +22,7 @@ func cloneSessionState(state SessionState) SessionState {
 		state.commandTexts = texts
 	}
 	state.Claims = cloneSessionStrings(state.Claims)
+	state.ClaimApprovalQuotes = maps.Clone(state.ClaimApprovalQuotes)
 	state.CommandResults = cloneSessionCommandResults(state.CommandResults)
 	state.PendingToolCalls = cloneSessionPendingToolCalls(state.PendingToolCalls)
 	state.RetiredToolCallKeys = cloneSessionInt64Map(state.RetiredToolCallKeys)

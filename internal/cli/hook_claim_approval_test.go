@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -148,5 +149,90 @@ func TestApprovalQuoteRequiresTheAttestationAndStaysBounded(t *testing.T) {
 				t.Fatalf("rejected claim changed state: %+v %+v", state.Claims, state.ClaimApprovalQuotes)
 			}
 		})
+	}
+}
+
+func claimQuote(t *testing.T, repo, session, claim string) string {
+	t.Helper()
+	state, err := agentsession.LoadSessionState(repo, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state.ClaimApprovalQuotes[claim]
+}
+
+func TestApprovalQuoteBelongsToItsOwnGrant(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv(agentsession.StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	if _, err := agentsession.InitializeSessionState(repo, "quoted"); err != nil {
+		t.Fatal(err)
+	}
+	claim := func(extra ...string) {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		args := append([]string{"hook", "claim", repo, "operator:edit", "--session", "quoted"}, extra...)
+		if err := Run(args, "dev", &stdout, &stderr); err != nil {
+			t.Fatalf("%v: %v; %s", extra, err, stderr.String())
+		}
+	}
+	granted := []string{"--user-approved", "--for", "1h"}
+
+	claim(append(granted, "--approval-quote", "approved old diff only")...)
+	claim("--revoke")
+	claim(granted...)
+	if quote := claimQuote(t, repo, "quoted", "operator:edit"); quote != "" {
+		t.Fatalf("a grant after revocation inherited the old quote %q", quote)
+	}
+
+	claim(append(granted, "--approval-quote", "first words")...)
+	claim(granted...)
+	if quote := claimQuote(t, repo, "quoted", "operator:edit"); quote != "" {
+		t.Fatalf("a renewal without a quote inherited the old quote %q", quote)
+	}
+
+	claim(append(granted, "--approval-quote", "first words")...)
+	claim(append(granted, "--approval-quote", "second words")...)
+	if quote := claimQuote(t, repo, "quoted", "operator:edit"); quote != "second words" {
+		t.Fatalf("a new quote must replace the old one, got %q", quote)
+	}
+}
+
+func TestApprovalQuoteFailureLeavesNoEffectiveClaim(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv(agentsession.StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	if _, err := agentsession.InitializeSessionState(repo, "quoted"); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"hook", "claim", repo, "ci-green", "--session", "quoted", "--json"}, "dev", &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var plain agentsession.ClaimReport
+	if err := json.Unmarshal(stdout.Bytes(), &plain); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := os.ReadFile(plain.StatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plain.StatePath, []byte("{not-json\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runErr := Run([]string{"hook", "claim", repo, "operator:edit", "--user-approved", "--for", "1h", "--session", "quoted",
+		"--approval-quote", "words"}, "dev", &stdout, &stderr)
+	if err := os.WriteFile(plain.StatePath, stored, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if runErr == nil {
+		t.Fatal("an unreadable session state must fail the claim")
+	}
+	claims, err := agentsession.ActiveClaims(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(claims, "operator:edit") || claimQuote(t, repo, "quoted", "operator:edit") != "" {
+		t.Fatalf("a failed quoted claim left an effective claim or a quote: %v", claims)
 	}
 }

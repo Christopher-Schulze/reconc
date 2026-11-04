@@ -184,8 +184,9 @@ type SessionState struct {
 	EvidenceTaintToken         string   `json:"evidence_taint_token,omitempty"`
 	UncertifiedTermination     bool     `json:"uncertified_termination,omitempty"`
 	// ClaimApprovalQuotes keeps, per user-approved claim, the words the agent
-	// attests the user approved it with. It is attestation context for review,
-	// never independent approval evidence, and authorizes nothing.
+	// attests the user approved its latest grant with; every new grant replaces
+	// or clears them. It is attestation context for review, never independent
+	// approval evidence, and authorizes nothing.
 	ClaimApprovalQuotes map[string]string `json:"claim_approval_quotes,omitempty"`
 	commandTexts        map[string]string
 }

@@ -134,7 +134,9 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 				return err
 			}
 		}
-		if forSet {
+		if quoteSet {
+			report, err = agentsession.RecordQuotedOperatorClaimFor(repo, claim, sessionID, duration, time.Now(), approvalQuote)
+		} else if forSet {
 			report, err = agentsession.RecordOperatorClaimFor(repo, claim, sessionID, duration, time.Now())
 		} else {
 			report, err = agentsession.RecordClaim(repo, claim, sessionID)
@@ -142,11 +144,6 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 	}
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook claim: " + err.Error()}
-	}
-	if quoteSet {
-		if err := agentsession.RecordClaimApprovalQuote(report, approvalQuote); err != nil {
-			return &CLIError{ExitCode: 1, Message: "reconc hook claim: " + err.Error()}
-		}
 	}
 	out, closeOutput, err := teeToFile(stdout, outputPath)
 	if err != nil {

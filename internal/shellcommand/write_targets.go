@@ -12,12 +12,22 @@ import (
 // `rm`, and `sed -i` operands, including nested shell bodies. Complete is
 // false when a target of a known writer is not a literal or the command
 // cannot be analyzed; callers keep enforcing those writes after execution.
+// DirectoryEntries lists the writes that only happen when a destination turns
+// out to be a directory, which the caller decides from the filesystem.
 // ChangesDirectory reports a `cd`, `pushd` or `popd`, after which a relative
 // target no longer names a path relative to the starting directory.
 type WriteTargets struct {
 	Paths            []string
+	DirectoryEntries []DirectoryEntry
 	Complete         bool
 	ChangesDirectory bool
+}
+
+// DirectoryEntry is the write `cp source destination` makes inside destination
+// when destination is a directory.
+type DirectoryEntry struct {
+	Directory string
+	Path      string
 }
 
 // LiteralWriteTargets analyzes command within the nesting budget.
@@ -30,6 +40,7 @@ func LiteralWriteTargets(command string, maxDepth int) WriteTargets {
 	state := newParserState()
 	collectWriteTargets(&state, command, maxDepth, &targets)
 	targets.Paths = dedupeStrings(targets.Paths)
+	targets.DirectoryEntries = dedupeDirectoryEntries(targets.DirectoryEntries)
 	return targets
 }
 
@@ -125,8 +136,9 @@ func addOperands(operands []commandWord, targets *WriteTargets) {
 
 // addDestinations records the destination of a copy-like command: the
 // `-t`/`--target-directory` directory joined with each source name, or the
-// last operand itself and, when it may be a directory, joined with each
-// source name. It returns the source operands.
+// last operand itself plus a directory entry for each source name, since the
+// parser does not know whether that operand is a directory. It returns the
+// source operands.
 func addDestinations(words []commandWord, targets *WriteTargets) []commandWord {
 	directory, hasDirectory := "", false
 	filtered := make([]commandWord, 0, len(words))
@@ -167,7 +179,12 @@ func addDestinations(words []commandWord, targets *WriteTargets) []commandWord {
 			targets.Complete = false
 			continue
 		}
-		targets.Paths = append(targets.Paths, strings.TrimSuffix(directory, "/")+"/"+baseName(strings.TrimSuffix(source.value, "/")))
+		entry := strings.TrimSuffix(directory, "/") + "/" + baseName(strings.TrimSuffix(source.value, "/"))
+		if hasDirectory {
+			targets.Paths = append(targets.Paths, entry)
+		} else {
+			targets.DirectoryEntries = append(targets.DirectoryEntries, DirectoryEntry{Directory: directory, Path: entry})
+		}
 	}
 	return operands
 }
@@ -205,6 +222,19 @@ func collectSedInPlaceFiles(words []commandWord, targets *WriteTargets) {
 		operands = operands[1:]
 	}
 	addOperands(operands, targets)
+}
+
+func dedupeDirectoryEntries(entries []DirectoryEntry) []DirectoryEntry {
+	seen := make(map[DirectoryEntry]struct{}, len(entries))
+	out := make([]DirectoryEntry, 0, len(entries))
+	for _, entry := range entries {
+		if _, ok := seen[entry]; ok {
+			continue
+		}
+		seen[entry] = struct{}{}
+		out = append(out, entry)
+	}
+	return out
 }
 
 func dedupeStrings(values []string) []string {

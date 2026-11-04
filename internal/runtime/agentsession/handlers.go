@@ -1270,17 +1270,32 @@ func postToolFailureJSONOutput(state SessionState) (string, error) {
 	return string(body), nil
 }
 
+// Stop feedback re-enters the agent's context on every held Stop, so it stays
+// small whatever the violations say. The session report keeps the full text.
+// stopFeedbackMaxBytes bounds the complete encoded response a host reads: half
+// of the route's 8 KiB output budget, less its frame, so the response never
+// trips the oversize fallback. Hosts whose adapter re-renders the reason apply
+// the smaller maxHostReasonBytes on top, which is why identifiers come first.
+const (
+	stopFeedbackMaxBytes = 4095
+	// stopFeedbackReasonMaxBytes leaves room for the JSON envelope and the
+	// durability warning.
+	stopFeedbackReasonMaxBytes = stopFeedbackMaxBytes - 256
+	stopFeedbackLineMaxRunes   = 240
+
+	stopBlockDurabilityWarning = "\nWarning: repeated-stop state durability is unconfirmed; this stop remains blocked until session state storage recovers."
+	stopReportPathOmitted      = "stored in the session state directory; its path is too long to show here"
+)
+
+// stopFeedbackLineLimits are the per-line sizes tried in turn until the encoded
+// reason fits. JSON escaping expands a character up to six bytes, so a limit in
+// runes alone does not bound the response.
+var stopFeedbackLineLimits = []int{stopFeedbackLineMaxRunes, 120, 60, 30}
+
 // stopBlockJSONOutput returns the Stop-hook block control-response.
 // Claude/Codex sees decision=block + reason and refuses to finalise
 // the session, prompting the agent to resolve the remaining
 // blocking violations.
-// Stop feedback re-enters the agent's context on every held Stop, so it stays
-// small whatever the violations say. The session report keeps the full text.
-const (
-	stopFeedbackLineMaxRunes = 240
-	stopFeedbackMaxBytes     = 4096
-)
-
 func stopBlockJSONOutput(repoRoot, sessionID string, report *runtime.CheckReport, violations []runtime.Violation) (string, error) {
 	record := recordStopBlockAndRepeated(repoRoot, sessionID, violations)
 	if record.encodingErr {
@@ -1288,7 +1303,7 @@ func stopBlockJSONOutput(repoRoot, sessionID string, report *runtime.CheckReport
 	}
 	reason := stopReasonForViolations(violations, reportPathForStop(repoRoot, sessionID), record.feedbackID, record.repeated, repositoryRunStatusLine(repoRoot))
 	if record.err != nil {
-		reason += "\nWarning: repeated-stop state durability is unconfirmed; this stop remains blocked until session state storage recovers."
+		reason += stopBlockDurabilityWarning
 	}
 	payload := map[string]string{
 		"decision": "block",
@@ -1301,43 +1316,61 @@ func stopBlockJSONOutput(repoRoot, sessionID string, report *runtime.CheckReport
 	return string(body), record.err
 }
 
+// stopReasonForViolations renders the Stop feedback within its encoded budget:
+// it shortens the violation lines first and, when a report path alone cannot
+// fit, says so instead of showing a shortened path that names no file.
 func stopReasonForViolations(violations []runtime.Violation, reportPath, feedbackID string, repeated bool, repositoryRunStatus string) string {
+	reason := ""
+	for _, lineLimit := range stopFeedbackLineLimits {
+		reason = renderStopReason(violations, reportPath, feedbackID, repeated, repositoryRunStatus, lineLimit)
+		if encodedJSONStringBytes(reason) <= stopFeedbackReasonMaxBytes {
+			return reason
+		}
+	}
+	return renderStopReason(violations, stopReportPathOmitted, feedbackID, repeated, repositoryRunStatus, stopFeedbackLineLimits[len(stopFeedbackLineLimits)-1])
+}
+
+func encodedJSONStringBytes(value string) int {
+	body, err := json.Marshal(value)
+	if err != nil {
+		return len(value) * 6
+	}
+	return len(body)
+}
+
+func renderStopReason(violations []runtime.Violation, reportPath, feedbackID string, repeated bool, repositoryRunStatus string, lineLimit int) string {
+	var b strings.Builder
 	if repeated {
-		var rules []string
+		b.WriteString("reconc: same blocking workflow report still prevents this session from stopping.")
+	} else {
+		b.WriteString("reconc: blocking workflow requirements still remain before this session can stop.")
+	}
+	if reportPath != "" {
+		b.WriteString("\nReport: ")
+		b.WriteString(reportPath)
+	}
+	if feedbackID != "" {
+		b.WriteString("\nFeedback: ")
+		b.WriteString(feedbackID)
+	}
+	if repositoryRunStatus != "" {
+		b.WriteString("\n")
+		b.WriteString(repositoryRunStatus)
+	}
+	if !repeated {
+		writeViolationLines(&b, violations, lineLimit)
+		return b.String()
+	}
+	if len(violations) > 0 {
+		rules := make([]string, 0, len(violations))
 		for _, v := range violations {
 			rules = append(rules, v.RuleID)
 		}
-		var b strings.Builder
-		b.WriteString("reconc: same blocking workflow report still prevents this session from stopping.")
-		if feedbackID != "" {
-			b.WriteString("\nFeedback: ")
-			b.WriteString(feedbackID)
-		}
-		if reportPath != "" {
-			b.WriteString("\nReport: ")
-			b.WriteString(reportPath)
-		}
-		if repositoryRunStatus != "" {
-			b.WriteString("\n")
-			b.WriteString(repositoryRunStatus)
-		}
-		if len(rules) > 0 {
-			b.WriteString("\nRules: ")
-			b.WriteString(boundedRuleList(rules))
-		}
-		b.WriteString("\nResolve the report or re-run the failing audit command before finishing.")
-		return b.String()
+		b.WriteString("\nRules: ")
+		b.WriteString(boundedRuleList(rules, lineLimit))
 	}
-	reason := firstLinesForViolationsWithReport(violations,
-		"reconc: blocking workflow requirements still remain before this session can stop.",
-		reportPath)
-	if feedbackID != "" {
-		reason += "\nFeedback: " + feedbackID
-	}
-	if repositoryRunStatus != "" {
-		reason += "\n" + repositoryRunStatus
-	}
-	return reason
+	b.WriteString("\nResolve the report or re-run the failing audit command before finishing.")
+	return b.String()
 }
 
 func repositoryRunStatusLine(repoRoot string) string {
@@ -1361,6 +1394,11 @@ func firstLinesForViolationsWithReport(violations []runtime.Violation, title, re
 		b.WriteString("\nReport: ")
 		b.WriteString(reportPath)
 	}
+	writeViolationLines(&b, violations, stopFeedbackLineMaxRunes)
+	return b.String()
+}
+
+func writeViolationLines(b *strings.Builder, violations []runtime.Violation, lineLimit int) {
 	n := len(violations)
 	upto := n
 	if upto > 3 {
@@ -1378,37 +1416,36 @@ func firstLinesForViolationsWithReport(violations []runtime.Violation, title, re
 			action = v.Message
 		}
 		b.WriteString("\n- [")
-		b.WriteString(boundedFeedbackLine(v.RuleID))
+		b.WriteString(boundedFeedbackLine(v.RuleID, lineLimit))
 		b.WriteString("] ")
-		b.WriteString(boundedFeedbackLine(action))
+		b.WriteString(boundedFeedbackLine(action, lineLimit))
 	}
 	if n > 3 {
 		b.WriteString(fmt.Sprintf("\n- %d more violation(s) remain.", n-3))
 	}
-	return b.String()
 }
 
 // boundedFeedbackLine keeps one violation's share of the Stop feedback small: an
 // action can carry whole script output, while the full text stays in the report.
-func boundedFeedbackLine(text string) string {
+func boundedFeedbackLine(text string, lineLimit int) string {
 	text = strings.TrimSpace(text)
 	if index := strings.IndexByte(text, '\n'); index >= 0 {
 		text = strings.TrimSpace(text[:index])
 	}
-	if runes := []rune(text); len(runes) > stopFeedbackLineMaxRunes {
-		return string(runes[:stopFeedbackLineMaxRunes]) + "..."
+	if runes := []rune(text); len(runes) > lineLimit {
+		return string(runes[:lineLimit]) + "..."
 	}
 	return text
 }
 
-func boundedRuleList(rules []string) string {
+func boundedRuleList(rules []string, lineLimit int) string {
 	shown := rules
 	if len(shown) > 3 {
 		shown = shown[:3]
 	}
 	lines := make([]string, len(shown))
 	for index, rule := range shown {
-		lines[index] = boundedFeedbackLine(rule)
+		lines[index] = boundedFeedbackLine(rule, lineLimit)
 	}
 	list := strings.Join(lines, ", ")
 	if omitted := len(rules) - len(shown); omitted > 0 {

@@ -2334,9 +2334,10 @@ write target Reconc can read from the parsed command, including nested `sh -c`
 and `eval` bodies and command substitutions: output redirections (`>`, `>>`,
 `>|`, `&>`, `<>`, and `>&FILE`, but not descriptor duplication or
 `/dev/null`), `tee`, `touch`, `truncate`, and `rm` operands, `cp`, `install`,
-and `ln` destinations (also joined with each source name when the destination
-may be a directory, and `-t`/`--target-directory`), `mv` destinations and
-sources, and the files `sed -i` rewrites. A relative target is resolved
+and `ln` destinations (also joined with each source name unless the destination
+exists and is not a directory, following symlinks, and
+`-t`/`--target-directory`), `mv` destinations and sources, and the files
+`sed -i` rewrites. A relative target is resolved
 against the call's working directory (the tool input's `workdir` or `cwd`,
 else the payload `cwd`, else the policy root); after a `cd`, `pushd`, or
 `popd` in the same command only absolute targets are judged. Targets outside
@@ -2771,18 +2772,20 @@ run disabled, Stop records `uncertified_termination` and releases the host
 without representing the session as certified. An explicit user interrupt
 continues to release the host invocation, while the durable taint remains.
 
-A Stop that cannot be evaluated follows one rule. When another writer keeps
-changing the inputs across the three bounded evaluations, or the terminal
-repository state moves after a clean evaluation, and the host reports pending
+A Stop that cannot be evaluated follows one rule. When the policy inputs keep
+changing across the three bounded evaluations, or the terminal repository state
+moves after a clean evaluation, whether through a concurrent process or a check
+that rewrites its own inputs, and the host reports pending
 background tasks or wakeups, the Stop passes through without a verdict: the
 session is only paused, and the Stop after that work settles evaluates the
 settled repository. Without such work, and likewise when a policy source such as
 `.reconc.yml` is invalid, the first Stop holds the session and names the cause.
-Holding it again cannot help, because the agent can neither finish another
-writer's work nor change a policy that cannot be enforced, so the next Stop
+Holding it again cannot help, because the agent can neither settle inputs that
+keep moving nor change a policy that cannot be enforced, so the next Stop
 records `uncertified_termination` and releases the host. It is never reported as
 clean, the commit gate still evaluates the repository, a later clean Stop clears
-the mark, and strict continuation hosts stay held. With an invalid policy source
+the mark, strict continuation hosts stay held, and with repository run enabled
+the release enters the run log as `unverifiable_released_uncertified`. With an invalid policy source
 every pre-tool check stays blocked, including edits of that file and
 `reconc refresh`; the message tells the agent to ask the operator to fix or
 restore the file and then run `reconc refresh .`.
@@ -2790,7 +2793,14 @@ restore the file and then run `reconc refresh .`.
 Stop feedback re-enters the agent's context on every held Stop, so it stays
 small whatever the violations say: at most three rules with one bounded line
 each, the count of the omitted rest, and the path of the session report that
-keeps the full text.
+keeps the full text. The complete encoded block response stays within 4,095
+bytes, half of the route's output budget less its frame. Violation lines shrink
+until the encoded text fits, because JSON escaping expands a character to as
+many as six bytes; a report path that cannot fit is named as omitted instead of
+being shortened into a path that names no file. Identifiers come first, so the
+report path, feedback ID, and run status survive on hosts whose adapter applies
+the smaller 1,024-byte reason limit. Other Stop diagnostics stay within the same
+byte limit and never split a UTF-8 sequence.
 Recovery is explicit and never requires discarding the session: the operator
 inspects `reconc hook evidence-status .` from a terminal, then passes its exact
 token and a reason to `reconc hook evidence-resolve . --token TOKEN --reason TEXT`.
@@ -2836,7 +2846,8 @@ mutating state. It records the same existing timed grant, retaining expiry,
 revocation and session boundaries. An optional `--approval-quote TEXT` adds the
 user's words as one bounded line to the session state and the claim report, so a
 reviewer can compare the attestation with the conversation; the quote authorizes
-nothing by itself. The flag is the agent's attestation of user
+nothing by itself. It belongs to that grant: recording the claim again replaces
+the quote, or clears it when the new grant has none. The flag is the agent's attestation of user
 consent, not independent authentication or approval evidence; it cannot infer
 consent from tool output, repository text or unrelated broad instructions.
 It does not pause hooks, resolve tainted evidence or change policy.

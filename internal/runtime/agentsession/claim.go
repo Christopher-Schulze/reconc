@@ -43,26 +43,6 @@ func NormalizeClaimApprovalQuote(quote string) (string, error) {
 	return normalized, nil
 }
 
-// RecordClaimApprovalQuote stores the attested quote beside an already recorded
-// claim in the session state and adds it to the report.
-func RecordClaimApprovalQuote(report *ClaimReport, quote string) error {
-	normalized, err := NormalizeClaimApprovalQuote(quote)
-	if err != nil {
-		return err
-	}
-	if _, err := mutateSessionStateResolved(report.RepoRoot, report.SessionID, func(state SessionState) SessionState {
-		if state.ClaimApprovalQuotes == nil {
-			state.ClaimApprovalQuotes = make(map[string]string, 1)
-		}
-		state.ClaimApprovalQuotes[report.Claim] = normalized
-		return state
-	}); err != nil {
-		return fmt.Errorf("record approval quote: %w", err)
-	}
-	report.ApprovalQuote = normalized
-	return nil
-}
-
 // RecordClaim appends one explicit claim to the session state. If
 // sessionID is empty it defaults to the active session. Errors when
 // no active session exists, when the claim is empty, or when the
@@ -71,7 +51,7 @@ func RecordClaimApprovalQuote(report *ClaimReport, quote string) error {
 // Re-running RecordClaim for the same claim is idempotent (dedup in
 // AppendClaim). An operator claim recorded here is bound to the current HEAD.
 func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
-	return recordClaim(repoRoot, claim, sessionID, time.Time{})
+	return recordClaim(repoRoot, claim, sessionID, time.Time{}, "")
 }
 
 // RecordOperatorClaimFor records an operator claim that stays effective for
@@ -81,7 +61,21 @@ func RecordOperatorClaimFor(repoRoot, claim, sessionID string, duration time.Dur
 	if err := ValidateTimedOperatorClaim(claim, duration); err != nil {
 		return nil, err
 	}
-	return recordClaim(repoRoot, claim, sessionID, now.Add(duration))
+	return recordClaim(repoRoot, claim, sessionID, now.Add(duration), "")
+}
+
+// RecordQuotedOperatorClaimFor records a timed operator claim together with the
+// attested quote of the user's approval, in one state update. The quote only
+// documents this grant and authorizes nothing by itself.
+func RecordQuotedOperatorClaimFor(repoRoot, claim, sessionID string, duration time.Duration, now time.Time, quote string) (*ClaimReport, error) {
+	if err := ValidateTimedOperatorClaim(claim, duration); err != nil {
+		return nil, err
+	}
+	normalized, err := NormalizeClaimApprovalQuote(quote)
+	if err != nil {
+		return nil, err
+	}
+	return recordClaim(repoRoot, claim, sessionID, now.Add(duration), normalized)
 }
 
 // ValidateTimedOperatorClaim reports whether claim and duration form a valid
@@ -96,7 +90,9 @@ func ValidateTimedOperatorClaim(claim string, duration time.Duration) error {
 	return nil
 }
 
-func recordClaim(repoRoot, claim, sessionID string, expiresAt time.Time) (*ClaimReport, error) {
+// recordClaim replaces the approval quote of an earlier grant of this claim,
+// so an old quote is never read as the evidence of this grant.
+func recordClaim(repoRoot, claim, sessionID string, expiresAt time.Time, approvalQuote string) (*ClaimReport, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return nil, err
@@ -128,6 +124,13 @@ func recordClaim(repoRoot, claim, sessionID string, expiresAt time.Time) (*Claim
 		if state.EvidenceOverflow {
 			return state
 		}
+		delete(state.ClaimApprovalQuotes, claim)
+		if approvalQuote != "" {
+			if state.ClaimApprovalQuotes == nil {
+				state.ClaimApprovalQuotes = make(map[string]string, 1)
+			}
+			state.ClaimApprovalQuotes[claim] = approvalQuote
+		}
 		return AppendClaim(state, claim)
 	})
 	if err != nil {
@@ -156,6 +159,7 @@ func recordClaim(repoRoot, claim, sessionID string, expiresAt time.Time) (*Claim
 		StatePath:  sessionStatePath(root, sessionID),
 		ReportPath: updated.ReportPath,
 	}
+	report.ApprovalQuote = approvalQuote
 	if !expiresAt.IsZero() {
 		report.ExpiresAt = expiresAt.UTC().Format(time.RFC3339)
 	}

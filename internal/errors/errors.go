@@ -127,7 +127,7 @@ type RepoBoundaryError struct {
 }
 
 func (e *RepoBoundaryError) Error() string {
-	return fmt.Sprintf("path %q escapes repo root %q", e.Path, e.RepoRoot)
+	return fmt.Sprintf("path %q escapes repo root %q; work in another repository needs its own session there", e.Path, e.RepoRoot)
 }
 
 // GitError is raised when a git invocation fails or its flag

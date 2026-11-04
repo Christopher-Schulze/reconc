@@ -172,5 +172,5 @@ func resolveCommandExecutable(repoRoot, token string) (string, bool) {
 // the gate actually admits. The pre-fix message prescribed `reconc refresh .`
 // while refusing that exact command, which left no reachable recovery.
 func lockfileBlockMessage(surface string, err error) string {
-	return "reconc hook (" + surface + "): " + err.Error() + ". Policy cannot be enforced from a lockfile that no longer describes its sources, so gated work stays blocked; " + lockfileRepairHint + "."
+	return "reconc hook (" + surface + "): " + truncateBytes(err.Error(), stopFailureDetailMaxBytes) + ". Policy cannot be enforced from a lockfile that no longer describes its sources, so gated work stays blocked; " + lockfileRepairHint + "."
 }

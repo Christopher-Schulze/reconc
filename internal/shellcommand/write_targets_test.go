@@ -16,10 +16,10 @@ func TestLiteralWriteTargetsFindsStaticWriters(t *testing.T) {
 		{"echo x > AGENTS.md 2>&1", []string{"AGENTS.md"}, true, false},
 		{"echo x 2>/dev/null; cat <<EOF > notes.md\nx\nEOF", []string{"notes.md"}, true, false},
 		{"echo x | tee -a AGENTS.md log.txt", []string{"AGENTS.md", "log.txt"}, true, false},
-		{"cp -r src AGENTS.md", []string{"AGENTS.md", "AGENTS.md/src"}, true, false},
-		{"cp a b docs/", []string{"docs/", "docs/a", "docs/b"}, true, false},
+		{"cp -r src AGENTS.md", []string{"AGENTS.md"}, true, false},
+		{"cp a b docs/", []string{"docs/"}, true, false},
 		{"cp -t docs a", []string{"docs/a"}, true, false},
-		{"mv old.md AGENTS.md", []string{"AGENTS.md", "AGENTS.md/old.md", "old.md"}, true, false},
+		{"mv old.md AGENTS.md", []string{"AGENTS.md", "old.md"}, true, false},
 		{"touch AGENTS.md && rm -f stale.txt", []string{"AGENTS.md", "stale.txt"}, true, false},
 		{"sed -i 's/a/b/' AGENTS.md", []string{"AGENTS.md"}, true, false},
 		{"sed -i '' -e 's/a/b/' AGENTS.md", []string{"AGENTS.md"}, true, false},
@@ -36,6 +36,31 @@ func TestLiteralWriteTargetsFindsStaticWriters(t *testing.T) {
 			got := LiteralWriteTargets(test.command, 16)
 			if !slices.Equal(sortedStrings(got.Paths), sortedStrings(test.want)) || got.Complete != test.complete || got.ChangesDirectory != test.moves {
 				t.Fatalf("LiteralWriteTargets = %+v, want paths %v complete %v moves %v", got, test.want, test.complete, test.moves)
+			}
+		})
+	}
+}
+
+func TestLiteralWriteTargetsSeparatesDirectoryEntries(t *testing.T) {
+	for _, test := range []struct {
+		command string
+		want    []DirectoryEntry
+	}{
+		{"cp a target", []DirectoryEntry{{"target", "target/a"}}},
+		{"cp -r src/ target/", []DirectoryEntry{{"target/", "target/src"}}},
+		{"cp a b docs", []DirectoryEntry{{"docs", "docs/a"}, {"docs", "docs/b"}}},
+		{"mv a target; mv a target", []DirectoryEntry{{"target", "target/a"}}},
+		{"install -m 644 a target", []DirectoryEntry{{"target", "target/644"}, {"target", "target/a"}}},
+		{"ln -sf a target", []DirectoryEntry{{"target", "target/a"}}},
+		{"cp -t docs a", nil},
+		{"cp --target-directory=docs a", nil},
+		{"cp a \"$DEST\"", nil},
+		{"cp \"$SOURCE\" target", nil},
+	} {
+		t.Run(test.command, func(t *testing.T) {
+			got := LiteralWriteTargets(test.command, 16)
+			if !slices.Equal(got.DirectoryEntries, test.want) {
+				t.Fatalf("DirectoryEntries = %+v, want %+v", got.DirectoryEntries, test.want)
 			}
 		})
 	}

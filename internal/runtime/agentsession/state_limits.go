@@ -228,8 +228,7 @@ func normalizedCommandResults(results []CommandResult, encodedBytes int64) bool 
 	retainedBytes := int64(0)
 	for _, result := range results {
 		if result.Command == "" || strings.TrimSpace(result.Command) != result.Command || len(result.Command) > maxCommandBytes ||
-			result.Error != truncateBytes(result.Error, maxResultErrorBytes) ||
-			result.ToolUseID != truncateBytes(result.ToolUseID, maxToolUseIDBytes) {
+			len(result.Error) > maxResultErrorBytes || len(result.ToolUseID) > maxToolUseIDBytes {
 			return false
 		}
 		key := commandResultIdentity(result)
@@ -258,8 +257,8 @@ func normalizedPendingToolCalls(calls map[string]PendingToolCall) bool {
 	}
 	for key, call := range calls {
 		if key == "" || strings.TrimSpace(key) != key || len(key) > maxToolUseIDBytes ||
-			call.ToolName != truncateBytes(strings.TrimSpace(call.ToolName), 1024) ||
-			call.ToolUseID != truncateBytes(strings.TrimSpace(call.ToolUseID), maxToolUseIDBytes) {
+			call.ToolName != strings.TrimSpace(call.ToolName) || len(call.ToolName) > 1024 ||
+			call.ToolUseID != strings.TrimSpace(call.ToolUseID) || len(call.ToolUseID) > maxToolUseIDBytes {
 			return false
 		}
 		encoded, err := json.Marshal(call)
@@ -738,9 +737,14 @@ func commandResultsEqual(a, b CommandResult) bool {
 	return commandResultIdentity(a) == commandResultIdentity(b)
 }
 
+// truncateBytes cuts value to at most limit bytes without splitting a UTF-8
+// sequence.
 func truncateBytes(value string, limit int) string {
 	if len(value) <= limit {
 		return value
+	}
+	for back := 0; back < utf8.UTFMax-1 && limit > 0 && !utf8.RuneStart(value[limit]); back++ {
+		limit--
 	}
 	return value[:limit]
 }

@@ -70,6 +70,7 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 	stopCache *StopDecisionCache,
 	closeRunFile func(*os.File) error,
 ) (result Result) {
+	defer func() { result = boundStopResult(result) }()
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
@@ -106,7 +107,7 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 	taskSnapshot, err := captureStopTaskSnapshot(root)
 	if err != nil {
 		if isPolicySourceError(err) {
-			return unverifiableStopResult(root, payload, policySourceBlockMessage("stop", err))
+			return unverifiableStopResult(root, payload, runtimeName, policySourceBlockMessage("stop", err))
 		}
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): capture TASK snapshot: %s", err)}
 	}
@@ -180,7 +181,7 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 		}
 		if cached, ok := cachedCleanStopPolicyReportForEvidenceWithCache(root, state, evidenceHash, stopCache, taskSnapshot); ok {
 			if terminalResult, handled, terminalErr := finalizeCleanStop(root, state, cached); terminalErr != nil {
-				return stopFinalizeFailureResult(root, payload, backgroundWork, terminalErr)
+				return stopFinalizeFailureResult(root, payload, runtimeName, backgroundWork, terminalErr)
 			} else if handled {
 				return terminalResult
 			}
@@ -197,7 +198,7 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 		root, state, evaluator, stopCache, &taskSnapshot, loadedEvidence,
 	)
 	if err != nil {
-		return stopCheckFailureResult(root, payload, backgroundWork, err)
+		return stopCheckFailureResult(root, payload, runtimeName, backgroundWork, err)
 	}
 	report := policyResult.Report
 	violations := blockingViolations(report)
@@ -233,7 +234,7 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 	}
 
 	if terminalResult, handled, terminalErr := finalizeCleanStop(root, state, policyResult); terminalErr != nil {
-		return stopFinalizeFailureResult(root, payload, backgroundWork, terminalErr)
+		return stopFinalizeFailureResult(root, payload, runtimeName, backgroundWork, terminalErr)
 	} else if handled {
 		return terminalResult
 	}

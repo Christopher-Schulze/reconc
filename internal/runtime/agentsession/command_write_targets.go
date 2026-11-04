@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,21 +16,42 @@ const maxCommandWriteTargetDepth = 16
 // writes through literal targets, as absolute paths, so write policy judges
 // them before the command runs. A relative target is resolved against the
 // call's working directory and dropped after a `cd`; targets outside the
-// repository and dynamic targets keep their after-execution enforcement.
+// repository and dynamic targets keep their after-execution enforcement. A
+// copy-like write inside a destination counts unless that destination exists
+// and is not a directory: a regular file destination is written itself, and no
+// path below it can exist. Symlinks count as what they point to.
 func literalCommandWritePaths(root string, payload *HookPayload) []string {
 	if payload == nil || !payload.IsCommandTool() {
 		return nil
 	}
 	targets := shellcommand.LiteralWriteTargets(payload.Command(), maxCommandWriteTargetDepth)
 	base := commandWorkingDirectory(root, payload)
-	paths := make([]string, 0, len(targets.Paths))
-	for _, target := range targets.Paths {
-		if !filepath.IsAbs(target) {
-			if targets.ChangesDirectory {
-				continue
-			}
-			target = filepath.Join(base, target)
+	absolute := func(target string) (string, bool) {
+		if filepath.IsAbs(target) {
+			return target, true
 		}
+		return filepath.Join(base, target), !targets.ChangesDirectory
+	}
+	candidates := make([]string, 0, len(targets.Paths)+len(targets.DirectoryEntries))
+	for _, target := range targets.Paths {
+		if path, ok := absolute(target); ok {
+			candidates = append(candidates, path)
+		}
+	}
+	for _, entry := range targets.DirectoryEntries {
+		directory, ok := absolute(entry.Directory)
+		if !ok {
+			continue
+		}
+		if info, err := os.Stat(directory); err == nil && !info.IsDir() {
+			continue
+		}
+		if path, ok := absolute(entry.Path); ok {
+			candidates = append(candidates, path)
+		}
+	}
+	paths := make([]string, 0, len(candidates))
+	for _, target := range candidates {
 		target = canonicalWriteTarget(target)
 		relative, err := filepath.Rel(root, target)
 		if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {

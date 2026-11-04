@@ -93,8 +93,8 @@ func TestStopWithMovingInputsHoldsOnceThenEndsUncertified(t *testing.T) {
 	repo := unstableStopRepo(t, "moving")
 
 	first := RunStop(repo, stopPayload(t, "moving", nil))
-	if first.ExitCode != 2 || !strings.Contains(first.Stderr, "another writer") {
-		t.Fatalf("first Stop must hold and name the concurrent writer: %+v", first)
+	if first.ExitCode != 2 || !strings.Contains(first.Stderr, "stop inputs changed") {
+		t.Fatalf("first Stop must hold and name the moving inputs: %+v", first)
 	}
 	if uncertified(t, repo, "moving") {
 		t.Fatal("holding the Stop must not mark the session uncertified")
@@ -140,7 +140,7 @@ func TestStrictContinuationNeverReleasesAnUnverifiableStop(t *testing.T) {
 	}
 	payload.StrictContinuation = true
 	for attempt := 0; attempt < 2; attempt++ {
-		result := unverifiableStopResult(repo, payload, "held")
+		result := unverifiableStopResult(repo, payload, "test", "held")
 		if result.ExitCode != 2 {
 			t.Fatalf("attempt %d: strict continuation released: %+v", attempt, result)
 		}
@@ -282,6 +282,6 @@ func TestCodexSubagentWithMovingInputsEndsUncertifiedOnItsRepeatedTurn(t *testin
 	}
 	second := run(true)
 	if second.ExitCode != 0 {
-		t.Fatalf("the repeated child turn must not loop on another writer: %+v", second)
+		t.Fatalf("the repeated child turn must not loop on moving inputs: %+v", second)
 	}
 }
