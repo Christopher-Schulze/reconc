@@ -105,6 +105,9 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 
 	taskSnapshot, err := captureStopTaskSnapshot(root)
 	if err != nil {
+		if isPolicySourceError(err) {
+			return unverifiableStopResult(root, payload, policySourceBlockMessage("stop", err))
+		}
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): capture TASK snapshot: %s", err)}
 	}
 	taskState := repositoryRunTaskState{RunState: taskSnapshot.State}
@@ -177,7 +180,7 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 		}
 		if cached, ok := cachedCleanStopPolicyReportForEvidenceWithCache(root, state, evidenceHash, stopCache, taskSnapshot); ok {
 			if terminalResult, handled, terminalErr := finalizeCleanStop(root, state, cached); terminalErr != nil {
-				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): finalize clean Stop: %s", terminalErr)}
+				return stopFinalizeFailureResult(root, payload, backgroundWork, terminalErr)
 			} else if handled {
 				return terminalResult
 			}
@@ -194,13 +197,7 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 		root, state, evaluator, stopCache, &taskSnapshot, loadedEvidence,
 	)
 	if err != nil {
-		if isLockfileError(err) {
-			// A stale lockfile must still hold the session open, but it must
-			// not repeat an unreachable remediation forever. The pre-tool
-			// route admits the repair, so this block is now actionable.
-			return Result{ExitCode: 2, Stderr: lockfileBlockMessage("stop", err)}
-		}
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): check failed: %s", err)}
+		return stopCheckFailureResult(root, payload, backgroundWork, err)
 	}
 	report := policyResult.Report
 	violations := blockingViolations(report)
@@ -236,7 +233,7 @@ func runStopResolvedWithEvaluatorCacheAndClose(
 	}
 
 	if terminalResult, handled, terminalErr := finalizeCleanStop(root, state, policyResult); terminalErr != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): finalize clean Stop: %s", terminalErr)}
+		return stopFinalizeFailureResult(root, payload, backgroundWork, terminalErr)
 	} else if handled {
 		return terminalResult
 	}
@@ -306,14 +303,15 @@ func finalizeCleanStop(root string, state SessionState, evaluated stopPolicyChec
 		currentCacheGit = stopPolicyGitSnapshotFor(root)
 	}
 	if !reflect.DeepEqual(evaluated.TaskSnapshot, currentTask) || evaluated.GitSnapshot != currentCacheGit {
-		return Result{}, false, fmt.Errorf("terminal repository state changed during Stop evaluation: %s",
-			terminalStateChangeDetail(evaluated, currentTask, currentCacheGit))
+		return Result{}, false, fmt.Errorf("%w: %s",
+			errStopTerminalStateMoved, terminalStateChangeDetail(evaluated, currentTask, currentCacheGit))
 	}
 	// Only a Stop that blocked records the repeated-block hash; a session that
 	// never blocked has nothing to clear.
-	if state.LastStopBlockViolationHash != "" {
+	if state.LastStopBlockViolationHash != "" || state.UncertifiedTermination {
 		if _, err := mutateSessionStateResolved(root, state.SessionID, func(state SessionState) SessionState {
 			state.LastStopBlockViolationHash = ""
+			state.UncertifiedTermination = false
 			return state
 		}); err != nil {
 			return Result{}, false, fmt.Errorf("clear repeated-block state: %w", err)

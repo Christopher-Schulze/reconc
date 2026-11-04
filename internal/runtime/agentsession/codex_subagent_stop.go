@@ -34,6 +34,10 @@ func runCodexSubagentStopResolved(root string, body []byte, evaluator *runtime.E
 	}
 	checked, err := runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(root, state, evaluator, cache, nil)
 	if err != nil {
+		if stopInputsMoving(err) && payload.StopHookActive {
+			return finishCodexSubagentTurn(root, state.SessionID, true,
+				"Subagent turn released as uncertified because another writer keeps changing its policy inputs.")
+		}
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc subagent stop: policy check failed: %s", err)}
 	}
 	return codexSubagentPolicyDecision(root, payload, state, checked)

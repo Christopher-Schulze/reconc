@@ -183,7 +183,11 @@ type SessionState struct {
 	EvidenceOverflowLimit      string   `json:"evidence_overflow_limit,omitempty"`
 	EvidenceTaintToken         string   `json:"evidence_taint_token,omitempty"`
 	UncertifiedTermination     bool     `json:"uncertified_termination,omitempty"`
-	commandTexts               map[string]string
+	// ClaimApprovalQuotes keeps, per user-approved claim, the words the agent
+	// attests the user approved it with. It is attestation context for review,
+	// never independent approval evidence, and authorizes nothing.
+	ClaimApprovalQuotes map[string]string `json:"claim_approval_quotes,omitempty"`
+	commandTexts        map[string]string
 }
 
 type sessionStateSizeError struct {

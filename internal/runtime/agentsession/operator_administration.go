@@ -305,7 +305,7 @@ func claimInvocationUserApproved(words []string, dynamic []bool, subIndex int) b
 		switch words[index] {
 		case "--user-approved":
 			approved = true
-		case "--session", "--output":
+		case "--session", "--output", "--approval-quote":
 			if index+1 >= len(words) {
 				return false
 			}

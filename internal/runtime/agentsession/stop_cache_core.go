@@ -413,8 +413,8 @@ func runStopPolicyCheckLockedAttempt(
 		cache.invalidate(repoRoot, state.SessionID)
 		if stabilityRun >= maxStopPolicyStabilityRuns {
 			return stopPolicyCheckResult{}, fmt.Errorf(
-				"stop inputs changed during %d consecutive policy evaluations",
-				maxStopPolicyStabilityRuns,
+				"%w during %d consecutive policy evaluations",
+				errStopInputsUnstable, maxStopPolicyStabilityRuns,
 			)
 		}
 		current, loadErr := loadCurrentStopPolicyState(repoRoot, state.SessionID)

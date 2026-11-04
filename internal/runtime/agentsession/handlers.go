@@ -364,7 +364,7 @@ func evaluatePreToolUseParsed(
 				}
 				return Result{ExitCode: 2, Stderr: lockfileBlockMessage("pre", err)}
 			}
-			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): command check failed: %s", err)}
+			return Result{ExitCode: 2, Stderr: preCheckFailureMessage("pre", "command check", err)}
 		}
 		violations := blockingViolationsForKinds(report, preCommandBlockKinds)
 		policyReports = append(policyReports, report)
@@ -374,7 +374,7 @@ func evaluatePreToolUseParsed(
 		if len(literalWrites) > 0 && !declared {
 			writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, paths, root, state.ReadPaths, trialState.WritePaths, state.WriteEpochs, state.Commands, state.CommandResults, claims)
 			if writeErr != nil {
-				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): command write check failed: %s", writeErr)}
+				return Result{ExitCode: 2, Stderr: preCheckFailureMessage("pre", "command write check", writeErr)}
 			}
 			writeViolations := preWriteBlockingViolations(writeReport)
 			policyReports = append(policyReports, writeReport)
@@ -401,7 +401,7 @@ func evaluatePreToolUseParsed(
 			if declared {
 				writeReport, writeErr := runPreWritePolicyCheckWithEvaluator(evaluator, paths, root, state.ReadPaths, trialState.WritePaths, state.WriteEpochs, state.Commands, state.CommandResults, claims)
 				if writeErr != nil {
-					return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): command write check failed: %s", writeErr)}
+					return Result{ExitCode: 2, Stderr: preCheckFailureMessage("pre", "command write check", writeErr)}
 				}
 				writeViolations := preWriteBlockingViolations(writeReport)
 				policyReports = append(policyReports, writeReport)
@@ -464,7 +464,7 @@ func evaluatePreToolUseParsed(
 			// names a reachable repair instead of one the gate refuses.
 			return Result{ExitCode: 2, Stderr: lockfileBlockMessage("pre", err)}
 		}
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): check failed: %s", err)}
+		return Result{ExitCode: 2, Stderr: preCheckFailureMessage("pre", "check", err)}
 	}
 	violations := preWriteBlockingViolations(report)
 	normalizedPending, normalizeErr := runtime.NormalizeReplayInputs(root, runtime.ExecutionInputs{WritePaths: pendingWrites})
@@ -1274,6 +1274,13 @@ func postToolFailureJSONOutput(state SessionState) (string, error) {
 // Claude/Codex sees decision=block + reason and refuses to finalise
 // the session, prompting the agent to resolve the remaining
 // blocking violations.
+// Stop feedback re-enters the agent's context on every held Stop, so it stays
+// small whatever the violations say. The session report keeps the full text.
+const (
+	stopFeedbackLineMaxRunes = 240
+	stopFeedbackMaxBytes     = 4096
+)
+
 func stopBlockJSONOutput(repoRoot, sessionID string, report *runtime.CheckReport, violations []runtime.Violation) (string, error) {
 	record := recordStopBlockAndRepeated(repoRoot, sessionID, violations)
 	if record.encodingErr {
@@ -1316,7 +1323,7 @@ func stopReasonForViolations(violations []runtime.Violation, reportPath, feedbac
 		}
 		if len(rules) > 0 {
 			b.WriteString("\nRules: ")
-			b.WriteString(strings.Join(rules, ", "))
+			b.WriteString(boundedRuleList(rules))
 		}
 		b.WriteString("\nResolve the report or re-run the failing audit command before finishing.")
 		return b.String()
@@ -1371,14 +1378,43 @@ func firstLinesForViolationsWithReport(violations []runtime.Violation, title, re
 			action = v.Message
 		}
 		b.WriteString("\n- [")
-		b.WriteString(v.RuleID)
+		b.WriteString(boundedFeedbackLine(v.RuleID))
 		b.WriteString("] ")
-		b.WriteString(action)
+		b.WriteString(boundedFeedbackLine(action))
 	}
 	if n > 3 {
 		b.WriteString(fmt.Sprintf("\n- %d more violation(s) remain.", n-3))
 	}
 	return b.String()
+}
+
+// boundedFeedbackLine keeps one violation's share of the Stop feedback small: an
+// action can carry whole script output, while the full text stays in the report.
+func boundedFeedbackLine(text string) string {
+	text = strings.TrimSpace(text)
+	if index := strings.IndexByte(text, '\n'); index >= 0 {
+		text = strings.TrimSpace(text[:index])
+	}
+	if runes := []rune(text); len(runes) > stopFeedbackLineMaxRunes {
+		return string(runes[:stopFeedbackLineMaxRunes]) + "..."
+	}
+	return text
+}
+
+func boundedRuleList(rules []string) string {
+	shown := rules
+	if len(shown) > 3 {
+		shown = shown[:3]
+	}
+	lines := make([]string, len(shown))
+	for index, rule := range shown {
+		lines[index] = boundedFeedbackLine(rule)
+	}
+	list := strings.Join(lines, ", ")
+	if omitted := len(rules) - len(shown); omitted > 0 {
+		list += fmt.Sprintf(" +%d more", omitted)
+	}
+	return list
 }
 
 func firstDiagnosticLine(explanation string) string {

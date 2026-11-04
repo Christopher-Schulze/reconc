@@ -357,7 +357,7 @@ func runMCPWritePreResolvedWithStopCache(
 	trialWrites := append(append([]string(nil), state.WritePaths...), paths...)
 	report, err := runPreWritePolicyCheckWithEvaluator(evaluator, nil, root, state.ReadPaths, trialWrites, state.WriteEpochs, state.Commands, state.CommandResults, claims)
 	if err != nil {
-		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): write check failed: " + err.Error()}
+		return Result{ExitCode: 2, Stderr: preCheckFailureMessage("mcp pre", "write check", err)}
 	}
 	violations := preWriteBlockingViolations(report)
 	normalizedPaths, normalizeErr := runtime.NormalizeReplayInputs(root, runtime.ExecutionInputs{WritePaths: rawPaths})
@@ -415,7 +415,7 @@ func runMCPCommandPreResolvedWithStopCache(
 	}
 	report, err := runPreCommandPolicyCheckWithEvaluator(evaluator, nil, root, state, command)
 	if err != nil {
-		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): command check failed: " + err.Error()}
+		return Result{ExitCode: 2, Stderr: preCheckFailureMessage("mcp pre", "command check", err)}
 	}
 	violations := blockingViolationsForKinds(report, preCommandBlockKinds)
 	if len(violations) == 0 {

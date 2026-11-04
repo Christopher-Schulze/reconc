@@ -20,13 +20,15 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 	forValue := ""
 	forSet := false
 	userApproved := false
+	approvalQuote := ""
+	quoteSet := false
 	positional := 0
 	i := 0
 	for i < len(args) {
 		a := args[i]
 		switch a {
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc hook claim <repo> <claim-name> [--for DURATION] [--user-approved] [--revoke] [--session ID] [--json] [--output PATH]")
+			fmt.Fprintln(stdout, "Usage: reconc hook claim <repo> <claim-name> [--for DURATION] [--user-approved] [--approval-quote TEXT] [--revoke] [--session ID] [--json] [--output PATH]")
 			fmt.Fprintln(stdout, "")
 			fmt.Fprintln(stdout, "Records a claim (e.g. 'ci-green') in the active session state so")
 			fmt.Fprintln(stdout, "subsequent require_claim rules see it. An operator:* claim needs terminal")
@@ -37,6 +39,7 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 			fmt.Fprintln(stdout, "the duration ends; revocation, another active session and session cleanup still end it.")
 			fmt.Fprintln(stdout, "--user-approved with --for attests explicit user approval of this exact claim and duration;")
 			fmt.Fprintln(stdout, "an agent may record it without a terminal code. This is not independent approval or human authentication.")
+			fmt.Fprintln(stdout, "--approval-quote TEXT adds the user's words to that attestation for review; it authorizes nothing by itself.")
 			fmt.Fprintln(stdout, "--revoke removes any claim from the session's")
 			fmt.Fprintln(stdout, "effective claims without confirmation; recording it again restores it.")
 			return nil
@@ -46,6 +49,12 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 			revoke = true
 		case "--user-approved":
 			userApproved = true
+		case "--approval-quote":
+			if i+1 >= len(args) {
+				return &CLIError{ExitCode: 1, Message: "reconc hook claim: --approval-quote requires the quoted words"}
+			}
+			approvalQuote, quoteSet = args[i+1], true
+			i++
 		case "--for":
 			val, ok := nextArgValue(args, &i, a, argValueNoLeadingDash)
 			if !ok {
@@ -81,7 +90,15 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 		i++
 	}
 	if repo == "" || claim == "" {
-		return &CLIError{ExitCode: 1, Message: "reconc hook claim: usage: reconc hook claim <repo> <claim-name> [--for DURATION] [--user-approved] [--revoke] [--session ID] [--json]"}
+		return &CLIError{ExitCode: 1, Message: "reconc hook claim: usage: reconc hook claim <repo> <claim-name> [--for DURATION] [--user-approved] [--approval-quote TEXT] [--revoke] [--session ID] [--json]"}
+	}
+	if quoteSet {
+		if !userApproved {
+			return &CLIError{ExitCode: 1, Message: "reconc hook claim: --approval-quote requires --user-approved"}
+		}
+		if _, err := agentsession.NormalizeClaimApprovalQuote(approvalQuote); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc hook claim: " + err.Error()}
+		}
 	}
 	var duration time.Duration
 	if userApproved && (!forSet || revoke || !strings.HasPrefix(strings.TrimSpace(claim), agentsession.OperatorClaimPrefix)) {
@@ -125,6 +142,11 @@ func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 	}
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook claim: " + err.Error()}
+	}
+	if quoteSet {
+		if err := agentsession.RecordClaimApprovalQuote(report, approvalQuote); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc hook claim: " + err.Error()}
+		}
 	}
 	out, closeOutput, err := teeToFile(stdout, outputPath)
 	if err != nil {

@@ -88,3 +88,65 @@ func TestUserApprovedClaimRejectsInvalidAttestationsWithoutStateChanges(t *testi
 		})
 	}
 }
+
+func TestUserApprovedClaimKeepsTheAttestedQuoteForReview(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv(agentsession.StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	if _, err := agentsession.InitializeSessionState(repo, "quoted"); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"hook", "claim", repo, "operator:edit", "--user-approved", "--for", "1h", "--session", "quoted", "--json",
+		"--approval-quote", "ja,\n  Diff\tfreigegeben"}, "dev", &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("quoted claim: %v; %s", err, stderr.String())
+	}
+	var report agentsession.ClaimReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.ApprovalQuote != "ja, Diff freigegeben" {
+		t.Fatalf("quote must stay one reviewable line: %q", report.ApprovalQuote)
+	}
+	state, err := agentsession.LoadSessionState(repo, "quoted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ClaimApprovalQuotes["operator:edit"] != report.ApprovalQuote {
+		t.Fatalf("session state lost the quote: %+v", state.ClaimApprovalQuotes)
+	}
+	if !strings.Contains(agentsession.DescribeClaimReport(&report), "attested approval quote: ja, Diff freigegeben") {
+		t.Fatalf("report text omits the quote: %s", agentsession.DescribeClaimReport(&report))
+	}
+}
+
+func TestApprovalQuoteRequiresTheAttestationAndStaysBounded(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv(agentsession.StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	if _, err := agentsession.InitializeSessionState(repo, "bounded"); err != nil {
+		t.Fatal(err)
+	}
+	for name, args := range map[string][]string{
+		"no attestation": {"--for", "1h", "--approval-quote", "ja"},
+		"blank":          {"--user-approved", "--for", "1h", "--approval-quote", " \n\t "},
+		"too long":       {"--user-approved", "--for", "1h", "--approval-quote", strings.Repeat("a", agentsession.MaxClaimApprovalQuoteRunes+1)},
+		"missing value":  {"--user-approved", "--for", "1h", "--approval-quote"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := Run(append([]string{"hook", "claim", repo, "operator:edit", "--session", "bounded"}, args...), "dev", &stdout, &stderr)
+			if err == nil {
+				t.Fatal("an invalid quote must reject the whole claim")
+			}
+			state, loadErr := agentsession.LoadSessionState(repo, "bounded")
+			if loadErr != nil {
+				t.Fatal(loadErr)
+			}
+			if slices.Contains(state.Claims, "operator:edit") || len(state.ClaimApprovalQuotes) != 0 {
+				t.Fatalf("rejected claim changed state: %+v %+v", state.Claims, state.ClaimApprovalQuotes)
+			}
+		})
+	}
+}

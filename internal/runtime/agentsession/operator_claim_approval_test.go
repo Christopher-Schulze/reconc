@@ -60,3 +60,22 @@ func TestNativeHooksAdmitUserApprovedClaimWithoutGrantingIt(t *testing.T) {
 		t.Fatalf("pre-tool admission fabricated a grant: %v", claims)
 	}
 }
+
+func TestApprovalQuoteValueNeverCountsAsTheAttestationFlag(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		allowed bool
+	}{
+		{`reconc hook claim . operator:edit --user-approved --for 1h --approval-quote "ja, Diff freigegeben"`, true},
+		{`reconc hook claim . operator:edit --for 1h --approval-quote --user-approved`, false},
+		{`reconc hook claim . operator:edit --user-approved --for 1h --approval-quote`, false},
+		{`reconc hook claim . operator:edit --user-approved --for 1h --approval-quote "$QUOTE"`, false},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			reason := operatorOnlyCommandReason(tc.command)
+			if (reason == "") != tc.allowed {
+				t.Fatalf("allowed=%v, reason=%q", tc.allowed, reason)
+			}
+		})
+	}
+}

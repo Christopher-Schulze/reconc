@@ -11,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"reconc.dev/reconc/internal/boundedio"
+	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/pathidentity"
 )
 
@@ -103,7 +104,7 @@ func LoadConfig(repoRoot string) (Config, error) {
 	}
 	var file fileConfig
 	if err := yaml.Unmarshal(body, &file); err != nil {
-		return Config{}, fmt.Errorf("parse .reconc.yml task_lifecycle: %w", err)
+		return Config{}, &rerrors.PolicySourceError{Message: "parse .reconc.yml task_lifecycle", Cause: err}
 	}
 	if file.TaskLifecycle == nil {
 		return cfg, nil

@@ -5,20 +5,62 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // ClaimReport is the outcome of appending one claim to the active
 // session. Returned by RecordClaim so the CLI can render a JSON or
 // text confirmation.
 type ClaimReport struct {
-	RepoRoot   string `json:"repo_root"`
-	SessionID  string `json:"session_id"`
-	Claim      string `json:"claim"`
-	Revoked    bool   `json:"revoked,omitempty"`
-	ExpiresAt  string `json:"expires_at,omitempty"`
-	ClaimCount int    `json:"claim_count"`
-	StatePath  string `json:"state_path"`
-	ReportPath string `json:"report_path"`
+	RepoRoot  string `json:"repo_root"`
+	SessionID string `json:"session_id"`
+	Claim     string `json:"claim"`
+	Revoked   bool   `json:"revoked,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	// ApprovalQuote is the agent's attested quote of the user's approval.
+	ApprovalQuote string `json:"approval_quote,omitempty"`
+	ClaimCount    int    `json:"claim_count"`
+	StatePath     string `json:"state_path"`
+	ReportPath    string `json:"report_path"`
+}
+
+// MaxClaimApprovalQuoteRunes bounds one attested approval quote.
+const MaxClaimApprovalQuoteRunes = 500
+
+// NormalizeClaimApprovalQuote collapses whitespace and control characters into
+// single spaces, so a quote stays one reviewable line, and enforces its bounds.
+func NormalizeClaimApprovalQuote(quote string) (string, error) {
+	normalized := strings.Join(strings.FieldsFunc(quote, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r)
+	}), " ")
+	if normalized == "" {
+		return "", errors.New("approval quote must not be empty")
+	}
+	if utf8.RuneCountInString(normalized) > MaxClaimApprovalQuoteRunes {
+		return "", fmt.Errorf("approval quote exceeds %d characters", MaxClaimApprovalQuoteRunes)
+	}
+	return normalized, nil
+}
+
+// RecordClaimApprovalQuote stores the attested quote beside an already recorded
+// claim in the session state and adds it to the report.
+func RecordClaimApprovalQuote(report *ClaimReport, quote string) error {
+	normalized, err := NormalizeClaimApprovalQuote(quote)
+	if err != nil {
+		return err
+	}
+	if _, err := mutateSessionStateResolved(report.RepoRoot, report.SessionID, func(state SessionState) SessionState {
+		if state.ClaimApprovalQuotes == nil {
+			state.ClaimApprovalQuotes = make(map[string]string, 1)
+		}
+		state.ClaimApprovalQuotes[report.Claim] = normalized
+		return state
+	}); err != nil {
+		return fmt.Errorf("record approval quote: %w", err)
+	}
+	report.ApprovalQuote = normalized
+	return nil
 }
 
 // RecordClaim appends one explicit claim to the session state. If
@@ -211,6 +253,10 @@ func DescribeClaimReport(r *ClaimReport) string {
 	if r.Revoked {
 		return fmt.Sprintf("claim '%s' revoked for session %s (effective claims: %d)\n  state:  %s\n  report: %s",
 			r.Claim, r.SessionID, r.ClaimCount, r.StatePath, r.ReportPath)
+	}
+	if r.ApprovalQuote != "" {
+		return fmt.Sprintf("claim '%s' recorded for session %s until %s (total claims: %d)\n  attested approval quote: %s\n  state:  %s\n  report: %s",
+			r.Claim, r.SessionID, r.ExpiresAt, r.ClaimCount, r.ApprovalQuote, r.StatePath, r.ReportPath)
 	}
 	if r.ExpiresAt != "" {
 		return fmt.Sprintf("claim '%s' recorded for session %s until %s (total claims: %d)\n  state:  %s\n  report: %s",
