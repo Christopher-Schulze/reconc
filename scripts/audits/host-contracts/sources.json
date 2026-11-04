@@ -1,7 +1,7 @@
 {
   "schema": "reconc-host-contract-sources",
   "format_version": 2,
-  "reviewed_at": "2026-11-01",
+  "reviewed_at": "2026-11-04",
   "hosts": [
     {
       "host": "antigravity",
@@ -46,7 +46,7 @@
           "url": "https://code.claude.com/docs/en/hooks.md",
           "baseline_url": "https://code.claude.com/docs/en/hooks.md",
           "normalization": "markdown",
-          "sha256": "8acffdbf92dfa415392fa2ae6b5f484bb5d719bb1563e729b7f0d0f346de0aa7",
+          "sha256": "95fc11f52d65371b70095535ad698c983fdec5f50a1f772e8535a7d30c688bb0",
           "required_markers": [
             "PreToolUse",
             "SessionStart",
@@ -129,7 +129,7 @@
           "url": "https://learn.chatgpt.com/docs/hooks.md",
           "baseline_url": "https://learn.chatgpt.com/docs/hooks.md",
           "normalization": "markdown",
-          "sha256": "3652a56ba277b60264d1dc20298bce8d5c7ddf0ceab54b0e90a569b133f5a5c7",
+          "sha256": "127f224450df2ffb2fd3feff8cd35d36b8325fa14be95ae131ff58569762fc22",
           "required_markers": [
             "PreToolUse",
             "SessionStart",
@@ -228,7 +228,7 @@
           "url": "https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md",
           "baseline_url": "https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md",
           "normalization": "markdown",
-          "sha256": "7b160c610f914532df8703f830cec8b1f1632abdf5a39755921d11b7cef02b01",
+          "sha256": "8a5ca5112fff8a3576abc9d80726dd2a9be830ec9eefb53fca7c0910fe027f0b",
           "required_markers": [
             "PreToolUse",
             "SessionStart"
@@ -245,7 +245,7 @@
           "url": "https://docs.devin.ai/cli/extensibility/hooks/overview.md",
           "baseline_url": "https://docs.devin.ai/cli/extensibility/hooks/overview.md",
           "normalization": "markdown",
-          "sha256": "c6657e2bc168a59971284a0fe11eb3e7b0a28b7ca9e586d15734b938474baa19",
+          "sha256": "f53cf29f2c421450e22b8a70ca772c35663d19aa788ddaa43462eff4ad8a9bb6",
           "required_markers": [
             ".devin/hooks.v1.json",
             "PreToolUse"
@@ -634,9 +634,9 @@
         {
           "id": "plugin-module",
           "url": "https://raw.githubusercontent.com/anomalyco/opencode/HEAD/packages/core/src/plugin/module.ts",
-          "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/b2bd02ee719c313dd0cda1c7a28a0335f6244374/packages/core/src/plugin/module.ts",
+          "baseline_url": "https://raw.githubusercontent.com/anomalyco/opencode/5a750e64a2d6da24d6f0ad2846791502a0e52cfa/packages/core/src/plugin/module.ts",
           "normalization": "source",
-          "sha256": "5f01ff8b091ef954601d14fa01e77f82a7884ad282101ed629a94fc716278055",
+          "sha256": "6350b4d52d34baf0cdad0f76d7571f1f10a994aef79714198253286e143511d2",
           "required_markers": [
             "id: Schema.String",
             "setup: Schema.declare",
